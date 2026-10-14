@@ -89,3 +89,23 @@ from the provider only — never asserted identical. Log:
 - Held-out: no held-out workloads are frozen for the Elmer package
   (`heldout_workloads.json` is empty), so no HeldoutDivergence row is
   recorded — never a vacuous pass.
+
+## Combined splice grade (SPLICE1)
+
+`lane/grade_combined.sh`: the 14 non-facade units\u2019 selected members
+spliced per object (provider runtime members only in the `ludecomp`
+object \u2014 exactly one runtime provider per final binary); facade units
+keep pristine objects (vacuous-port rule: their ports define no symbols).
+Rebuild + `ctest -L quick -j16` + matc probe. Log:
+`lane/combined_grade.log`, suite `lane/suite_combined.log`.
+Result: **failures exactly K=3** (`lane/fails_combined.txt`,
+`COMBINED-SAME-AS-BACKSTOP`), matc probe `3`
+(`lane/probe_combined.txt`). The tree was restored to pristine after
+(`*.pristine18` round-trip, smoke-tested: probe `3`, sample ctest pass).
+
+## Store
+
+`lane/store.db`: run `fem-a-batch1` (18 `gated` units with
+OracleIntegrity/OracleParity/Differential rows), run `fem-a-ledger`
+(137 `skipped` rows with ledger reasons). The 14 `portable-pending`
+units have no rows; their status lives in LEDGER.md.
