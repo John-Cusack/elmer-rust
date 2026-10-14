@@ -1,7 +1,8 @@
 [toolchain]
 # Campaign pin: 1.100.0-nightly feaadeeac 2026-09-19 (runbook standing pin).
 # The grade host provides exactly this commit as `nightly`; builds assert
-# the commit hash (see crates/elmer-fem-b/build-check.sh) so a floated
-# nightly fails fast instead of silently voiding byte-identity.
+# the commit hash (see crates/elmer-fem-a/build-check.sh and
+# crates/elmer-fem-b/build-check.sh) so a floated nightly fails fast
+# instead of silently voiding byte-identity.
 channel = "nightly"
 components = ["rustc", "cargo", "rust-std"]

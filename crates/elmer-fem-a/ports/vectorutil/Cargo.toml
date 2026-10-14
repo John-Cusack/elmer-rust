@@ -1,0 +1,8 @@
+[package]
+name = "vectorutil"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "vectorutil"
+crate-type = ["staticlib"]
