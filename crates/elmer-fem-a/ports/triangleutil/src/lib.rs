@@ -116,7 +116,6 @@ extern "C" {
         dx: c_double, dy: c_double, dz: c_double,
     ) -> c_int;
     fn vrand() -> c_double;
-    fn FunctionValue(geom: *const Geometry, u: c_double, v: c_double, n: c_int) -> c_double;
     fn CylinderNormal(
         fx: c_double, fy: c_double, fz: c_double,
         dx: c_double, dy: c_double, dz: c_double,
@@ -166,6 +165,54 @@ type IntegrateFn = unsafe extern "C" fn(
 ) -> c_double;
 type AreaFn = unsafe extern "C" fn(*const Geometry) -> c_double;
 type SubdivideFn = unsafe extern "C" fn(*mut Geometry, c_int, c_int);
+
+const GEOMETRY_LINE: c_int = 0;
+const GEOMETRY_BILINEAR: c_int = 2;
+const GEOMETRY_BICUBIC: c_int = 3;
+const GEOMETRY_BIQUADRATIC: c_int = 4;
+
+/// Header-static `FunctionValue` (ViewFactors.h) inlined per translation
+/// unit, exactly like the C object this port replaces (local symbol, no
+/// cross-unit linkage).
+unsafe fn function_value(geom: *const Geometry, u: c_double, v: c_double, n: c_int) -> c_double {
+    let entry = (*geom).entry as *const c_double;
+    match (*geom).geometrytype {
+        GEOMETRY_LINE => {
+            let p = entry.add(n as usize * 2);
+            *p.add(1) * u + *p.add(0)
+        }
+        GEOMETRY_TRIANGLE => {
+            let p = entry.add(n as usize * 3);
+            *p.add(2) * v + *p.add(1) * u + *p.add(0)
+        }
+        GEOMETRY_BILINEAR => {
+            let p = entry.add(n as usize * 4);
+            (*p.add(3) * u + *p.add(2)) * v + *p.add(1) * u + *p.add(0)
+        }
+        GEOMETRY_BICUBIC => {
+            let p = entry.add(n as usize * 16);
+            let get = |i: usize| *p.add(i);
+            (((((get(15) * u + get(14)) * u + get(13)) * u + get(12)) * v
+                + ((get(11) * u + get(10)) * u + get(9)) * u
+                + get(8))
+                * v
+                + ((get(7) * u + get(6)) * u + get(5)) * u
+                + get(4))
+                * v
+                + ((get(3) * u + get(2)) * u + get(1)) * u
+                + get(0)
+        }
+        GEOMETRY_BIQUADRATIC => {
+            let p = entry.add(n as usize * 9);
+            let get = |i: usize| *p.add(i);
+            let a = ((get(8) * u + get(7)) * u + get(6)) * v
+                + (get(5) * u + get(4)) * u
+                + get(3);
+            a * v + (get(2) * u + get(1)) * u + get(0)
+        }
+        _ => 0.0,
+    }
+}
 
 #[export_name = "TriangleSubdivide"]
 pub unsafe extern "C" fn port_triangle_subdivide(
@@ -433,12 +480,12 @@ pub unsafe extern "C" fn port_triangle_compute_view_factors(
             u = 1.0 / 3.0;
             v = 1.0 / 3.0;
         }
-        let fx = FunctionValue(gb, u, v, 0);
-        let fy = FunctionValue(gb, u, v, 1);
-        let fz = FunctionValue(gb, u, v, 2);
-        let dx = FunctionValue(gb, u, v, 3);
-        let dy = FunctionValue(gb, u, v, 4);
-        let dz = FunctionValue(gb, u, v, 5);
+        let fx = function_value(gb, u, v, 0);
+        let fy = function_value(gb, u, v, 1);
+        let fz = function_value(gb, u, v, 2);
+        let dx = function_value(gb, u, v, 3);
+        let dy = function_value(gb, u, v, 4);
+        let dz = function_value(gb, u, v, 5);
         fb = port_triangle_integrate_diff_to_area(ga, std::ptr::null(), fx, fy, fz, dx, dy, dz);
     }
     if fa < 1.0e-10 && fb < 1.0e-10 {
@@ -539,9 +586,9 @@ pub unsafe extern "C" fn port_triangle_compute_view_factors(
                 v = 1.0 - v;
             }
         }
-        let dx = FunctionValue(gb, u, v, 0) - fx;
-        let dy = FunctionValue(gb, u, v, 1) - fy;
-        let dz = FunctionValue(gb, u, v, 2) - fz;
+        let dx = function_value(gb, u, v, 0) - fx;
+        let dy = function_value(gb, u, v, 1) - fy;
+        let dz = function_value(gb, u, v, 2) - fz;
         if ShaftRayCull == 0 || !have_shaft {
             hit -= RayHitGeometry(fx, fy, fz, dx, dy, dz) as c_double;
         } else if nc > 0 {
