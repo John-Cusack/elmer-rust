@@ -23,9 +23,9 @@
 | c:fem/src/fft.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
 | c:fem/src/fft_test.c | skipped-not-in-build | no CMake target (test main never built) |
 | c:fem/src/mpif_stub.h | skipped-helper | header-only unit: links, never ports (matc T005 precedent) |
-| c:fem/src/umf4_f77wrapper.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
-| c:fem/src/view3d/16node_quad.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
-| c:fem/src/view3d/2d_4node.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
+| c:fem/src/umf4_f77wrapper.c | ported | batch2: local differential byte-identical (di path vs vendored UMFPACK); machine grade pending |
+| c:fem/src/view3d/16node_quad.c | ported | batch2: local differential byte-identical; machine grade pending |
+| c:fem/src/view3d/2d_4node.c | ported | batch2: local differential byte-identical (libc fprintf %g paths); machine grade pending |
 | c:fem/src/view3d/BiCubicUtil.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
 | c:fem/src/view3d/BiLinearUtil.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
 | c:fem/src/view3d/BiQuadraticUtil.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
@@ -174,4 +174,4 @@
 | fortran:fem/src/solve_real.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (4); no T014 relaxation landed |
 | python:fem/src/split_ElementDescription.py | skipped-helper | build-time code generator, not linked |
 
-counts: {'portable-pending': 22, 'ported': 10, 'skipped-ext-dep': 5, 'skipped-not-in-build': 9, 'skipped-helper': 7, 'refused-gate': 105, 'refused-COMMON': 10} total: 168
+counts: {'portable-pending': 19, 'ported': 13, 'skipped-ext-dep': 5, 'skipped-not-in-build': 9, 'skipped-helper': 7, 'refused-gate': 105, 'refused-COMMON': 10} total: 168
