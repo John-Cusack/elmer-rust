@@ -12836,11 +12836,15 @@ unsafe fn etbc_match(
                         );
                     }
                 }
-                if *material < MAXBCS as c_int
-                    && (*data).boundaryname[*material as usize].is_null()
-                {
-                    (*data).boundaryname[*material as usize] =
-                        cvector(0, MAXNAMESIZE as c_int);
+                // NOTE: nested as in C: the rename runs whenever the name
+                // exists (even pre-allocated); only a missing allocation is
+                // created here. Collapsing would route existing names to the
+                // exceeds-warning (corpus C3).
+                if *material < MAXBCS as c_int {
+                    if (*data).boundaryname[*material as usize].is_null() {
+                        (*data).boundaryname[*material as usize] =
+                            cvector(0, MAXNAMESIZE as c_int);
+                    }
                     if strncmp(
                         (*data).boundaryname[*material as usize],
                         c"body".as_ptr(),

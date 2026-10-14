@@ -5098,7 +5098,12 @@ unsafe fn load_cmd(
             *i += 1;
         }
     } else if !strstr(command, c"SUBCELL SIZES 1".as_ptr() as *const c_char).is_null() {
-        // NOTE: C prints no info line for SIZES 1 (unlike 2/3).
+        if info != 0 {
+            printf(
+                c"Loading %d subcell sizes in X-direction\n".as_ptr() as *const c_char,
+                gk.xcells,
+            );
+        }
         *cp = params;
         *i = 1;
         while *i <= gk.xcells {
