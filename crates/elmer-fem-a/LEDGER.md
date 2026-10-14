@@ -168,10 +168,10 @@
 | fortran:fem/src/ZirkaHysteresis.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (31); no T014 relaxation landed |
 | fortran:fem/src/binio/biniomod.f90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (14); no T014 relaxation landed |
 | fortran:fem/src/minpack.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (28); no T014 relaxation landed |
-| fortran:fem/src/minpack_kinds.F90 | ported | batch1: local differential byte-identical; machine grade vs backstop pending |
+| fortran:fem/src/minpack_kinds.F90 | skipped-not-in-build | WITH_EXTOPTIM off: minpack*.F90 excluded from solverlib_SOURCES, never compiled (port kept in tree) |
 | fortran:fem/src/mpif_stubs.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (40); no T014 relaxation landed |
 | fortran:fem/src/solve_cmplx.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (2); no T014 relaxation landed |
 | fortran:fem/src/solve_real.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (4); no T014 relaxation landed |
 | python:fem/src/split_ElementDescription.py | skipped-helper | build-time code generator, not linked |
 
-counts: {'portable-pending': 22, 'ported': 11, 'skipped-ext-dep': 5, 'skipped-not-in-build': 8, 'skipped-helper': 7, 'refused-gate': 105, 'refused-COMMON': 10} total: 168
+counts: {'portable-pending': 22, 'ported': 10, 'skipped-ext-dep': 5, 'skipped-not-in-build': 9, 'skipped-helper': 7, 'refused-gate': 105, 'refused-COMMON': 10} total: 168
