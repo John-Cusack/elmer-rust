@@ -1,0 +1,20 @@
+elmer-rust — upstream attribution
+=====================================
+
+This repository is a Rust port of Elmer FEM, developed at CSC – IT Center
+for Science, Finland, with numerous contributions from other organizations
+and developers (see upstream contributors and `CITATION.cff`).
+
+- Upstream: https://github.com/ElmerCSC/elmerfem
+- Pinned checkout for the campaign: 9f6af2f85 (release-26.2 series)
+- Upstream license: GPL-2.0 (LICENSE.md) with LGPL-2.x parts — the
+  ElmerSolver main library (fem/src/*.F90) and the matc and fhutiter
+  libraries are LGPL; ElmerGUI, ElmerGrid, and most solver modules are GPL
+  (upstream license_texts/ElmerLicensePolicy.md).
+- This port is distributed under GPL-2.0-or-later (LICENSE). LGPL-covered
+  sources ported here are conveyed under GPL-2.0-or-later, as the LGPL
+  allows; GPL-covered sources stay under GPL terms, which GPL-2.0-or-later
+  satisfies.
+
+If you use this port in published work, cite upstream Elmer
+(Råback et al., https://www.csc.fi/web/elmer) alongside this repository.
