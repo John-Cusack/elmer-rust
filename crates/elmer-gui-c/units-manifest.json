@@ -1,0 +1,890 @@
+[
+ {
+  "unit": "c:ElmerGUI/Application/cad/cadpreferences.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/cad/cadview.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/plugins/egmain.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/plugins/elmergrid_api.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/plugins/nglib_api.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/plugins/tetgen.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/plugins/tetlib_api.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/bodypropertyeditor.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/boundarydivision.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/boundarypropertyeditor.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/checkmpi.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/convergenceview.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/dynamiceditor.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/edfeditor.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/egini.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/generalsetup.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/glcontrol.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/glwidget.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/helpers.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/mainwindow.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/materiallibrary.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/maxlimits.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/meshcontrol.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/meshingthread.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/meshtype.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/meshutils.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/newprojectdialog.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/objectbrowser.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/operation.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/parallel.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/projectio.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/sifgenerator.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/sifwindow.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/solverlogwindow.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/solverparameters.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/src/summaryeditor.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/twod/curveeditor.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/twod/renderarea.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/twod/twodview.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/axes.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/colorbar.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/ecmaconsole.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/epmesh.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/featureedge.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/isocontour.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/isosurface.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/matc.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/mc.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/meshedge.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/meshpoint.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/preferences.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/readepfile.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/streamline.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/surface.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/text.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/timestep.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/vector.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/Application/vtkpost/vtkpost.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQt.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtClassInfo.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtConversion.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtCppWrapperFactory.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtDoc.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtImportFileInterface.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtImporter.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtMetaObjectWrapper.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtMethodInfo.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtMisc.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtObjectPtr.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtSignalReceiver.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtSlot.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtStdDecorators.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtStdOut.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtSystem.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtVariantWrapper.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtVariants.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/PythonQtWrapper.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/gui/PythonQtScriptingConsole.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/PythonQt/src/wrapper/PythonQtWrappedVariants.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/matc/config.h",
+  "verdict": "skipped-helper",
+  "reason": "declaration-only header (no compilable claim); covered by porting crates' shared prelude",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/c3d.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_c3d"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/clip.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_clip"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/dri_ps.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_dri_ps"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/eig.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_eig"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/elmer/fnames.h",
+  "verdict": "skipped-helper",
+  "reason": "declaration-only header (no compilable claim); covered by porting crates' shared prelude",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/elmer/gra.h",
+  "verdict": "skipped-helper",
+  "reason": "declaration-only header (no compilable claim); covered by porting crates' shared prelude",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/elmer/matc.h",
+  "verdict": "skipped-helper",
+  "reason": "declaration-only header (no compilable claim); covered by porting crates' shared prelude",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/error.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_error"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/eval.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_eval"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/files.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_files"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/funcs.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_funcs"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/gra.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_gra"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/gra_com.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_gra_com"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/jacobi.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_jacobi"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/lists.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_lists"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/lu.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_lu"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/matc.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_matc"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/matrix.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_matrix"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/oper.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_oper"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/optim.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_optim"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/parser.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_parser"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/str.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_str"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/str.h",
+  "verdict": "skipped-helper",
+  "reason": "declaration-only header (no compilable claim); covered by porting crates' shared prelude",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/urand.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_urand"
+ },
+ {
+  "unit": "c:ElmerGUI/matc/src/variable.c",
+  "verdict": "graded-build",
+  "reason": "C library TU; Rust port builds (C ABI), nm closure + substitution partial-link green; no differential probes (no binary in oracle WITH_ELMERGUI=FALSE config)",
+  "crate": "gui_c_variable"
+ },
+ {
+  "unit": "c:ElmerGUIlogger/src/mainwindow.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "c:ElmerGUItester/src/tester.h",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/cad/cadview.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/plugins/egmain.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/plugins/elmergrid_api.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/plugins/nglib_api.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/plugins/tetlib_api.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/src/egini.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/src/glwidget.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/src/main.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/src/mainwindow.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/src/maxlimits.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/src/meshtype.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/src/meshutils.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/src/newprojectdialog.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/src/objectbrowser.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/src/operation.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/src/sifwindow.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/src/solverlogwindow.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/twod/curveeditor.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/twod/renderarea.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/twod/twodview.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/Application/vtkpost/ecmaconsole.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQt.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtClassInfo.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtConversion.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtImporter.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtMetaObjectWrapper.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtMethodInfo.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtMisc.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtObjectPtr.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtSignalReceiver.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtSlot.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtStdDecorators.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtStdOut.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtVariantWrapper.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtVariants.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/PythonQtWrapper.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUI/PythonQt/src/gui/PythonQtScriptingConsole.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUIlogger/src/main.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUIlogger/src/mainwindow.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUItester/src/main.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ },
+ {
+  "unit": "cxx:ElmerGUItester/src/tester.cpp",
+  "verdict": "skipped-cxx-mangled",
+  "reason": "C++-mangled-only surface (Qt/C++ class or TU); Rust cannot provide C++-mangled symbols; recorded skip, never forced",
+  "crate": null
+ }
+]
