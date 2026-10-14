@@ -1,0 +1,207 @@
+# lane-fem-b skip record: fem/src/modules/ (184 Fortran units)
+
+Upstream: ElmerCSC/elmerfem @ `9f6af2f85`. Lane owns `fem-modules/` exclusively.
+Toolchain pin: `1.100.0-nightly feaadeeac 2026-09-19`; gfortran 13.3.0; ccache recipe ADR-045.
+
+## Verdict (2026-10-14, measured against frozen recon dag.json)
+
+- Units graded green: 0
+- Units recorded-refused (non-BIND(C), gate holds): 184
+- F77 COMMON-block files: 0 of 184 (source-scanned; no COMMON skips needed)
+- Exports audited: 1552 total = 1333 `__<mod>_MOD_<proc>` (REAL CODE, never toolchain noise) + 215 F77-global solver entries + 4 BIND(C); toolchain-noise exports: 0
+- Refined-gate STRONG-dup assertion: not yet runnable (no port objects; gate runs at first substitution)
+
+## Why refused (not forced)
+
+Every unit exports non-BIND(C) Fortran. `CmakeBridge::check_substitutable` refuses with the pinned message (ADR-027); substitution requires the T014 per-shape shim relaxation, which has not landed. Forcing ports around the gate would violate the oracle-defines-correctness rule. Unblock: land T014 relaxation for the COMMON-free file-granularity shape, then grade through the unchanged chain (worker -> substitute -> integrity -> differential -> scoped parity -> heldout).
+
+## Timing sample (ADR-045, once per lane)
+
+- `bench_sample_unit`: `fortran:fem/src/modules/HeatSolve.F90` (HeatSolve file-procedure in 357 fem/tests case.sif files, 2nd after the SaveData utility — maximal affected-test coverage; measured 2026-10-14). No timing run yet (no grade to sample); sample lands with the first green grade, quiesced, <=3 concurrent runs.
+
+## Recorded-refused file list (184)
+
+- `fem/src/modules/ADIOS2OutputSolver.F90` — 10 exports (8 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/Acoustics.F90` — 50 exports (49 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/AdvectionDiffusion.F90` — 9 exports (8 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/AdvectionReaction.F90` — 8 exports (7 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/AllocateSolver.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/AmsPrecSolver.F90` — 13 exports (12 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ArteryOutlet.F90` — 10 exports (9 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ArtificialCompressibility.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/BatterySolver/BatteryPost.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/BatterySolver/BatteryUtils.F90` — 18 exports (17 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/BatterySolver/ElectrolyteCons.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/BatterySolver/ElectrolytePot.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/BatterySolver/SolidPhaseCons.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/BatterySolver/SolidPhasePot.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/BeamSolver3D.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/CahnHilliard.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/CircuitsAndDynamics.F90` — 21 exports (20 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/CoilSolver.F90` — 20 exports (19 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/CompressibleNS.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ConsistentSplitting/CompressibilitySolver.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ConsistentSplitting/OptimalSolutionUpdate.F90` — 11 exports (10 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ConsistentSplitting/PressureSolver.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ConsistentSplitting/VelocitySolver.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/CoordinateTransform.F90` — 11 exports (9 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/CraigBamptonSolver.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/CyclicConvergence.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/DCRComplexSolve.F90` — 17 exports (16 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/DFTSolver.F90` — 8 exports (7 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/DataToFieldSolver.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/DirectionSolver.F90` — 8 exports (7 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/DistanceSolve.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/DistributeSource.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/DivProjection.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/DivergenceSolver.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/EMPort.F90` — 12 exports (11 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/EMWaveSolver.F90` — 16 exports (14 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/EdgeFEInterpolationTest.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ElasticSolve.F90` — 28 exports (27 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ElectricForce.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/Electrokinetics.F90` — 11 exports (10 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ElementSizeSolver.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ElementStats.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/EliminateDirichlet.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/EliminatePeriodic.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/Elmer2OpenFoamIO.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/EnergyRelease.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FDiffusion.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FDiffusion3D.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FacetShellSolve.F90` — 19 exports (18 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FilmCompressibility.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FilmFlowSolver.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FilterTimeSeries.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FindOptimum.F90` — 16 exports (15 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FixTangentVelo.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FlowSolve.F90` — 10 exports (9 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FluidicForce.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FluxSolver.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FourierLoss.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FreeSurfaceReduced.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/FreeSurfaceSolver.F90` — 8 exports (7 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/GmshOutputReader.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/HarmonicSignals.F90` — 5 exports (3 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/HeatSolve.F90` — 27 exports (25 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/HeatSolveLegacy.F90` — 20 exports (19 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/HeatSolveVec.F90` — 8 exports (6 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/HelmholtzBEM.F90` — 12 exports (10 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/HelmholtzProjection.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/HelmholtzSolve.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/HydrostaticNS.F90` — 12 exports (10 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/HydrostaticNSVec.F90` — 6 exports (4 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/IncompressibleNS.F90` — 12 exports (10 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/IncompressibleNSVec.F90` — 6 exports (4 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/Isosurface.F90` — 18 exports (17 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/LevelSet/LevelSetCurvature.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/LevelSet/LevelSetDistance.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/LevelSet/LevelSetIntegrate.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/LevelSet/LevelSetSolver.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/LevelSet/LevelSetTimestep.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MagneticSolve/MagneticSolve.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MagneticSolve/Maxwell.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MagneticSolve/MaxwellAxiS.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MagneticSolve/MaxwellGeneral.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MagnetoDynamics/CalcFields.F90` — 15 exports (14 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MagnetoDynamics/JfixPotentialSolver.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MagnetoDynamics/PlatiseFerroModel.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MagnetoDynamics/Utils.F90` — 18 exports (17 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MagnetoDynamics/WhitneyAVHarmonicSolver.F90` — 28 exports (27 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MagnetoDynamics/WhitneyAVSolver.F90` — 29 exports (28 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MagnetoDynamics2D.F90` — 29 exports (28 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MarchingODESolver.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/Mesh2MeshSolver.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MeshChecksum.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/MeshSolve.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ModelMixedPoisson.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ModelPDE.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ModelPDECutFEM.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ModelPDEhandle.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/NodeToEdgeSolver.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/NonphysicalMeshSolve.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/NormalSolver.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/OdeSolver.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/OpenFoam2ElmerIO.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ParStokes.F90` — 14 exports (12 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/ParallelRemesh.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ParticleAdvector.F90` — 8 exports (7 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ParticleDynamics.F90` — 11 exports (9 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/PartitionMesh.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/PhaseChangeSolve.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/Poisson.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/PoissonBEM.F90` — 11 exports (9 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/PoissonBoltzmannSolve.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/PoissonDG.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/PressurePrecond.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/Probes.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ProjectToPlane.F90` — 15 exports (14 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/RateOfChange.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ReloadData.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ReloadInput.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ResultOutputSolve/DXOutputSolver.F90` — 10 exports (8 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/ResultOutputSolve/ElmerPostOutputSolver.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ResultOutputSolve/GidOutputSolver.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ResultOutputSolve/ResultOutputSolver.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ResultOutputSolve/VtkOutputSolver.F90` — 11 exports (9 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/ResultOutputSolve/VtuOutputSolver.F90` — 11 exports (8 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/ReynoldsSolver.F90` — 10 exports (9 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/RichardsSolver.F90` — 12 exports (10 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/RigidBodyReduction.F90` — 8 exports (7 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/RigidMeshMapper.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/SaveData/SaveBoundaryValues.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/SaveData/SaveDependence.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/SaveData/SaveLine.F90` — 15 exports (14 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/SaveData/SaveMaterials.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/SaveData/SaveProjection.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/SaveData/SaveScalars.F90` — 15 exports (14 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/SaveGridData.F90` — 9 exports (8 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/SaveMesh.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ScalarPotentialSolver.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ScannedFieldSolver.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ShallowWaterNS.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ShearrateSolver.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ShellSolver.F90` — 33 exports (32 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/SimpleCircuits.F90` — 17 exports (16 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/Smitc.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/SpringAssembly.F90` — 2 exports (1 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/StatCurrentSolve.F90` — 16 exports (14 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/StatCurrentSolveLegacy.F90` — 12 exports (11 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/StatCurrentSolveVec.F90` — 8 exports (6 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/StatElecBoundary.F90` — 8 exports (6 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/StatElecSolve.F90` — 20 exports (18 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/StatElecSolveLegacy.F90` — 17 exports (16 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/StatElecSolveVec.F90` — 10 exports (8 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/StatMagSolve.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/SteadyPhaseChange.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/Stokes.F90` — 17 exports (16 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/StreamSolver.F90` — 19 exports (18 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/StressSolve.F90` — 20 exports (18 MOD-shape + 2 F77-global), COMMON: no
+- `fem/src/modules/StructuredFlowLine.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/StructuredMeshMapper.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/StructuredProjectToPlane.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/SunAngle.F90` — 9 exports (8 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/ThermoElectricSolver.F90` — 8 exports (7 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/TopoOpt.F90` — 17 exports (16 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/TransientCost.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/TransientPhaseChange.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/TransportEquation.F90` — 7 exports (6 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/TurbulenceModels/KESolver.F90` — 14 exports (11 MOD-shape + 3 F77-global), COMMON: no
+- `fem/src/modules/TurbulenceModels/KESolverLegacy.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/TurbulenceModels/Komega.F90` — 12 exports (9 MOD-shape + 3 F77-global), COMMON: no
+- `fem/src/modules/TurbulenceModels/KomegaLegacy.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/TurbulenceModels/SSTKomega.F90` — 13 exports (10 MOD-shape + 3 F77-global), COMMON: no
+- `fem/src/modules/TurbulenceModels/SSTKomegaLegacy.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/TurbulenceModels/Spalart-Allmaras.F90` — 11 exports (8 MOD-shape + 3 F77-global), COMMON: no
+- `fem/src/modules/TurbulenceModels/Spalart-AllmarasLegacy.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/TurbulenceModels/V2FSolver.F90` — 11 exports (8 MOD-shape + 3 F77-global), COMMON: no
+- `fem/src/modules/TurbulenceModels/V2FSolverLegacy.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/UMATLib.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/VectorHelmholtz.F90` — 19 exports (18 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/VectorHelmholtzLumping.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/VectorHelmholtzNodal.F90` — 6 exports (5 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/VelocityPrecond.F90` — 3 exports (2 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/VorticitySolver.F90` — 4 exports (3 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/WPotentialSolver.F90` — 9 exports (8 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/WVectorFix.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
+- `fem/src/modules/WaveSolver.F90` — 5 exports (4 MOD-shape + 1 F77-global), COMMON: no
