@@ -65,7 +65,16 @@ Batch-2 (8 units) machine grades, rows in `lane/store.db` run `fem-a-batch1`:
 - `c:fem/src/umf4_f77wrapper.c`: K=3, probe `3`, wall 170 s.
 - `c:fem/src/view3d/2d_4node.c`: K=3, probe `3`, wall 175 s.
 - `c:fem/src/view3d/16node_quad.c`: K=3, probe `3`, wall 174 s.
-- Remaining 5 grading at the time of writing.
+- `c:fem/src/view3d/ShaftCull.c`: K=3, probe `3`, wall 248 s.
+- `c:fem/src/view3d/ContourInteg.c`: K=3, probe `3`, wall 259 s.
+- `c:fem/src/view3d/ClipShadow.c`: K=3, probe `3`, wall 268 s.
+- `c:fem/src/view3d/LineUtil.c`: K=3, probe `3`, wall 203 s
+  (after inlining header-static `FunctionValue`; the extern form failed
+  the link — recorded in the port notes).
+- `c:fem/src/view3d/TriangleUtil.c`: K=3, probe `3`, wall 183 s (same fix).
+
+Batch-2: **8/8 green**. Lane total machine-green: **18/18 portable
+non-facade units** (10 batch-1 + 8 batch-2). Combined splice gate running.
 
 ## Refined merge gate (panel corrections 1–3)
 
