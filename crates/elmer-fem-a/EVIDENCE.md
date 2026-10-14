@@ -34,6 +34,16 @@ suites use `-j16` on this evidence.
 | fortran:fem/src/MeshUtils.F90 | meshutils | (none — facade) | n/a |
 | fortran:fem/src/SolverUtils.F90 | solverutils | (none — facade) | n/a |
 
+## Batch-2 units (5, local differential green, machine grade pending)
+
+| unit | crate | true symbols | local differential |
+|---|---|---|---|
+| c:fem/src/umf4_f77wrapper.c | umf4_f77wrapper | 14 × umf4*/umf4_l_* | byte-identical vs vendored UMFPACK (di path) |
+| c:fem/src/view3d/2d_4node.c | _2d_4node | 18 shape-fn symbols | byte-identical incl. libc-fprintf %g paths |
+| c:fem/src/view3d/16node_quad.c | _16node_quad | 9 shape-fn symbols | byte-identical |
+| c:fem/src/view3d/ShaftCull.c | shaftcull | 6 shaft symbols | byte-identical (Walk, planes, counting) |
+| c:fem/src/view3d/ContourInteg.c | contourinteg | 5 contour symbols | byte-identical (prepare/eval/poly/counts) |
+
 Machine grades (splice + rebuild + quick suite + matc probe + nm scan),
 rows in `lane/store.db` run `fem-a-batch1`:
 - `c:fem/src/view3d/LUDecomp.c`: suite failures == K=3
