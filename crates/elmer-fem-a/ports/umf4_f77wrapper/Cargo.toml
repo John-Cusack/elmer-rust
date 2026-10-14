@@ -1,0 +1,8 @@
+[package]
+name = "umf4_f77wrapper"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "umf4_f77wrapper"
+crate-type = ["staticlib"]
