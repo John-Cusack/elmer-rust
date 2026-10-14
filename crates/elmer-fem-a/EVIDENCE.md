@@ -61,7 +61,22 @@ every suite fails exactly K=3, every matc probe prints `3`:
 | fortran:fem/src/MeshUtils.F90 | suite_meshutils.log | 180 s |
 | fortran:fem/src/SolverUtils.F90 | suite_solverutils.log | 177 s |
 
-Batch-2 (8 units) grading at the time of writing.
+Batch-2 (8 units) machine grades, rows in `lane/store.db` run `fem-a-batch1`:
+- `c:fem/src/umf4_f77wrapper.c`: K=3, probe `3`, wall 170 s.
+- `c:fem/src/view3d/2d_4node.c`: K=3, probe `3`, wall 175 s.
+- `c:fem/src/view3d/16node_quad.c`: K=3, probe `3`, wall 174 s.
+- Remaining 5 grading at the time of writing.
+
+## Refined merge gate (panel corrections 1–3)
+
+Selective member extraction (`lane/combine2.sh`) over all 14 non-facade
+port archives: 99 unit symbols unique (zero STRONG port-level dups);
+closure keeps 27 members into `combined_unit.o` (1908 strong symbols,
+no duplicate); runtime members come from exactly one provider
+(`ludecomp`); the 5 co-owned `__rustc_*` alloc shims are byte-different
+across crates (audit in `stage_dry/byteid.txt`) and therefore included
+from the provider only — never asserted identical. Log:
+`lane/stage_dry/combine.log`.
 - Held-out: no held-out workloads are frozen for the Elmer package
   (`heldout_workloads.json` is empty), so no HeldoutDivergence row is
   recorded — never a vacuous pass.
