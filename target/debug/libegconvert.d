@@ -1,1 +1,0 @@
-/home/john/firstmate/data/rs-elmer-lane-grid-io/elmer-rust/target/debug/libegconvert.a: /home/john/firstmate/data/rs-elmer-lane-grid-io/elmer-rust/crates/elmer-grid/egconvert/src/lib.rs /home/john/firstmate/data/rs-elmer-lane-grid-io/elmer-rust/crates/elmer-grid/prelude/src/lib.rs

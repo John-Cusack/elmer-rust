@@ -124,7 +124,7 @@ unsafe fn Getrow(line1: *mut c_char, io: *mut FILE, upper: c_int) -> c_int {
         if line0[0] == '#' as c_char || line0[0] == '!' as c_char {
             continue;
         }
-        if !strstr(line0.as_ptr(), b"#\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line0.as_ptr(), c"#".as_ptr() as *const c_char).is_null() {
             continue;
         }
         if upper != 0 {
@@ -168,7 +168,7 @@ unsafe fn GetrowDouble(line1: *mut c_char, io: *mut FILE) -> c_int {
         if line0[0] == '#' as c_char || line0[0] == '!' as c_char {
             continue;
         }
-        if !strstr(line0.as_ptr(), b"#\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line0.as_ptr(), c"#".as_ptr() as *const c_char).is_null() {
             continue;
         }
         i = 0;
@@ -189,18 +189,18 @@ unsafe fn GetrowDouble(line1: *mut c_char, io: *mut FILE) -> c_int {
 unsafe fn Comsolrow(line1: *mut c_char, io: *mut FILE) -> c_int {
     let mut i: c_int;
     // NOTE: assigned before every read (C uninit decl shape).
-    let isend: c_int;
+    
     let mut line0: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
     // NOTE: read for the NULL check below.
-    let charend: *mut c_char;
+    
     i = 0;
     while i < MAXLINESIZE as c_int {
         line0[i as usize] = ' ' as c_char;
         i += 1;
     }
-    charend = fgets(line0.as_mut_ptr(), MAXLINESIZE as c_int, io);
+    let charend: *mut c_char = fgets(line0.as_mut_ptr(), MAXLINESIZE as c_int, io);
     linenumber += 1;
-    isend = (charend.is_null()) as c_int;
+    let isend: c_int = (charend.is_null()) as c_int;
     if isend != 0 {
         return 1;
     }
@@ -215,10 +215,10 @@ unsafe fn Comsolrow(line1: *mut c_char, io: *mut FILE) -> c_int {
 // SAFETY: pure family→corner-node-count map.
 unsafe fn LinearNodes(elemtype: c_int) -> c_int {
     let fam2nodemap: [c_int; 9] = [0, 1, 2, 3, 4, 4, 5, 6, 8];
-    let elemfamily: c_int;
-    let nonodes: c_int;
-    elemfamily = elemtype / 100;
-    nonodes = fam2nodemap[elemfamily as usize];
+    
+    
+    let elemfamily: c_int = elemtype / 100;
+    let nonodes: c_int = fam2nodemap[elemfamily as usize];
     nonodes
 }
 // SAFETY: point-parent locator over valid data + bound; needs sized bound.
@@ -240,7 +240,7 @@ unsafe fn FindPointParents(
     // NOTE: assigned before every read (C uninit decl shape).
     let mut elemind: c_int;
     // NOTE: assigned unconditionally below before any use.
-    let indx: *mut c_int;
+    
     let mut boundarytype: c_int;
     let mut minboundary: c_int;
     let mut maxboundary: c_int;
@@ -301,20 +301,20 @@ unsafe fn FindPointParents(
     }
     if info != 0 {
         printf(
-            b"Boundary types are in interval [%d, %d]\n\0".as_ptr() as *const c_char,
+            c"Boundary types are in interval [%d, %d]\n".as_ptr() as *const c_char,
             minboundary,
             maxboundary,
         );
         printf(
-            b"Boundary nodes are in interval [%d, %d]\n\0".as_ptr() as *const c_char,
+            c"Boundary nodes are in interval [%d, %d]\n".as_ptr() as *const c_char,
             minnode,
             maxnode,
         );
     }
     // NOTE: C `Ivector` is a macro for `ivector` (egutils.h:16).
-    indx = ivector(1, (*data).noknots);
+    let indx: *mut c_int = ivector(1, (*data).noknots);
     printf(
-        b"Allocating hit table of size: %d\n\0".as_ptr() as *const c_char,
+        c"Allocating hit table of size: %d\n".as_ptr() as *const c_char,
         (*data).noknots,
     );
     elemhits = ivector(1, (*data).noknots);
@@ -422,7 +422,7 @@ unsafe fn FindPointParents(
     free_ivector(indx, 1, (*data).noknots);
     if info != 0 {
         printf(
-            b"Found %d side elements formed by %d points.\n\0".as_ptr() as *const c_char,
+            c"Found %d side elements formed by %d points.\n".as_ptr() as *const c_char,
             sideelem,
             boundarynodes,
         );
@@ -434,7 +434,7 @@ unsafe fn FindPointParents(
         }
     } else {
         if info != 0 {
-            printf(b"Adding the points as 101 elements to the mesh instead!\n\0".as_ptr() as *const c_char);
+            printf(c"Adding the points as 101 elements to the mesh instead!\n".as_ptr() as *const c_char);
         }
         // NOTE: C `Imatrix` is a macro for `imatrix` (egutils.h).
         (*bound).topology = imatrix(1, boundarynodes, 0, 0);
@@ -492,11 +492,12 @@ unsafe fn find_side(
     *nohits = 0;
     i = 0;
     while i < *sidenodes {
-        if sideind[i as usize] <= 0 {
-            *hit = FALSE;
-        } else if sideind[i as usize] > (*data).noknots {
-            *hit = FALSE;
-        } else if *indx.wrapping_offset(sideind[i as usize] as isize) == 0 {
+        // NOTE: C spells three `*hit = FALSE` arms; merged under `||`
+        // (pure index reads, identical short-circuit order).
+        if sideind[i as usize] <= 0
+            || sideind[i as usize] > (*data).noknots
+            || *indx.wrapping_offset(sideind[i as usize] as isize) == 0
+        {
             *hit = FALSE;
         } else {
             *nohits += 1;
@@ -571,7 +572,7 @@ unsafe fn find_side(
         *sideelem += 1;
         if *sideelem > (*bound).nosides {
             printf(
-                b"There are more side elements than allocated for (%d vs. %d)\n\0".as_ptr()
+                c"There are more side elements than allocated for (%d vs. %d)\n".as_ptr()
                     as *const c_char,
                 *sideelem,
                 (*bound).nosides,
@@ -603,8 +604,8 @@ unsafe fn AbaqusSideInfoToBoundary(
     let mut j: c_int;
     let mut k: c_int;
     // NOTE: `l`/`n` declared but never used in C; dropped.
-    let noelements: c_int;
-    let noknots: c_int;
+    
+    
     // NOTE: assigned before every read (C uninit decl shape).
     let mut elemside: c_int;
     // NOTE: assigned before every read (C uninit decl shape).
@@ -614,9 +615,9 @@ unsafe fn AbaqusSideInfoToBoundary(
     // NOTE: 0-init for the &mut handoff (GetElementSide overwrites).
     let mut sideelemtype: c_int = 0;
     // NOTE: assigned before every read (C uninit decl shape).
-    let minelemtype: c_int;
+    
     // NOTE: assigned before every read (C uninit decl shape).
-    let maxelemtype: c_int;
+    
     let mut sideind2: [c_int; MAXNODESD2] = [0; MAXNODESD2];
     let order8: [c_int; 6] = [4, 5, 0, 1, 2, 3];
     let order7: [c_int; 5] = [3, 4, 0, 1, 2];
@@ -629,12 +630,12 @@ unsafe fn AbaqusSideInfoToBoundary(
     let mut zeroparent: c_int;
     let mut zerosides: c_int;
     // NOTE: dead C locals kept read-visible for audit (never read in C either).
-    noelements = (*data).noelements;
-    noknots = (*data).noknots;
+    let noelements: c_int = (*data).noelements;
+    let noknots: c_int = (*data).noknots;
     let _ = (&noelements, &noknots);
     if info != 0 {
         printf(
-            b"Making side info of size %d to boundary elements\n\0".as_ptr() as *const c_char,
+            c"Making side info of size %d to boundary elements\n".as_ptr() as *const c_char,
             nosides,
         );
     }
@@ -651,17 +652,17 @@ unsafe fn AbaqusSideInfoToBoundary(
     if nosides == 0 {
         return;
     }
-    maxelemtype = GetMaxElementType(data);
+    let maxelemtype: c_int = GetMaxElementType(data);
     if info != 0 {
         printf(
-            b"Leading bulk elementtype is %d\n\0".as_ptr() as *const c_char,
+            c"Leading bulk elementtype is %d\n".as_ptr() as *const c_char,
             maxelemtype,
         );
     }
-    minelemtype = GetMinElementType(data);
+    let minelemtype: c_int = GetMinElementType(data);
     if info != 0 {
         printf(
-            b"Trailing bulk elementtype is %d\n\0".as_ptr() as *const c_char,
+            c"Trailing bulk elementtype is %d\n".as_ptr() as *const c_char,
             minelemtype,
         );
     }
@@ -717,7 +718,7 @@ unsafe fn AbaqusSideInfoToBoundary(
             faceorder = order3.as_ptr();
         } else {
             printf(
-                b"Face order not implemented for family: %d\n\0".as_ptr() as *const c_char,
+                c"Face order not implemented for family: %d\n".as_ptr() as *const c_char,
                 elemfamily,
             );
             j -= 1;
@@ -739,7 +740,7 @@ unsafe fn AbaqusSideInfoToBoundary(
         );
         if sideelemtype == 0 {
             printf(
-                b"sideele = %d %d\n\0".as_ptr() as *const c_char,
+                c"sideele = %d %d\n".as_ptr() as *const c_char,
                 sideelemtype,
                 sideelemtype % 100,
             );
@@ -755,14 +756,14 @@ unsafe fn AbaqusSideInfoToBoundary(
         i += 1;
     }
     if zeroparent != 0 {
-        printf(b"Number of zero parents: %d\n\0".as_ptr() as *const c_char, zeroparent);
+        printf(c"Number of zero parents: %d\n".as_ptr() as *const c_char, zeroparent);
     }
     if zerosides != 0 {
-        printf(b"Number of zero sides: %d\n\0".as_ptr() as *const c_char, zerosides);
+        printf(c"Number of zero sides: %d\n".as_ptr() as *const c_char, zerosides);
     }
     if info != 0 {
         printf(
-            b"Setting side %d elements to be BCs finished!\n\0".as_ptr() as *const c_char,
+            c"Setting side %d elements to be BCs finished!\n".as_ptr() as *const c_char,
             j,
         );
     }
@@ -771,21 +772,23 @@ unsafe fn AbaqusSideInfoToBoundary(
 
 // SAFETY: fatal abaqus-input diagnostic (diverges via bigerror).
 unsafe fn InpUntreated(cmd: *mut c_char) {
-    printf(b"Untreated: %s\0".as_ptr() as *const c_char, cmd);
-    bigerror(b"Could not read mesh from Abaqus inp file!\0".as_ptr() as *const c_char);
+    printf(c"Untreated: %s".as_ptr() as *const c_char, cmd);
+    bigerror(c"Could not read mesh from Abaqus inp file!".as_ptr() as *const c_char);
 }
 
 // SAFETY: ignored-command diagnostic.
 unsafe fn InpIgnored(cmd: *mut c_char) {
-    printf(b"Ignored: %s\0".as_ptr() as *const c_char, cmd);
+    printf(c"Ignored: %s".as_ptr() as *const c_char, cmd);
 }
 
 // SAFETY: comment diagnostic.
 unsafe fn InpComment(cmd: *mut c_char) {
-    printf(b"Comment: %s\0".as_ptr() as *const c_char, cmd);
+    printf(c"Comment: %s".as_ptr() as *const c_char, cmd);
 }
-// SAFETY: abaqus .inp reader over caller-owned data/bound; C status codes.
-// Two passes (count then fill) exactly as in C (`omstart`/`end` labels).
+/// # Safety
+///
+/// abaqus .inp reader over caller-owned data/bound; C status codes.
+/// Two passes (count then fill) exactly as in C (`omstart`/`end` labels).
 #[no_mangle]
 pub unsafe extern "C" fn LoadAbaqusInput(
     data: *mut FemType,
@@ -849,7 +852,7 @@ pub unsafe extern "C" fn LoadAbaqusInput(
     let mut ivalues: *mut c_int;
     let mut ivalues0: [c_int; MAXDOFS] = [0; MAXDOFS];
     // NOTE: assigned once before every read (C uninit decl shape).
-    let ivaluessize: c_int;
+    
     // NOTE: C declares `setmaterial` but never uses it; dropped.
     // NOTE: reset before the &mut handoff (pass loop / pre-loop init).
     let mut debug: c_int;
@@ -870,17 +873,17 @@ pub unsafe extern "C" fn LoadAbaqusInput(
     // NOTE: null-init (Ivector before guarded reads).
     let mut bcparent: *mut c_int = core::ptr::null_mut();
     strcpy(filename.as_mut_ptr(), prefix);
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         AddExtension(
             prefix,
             filename.as_mut_ptr(),
-            b"inp\0".as_ptr() as *const c_char,
+            c"inp".as_ptr() as *const c_char,
         );
-        input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if input.is_null() {
             printf(
-                b"LoadAbaqusInput: opening of the ABAQUS-file '%s' wasn't successful !\n\0".as_ptr()
+                c"LoadAbaqusInput: opening of the ABAQUS-file '%s' wasn't successful !\n".as_ptr()
                     as *const c_char,
                 filename.as_ptr(),
             );
@@ -888,14 +891,14 @@ pub unsafe extern "C" fn LoadAbaqusInput(
         }
     }
     printf(
-        b"Reading input from ABAQUS input file %s.\n\0".as_ptr() as *const c_char,
+        c"Reading input from ABAQUS input file %s.\n".as_ptr() as *const c_char,
         filename.as_ptr(),
     );
     InitializeKnots(data);
     allocated = FALSE;
     maxknot = 0;
     maxelem = 0;
-    ivaluessize = MAXDOFS as c_int;
+    let ivaluessize: c_int = MAXDOFS as c_int;
     // NOTE: C `Ivector` is a macro for `ivector` (egutils.h:16).
     ivalues = ivector(0, ivaluessize - 1);
     i = 0;
@@ -957,7 +960,7 @@ pub unsafe extern "C" fn LoadAbaqusInput(
             (*data).dim = 3;
             if info != 0 {
                 printf(
-                    b"Allocating for %d knots and %d %d-node elements.\n\0".as_ptr()
+                    c"Allocating for %d knots and %d %d-node elements.\n".as_ptr()
                         as *const c_char,
                     noknots,
                     noelements,
@@ -967,7 +970,7 @@ pub unsafe extern "C" fn LoadAbaqusInput(
             AllocateKnots(data);
             if info != 0 {
                 printf(
-                    b"Number of boundary nodes: %d\n\0".as_ptr() as *const c_char,
+                    c"Number of boundary nodes: %d\n".as_ptr() as *const c_char,
                     boundarynodes,
                 );
             }
@@ -977,7 +980,7 @@ pub unsafe extern "C" fn LoadAbaqusInput(
             }
             if info != 0 {
                 printf(
-                    b"Maximum temporal index array size: %d\n\0".as_ptr() as *const c_char,
+                    c"Maximum temporal index array size: %d\n".as_ptr() as *const c_char,
                     ivaluessize,
                 );
             }
@@ -985,7 +988,7 @@ pub unsafe extern "C" fn LoadAbaqusInput(
             free_ivector(ivalues, 0, ivaluessize - 1);
             if info != 0 {
                 printf(
-                    b"Maximum element index in file: %d\n\0".as_ptr() as *const c_char,
+                    c"Maximum element index in file: %d\n".as_ptr() as *const c_char,
                     maxelem,
                 );
             }
@@ -1001,7 +1004,7 @@ pub unsafe extern "C" fn LoadAbaqusInput(
             }
             if info != 0 {
                 printf(
-                    b"Maximum node index in file: %d\n\0".as_ptr() as *const c_char,
+                    c"Maximum node index in file: %d\n".as_ptr() as *const c_char,
                     maxknot,
                 );
             }
@@ -1057,68 +1060,68 @@ unsafe fn abaqus_star(
     info: c_int,
 ) {
     // NOTE: result-to-errors need no "else" (see C comment).
-    if !strstr(line, b"NEWSET\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(line, c"NEWSET".as_ptr() as *const c_char).is_null() {
         InpUntreated(line);
     }
-    if !strstr(line, b"NGEN\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(line, c"NGEN".as_ptr() as *const c_char).is_null() {
         InpUntreated(line);
     }
-    if !strstr(line, b"NFILL\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(line, c"NFILL".as_ptr() as *const c_char).is_null() {
         InpUntreated(line);
     }
     if *mode == 2 && *allocated == 0 {
-        printf(b"Number of nodes so far: %d\n\0".as_ptr() as *const c_char, *noknots);
+        printf(c"Number of nodes so far: %d\n".as_ptr() as *const c_char, *noknots);
     } else if *mode == 3 && *allocated == 0 {
         printf(
-            b"Number of elements so far: %d\n\0".as_ptr() as *const c_char,
+            c"Number of elements so far: %d\n".as_ptr() as *const c_char,
             *noelements,
         );
         // NOTE: commented-out ELMAT block omitted (dead in C).
     }
-    if !strstr(line, b"**\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(line, c"**".as_ptr() as *const c_char).is_null() {
         if info != 0 && *allocated == 0 {
             InpComment(line);
         }
         *mode = 0;
-    } else if !strstr(line, b"HEAD\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"HEAD".as_ptr() as *const c_char).is_null() {
         *mode = 1;
-    } else if !strstr(line, b"*NODE\0".as_ptr() as *const c_char).is_null() {
-        if !strstr(line, b"NODE OUTPUT\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"*NODE".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"NODE OUTPUT".as_ptr() as *const c_char).is_null() {
             *mode = 10;
         } else {
-            if !strstr(line, b"SYSTEM=R\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"SYSTEM=R".as_ptr() as *const c_char).is_null() {
                 (*data).coordsystem = COORD_CART2;
             }
-            if !strstr(line, b"SYSTEM=C\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"SYSTEM=C".as_ptr() as *const c_char).is_null() {
                 (*data).coordsystem = COORD_AXIS;
             }
-            if !strstr(line, b"SYSTEM=P\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"SYSTEM=P".as_ptr() as *const c_char).is_null() {
                 (*data).coordsystem = COORD_POLAR;
             }
             *mode = 2;
         }
-    } else if !strstr(line, b"*ELEMENT\0".as_ptr() as *const c_char).is_null() {
-        if !strstr(line, b"ELEMENT OUTPUT\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"*ELEMENT".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"ELEMENT OUTPUT".as_ptr() as *const c_char).is_null() {
             *mode = 10;
         } else {
             abaqus_elemcode(line, elemcode, elemnodes, maxnodes);
             *mode = 3;
             if *allocated != 0 && info != 0 {
                 printf(
-                    b"Loading elements of type %d starting from element %d to body %d.\n\0".as_ptr()
+                    c"Loading elements of type %d starting from element %d to body %d.\n".as_ptr()
                         as *const c_char,
                     *elemcode,
                     *noelements,
                     *bodyid,
                 );
             }
-            if !strstr(line, b"ELSET=\0".as_ptr() as *const c_char).is_null() {
-                *pstr = strstr(line, b"ELSET=\0".as_ptr() as *const c_char);
+            if !strstr(line, c"ELSET=".as_ptr() as *const c_char).is_null() {
+                *pstr = strstr(line, c"ELSET=".as_ptr() as *const c_char);
                 *bodyid += 1;
                 if *allocated != 0 {
                     if info != 0 {
                         printf(
-                            b"Loading elements to body %d from ELSET %s\0".as_ptr()
+                            c"Loading elements to body %d from ELSET %s".as_ptr()
                                 as *const c_char,
                             *bodyid,
                             (*pstr).wrapping_offset(6),
@@ -1126,7 +1129,7 @@ unsafe fn abaqus_star(
                     }
                     sscanf(
                         (*pstr).wrapping_offset(6),
-                        b"%s\0".as_ptr() as *const c_char,
+                        c"%s".as_ptr() as *const c_char,
                         entityname.as_mut_ptr(),
                     );
                     if (*data).bodyname[*bodyid as usize].is_null() {
@@ -1139,33 +1142,32 @@ unsafe fn abaqus_star(
             }
             *firstline = TRUE;
         }
-    } else if !strstr(line, b"BOUNDARY\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"BOUNDARY".as_ptr() as *const c_char).is_null() {
         *boundarytype += 1;
         *mode = 4;
         if *allocated != 0 && info != 0 {
             printf(
-                b"Treating keyword BOUNDARY for bc %d\n\0".as_ptr() as *const c_char,
+                c"Treating keyword BOUNDARY for bc %d\n".as_ptr() as *const c_char,
                 *boundarytype,
             );
         }
-    } else if !strstr(line, b"SOLID SECTION\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"SOLID SECTION".as_ptr() as *const c_char).is_null()
+        || !strstr(line, c"MEMBRANE SECTION".as_ptr() as *const c_char).is_null()
+    {
         // NOTE: solid section may include ELSET.
         *mode = 10;
-    } else if !strstr(line, b"MEMBRANE SECTION\0".as_ptr() as *const c_char).is_null() {
-        // NOTE: solid section may include ELSET.
-        *mode = 10;
-    } else if !strstr(line, b"CLOAD\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"CLOAD".as_ptr() as *const c_char).is_null() {
         *boundarytype += 1;
         *mode = 4;
         if *allocated != 0 && info != 0 {
             printf(
-                b"Treating keyword CLOAD for bc %d\n\0".as_ptr() as *const c_char,
+                c"Treating keyword CLOAD for bc %d\n".as_ptr() as *const c_char,
                 *boundarytype,
             );
         }
-    } else if !strstr(line, b"NSET=\0".as_ptr() as *const c_char).is_null() {
-        *pstr = strstr(line, b"NSET=\0".as_ptr() as *const c_char);
-        if !strstr(line, b"ELSET=\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"NSET=".as_ptr() as *const c_char).is_null() {
+        *pstr = strstr(line, c"NSET=".as_ptr() as *const c_char);
+        if !strstr(line, c"ELSET=".as_ptr() as *const c_char).is_null() {
             // NOTE: skipping association of ELSET to NSET.
             *mode = 10;
         } else {
@@ -1173,45 +1175,45 @@ unsafe fn abaqus_star(
             *mode = 5;
             if *allocated != 0 && info != 0 {
                 printf(
-                    b"Treating keyword NSET for bc %d from: %s\0".as_ptr() as *const c_char,
+                    c"Treating keyword NSET for bc %d from: %s".as_ptr() as *const c_char,
                     *boundarytype,
                     (*pstr).wrapping_offset(5),
                 );
             }
         }
-    } else if !strstr(line, b"ELSET=\0".as_ptr() as *const c_char).is_null() {
-        *pstr = strstr(line, b"ELSET=\0".as_ptr() as *const c_char);
+    } else if !strstr(line, c"ELSET=".as_ptr() as *const c_char).is_null() {
+        *pstr = strstr(line, c"ELSET=".as_ptr() as *const c_char);
         *mode = 6;
         *generate = FALSE;
-        if !strstr(*pstr, b"GENERATE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(*pstr, c"GENERATE".as_ptr() as *const c_char).is_null() {
             *generate = TRUE;
         }
         *side = 0;
         *pstr = (*pstr).wrapping_offset(6);
-        if !strstr(line, b"ELSET=_\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"ELSET=_".as_ptr() as *const c_char).is_null() {
             *pstr = (*pstr).wrapping_offset(1);
             // NOTE: this numbering is true for Abaqus-to-Elmer hexas only!
-            if !strstr(*pstr, b"_S1\0".as_ptr() as *const c_char).is_null() {
-                *pstr2 = strstr(*pstr, b"_S1\0".as_ptr() as *const c_char);
+            if !strstr(*pstr, c"_S1".as_ptr() as *const c_char).is_null() {
+                *pstr2 = strstr(*pstr, c"_S1".as_ptr() as *const c_char);
                 *side = 1;
-            } else if !strstr(*pstr, b"_S2\0".as_ptr() as *const c_char).is_null() {
-                *pstr2 = strstr(*pstr, b"_S2\0".as_ptr() as *const c_char);
+            } else if !strstr(*pstr, c"_S2".as_ptr() as *const c_char).is_null() {
+                *pstr2 = strstr(*pstr, c"_S2".as_ptr() as *const c_char);
                 *side = 2;
-            } else if !strstr(*pstr, b"_S3\0".as_ptr() as *const c_char).is_null() {
-                *pstr2 = strstr(*pstr, b"_S3\0".as_ptr() as *const c_char);
+            } else if !strstr(*pstr, c"_S3".as_ptr() as *const c_char).is_null() {
+                *pstr2 = strstr(*pstr, c"_S3".as_ptr() as *const c_char);
                 *side = 3;
-            } else if !strstr(*pstr, b"_S4\0".as_ptr() as *const c_char).is_null() {
-                *pstr2 = strstr(*pstr, b"_S4\0".as_ptr() as *const c_char);
+            } else if !strstr(*pstr, c"_S4".as_ptr() as *const c_char).is_null() {
+                *pstr2 = strstr(*pstr, c"_S4".as_ptr() as *const c_char);
                 *side = 4;
-            } else if !strstr(*pstr, b"_S5\0".as_ptr() as *const c_char).is_null() {
-                *pstr2 = strstr(*pstr, b"_S5\0".as_ptr() as *const c_char);
+            } else if !strstr(*pstr, c"_S5".as_ptr() as *const c_char).is_null() {
+                *pstr2 = strstr(*pstr, c"_S5".as_ptr() as *const c_char);
                 *side = 5;
-            } else if !strstr(*pstr, b"_S6\0".as_ptr() as *const c_char).is_null() {
-                *pstr2 = strstr(*pstr, b"_S6\0".as_ptr() as *const c_char);
+            } else if !strstr(*pstr, c"_S6".as_ptr() as *const c_char).is_null() {
+                *pstr2 = strstr(*pstr, c"_S6".as_ptr() as *const c_char);
                 *side = 6;
             }
             if *side == 0 {
-                printf(b"Could not determine side!\n\0".as_ptr() as *const c_char);
+                printf(c"Could not determine side!\n".as_ptr() as *const c_char);
             }
         }
         if *side > 0 {
@@ -1219,11 +1221,11 @@ unsafe fn abaqus_star(
             *newsurface = TRUE;
             // NOTE: pstr2 is live here exactly as in C (side>0 implies a match).
             *(*pstr2).wrapping_offset(0) = '\n' as c_char;
-            sscanf(*pstr, b"%s\0".as_ptr() as *const c_char, entityname.as_mut_ptr());
+            sscanf(*pstr, c"%s".as_ptr() as *const c_char, entityname.as_mut_ptr());
             if *allocated != 0 {
                 if info != 0 {
                     printf(
-                        b"Loading boundary set %d for side %d of %s\n\0".as_ptr()
+                        c"Loading boundary set %d for side %d of %s\n".as_ptr()
                             as *const c_char,
                         *bcind + *newsurface,
                         *side,
@@ -1232,7 +1234,7 @@ unsafe fn abaqus_star(
                 }
                 let k = *bcind + *newsurface;
                 if k > MAXBCS as c_int {
-                    bigerror(b"Boundary set larger than MAXBCS!\0".as_ptr() as *const c_char);
+                    bigerror(c"Boundary set larger than MAXBCS!".as_ptr() as *const c_char);
                 }
                 if (*data).boundaryname[k as usize].is_null() {
                     (*data).boundaryname[k as usize] = cvector(0, MAXNAMESIZE as c_int);
@@ -1242,17 +1244,17 @@ unsafe fn abaqus_star(
             }
         } else {
             *bodyid += 1;
-            sscanf(*pstr, b"%s\0".as_ptr() as *const c_char, entityname.as_mut_ptr());
+            sscanf(*pstr, c"%s".as_ptr() as *const c_char, entityname.as_mut_ptr());
             if *allocated != 0 {
                 if info != 0 {
                     printf(
-                        b"Loading element to body %d from %s\n\0".as_ptr() as *const c_char,
+                        c"Loading element to body %d from %s\n".as_ptr() as *const c_char,
                         *bodyid,
                         entityname.as_ptr(),
                     );
                 }
                 if *bodyid > MAXBODIES as c_int {
-                    bigerror(b"Body set larger than MAXBODIES!\0".as_ptr() as *const c_char);
+                    bigerror(c"Body set larger than MAXBODIES!".as_ptr() as *const c_char);
                 }
                 if (*data).bodyname[*bodyid as usize].is_null() {
                     (*data).bodyname[*bodyid as usize] = cvector(0, MAXNAMESIZE as c_int);
@@ -1261,27 +1263,27 @@ unsafe fn abaqus_star(
                 (*data).bodynamesexist = TRUE;
             }
         }
-    } else if !strstr(line, b"SURFACE\0".as_ptr() as *const c_char).is_null() {
-        *pstr = strstr(line, b"SURFACE\0".as_ptr() as *const c_char);
-        *bcind = *bcind + *newsurface;
+    } else if !strstr(line, c"SURFACE".as_ptr() as *const c_char).is_null() {
+        *pstr = strstr(line, c"SURFACE".as_ptr() as *const c_char);
+        *bcind += *newsurface;
         *newsurface = FALSE;
         *mode = 0;
-    } else if !strstr(line, b"PART, NAME=\0".as_ptr() as *const c_char).is_null() {
-        *pstr = strstr(line, b"PART, NAME=\0".as_ptr() as *const c_char);
+    } else if !strstr(line, c"PART, NAME=".as_ptr() as *const c_char).is_null() {
+        *pstr = strstr(line, c"PART, NAME=".as_ptr() as *const c_char);
         *bodyid += 1;
         *mode = 6;
         *generate = FALSE;
         if *allocated != 0 {
             if info != 0 {
                 printf(
-                    b"Loading part to body %d from %s\0".as_ptr() as *const c_char,
+                    c"Loading part to body %d from %s".as_ptr() as *const c_char,
                     *bodyid,
                     (*pstr).wrapping_offset(11),
                 );
             }
             sscanf(
                 (*pstr).wrapping_offset(6),
-                b"%s\0".as_ptr() as *const c_char,
+                c"%s".as_ptr() as *const c_char,
                 entityname.as_mut_ptr(),
             );
             if (*data).bodyname[*bodyid as usize].is_null() {
@@ -1291,8 +1293,8 @@ unsafe fn abaqus_star(
             (*data).bodynamesexist = TRUE;
             (*data).boundarynamesexist = TRUE;
         }
-    } else if !strstr(line, b"HWCOLOR\0".as_ptr() as *const c_char).is_null() {
-        *pstr = strstr(line, b"HWCOLOR\0".as_ptr() as *const c_char);
+    } else if !strstr(line, c"HWCOLOR".as_ptr() as *const c_char).is_null() {
+        *pstr = strstr(line, c"HWCOLOR".as_ptr() as *const c_char);
         // NOTE: unused command.
         *mode = 0;
     } else {
@@ -1305,40 +1307,40 @@ unsafe fn abaqus_star(
 
 // SAFETY: abaqus element-code map (pure table).
 unsafe fn abaqus_elemcode(line: *mut c_char, elemcode: &mut c_int, elemnodes: &mut c_int, maxnodes: &mut c_int) {
-    if !strstr(line, b"S3\0".as_ptr() as *const c_char).is_null()
-        || !strstr(line, b"STRI3\0".as_ptr() as *const c_char).is_null()
-        || !strstr(line, b"M3D3\0".as_ptr() as *const c_char).is_null()
+    if !strstr(line, c"S3".as_ptr() as *const c_char).is_null()
+        || !strstr(line, c"STRI3".as_ptr() as *const c_char).is_null()
+        || !strstr(line, c"M3D3".as_ptr() as *const c_char).is_null()
     {
         *elemcode = 303;
-    } else if !strstr(line, b"2D4\0".as_ptr() as *const c_char).is_null()
-        || !strstr(line, b"SP4\0".as_ptr() as *const c_char).is_null()
-        || !strstr(line, b"AX4\0".as_ptr() as *const c_char).is_null()
-        || !strstr(line, b"S4\0".as_ptr() as *const c_char).is_null()
-        || !strstr(line, b"CPE4\0".as_ptr() as *const c_char).is_null()
+    } else if !strstr(line, c"2D4".as_ptr() as *const c_char).is_null()
+        || !strstr(line, c"SP4".as_ptr() as *const c_char).is_null()
+        || !strstr(line, c"AX4".as_ptr() as *const c_char).is_null()
+        || !strstr(line, c"S4".as_ptr() as *const c_char).is_null()
+        || !strstr(line, c"CPE4".as_ptr() as *const c_char).is_null()
     {
         *elemcode = 404;
-    } else if !strstr(line, b"2D8\0".as_ptr() as *const c_char).is_null()
-        || !strstr(line, b"AX8\0".as_ptr() as *const c_char).is_null()
-        || !strstr(line, b"DS8\0".as_ptr() as *const c_char).is_null()
+    } else if !strstr(line, c"2D8".as_ptr() as *const c_char).is_null()
+        || !strstr(line, c"AX8".as_ptr() as *const c_char).is_null()
+        || !strstr(line, c"DS8".as_ptr() as *const c_char).is_null()
     {
         *elemcode = 408;
-    } else if !strstr(line, b"3D4\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"3D4".as_ptr() as *const c_char).is_null() {
         *elemcode = 504;
-    } else if !strstr(line, b"3D10\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"3D10".as_ptr() as *const c_char).is_null() {
         *elemcode = 510;
-    } else if !strstr(line, b"3D5\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"3D5".as_ptr() as *const c_char).is_null() {
         *elemcode = 605;
-    } else if !strstr(line, b"3D6\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"3D6".as_ptr() as *const c_char).is_null() {
         *elemcode = 706;
-    } else if !strstr(line, b"3D15\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"3D15".as_ptr() as *const c_char).is_null() {
         *elemcode = 715;
-    } else if !strstr(line, b"3D8\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"3D8".as_ptr() as *const c_char).is_null() {
         *elemcode = 808;
-    } else if !strstr(line, b"3D20\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"3D20".as_ptr() as *const c_char).is_null() {
         *elemcode = 820;
     } else {
-        printf(b"Unknown element code: %s\n\0".as_ptr() as *const c_char, line);
-        bigerror(b"Cannot continue without all elements!\0".as_ptr() as *const c_char);
+        printf(c"Unknown element code: %s\n".as_ptr() as *const c_char, line);
+        bigerror(c"Cannot continue without all elements!".as_ptr() as *const c_char);
     }
     *elemnodes = *elemcode % 100;
     // NOTE: C `MAX` macro (egdef.h:97); arms pure.
@@ -1394,21 +1396,21 @@ unsafe fn abaqus_data(
     // NOTE: C switch over mode 1-6,10.
     if *mode == 1 {
         if info != 0 {
-            printf(b"Loading Abaqus input file:\n%s\0".as_ptr() as *const c_char, line);
+            printf(c"Loading Abaqus input file:\n%s".as_ptr() as *const c_char, line);
         }
     } else if *mode == 2 {
         // NOTE: NODE.
         *nvalue = StringToReal(line, rvalues.as_mut_ptr(), MAXNODESD2 as c_int + 1, ',' as c_char);
         if *nvalue > 4 || *nvalue < 2 {
-            printf(b"line: %s\n\0".as_ptr() as *const c_char, line);
-            printf(b"Invalid nvalue = %d\n\0".as_ptr() as *const c_char, *nvalue);
+            printf(c"line: %s\n".as_ptr() as *const c_char, line);
+            printf(c"Invalid nvalue = %d\n".as_ptr() as *const c_char, *nvalue);
         }
         i = (rvalues[0] + 0.5) as c_int;
         *noknots += 1;
         if allocated != 0 {
             if *debug != 0 && (i == 1 || i == *maxknot) {
                 printf(
-                    b"debug node: %i %d %.3le %.3le %.3le\n\0".as_ptr() as *const c_char,
+                    c"debug node: %i %d %.3le %.3le %.3le\n".as_ptr() as *const c_char,
                     i,
                     *noknots,
                     rvalues[1],
@@ -1421,7 +1423,7 @@ unsafe fn abaqus_data(
                 i = *noknots;
             }
             if i <= 0 || i > *maxknot {
-                printf(b"Invalid node index = %d\n\0".as_ptr() as *const c_char, i);
+                printf(c"Invalid node index = %d\n".as_ptr() as *const c_char, i);
             } else {
                 *(*ind).wrapping_offset(i as isize) = *noknots;
                 if *nvalue >= 2 {
@@ -1444,22 +1446,22 @@ unsafe fn abaqus_data(
         if allocated != 0 {
             if *debug != 0 && *firstline != 0 {
                 printf(
-                    b"debug elem: %d %d %d %d\n\0".as_ptr() as *const c_char,
+                    c"debug elem: %d %d %d %d\n".as_ptr() as *const c_char,
                     *noelements,
                     *(*ivalues).wrapping_offset(0),
                     elemcode,
                     *bodyid,
                 );
-                printf(b"      topo:\0".as_ptr() as *const c_char);
+                printf(c"      topo:".as_ptr() as *const c_char);
                 i = 0;
                 while i < *nvalue - 1 {
                     printf(
-                        b" %d\0".as_ptr() as *const c_char,
+                        c" %d".as_ptr() as *const c_char,
                         *(*ivalues).wrapping_offset((i + 1) as isize),
                     );
                     i += 1;
                 }
-                printf(b"\n\0".as_ptr() as *const c_char);
+                printf(c"\n".as_ptr() as *const c_char);
                 *firstline = FALSE;
             }
             *(*elemindx).wrapping_offset(*(*ivalues).wrapping_offset(0) as isize) = *noelements;
@@ -1497,7 +1499,7 @@ unsafe fn abaqus_data(
                     i += 1;
                 }
             }
-            *ncum = *ncum + *nvalue;
+            *ncum += *nvalue;
         }
         // NOTE: be prepared for 3rd line as well.
         if *ncum < elemnodes {
@@ -1512,10 +1514,10 @@ unsafe fn abaqus_data(
                     i += 1;
                 }
             }
-            *ncum = *ncum + *nvalue;
+            *ncum += *nvalue;
         }
         if *ncum != elemnodes {
-            printf(b"ncum = %d vs. %d\n\0".as_ptr() as *const c_char, *ncum, elemnodes);
+            printf(c"ncum = %d vs. %d\n".as_ptr() as *const c_char, *ncum, elemnodes);
         }
         if allocated != 0 {
             j = FALSE;
@@ -1530,22 +1532,22 @@ unsafe fn abaqus_data(
                 i += 1;
             }
             if j != 0 {
-                printf(b"zero in this element\n\0".as_ptr() as *const c_char);
+                printf(c"zero in this element\n".as_ptr() as *const c_char);
                 printf(
-                    b"element = %d %d\n\0".as_ptr() as *const c_char,
+                    c"element = %d %d\n".as_ptr() as *const c_char,
                     *noelements,
                     elemnodes,
                 );
                 i = 0;
                 while i < elemnodes {
                     printf(
-                        b"%d \0".as_ptr() as *const c_char,
+                        c"%d ".as_ptr() as *const c_char,
                         *(*(*data).topology.wrapping_offset(*noelements as isize))
                             .wrapping_offset(i as isize),
                     );
                     i += 1;
                 }
-                printf(b"\n\0".as_ptr() as *const c_char);
+                printf(c"\n".as_ptr() as *const c_char);
             }
         }
     } else if *mode == 4 {
@@ -1634,7 +1636,7 @@ unsafe fn abaqus_data(
     } else if *mode == 10 {
         // NOTE: doing nothing.
     } else {
-        printf(b"Unknown case: %d\n\0".as_ptr() as *const c_char, *mode);
+        printf(c"Unknown case: %d\n".as_ptr() as *const c_char, *mode);
     }
 }
 // SAFETY: abaqus post-pass (renumber + boundaries + cleanup); C status 0.
@@ -1671,17 +1673,17 @@ unsafe fn abaqus_tail(
     // NOTE: assigned before every read (C uninit decl shape).
     let mut okcount: c_int;
     if info != 0 {
-        printf(b"The mesh was loaded from file %s.\n\0".as_ptr() as *const c_char, filename);
+        printf(c"The mesh was loaded from file %s.\n".as_ptr() as *const c_char, filename);
     }
     // NOTE: abaqus numbering may skip; renumber 1..noknots.
     if noknots != maxknot {
         if info != 0 {
             printf(
-                b"There are %d nodes but maximum index is %d.\n\0".as_ptr() as *const c_char,
+                c"There are %d nodes but maximum index is %d.\n".as_ptr() as *const c_char,
                 noknots,
                 maxknot,
             );
-            printf(b"Renumbering %d elements\n\0".as_ptr() as *const c_char, noelements);
+            printf(c"Renumbering %d elements\n".as_ptr() as *const c_char, noelements);
         }
         errcount = 0;
         okcount = 0;
@@ -1694,7 +1696,7 @@ unsafe fn abaqus_tail(
                 k = *(*(*data).topology.wrapping_offset(j as isize)).wrapping_offset(i as isize);
                 if k <= 0 {
                     printf(
-                        b"err elem ind: %d %d %d %d\n\0".as_ptr() as *const c_char,
+                        c"err elem ind: %d %d %d %d\n".as_ptr() as *const c_char,
                         j,
                         elemcode,
                         i,
@@ -1712,13 +1714,13 @@ unsafe fn abaqus_tail(
         }
         if info != 0 {
             printf(
-                b"There are %d positive and %d non-positive indexes in elements!\n\0".as_ptr()
+                c"There are %d positive and %d non-positive indexes in elements!\n".as_ptr()
                     as *const c_char,
                 okcount,
                 errcount,
             );
             printf(
-                b"Renumbering %d nodes in node sets\n\0".as_ptr() as *const c_char,
+                c"Renumbering %d nodes in node sets\n".as_ptr() as *const c_char,
                 boundarynodes,
             );
         }
@@ -1728,7 +1730,7 @@ unsafe fn abaqus_tail(
         while j <= boundarynodes {
             k = *nodeindx.wrapping_offset(j as isize);
             if k <= 0 || k > maxknot {
-                printf(b"err node set ind: %d %d\n\0".as_ptr() as *const c_char, j, k);
+                printf(c"err node set ind: %d %d\n".as_ptr() as *const c_char, j, k);
                 errcount += 1;
             } else {
                 *nodeindx.wrapping_offset(j as isize) = *ind.wrapping_offset(k as isize);
@@ -1737,7 +1739,7 @@ unsafe fn abaqus_tail(
             j += 1;
         }
         printf(
-            b"There are %d positive and %d non-positive indexes in node sets!\n\0".as_ptr()
+            c"There are %d positive and %d non-positive indexes in node sets!\n".as_ptr()
                 as *const c_char,
             okcount,
             errcount,
@@ -1764,7 +1766,7 @@ unsafe fn abaqus_tail(
             maxid += 1;
             if info != 0 {
                 printf(
-                    b"Setting %d unset elements to body index %d and name 'DefaulBody'\n\0".as_ptr()
+                    c"Setting %d unset elements to body index %d and name 'DefaulBody'\n".as_ptr()
                         as *const c_char,
                     mincnt,
                     maxid,
@@ -1780,7 +1782,7 @@ unsafe fn abaqus_tail(
             if (*data).bodyname[maxid as usize].is_null() {
                 (*data).bodyname[maxid as usize] = cvector(0, MAXNAMESIZE as c_int);
             }
-            strcpy((*data).bodyname[maxid as usize], b"DefaultBody\0".as_ptr() as *const c_char);
+            strcpy((*data).bodyname[maxid as usize], c"DefaultBody".as_ptr() as *const c_char);
             (*data).bodynamesexist = TRUE;
             (*data).boundarynamesexist = TRUE;
         }
@@ -1799,12 +1801,12 @@ unsafe fn abaqus_tail(
     }
     if nosides != 0 {
         if info != 0 {
-            printf(b"Creating boundary elements from side pointers!\n\0".as_ptr() as *const c_char);
+            printf(c"Creating boundary elements from side pointers!\n".as_ptr() as *const c_char);
         }
         AbaqusSideInfoToBoundary(data, bound, nosides, bcsides, bcparent, bctypes, info);
     } else if boundarynodes != 0 {
         if info != 0 {
-            printf(b"Creating boundary elements from node set!\n\0".as_ptr() as *const c_char);
+            printf(c"Creating boundary elements from node set!\n".as_ptr() as *const c_char);
         }
         FindPointParents(data, bound, boundarynodes, nodeindx, boundindx, info);
         // NOTE: `if(0)` ElementsToBoundaryConditions omitted (dead in C).
@@ -1815,7 +1817,7 @@ unsafe fn abaqus_tail(
     if boundarynodes > 0 {
         if info != 0 {
             printf(
-                b"Number of nodes in boundary sets: %d\n\0".as_ptr() as *const c_char,
+                c"Number of nodes in boundary sets: %d\n".as_ptr() as *const c_char,
                 boundarynodes,
             );
         }
@@ -1825,7 +1827,7 @@ unsafe fn abaqus_tail(
     }
     fclose(input);
     if info != 0 {
-        printf(b"Finished reading ABAQUS input file\n\0".as_ptr() as *const c_char);
+        printf(c"Finished reading ABAQUS input file\n".as_ptr() as *const c_char);
     }
 }
 // NOTE: C function-local statics hoisted (single-threaded utility).
@@ -1854,7 +1856,7 @@ unsafe fn ReadAbaqusField(
     if val == '*' as c_int {
         // NOTE: `if(0)` diagnostic omitted (runtime-dead).
         if *argno != READABAQUS_MAXARGNO {
-            printf(b"The previous field was of wrong length, debugging time!\n\0".as_ptr() as *const c_char);
+            printf(c"The previous field was of wrong length, debugging time!\n".as_ptr() as *const c_char);
         }
         *argno = 0;
         READABAQUS_MODE = 0;
@@ -1929,7 +1931,9 @@ unsafe fn ReadAbaqusField(
     }
     READABAQUS_MODE
 }
-// SAFETY: abaqus .fil reader over caller-owned data; C status codes.
+/// # Safety
+///
+/// abaqus .fil reader over caller-owned data; C status codes.
 #[no_mangle]
 pub unsafe extern "C" fn LoadAbaqusOutput(
     data: *mut FemType,
@@ -1961,18 +1965,18 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
     let mut nodogs: c_int;
     // NOTE: assigned before every read (C uninit decl shape).
     let mut ignored: c_int;
-    let input: *mut FILE;
+    
     // NOTE: null-init (Ivector before guarded reads).
     let mut indx: *mut c_int = core::ptr::null_mut();
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"fil\0".as_ptr() as *const c_char,
+        c"fil".as_ptr() as *const c_char,
     );
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    let input: *mut FILE = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadAbaqusOutput: opening of the Abaqus-file '%s' wasn't successful !\n\0".as_ptr()
+            c"LoadAbaqusOutput: opening of the Abaqus-file '%s' wasn't successful !\n".as_ptr()
                 as *const c_char,
             filename.as_ptr(),
         );
@@ -1980,7 +1984,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
     }
     if info != 0 {
         printf(
-            b"Reading input from ABAQUS output file %s.\n\0".as_ptr() as *const c_char,
+            c"Reading input from ABAQUS output file %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
@@ -2008,13 +2012,13 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
         } else if mode == 1921 {
             // NOTE: general info.
             if argno == 3 {
-                printf(b"Reading output file for Abaqus %s\n\0".as_ptr() as *const c_char, buffer.as_ptr());
+                printf(c"Reading output file for Abaqus %s\n".as_ptr() as *const c_char, buffer.as_ptr());
             } else if argno == 4 {
-                printf(b"Created on %s\0".as_ptr() as *const c_char, buffer.as_ptr());
+                printf(c"Created on %s".as_ptr() as *const c_char, buffer.as_ptr());
             } else if argno == 5 {
-                printf(b"%s\0".as_ptr() as *const c_char, buffer.as_ptr());
+                printf(c"%s".as_ptr() as *const c_char, buffer.as_ptr());
             } else if argno == 6 {
-                printf(b"%s\n\0".as_ptr() as *const c_char, buffer.as_ptr());
+                printf(c"%s\n".as_ptr() as *const c_char, buffer.as_ptr());
             } else if argno == 7 {
                 (*data).noelements = atoi(buffer.as_ptr());
             } else if argno == 8 && allocated == FALSE {
@@ -2034,20 +2038,20 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if argno == 3 {
                 elemno = atoi(buffer.as_ptr());
             } else if argno == 4 {
-                if !strstr(buffer.as_ptr(), b"2D4\0".as_ptr() as *const c_char).is_null()
-                    || !strstr(buffer.as_ptr(), b"SP4\0".as_ptr() as *const c_char).is_null()
-                    || !strstr(buffer.as_ptr(), b"AX4\0".as_ptr() as *const c_char).is_null()
+                if !strstr(buffer.as_ptr(), c"2D4".as_ptr() as *const c_char).is_null()
+                    || !strstr(buffer.as_ptr(), c"SP4".as_ptr() as *const c_char).is_null()
+                    || !strstr(buffer.as_ptr(), c"AX4".as_ptr() as *const c_char).is_null()
                 {
                     *(*data).elementtypes.wrapping_offset(elemno as isize) = 404;
-                } else if !strstr(buffer.as_ptr(), b"2D8\0".as_ptr() as *const c_char).is_null()
-                    || !strstr(buffer.as_ptr(), b"AX8\0".as_ptr() as *const c_char).is_null()
-                    || !strstr(buffer.as_ptr(), b"S8R5\0".as_ptr() as *const c_char).is_null()
+                } else if !strstr(buffer.as_ptr(), c"2D8".as_ptr() as *const c_char).is_null()
+                    || !strstr(buffer.as_ptr(), c"AX8".as_ptr() as *const c_char).is_null()
+                    || !strstr(buffer.as_ptr(), c"S8R5".as_ptr() as *const c_char).is_null()
                 {
                     *(*data).elementtypes.wrapping_offset(elemno as isize) = 408;
-                } else if !strstr(buffer.as_ptr(), b"3D8\0".as_ptr() as *const c_char).is_null() {
+                } else if !strstr(buffer.as_ptr(), c"3D8".as_ptr() as *const c_char).is_null() {
                     *(*data).elementtypes.wrapping_offset(elemno as isize) = 808;
                 } else {
-                    printf(b"Unknown element code: %s\n\0".as_ptr() as *const c_char, buffer.as_ptr());
+                    printf(c"Unknown element code: %s\n".as_ptr() as *const c_char, buffer.as_ptr());
                 }
             } else if argno >= 5 {
                 *(*(*data).topology.wrapping_offset(elemno as isize))
@@ -2058,7 +2062,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if argno == 3 {
                 knotno += 1;
                 if atoi(buffer.as_ptr()) > 2 * (*data).noknots {
-                    printf(b"LoadAbaqusOutput: allocate more space for indx.\n\0".as_ptr() as *const c_char);
+                    printf(c"LoadAbaqusOutput: allocate more space for indx.\n".as_ptr() as *const c_char);
                 } else {
                     *indx.wrapping_offset(atoi(buffer.as_ptr()) as isize) = knotno;
                 }
@@ -2066,21 +2070,21 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if argno == 4 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).x.wrapping_offset(knotno as isize)),
                 );
             }
             if argno == 5 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).y.wrapping_offset(knotno as isize)),
                 );
             }
             if argno == 6 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).z.wrapping_offset(knotno as isize)),
                 );
             }
@@ -2116,7 +2120,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if prevdog != mode {
                 prevdog = mode;
                 nodogs += 1;
-                CreateVariable(data, nodogs, 1, 0.0, b"Temperature\0".as_ptr() as *const c_char, FALSE);
+                CreateVariable(data, nodogs, 1, 0.0, c"Temperature".as_ptr() as *const c_char, FALSE);
             }
         } else if mode == 11 {
             // NOTE: falls through to 12 in C with mode STILL 11, so the
@@ -2125,12 +2129,12 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if prevdog != mode {
                 prevdog = mode;
                 nodogs += 1;
-                CreateVariable(data, nodogs, 3, 0.0, b"Stress\0".as_ptr() as *const c_char, FALSE);
+                CreateVariable(data, nodogs, 3, 0.0, c"Stress".as_ptr() as *const c_char, FALSE);
             }
             if secno == 1 && argno == 3 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).dofs[nodogs as usize]
                         .wrapping_offset((3 * knotno - 2) as isize)),
                 );
@@ -2138,7 +2142,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if secno == 1 && argno == 4 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).dofs[nodogs as usize]
                         .wrapping_offset((3 * knotno - 1) as isize)),
                 );
@@ -2146,7 +2150,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if secno == 1 && argno == 5 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).dofs[nodogs as usize]
                         .wrapping_offset((3 * knotno) as isize)),
                 );
@@ -2155,12 +2159,12 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if prevdog != mode {
                 prevdog = mode;
                 nodogs += 1;
-                CreateVariable(data, nodogs, 3, 0.0, b"Invariants\0".as_ptr() as *const c_char, FALSE);
+                CreateVariable(data, nodogs, 3, 0.0, c"Invariants".as_ptr() as *const c_char, FALSE);
             }
             if secno == 1 && argno == 3 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).dofs[nodogs as usize]
                         .wrapping_offset((3 * knotno - 2) as isize)),
                 );
@@ -2168,7 +2172,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if secno == 1 && argno == 4 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).dofs[nodogs as usize]
                         .wrapping_offset((3 * knotno - 1) as isize)),
                 );
@@ -2176,7 +2180,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if secno == 1 && argno == 5 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).dofs[nodogs as usize]
                         .wrapping_offset((3 * knotno) as isize)),
                 );
@@ -2187,7 +2191,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if prevdog != mode {
                 prevdog = mode;
                 nodogs += 1;
-                CreateVariable(data, nodogs, 3, 0.0, b"Displacement\0".as_ptr() as *const c_char, FALSE);
+                CreateVariable(data, nodogs, 3, 0.0, c"Displacement".as_ptr() as *const c_char, FALSE);
             }
             if argno == 3 {
                 knotno = *indx.wrapping_offset(atoi(buffer.as_ptr()) as isize);
@@ -2195,7 +2199,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if argno == 4 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).dofs[nodogs as usize]
                         .wrapping_offset((3 * knotno - 2) as isize)),
                 );
@@ -2203,7 +2207,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if argno == 5 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).dofs[nodogs as usize]
                         .wrapping_offset((3 * knotno - 1) as isize)),
                 );
@@ -2211,7 +2215,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if argno == 6 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).dofs[nodogs as usize]
                         .wrapping_offset((3 * knotno) as isize)),
                 );
@@ -2220,7 +2224,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if prevdog != mode {
                 prevdog = mode;
                 nodogs += 1;
-                CreateVariable(data, nodogs, 3, 0.0, b"Velocity\0".as_ptr() as *const c_char, FALSE);
+                CreateVariable(data, nodogs, 3, 0.0, c"Velocity".as_ptr() as *const c_char, FALSE);
             }
             if argno == 3 {
                 knotno = *indx.wrapping_offset(atoi(buffer.as_ptr()) as isize);
@@ -2228,7 +2232,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if argno == 4 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).dofs[nodogs as usize]
                         .wrapping_offset((3 * knotno - 2) as isize)),
                 );
@@ -2236,7 +2240,7 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if argno == 5 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).dofs[nodogs as usize]
                         .wrapping_offset((3 * knotno - 1) as isize)),
                 );
@@ -2244,19 +2248,19 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
             if argno == 6 {
                 sscanf(
                     buffer.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*(*data).dofs[nodogs as usize]
                         .wrapping_offset((3 * knotno) as isize)),
                 );
             }
         } else if ignored != mode {
-            printf(b"Record %d was ignored!\n\0".as_ptr() as *const c_char, mode);
+            printf(c"Record %d was ignored!\n".as_ptr() as *const c_char, mode);
             ignored = mode;
         }
     }
     // NOTE: `jump:` landing pad (C `goto` target).
     if info != 0 {
-        printf(b"Renumbering elements\n\0".as_ptr() as *const c_char);
+        printf(c"Renumbering elements\n".as_ptr() as *const c_char);
     }
     j = 1;
     while j <= (*data).noelements {
@@ -2275,14 +2279,16 @@ pub unsafe extern "C" fn LoadAbaqusOutput(
     fclose(input);
     if info != 0 {
         printf(
-            b"LoadAbacusInput: results were loaded from file %s.\n\0".as_ptr() as *const c_char,
+            c"LoadAbacusInput: results were loaded from file %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
     0
 }
-// SAFETY: nastran reader over caller-owned data; C status codes.
-// Two passes (count then fill) exactly as in C (`omstart`/`end`).
+/// # Safety
+///
+/// nastran reader over caller-owned data; C status codes.
+/// Two passes (count then fill) exactly as in C (`omstart`/`end`).
 #[no_mangle]
 pub unsafe extern "C" fn LoadNastranInput(
     data: *mut FemType,
@@ -2312,17 +2318,17 @@ pub unsafe extern "C" fn LoadNastranInput(
     let mut k: c_int = 0;
     let mut input: *mut FILE;
     strcpy(filename.as_mut_ptr(), prefix);
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         AddExtension(
             prefix,
             filename.as_mut_ptr(),
-            b"nas\0".as_ptr() as *const c_char,
+            c"nas".as_ptr() as *const c_char,
         );
-        input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if input.is_null() {
             printf(
-                b"LoadNastranInput: opening of the Nastran file '%s' wasn't successful !\n\0".as_ptr()
+                c"LoadNastranInput: opening of the Nastran file '%s' wasn't successful !\n".as_ptr()
                     as *const c_char,
                 filename.as_ptr(),
             );
@@ -2331,7 +2337,7 @@ pub unsafe extern "C" fn LoadNastranInput(
     }
     if info != 0 {
         printf(
-            b"Reading mesh from Nastran file %s.\n\0".as_ptr() as *const c_char,
+            c"Reading mesh from Nastran file %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
@@ -2354,7 +2360,7 @@ pub unsafe extern "C" fn LoadNastranInput(
                 if allocated == 0 {
                     InpComment(line.as_mut_ptr());
                 }
-            } else if !strstr(line.as_ptr(), b"GRID\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"GRID".as_ptr() as *const c_char).is_null() {
                 noknots += 1;
                 // NOTE: `if(0)` diagnostics omitted (runtime-dead).
                 cp = line.as_mut_ptr().wrapping_offset(5);
@@ -2373,14 +2379,14 @@ pub unsafe extern "C" fn LoadNastranInput(
                         minknot = j;
                     }
                 }
-                if !strstr(line.as_ptr(), b"*\0".as_ptr() as *const c_char).is_null() {
+                if !strstr(line.as_ptr(), c"*".as_ptr() as *const c_char).is_null() {
                     Getrow(line.as_mut_ptr(), input, TRUE);
                 }
                 if allocated != 0 {
                     cp = line.as_mut_ptr().wrapping_offset(4);
                     *(*data).z.wrapping_offset(noknots as isize) = next_real(&mut cp);
                 }
-            } else if !strstr(line.as_ptr(), b"TETRA\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"TETRA".as_ptr() as *const c_char).is_null() {
                 noelements += 1;
                 nodes = 4;
                 if nodes > maxnodes {
@@ -2390,7 +2396,7 @@ pub unsafe extern "C" fn LoadNastranInput(
                     *(*data).elementtypes.wrapping_offset(noelements as isize) = 504;
                     nastran_elem(data, noelements, nodes, line.as_mut_ptr(), &mut cp, &mut k, 6);
                 }
-            } else if !strstr(line.as_ptr(), b"PYRAM\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"PYRAM".as_ptr() as *const c_char).is_null() {
                 noelements += 1;
                 nodes = 5;
                 if nodes > maxnodes {
@@ -2400,7 +2406,7 @@ pub unsafe extern "C" fn LoadNastranInput(
                     *(*data).elementtypes.wrapping_offset(noelements as isize) = 605;
                     nastran_elem(data, noelements, nodes, line.as_mut_ptr(), &mut cp, &mut k, 6);
                 }
-            } else if !strstr(line.as_ptr(), b"PENTA\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"PENTA".as_ptr() as *const c_char).is_null() {
                 noelements += 1;
                 nodes = 6;
                 if nodes > maxnodes {
@@ -2410,7 +2416,7 @@ pub unsafe extern "C" fn LoadNastranInput(
                     *(*data).elementtypes.wrapping_offset(noelements as isize) = 706;
                     nastran_elem(data, noelements, nodes, line.as_mut_ptr(), &mut cp, &mut k, 6);
                 }
-            } else if !strstr(line.as_ptr(), b"CHEXA\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"CHEXA".as_ptr() as *const c_char).is_null() {
                 noelements += 1;
                 nodes = 8;
                 if nodes > maxnodes {
@@ -2431,7 +2437,7 @@ pub unsafe extern "C" fn LoadNastranInput(
                         j += 1;
                     }
                 }
-            } else if !strstr(line.as_ptr(), b"ENDDAT\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"ENDDAT".as_ptr() as *const c_char).is_null() {
                 break;
             } else if allocated == 0 {
                 InpIgnored(line.as_mut_ptr());
@@ -2441,7 +2447,7 @@ pub unsafe extern "C" fn LoadNastranInput(
         if allocated == TRUE {
             if info != 0 {
                 printf(
-                    b"The mesh was loaded from file %s.\n\0".as_ptr() as *const c_char,
+                    c"The mesh was loaded from file %s.\n".as_ptr() as *const c_char,
                     filename.as_ptr(),
                 );
             }
@@ -2453,10 +2459,10 @@ pub unsafe extern "C" fn LoadNastranInput(
         (*data).noelements = noelements;
         (*data).maxnodes = maxnodes;
         (*data).dim = 3;
-        printf(b"maxknot = %d  minknot = %d\n\0".as_ptr() as *const c_char, maxknot, minknot);
+        printf(c"maxknot = %d  minknot = %d\n".as_ptr() as *const c_char, maxknot, minknot);
         if info != 0 {
             printf(
-                b"Allocating for %d knots and %d %d-node elements.\n\0".as_ptr() as *const c_char,
+                c"Allocating for %d knots and %d %d-node elements.\n".as_ptr() as *const c_char,
                 noknots,
                 noelements,
                 maxnodes,
@@ -2495,7 +2501,7 @@ unsafe fn ReorderFidapNodes(data: *mut FemType, element: c_int, nodes: c_int, ty
     let mut i: c_int;
     let mut oldtopology: [c_int; MAXNODESD2] = [0; MAXNODESD2];
     // NOTE: assigned before every read (C uninit decl shape).
-    let topology: *mut c_int;
+    
     let mut dim: c_int;
     let order808: [c_int; 8] = [1, 2, 4, 3, 5, 6, 8, 7];
     let order408: [c_int; 8] = [1, 3, 5, 7, 2, 4, 6, 8];
@@ -2507,7 +2513,7 @@ unsafe fn ReorderFidapNodes(data: *mut FemType, element: c_int, nodes: c_int, ty
         dim -= 1;
     }
     *(*data).elementtypes.wrapping_offset(element as isize) = 101 * nodes;
-    topology = *(*data).topology.wrapping_offset(element as isize);
+    let topology: *mut c_int = *(*data).topology.wrapping_offset(element as isize);
     if dim == 1 {
         if nodes == 3 {
             *(*data).elementtypes.wrapping_offset(element as isize) = 203;
@@ -2582,16 +2588,18 @@ unsafe fn ReorderFidapNodes(data: *mut FemType, element: c_int, nodes: c_int, ty
                 i += 1;
             }
         } else {
-            printf(b"Unknown Fidap elementtype with %d nodes.\n\0".as_ptr() as *const c_char, nodes);
+            printf(c"Unknown Fidap elementtype with %d nodes.\n".as_ptr() as *const c_char, nodes);
         }
     } else {
         printf(
-            b"ReorderFidapNodes: unknown dimension (%d)\n\0".as_ptr() as *const c_char,
+            c"ReorderFidapNodes: unknown dimension (%d)\n".as_ptr() as *const c_char,
             (*data).dim,
         );
     }
 }
-// SAFETY: fidap neutral reader over caller-owned data; C status codes.
+/// # Safety
+///
+/// fidap neutral reader over caller-owned data; C status codes.
 #[no_mangle]
 pub unsafe extern "C" fn LoadFidapInput(
     data: *mut FemType,
@@ -2645,19 +2653,19 @@ pub unsafe extern "C" fn LoadFidapInput(
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"fidap\0".as_ptr() as *const c_char,
+        c"fidap".as_ptr() as *const c_char,
     );
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         AddExtension(
             prefix,
             filename.as_mut_ptr(),
-            b"FDNEUT\0".as_ptr() as *const c_char,
+            c"FDNEUT".as_ptr() as *const c_char,
         );
-        input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if input.is_null() {
             printf(
-                b"LoadFidapInput: opening of the Fidap-file '%s' wasn't successful !\n\0".as_ptr()
+                c"LoadFidapInput: opening of the Fidap-file '%s' wasn't successful !\n".as_ptr()
                     as *const c_char,
                 filename.as_ptr(),
             );
@@ -2682,40 +2690,40 @@ pub unsafe extern "C" fn LoadFidapInput(
         if isio.is_null() {
             break;
         }
-        if !strstr(line.as_ptr(), b"END\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line.as_ptr(), c"END".as_ptr() as *const c_char).is_null() {
             break;
         }
         // NOTE: control information.
-        if !strstr(line.as_ptr(), b"FIDAP NEUTRAL FILE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line.as_ptr(), c"FIDAP NEUTRAL FILE".as_ptr() as *const c_char).is_null() {
             mode = 1;
-        } else if !strstr(line.as_ptr(), b"NO. OF NODES\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"NO. OF NODES".as_ptr() as *const c_char).is_null() {
             mode = 2;
-        } else if !strstr(line.as_ptr(), b"TEMPERATURE/SPECIES FLAGS\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"TEMPERATURE/SPECIES FLAGS".as_ptr() as *const c_char).is_null() {
             mode = 3;
-        } else if !strstr(line.as_ptr(), b"PRESSURE FLAGS\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"PRESSURE FLAGS".as_ptr() as *const c_char).is_null() {
             mode = 4;
-        } else if !strstr(line.as_ptr(), b"NODAL COORDINATES\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"NODAL COORDINATES".as_ptr() as *const c_char).is_null() {
             mode = 5;
-        } else if !strstr(line.as_ptr(), b"BOUNDARY CONDITIONS\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"BOUNDARY CONDITIONS".as_ptr() as *const c_char).is_null() {
             mode = 6;
-        } else if !strstr(line.as_ptr(), b"ELEMENT GROUPS\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"ELEMENT GROUPS".as_ptr() as *const c_char).is_null() {
             mode = 7;
-        } else if !strstr(line.as_ptr(), b"GROUP:\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"GROUP:".as_ptr() as *const c_char).is_null() {
             mode = 8;
-        } else if !strstr(line.as_ptr(), b"VELOCITY\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"VELOCITY".as_ptr() as *const c_char).is_null() {
             mode = 10;
-        } else if !strstr(line.as_ptr(), b"TEMPERATURE\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"TEMPERATURE".as_ptr() as *const c_char).is_null() {
             mode = 11;
         }
         // NOTE: `else if(0)` diagnostic omitted (runtime-dead as in C).
         // NOTE: C switch over mode.
         if mode == 1 {
             if info != 0 {
-                printf(b"Loading FIDAP input file %s\n\0".as_ptr() as *const c_char, filename.as_ptr());
+                printf(c"Loading FIDAP input file %s\n".as_ptr() as *const c_char, filename.as_ptr());
             }
             ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, input);
             if info != 0 {
-                printf(b"Name of the case: %s\0".as_ptr() as *const c_char, line.as_ptr());
+                printf(c"Name of the case: %s".as_ptr() as *const c_char, line.as_ptr());
             }
             mode = 0;
         } else if mode == 2 {
@@ -2723,7 +2731,7 @@ pub unsafe extern "C" fn LoadFidapInput(
             // NOTE: `if(0)` diagnostic omitted (runtime-dead).
             sscanf(
                 line.as_ptr(),
-                b"%d%d%d%d%d\0".as_ptr() as *const c_char,
+                c"%d%d%d%d%d".as_ptr() as *const c_char,
                 &mut noknots,
                 &mut noelements,
                 &mut nogroups,
@@ -2739,7 +2747,7 @@ pub unsafe extern "C" fn LoadFidapInput(
         } else if mode == 5 {
             if info != 0 {
                 printf(
-                    b"Allocating for %d knots and %d %d-node elements.\n\0".as_ptr()
+                    c"Allocating for %d knots and %d %d-node elements.\n".as_ptr()
                         as *const c_char,
                     noknots,
                     noelements,
@@ -2748,7 +2756,7 @@ pub unsafe extern "C" fn LoadFidapInput(
             }
             AllocateKnots(data);
             if info != 0 {
-                printf(b"Reading the nodes\n\0".as_ptr() as *const c_char);
+                printf(c"Reading the nodes\n".as_ptr() as *const c_char);
             }
             i = 1;
             while i <= noknots {
@@ -2756,7 +2764,7 @@ pub unsafe extern "C" fn LoadFidapInput(
                 if dim == 2 {
                     sscanf(
                         line.as_ptr(),
-                        b"%d%le%le\0".as_ptr() as *const c_char,
+                        c"%d%le%le".as_ptr() as *const c_char,
                         &mut knotno,
                         &mut (*(*data).x.wrapping_offset(i as isize)),
                         &mut (*(*data).y.wrapping_offset(i as isize)),
@@ -2764,7 +2772,7 @@ pub unsafe extern "C" fn LoadFidapInput(
                 } else if dim == 3 {
                     sscanf(
                         line.as_ptr(),
-                        b"%d%le%le%le\0".as_ptr() as *const c_char,
+                        c"%d%le%le%le".as_ptr() as *const c_char,
                         &mut knotno,
                         &mut (*(*data).x.wrapping_offset(i as isize)),
                         &mut (*(*data).y.wrapping_offset(i as isize)),
@@ -2783,9 +2791,9 @@ pub unsafe extern "C" fn LoadFidapInput(
         } else if mode == 10 {
             dim = 3;
             if info != 0 {
-                printf(b"Reading the velocity field\n\0".as_ptr() as *const c_char);
+                printf(c"Reading the velocity field\n".as_ptr() as *const c_char);
             }
-            CreateVariable(data, 2, dim, 0.0, b"Velocity\0".as_ptr() as *const c_char, FALSE);
+            CreateVariable(data, 2, dim, 0.0, c"Velocity".as_ptr() as *const c_char, FALSE);
             vel = (*data).dofs[2];
             j = 1;
             while j <= noknots {
@@ -2793,7 +2801,7 @@ pub unsafe extern "C" fn LoadFidapInput(
                 if dim == 2 {
                     sscanf(
                         line.as_ptr(),
-                        b"%le%le\0".as_ptr() as *const c_char,
+                        c"%le%le".as_ptr() as *const c_char,
                         &mut (*vel.wrapping_offset((2 * j - 1) as isize)),
                         &mut (*vel.wrapping_offset((2 * j) as isize)),
                     );
@@ -2801,7 +2809,7 @@ pub unsafe extern "C" fn LoadFidapInput(
                 if dim == 3 {
                     sscanf(
                         line.as_ptr(),
-                        b"%le%le%le\0".as_ptr() as *const c_char,
+                        c"%le%le%le".as_ptr() as *const c_char,
                         &mut (*vel.wrapping_offset((3 * j - 2) as isize)),
                         &mut (*vel.wrapping_offset((3 * j - 1) as isize)),
                         &mut (*vel.wrapping_offset((3 * j) as isize)),
@@ -2812,16 +2820,16 @@ pub unsafe extern "C" fn LoadFidapInput(
             mode = 0;
         } else if mode == 11 {
             if info != 0 {
-                printf(b"Reading the temperature field\n\0".as_ptr() as *const c_char);
+                printf(c"Reading the temperature field\n".as_ptr() as *const c_char);
             }
-            CreateVariable(data, 1, 1, 0.0, b"Temperature\0".as_ptr() as *const c_char, FALSE);
+            CreateVariable(data, 1, 1, 0.0, c"Temperature".as_ptr() as *const c_char, FALSE);
             temp = (*data).dofs[1];
             j = 1;
             while j <= noknots {
                 ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, input);
                 sscanf(
                     line.as_ptr(),
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*temp.wrapping_offset(j as isize)),
                 );
                 j += 1;
@@ -2837,7 +2845,7 @@ pub unsafe extern "C" fn LoadFidapInput(
     }
     fclose(input);
     if info != 0 {
-        printf(b"Finished reading the Fidap neutral file\n\0".as_ptr() as *const c_char);
+        printf(c"Finished reading the Fidap neutral file\n".as_ptr() as *const c_char);
     }
     ElementsToBoundaryConditions(data, boundaries, FALSE, TRUE);
     // NOTE: commented-out RenumberBoundaryTypes omitted (dead in C).
@@ -2888,7 +2896,7 @@ unsafe fn fidap_group(
     i += 1;
     sscanf(
         line.wrapping_offset(i as isize),
-        b"%d\0".as_ptr() as *const c_char,
+        c"%d".as_ptr() as *const c_char,
         &mut group,
     );
     i = 0;
@@ -2902,7 +2910,7 @@ unsafe fn fidap_group(
     i += 1;
     sscanf(
         line.wrapping_offset(i as isize),
-        b"%d\0".as_ptr() as *const c_char,
+        c"%d".as_ptr() as *const c_char,
         &mut elems,
     );
     i = 0;
@@ -2916,7 +2924,7 @@ unsafe fn fidap_group(
     i += 1;
     sscanf(
         line.wrapping_offset(i as isize),
-        b"%d\0".as_ptr() as *const c_char,
+        c"%d".as_ptr() as *const c_char,
         &mut nodes,
     );
     i = 0;
@@ -2930,7 +2938,7 @@ unsafe fn fidap_group(
     i += 1;
     sscanf(
         line.wrapping_offset(i as isize),
-        b"%d\0".as_ptr() as *const c_char,
+        c"%d".as_ptr() as *const c_char,
         &mut geoflag,
     );
     let _ = geoflag;
@@ -2945,7 +2953,7 @@ unsafe fn fidap_group(
     i += 1;
     sscanf(
         line.wrapping_offset(i as isize),
-        b"%d\0".as_ptr() as *const c_char,
+        c"%d".as_ptr() as *const c_char,
         &mut typeflag,
     );
     ioptr = fgets(line, MAXLINESIZE as c_int, input);
@@ -2960,13 +2968,13 @@ unsafe fn fidap_group(
     i += 1;
     sscanf(
         line.wrapping_offset(i as isize),
-        b"%s\0".as_ptr() as *const c_char,
+        c"%s".as_ptr() as *const c_char,
         entityname.as_mut_ptr(),
     );
     if nodes > *maxnodes {
         if info != 0 {
             printf(
-                b"Allocating a %d-node topology matrix\n\0".as_ptr() as *const c_char,
+                c"Allocating a %d-node topology matrix\n".as_ptr() as *const c_char,
                 nodes,
             );
         }
@@ -2993,7 +3001,7 @@ unsafe fn fidap_group(
     }
     if info != 0 {
         printf(
-            b"reading %d element topologies with %d nodes for %s\n\0".as_ptr() as *const c_char,
+            c"reading %d element topologies with %d nodes for %s\n".as_ptr() as *const c_char,
             elems,
             nodes,
             entityname.as_ptr(),
@@ -3017,7 +3025,7 @@ unsafe fn fidap_group(
         }
         strcpy((*data).bodyname[*entity as usize], entityname.as_ptr());
         if info != 0 {
-            printf(b"Found new entity: %s\n\0".as_ptr() as *const c_char, entityname.as_ptr());
+            printf(c"Found new entity: %s\n".as_ptr() as *const c_char, entityname.as_ptr());
         }
     }
     i = *totelems + 1;
@@ -3034,7 +3042,7 @@ unsafe fn fidap_group(
         }
         ReorderFidapNodes(data, i, nodes, typeflag);
         if *(*data).elementtypes.wrapping_offset(i as isize) == 0 {
-            printf(b"Elementtype is zero!\n\0".as_ptr() as *const c_char);
+            printf(c"Elementtype is zero!\n".as_ptr() as *const c_char);
         }
         if *entity != 0 {
             *(*data).material.wrapping_offset(i as isize) = *entity;
@@ -3076,7 +3084,7 @@ unsafe fn fidap_renumber(
     if *maxknot > noknots {
         if info != 0 {
             printf(
-                b"Renumbering the nodes from 1 to %d\n\0".as_ptr() as *const c_char,
+                c"Renumbering the nodes from 1 to %d\n".as_ptr() as *const c_char,
                 noknots,
             );
         }
@@ -3133,7 +3141,7 @@ unsafe fn ReorderAnsysNodes(
 ) {
     let mut i: c_int;
     // NOTE: assigned once before every read.
-    let topology: *mut c_int;
+    
     // NOTE: `elementtype = 0` follows before every read.
     let mut elementtype: c_int;
     let order820: [c_int; 20] = [
@@ -3221,14 +3229,14 @@ unsafe fn ReorderAnsysNodes(
     }
     if elementtype == 0 {
         printf(
-            b"Unknown elementtype in element %d (%d nodes, %d dim).\n\0".as_ptr() as *const c_char,
+            c"Unknown elementtype in element %d (%d nodes, %d dim).\n".as_ptr() as *const c_char,
             element,
             nodes,
             dim,
         );
     }
     *(*data).elementtypes.wrapping_offset(element as isize) = elementtype;
-    topology = *(*data).topology.wrapping_offset(element as isize);
+    let topology: *mut c_int = *(*data).topology.wrapping_offset(element as isize);
     // NOTE: C switch over elementtype.
     if elementtype == 820 {
         i = 0;
@@ -3313,7 +3321,9 @@ unsafe fn ReorderAnsysNodes(
         }
     }
 }
-// SAFETY: ansys reader over caller-owned data/bound; C status codes.
+/// # Safety
+///
+/// ansys reader over caller-owned data/bound; C status codes.
 #[no_mangle]
 pub unsafe extern "C" fn LoadAnsysInput(
     data: *mut FemType,
@@ -3334,7 +3344,7 @@ pub unsafe extern "C" fn LoadAnsysInput(
     // NOTE: assigned before every read (C uninit decl shape).
     let mut maxindx: c_int;
     // NOTE: ivector overwrites unconditionally below before any use.
-    let indx: *mut c_int;
+    
     // NOTE: ivector overwrites unconditionally below before any use.
     let mut revindx: *mut c_int;
     let mut topology: [c_int; 100] = [0; 100];
@@ -3355,17 +3365,17 @@ pub unsafe extern "C" fn LoadAnsysInput(
     // NOTE: `=0` decl init kept (read before any overwrite).
     let mut boundarynodes: c_int = 0;
     // NOTE: assigned once before every read.
-    let noansystypes: c_int;
+    
     // NOTE: ivector overwrites unconditionally below before any use.
-    let ansysdim: *mut c_int;
+    
     // NOTE: ivector overwrites unconditionally below before any use.
-    let ansysnodes: *mut c_int;
+    
     // NOTE: ivector overwrites unconditionally below before any use.
-    let ansystypes: *mut c_int;
+    
     // NOTE: `=0` decl init kept (read before any overwrite).
     let mut boundarytypes: c_int = 0;
     // NOTE: assigned once before every read.
-    let namesexist: c_int;
+    
     // NOTE: 0-init for the &mut handoff (set in ansys_boundary before reads).
     let mut maxside: c_int = 0;
     // NOTE: 0-init for the &mut handoff (set in ansys_boundary before reads).
@@ -3384,11 +3394,11 @@ pub unsafe extern "C" fn LoadAnsysInput(
     let mut text: [c_char; MAXNAMESIZE] = [0; MAXNAMESIZE];
     let mut text2: [c_char; MAXNAMESIZE] = [0; MAXNAMESIZE];
     // NOTE: `ExportMesh.header`.
-    sprintf(filename.as_mut_ptr(), b"%s.header\0".as_ptr() as *const c_char, prefix);
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    sprintf(filename.as_mut_ptr(), c"%s.header".as_ptr() as *const c_char, prefix);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadAnsysInput: The opening of the header-file %s failed!\n\0".as_ptr()
+            c"LoadAnsysInput: The opening of the header-file %s failed!\n".as_ptr()
                 as *const c_char,
             filename.as_ptr(),
         );
@@ -3396,7 +3406,7 @@ pub unsafe extern "C" fn LoadAnsysInput(
     }
     if info != 0 {
         printf(
-            b"Calculating Ansys elementtypes from %s\n\0".as_ptr() as *const c_char,
+            c"Calculating Ansys elementtypes from %s\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
@@ -3409,16 +3419,16 @@ pub unsafe extern "C" fn LoadAnsysInput(
         }
         i += 1;
     }
-    noansystypes = i - 1;
+    let noansystypes: c_int = i - 1;
     printf(
-        b"There seems to be %d element types in file %s.\n\0".as_ptr() as *const c_char,
+        c"There seems to be %d element types in file %s.\n".as_ptr() as *const c_char,
         noansystypes,
         filename.as_ptr(),
     );
     // NOTE: C `Ivector` is a macro for `ivector` (egutils.h:16).
-    ansysdim = ivector(1, noansystypes);
-    ansysnodes = ivector(1, noansystypes);
-    ansystypes = ivector(1, noansystypes);
+    let ansysdim: *mut c_int = ivector(1, noansystypes);
+    let ansysnodes: *mut c_int = ivector(1, noansystypes);
+    let ansystypes: *mut c_int = ivector(1, noansystypes);
     rewind(input);
     i = 0;
     while i <= noansystypes {
@@ -3434,7 +3444,7 @@ pub unsafe extern "C" fn LoadAnsysInput(
             // NOTE: Ansys writes decimal points for integers too; read as reals.
             sscanf(
                 line.as_ptr(),
-                b"%le %le %le\0".as_ptr() as *const c_char,
+                c"%le %le %le".as_ptr() as *const c_char,
                 &mut dummy1,
                 &mut dummy2,
                 &mut dummy3,
@@ -3453,36 +3463,36 @@ pub unsafe extern "C" fn LoadAnsysInput(
     }
     fclose(input);
     printf(
-        b"Ansys file has %d elements, %d nodes and %d boundary types.\n\0".as_ptr()
+        c"Ansys file has %d elements, %d nodes and %d boundary types.\n".as_ptr()
             as *const c_char,
         noelements,
         noknots,
         boundarytypes,
     );
     // NOTE: `ExportMesh.names`.
-    sprintf(filename.as_mut_ptr(), b"%s.names\0".as_ptr() as *const c_char, prefix);
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
-    if input.is_null() {
-        namesexist = FALSE;
+    sprintf(filename.as_mut_ptr(), c"%s.names".as_ptr() as *const c_char, prefix);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
+    let namesexist: c_int = if input.is_null() {
+        FALSE
     } else {
-        namesexist = TRUE;
-    }
+        TRUE
+    };
     if namesexist != 0 {
-        printf(b"Using names of bodies and boundaries\n\0".as_ptr() as *const c_char);
+        printf(c"Using names of bodies and boundaries\n".as_ptr() as *const c_char);
     }
     // NOTE: `ExportMesh.node`.
-    sprintf(filename.as_mut_ptr(), b"%s.node\0".as_ptr() as *const c_char, prefix);
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    sprintf(filename.as_mut_ptr(), c"%s.node".as_ptr() as *const c_char, prefix);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadAnsysInput: The opening of the nodes-file %s failed!\n\0".as_ptr()
+            c"LoadAnsysInput: The opening of the nodes-file %s failed!\n".as_ptr()
                 as *const c_char,
             filename.as_ptr(),
         );
         return 2;
     }
     if info != 0 {
-        printf(b"Calculating Ansys nodes from %s\n\0".as_ptr() as *const c_char, filename.as_ptr());
+        printf(c"Calculating Ansys nodes from %s\n".as_ptr() as *const c_char, filename.as_ptr());
     }
     i = 0;
     loop {
@@ -3493,10 +3503,10 @@ pub unsafe extern "C" fn LoadAnsysInput(
         i += 1;
     }
     if info != 0 {
-        printf(b"There seems to be %d nodes in file %s.\n\0".as_ptr() as *const c_char, i, filename.as_ptr());
+        printf(c"There seems to be %d nodes in file %s.\n".as_ptr() as *const c_char, i, filename.as_ptr());
     }
     if i != noknots {
-        printf(b"Conflicting number of nodes %d vs %d!\n\0".as_ptr() as *const c_char, i, noknots);
+        printf(c"Conflicting number of nodes %d vs %d!\n".as_ptr() as *const c_char, i, noknots);
     }
     // NOTE: make room and initialize the mesh.
     InitializeKnots(data);
@@ -3520,7 +3530,7 @@ pub unsafe extern "C" fn LoadAnsysInput(
     (*data).noelements = noelements;
     if info != 0 {
         printf(
-            b"Allocating for %d nodes and %d elements with max. %d nodes in %d-dim.\n\0".as_ptr()
+            c"Allocating for %d nodes and %d elements with max. %d nodes in %d-dim.\n".as_ptr()
                 as *const c_char,
             noknots,
             noelements,
@@ -3529,14 +3539,14 @@ pub unsafe extern "C" fn LoadAnsysInput(
         );
     }
     AllocateKnots(data);
-    indx = ivector(1, noknots);
+    let indx: *mut c_int = ivector(1, noknots);
     i = 1;
     while i <= noknots {
         *indx.wrapping_offset(i as isize) = 0;
         i += 1;
     }
     if info != 0 {
-        printf(b"Loading %d Ansys nodes from %s\n\0".as_ptr() as *const c_char, noknots, filename.as_ptr());
+        printf(c"Loading %d Ansys nodes from %s\n".as_ptr() as *const c_char, noknots, filename.as_ptr());
     }
     rewind(input);
     i = 1;
@@ -3584,7 +3594,7 @@ pub unsafe extern "C" fn LoadAnsysInput(
     revindx = ivector(0, maxindx);
     if maxindx > noknots {
         printf(
-            b"There are %d nodes with indexes up to %d.\n\0".as_ptr() as *const c_char,
+            c"There are %d nodes with indexes up to %d.\n".as_ptr() as *const c_char,
             noknots,
             maxindx,
         );
@@ -3606,11 +3616,11 @@ pub unsafe extern "C" fn LoadAnsysInput(
         }
     }
     // NOTE: `ExportMesh.elem`.
-    sprintf(filename.as_mut_ptr(), b"%s.elem\0".as_ptr() as *const c_char, prefix);
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    sprintf(filename.as_mut_ptr(), c"%s.elem".as_ptr() as *const c_char, prefix);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadAnsysInput: The opening of the element-file %s failed!\n\0".as_ptr()
+            c"LoadAnsysInput: The opening of the element-file %s failed!\n".as_ptr()
                 as *const c_char,
             filename.as_ptr(),
         );
@@ -3618,7 +3628,7 @@ pub unsafe extern "C" fn LoadAnsysInput(
     }
     if info != 0 {
         printf(
-            b"Loading %d Ansys elements from %s\n\0".as_ptr() as *const c_char,
+            c"Loading %d Ansys elements from %s\n".as_ptr() as *const c_char,
             noelements,
             filename.as_ptr(),
         );
@@ -3704,7 +3714,7 @@ pub unsafe extern "C" fn LoadAnsysInput(
     free_ivector(boundindx, 1, boundarynodes);
     free_ivector(nodeindx, 1, boundarynodes);
     if info != 0 {
-        printf(b"Ansys mesh loaded successfully\n\0".as_ptr() as *const c_char);
+        printf(c"Ansys mesh loaded successfully\n".as_ptr() as *const c_char);
     }
     0
 }
@@ -3735,12 +3745,12 @@ unsafe fn ansys_boundary(
 ) -> c_int {
     let _ = l;
     let mut line: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
-    sprintf(filename, b"%s.boundary\0".as_ptr() as *const c_char, prefix);
-    printf(b"Calculating nodes in file %s\n\0".as_ptr() as *const c_char, filename);
-    *input = fopen(filename, b"r\0".as_ptr() as *const c_char);
+    sprintf(filename, c"%s.boundary".as_ptr() as *const c_char, prefix);
+    printf(c"Calculating nodes in file %s\n".as_ptr() as *const c_char, filename);
+    *input = fopen(filename, c"r".as_ptr() as *const c_char);
     if (*input).is_null() {
         printf(
-            b"LoadAnsysInput: The opening of the boundary-file %s failed!\n\0".as_ptr()
+            c"LoadAnsysInput: The opening of the boundary-file %s failed!\n".as_ptr()
                 as *const c_char,
             filename,
         );
@@ -3754,7 +3764,7 @@ unsafe fn ansys_boundary(
         if ioptr.is_null() {
             break;
         }
-        if strstr(line.as_ptr(), b"Boundary\0".as_ptr() as *const c_char).is_null() {
+        if strstr(line.as_ptr(), c"Boundary".as_ptr() as *const c_char).is_null() {
             *j += 1;
         }
         *i += 1;
@@ -3763,7 +3773,7 @@ unsafe fn ansys_boundary(
     *nosides = 6 * *boundarynodes;
     if info != 0 {
         printf(
-            b"There are %d boundary nodes, allocating %d elements\n\0".as_ptr() as *const c_char,
+            c"There are %d boundary nodes, allocating %d elements\n".as_ptr() as *const c_char,
             *boundarynodes,
             *nosides,
         );
@@ -3772,7 +3782,7 @@ unsafe fn ansys_boundary(
     *nodeindx = ivector(1, *boundarynodes);
     *boundindx = ivector(1, *boundarynodes);
     if info != 0 {
-        printf(b"Loading Ansys boundary from %s\n\0".as_ptr() as *const c_char, filename);
+        printf(c"Loading Ansys boundary from %s\n".as_ptr() as *const c_char, filename);
     }
     *i = 1;
     while *i <= *boundarynodes {
@@ -3789,20 +3799,20 @@ unsafe fn ansys_boundary(
         if ioptr.is_null() {
             break;
         }
-        if !strstr(line.as_ptr(), b"Boundary\0".as_ptr() as *const c_char).is_null() {
-            sscanf(line.as_ptr(), b"%d\0".as_ptr() as *const c_char, &mut (*sidetype));
+        if !strstr(line.as_ptr(), c"Boundary".as_ptr() as *const c_char).is_null() {
+            sscanf(line.as_ptr(), c"%d".as_ptr() as *const c_char, &mut (*sidetype));
             // NOTE: C `MAX` macro (egdef.h:97); arms pure.
             if *maxside < *sidetype {
                 *maxside = *sidetype;
             }
         } else {
             *j += 1;
-            sscanf(line.as_ptr(), b"%d\0".as_ptr() as *const c_char, &mut (*k));
+            sscanf(line.as_ptr(), c"%d".as_ptr() as *const c_char, &mut (*k));
             *(*nodeindx).wrapping_offset(*j as isize) =
                 *(*revindx).wrapping_offset(*k as isize);
             if *(*nodeindx).wrapping_offset(*j as isize) == 0 {
                 printf(
-                    b"The boundary %dth node %d is not in index list\n\0".as_ptr()
+                    c"The boundary %dth node %d is not in index list\n".as_ptr()
                         as *const c_char,
                     *j,
                     *k,
@@ -3813,7 +3823,7 @@ unsafe fn ansys_boundary(
         *i += 1;
     }
     printf(
-        b"Found %d boundary nodes with %d as maximum side.\n\0".as_ptr() as *const c_char,
+        c"Found %d boundary nodes with %d as maximum side.\n".as_ptr() as *const c_char,
         *j,
         *maxside,
     );
@@ -3873,25 +3883,25 @@ unsafe fn ansys_names(
             *i += 1;
         }
     }
-    sprintf(filename, b"%s.names\0".as_ptr() as *const c_char, prefix);
-    *input = fopen(filename, b"r\0".as_ptr() as *const c_char);
+    sprintf(filename, c"%s.names".as_ptr() as *const c_char, prefix);
+    *input = fopen(filename, c"r".as_ptr() as *const c_char);
     loop {
         if Getrow(line.as_mut_ptr(), *input, TRUE) != 0 {
             break;
         }
         sscanf(
             line.as_ptr(),
-            b"%d%s%s%d\0".as_ptr() as *const c_char,
+            c"%d%s%s%d".as_ptr() as *const c_char,
             &mut bcind,
             text.as_mut_ptr(),
             text2.as_mut_ptr(),
             &mut (*sides),
         );
-        if !strstr(text2.as_ptr(), b"BODY\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(text2.as_ptr(), c"BODY".as_ptr() as *const c_char).is_null() {
             ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, *input);
             sscanf(
                 line.as_ptr(),
-                b"%d%d\0".as_ptr() as *const c_char,
+                c"%d%d".as_ptr() as *const c_char,
                 &mut (*j),
                 &mut bcind,
             );
@@ -3899,7 +3909,7 @@ unsafe fn ansys_names(
                 (*data).bodyname[bcind as usize] = cvector(0, MAXNAMESIZE as c_int);
             }
             strcpy((*data).bodyname[bcind as usize], text.as_ptr());
-        } else if !strstr(text2.as_ptr(), b"BOUNDARY\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(text2.as_ptr(), c"BOUNDARY".as_ptr() as *const c_char).is_null() {
             // NOTE: read the boundary groups belonging to a name.
             *i = 1;
             while *i <= *maxside {
@@ -3911,7 +3921,7 @@ unsafe fn ansys_names(
                 ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, *input);
                 sscanf(
                     line.as_ptr(),
-                    b"%d%d\0".as_ptr() as *const c_char,
+                    c"%d%d".as_ptr() as *const c_char,
                     &mut (*j),
                     &mut bcind,
                 );
@@ -3932,7 +3942,7 @@ unsafe fn ansys_names(
             *bctypeused.wrapping_offset(bcind as isize) = TRUE;
             // NOTE: `if(0)` diagnostic omitted (runtime-dead).
             if bcind > MAXBCS as c_int {
-                bigerror(b"bcind larger than MAXBCS!\0".as_ptr() as *const c_char);
+                bigerror(c"bcind larger than MAXBCS!".as_ptr() as *const c_char);
             }
             if (*data).boundaryname[bcind as usize].is_null() {
                 (*data).boundaryname[bcind as usize] = cvector(0, MAXNAMESIZE as c_int);
@@ -3974,7 +3984,7 @@ unsafe fn ansys_names(
             }
             if info != 0 && !(*data).boundaryname[bcind as usize].is_null() {
                 printf(
-                    b"There are %d boundary elements with name %s.\n\0".as_ptr()
+                    c"There are %d boundary elements with name %s.\n".as_ptr()
                         as *const c_char,
                     *k + *l,
                     (*data).boundaryname[bcind as usize],
@@ -3997,7 +4007,7 @@ unsafe fn ansys_names(
             (*bound.wrapping_offset(1)).nosides = newsides;
             if info != 0 {
                 printf(
-                    b"Created %d additional boundary elements to achieve unique naming.\n\0".as_ptr()
+                    c"Created %d additional boundary elements to achieve unique naming.\n".as_ptr()
                         as *const c_char,
                     newsides,
                 );
@@ -4019,7 +4029,7 @@ unsafe fn ReorderFieldviewNodes(
 ) {
     let mut i: c_int;
     // NOTE: assigned once before every read.
-    let topology: *mut c_int;
+    
     // NOTE: `elementtype = 0` follows before every read.
     let mut elementtype: c_int;
     let order808: [c_int; 8] = [1, 2, 4, 3, 5, 6, 8, 7];
@@ -4046,16 +4056,16 @@ unsafe fn ReorderFieldviewNodes(
     }
     if elementtype == 0 {
         printf(
-            b"Unknown elementtype in element %d (%d nodes, %d dim).\n\0".as_ptr()
+            c"Unknown elementtype in element %d (%d nodes, %d dim).\n".as_ptr()
                 as *const c_char,
             element,
             nodes,
             dim,
         );
-        bigerror(b"Cannot continue\0".as_ptr() as *const c_char);
+        bigerror(c"Cannot continue".as_ptr() as *const c_char);
     }
     *(*data).elementtypes.wrapping_offset(element as isize) = elementtype;
-    topology = *(*data).topology.wrapping_offset(element as isize);
+    let topology: *mut c_int = *(*data).topology.wrapping_offset(element as isize);
     i = 0;
     while i < elementtype % 100 {
         if elementtype == 808 {
@@ -4074,7 +4084,9 @@ unsafe fn ReorderFieldviewNodes(
     }
 }
 
-// SAFETY: fieldview reader over caller-owned data; C status codes.
+/// # Safety
+///
+/// fieldview reader over caller-owned data; C status codes.
 #[no_mangle]
 pub unsafe extern "C" fn LoadFieldviewInput(
     data: *mut FemType,
@@ -4125,17 +4137,17 @@ pub unsafe extern "C" fn LoadFieldviewInput(
     let mut boundnodes: *mut c_int = core::ptr::null_mut();
     // NOTE: null-init (Ivector before guarded reads).
     let mut origtopology: *mut c_int = core::ptr::null_mut();
-    input = fopen(prefix, b"r\0".as_ptr() as *const c_char);
+    input = fopen(prefix, c"r".as_ptr() as *const c_char);
     if input.is_null() {
         AddExtension(
             prefix,
             filename.as_mut_ptr(),
-            b"dat\0".as_ptr() as *const c_char,
+            c"dat".as_ptr() as *const c_char,
         );
-        input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if input.is_null() {
             printf(
-                b"LoadFieldviewInput: opening of the Fieldview-file '%s' wasn't successful !\n\0".as_ptr()
+                c"LoadFieldviewInput: opening of the Fieldview-file '%s' wasn't successful !\n".as_ptr()
                     as *const c_char,
                 filename.as_ptr(),
             );
@@ -4160,53 +4172,44 @@ pub unsafe extern "C" fn LoadFieldviewInput(
             if isio.is_null() {
                 break;
             }
-            if !strstr(line.as_ptr(), b"END\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"END".as_ptr() as *const c_char).is_null() {
                 break;
             }
             // NOTE: control information.
-            if !strstr(line.as_ptr(), b"FIELDVIEW\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"FIELDVIEW".as_ptr() as *const c_char).is_null() {
                 mode = 1;
-            } else if !strstr(line.as_ptr(), b"CONSTANTS\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"CONSTANTS".as_ptr() as *const c_char).is_null() {
                 mode = 2;
-            } else if !strstr(line.as_ptr(), b"GRIDS\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"GRIDS".as_ptr() as *const c_char).is_null() {
                 mode = 3;
-            } else if !strstr(line.as_ptr(), b"Boundary Table\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"Boundary Table".as_ptr() as *const c_char).is_null() {
                 mode = 4;
-            } else if !strstr(line.as_ptr(), b"Variable Names\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"Variable Names".as_ptr() as *const c_char).is_null() {
                 mode = 5;
-            } else if !strstr(line.as_ptr(), b"Nodes\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"Nodes".as_ptr() as *const c_char).is_null() {
                 mode = 6;
-            } else if !strstr(line.as_ptr(), b"Boundary Faces\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"Boundary Faces".as_ptr() as *const c_char).is_null() {
                 mode = 7;
-            } else if !strstr(line.as_ptr(), b"Elements\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"Elements".as_ptr() as *const c_char).is_null() {
                 mode = 8;
-            } else if !strstr(line.as_ptr(), b"Variables\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"Variables".as_ptr() as *const c_char).is_null() {
                 mode = 9;
             }
             // NOTE: `else if(0)` diagnostic omitted (runtime-dead as in C).
         }
         // NOTE: C switch over mode.
         if mode == 1 {
-            printf(b"This is indeed a Fieldview input file.\n\0".as_ptr() as *const c_char);
+            printf(c"This is indeed a Fieldview input file.\n".as_ptr() as *const c_char);
             mode = 0;
-        } else if mode == 2 {
-            // NOTE: `if(0)` diagnostic omitted (runtime-dead).
-            mode = 0;
-        } else if mode == 3 {
-            // NOTE: `if(0)` diagnostic omitted (runtime-dead).
-            mode = 0;
-        } else if mode == 4 {
-            // NOTE: `if(0)` diagnostic omitted (runtime-dead).
-            mode = 0;
-        } else if mode == 5 {
+        } else if mode == 2 || mode == 3 || mode == 4 || mode == 5 {
             // NOTE: `if(0)` diagnostic omitted (runtime-dead).
             mode = 0;
         } else if mode == 6 {
             ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, input);
-            sscanf(line.as_ptr(), b"%d\0".as_ptr() as *const c_char, &mut noknots);
+            sscanf(line.as_ptr(), c"%d".as_ptr() as *const c_char, &mut noknots);
             (*data).noknots = noknots;
             if info != 0 {
-                printf(b"Loading %d node coordinates\n\0".as_ptr() as *const c_char, noknots);
+                printf(c"Loading %d node coordinates\n".as_ptr() as *const c_char, noknots);
             }
             // NOTE: C `Rvector` is a macro for `dvector` (egutils.h:15).
             (*data).x = dvector(1, noknots);
@@ -4217,7 +4220,7 @@ pub unsafe extern "C" fn LoadFieldviewInput(
                 ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, input);
                 sscanf(
                     line.as_ptr(),
-                    b"%le%le%le\0".as_ptr() as *const c_char,
+                    c"%le%le%le".as_ptr() as *const c_char,
                     &mut x,
                     &mut y,
                     &mut z,
@@ -4230,10 +4233,10 @@ pub unsafe extern "C" fn LoadFieldviewInput(
             mode = 0;
         } else if mode == 7 {
             ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, input);
-            sscanf(line.as_ptr(), b"%d\0".as_ptr() as *const c_char, &mut nobound);
+            sscanf(line.as_ptr(), c"%d".as_ptr() as *const c_char, &mut nobound);
             if info != 0 {
                 printf(
-                    b"Loading %d boundary element definitions\n\0".as_ptr() as *const c_char,
+                    c"Loading %d boundary element definitions\n".as_ptr() as *const c_char,
                     nobound,
                 );
             }
@@ -4266,7 +4269,7 @@ pub unsafe extern "C" fn LoadFieldviewInput(
             );
             mode = 0;
         } else if mode == 9 {
-            printf(b"Variables\n\0".as_ptr() as *const c_char);
+            printf(c"Variables\n".as_ptr() as *const c_char);
             mode = 0;
         }
         // NOTE: default arm is empty in C.
@@ -4274,7 +4277,7 @@ pub unsafe extern "C" fn LoadFieldviewInput(
     // NOTE: `end:` landing pad (C `goto` target).
     if maxindx != noknots {
         printf(
-            b"The maximum index %d differs from the number of nodes %d !\n\0".as_ptr()
+            c"The maximum index %d differs from the number of nodes %d !\n".as_ptr()
                 as *const c_char,
             maxindx,
             noknots,
@@ -4310,7 +4313,7 @@ unsafe fn fieldview_elems(
 ) {
     let _ = mode;
     if info != 0 {
-        printf(b"Loading bulk element definitions\n\0".as_ptr() as *const c_char);
+        printf(c"Loading bulk element definitions\n".as_ptr() as *const c_char);
     }
     if maxsidenodes == 4 {
         *noelements = noknots + *nobound;
@@ -4326,7 +4329,7 @@ unsafe fn fieldview_elems(
     loop {
         ioptr = fgets(line, MAXLINESIZE as c_int, input);
         *cp = line;
-        if !strstr(line, b"Variables\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"Variables".as_ptr() as *const c_char).is_null() {
             *mode = 9;
         }
         if *mode != 8 {
@@ -4350,16 +4353,16 @@ unsafe fn fieldview_elems(
         }
         ReorderFieldviewNodes(data, *origtopology, *i, 3, *j);
         if *nobulk + *nobound == *noelements + 1 {
-            printf(b"Too few elements (%d) were allocated!!\n\0".as_ptr() as *const c_char, *noelements);
+            printf(c"Too few elements (%d) were allocated!!\n".as_ptr() as *const c_char, *noelements);
         }
     }
     *nobulk = *i;
-    printf(b"Found %d bulk elements\n\0".as_ptr() as *const c_char, *nobulk);
+    printf(c"Found %d bulk elements\n".as_ptr() as *const c_char, *nobulk);
     if *nobulk + *nobound > *noelements {
-        printf(b"Too few elements (%d) were allocated!!\n\0".as_ptr() as *const c_char, *noelements);
+        printf(c"Too few elements (%d) were allocated!!\n".as_ptr() as *const c_char, *noelements);
     }
     printf(
-        b"Allocated %.4lg %% too many elements\n\0".as_ptr() as *const c_char,
+        c"Allocated %.4lg %% too many elements\n".as_ptr() as *const c_char,
         *noelements as Real * 100.0 / (*nobulk + *nobound) as Real - 100.0,
     );
     *i = 1;
@@ -4372,7 +4375,9 @@ unsafe fn fieldview_elems(
     *noelements = *nobulk + *nobound;
     (*data).noelements = *noelements;
 }
-// SAFETY: triangle reader over caller-owned data/bound; C status codes.
+/// # Safety
+///
+/// triangle reader over caller-owned data/bound; C status codes.
 #[no_mangle]
 pub unsafe extern "C" fn LoadTriangleInput(
     data: *mut FemType,
@@ -4393,7 +4398,7 @@ pub unsafe extern "C" fn LoadTriangleInput(
     // NOTE: 0-init (sscanf overwrites before reads).
     let mut dim: c_int = 0;
     // NOTE: assigned once before every read.
-    let elementtype: c_int;
+    
     // NOTE: 0-init for the &mut handoff (set in triangle_boundary).
     let mut bcmarkers: c_int = 0;
     // NOTE: 0-init for the &mut handoff (GetElementSide overwrites).
@@ -4418,7 +4423,7 @@ pub unsafe extern "C" fn LoadTriangleInput(
     // NOTE: assigned before every read (C uninit decl shape).
     let mut kmax: c_int;
     // NOTE: ivector overwrites unconditionally below before any use.
-    let boundnodes: *mut c_int;
+    
     let mut input: *mut FILE;
     // NOTE: `cp = line...` overwrites unconditionally below before any use.
     let mut cp: *mut c_char;
@@ -4432,27 +4437,27 @@ pub unsafe extern "C" fn LoadTriangleInput(
     let mut invcol: *mut c_int = core::ptr::null_mut();
     if info != 0 {
         printf(
-            b"Loading mesh in Triangle format from file %s.*\n\0".as_ptr() as *const c_char,
+            c"Loading mesh in Triangle format from file %s.*\n".as_ptr() as *const c_char,
             prefix,
         );
     }
-    sprintf(nodefile.as_mut_ptr(), b"%s.node\0".as_ptr() as *const c_char, prefix);
-    input = fopen(nodefile.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    sprintf(nodefile.as_mut_ptr(), c"%s.node".as_ptr() as *const c_char, prefix);
+    input = fopen(nodefile.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadTriangleInput: The opening of the nodes file %s failed!\n\0".as_ptr()
+            c"LoadTriangleInput: The opening of the nodes file %s failed!\n".as_ptr()
                 as *const c_char,
             nodefile.as_ptr(),
         );
         return 1;
     } else {
-        printf(b"Loading nodes from file %s\n\0".as_ptr() as *const c_char, nodefile.as_ptr());
+        printf(c"Loading nodes from file %s\n".as_ptr() as *const c_char, nodefile.as_ptr());
     }
     // NOTE: C GETLINE macro (`ioptr=fgets(...)`); ioptr write-only here.
     ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, input);
     sscanf(
         line.as_ptr(),
-        b"%d %d %d %d\0".as_ptr() as *const c_char,
+        c"%d %d %d %d".as_ptr() as *const c_char,
         &mut noknots,
         &mut dim,
         &mut nodeatts,
@@ -4461,28 +4466,28 @@ pub unsafe extern "C" fn LoadTriangleInput(
     fclose(input);
     if dim != 2 {
         printf(
-            b"LoadTriangleInput assumes that the space dimension is 2, not %d.\n\0".as_ptr()
+            c"LoadTriangleInput assumes that the space dimension is 2, not %d.\n".as_ptr()
                 as *const c_char,
             dim,
         );
         return 2;
     }
-    sprintf(elemfile.as_mut_ptr(), b"%s.ele\0".as_ptr() as *const c_char, prefix);
-    input = fopen(elemfile.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    sprintf(elemfile.as_mut_ptr(), c"%s.ele".as_ptr() as *const c_char, prefix);
+    input = fopen(elemfile.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadTriangleInput: The opening of the element file %s failed!\n\0".as_ptr()
+            c"LoadTriangleInput: The opening of the element file %s failed!\n".as_ptr()
                 as *const c_char,
             elemfile.as_ptr(),
         );
         return 3;
     } else {
-        printf(b"Loading elements from file %s\n\0".as_ptr() as *const c_char, elemfile.as_ptr());
+        printf(c"Loading elements from file %s\n".as_ptr() as *const c_char, elemfile.as_ptr());
     }
     ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, input);
     sscanf(
         line.as_ptr(),
-        b"%d %d %d\0".as_ptr() as *const c_char,
+        c"%d %d %d".as_ptr() as *const c_char,
         &mut noelements,
         &mut maxnodes,
         &mut elematts,
@@ -4494,18 +4499,18 @@ pub unsafe extern "C" fn LoadTriangleInput(
     (*data).maxnodes = maxnodes;
     (*data).noelements = noelements;
     (*data).noknots = noknots;
-    elementtype = 300 + maxnodes;
+    let elementtype: c_int = 300 + maxnodes;
     bcinds = FALSE;
     if info != 0 {
         printf(
-            b"Allocating for %d knots and %d elements.\n\0".as_ptr() as *const c_char,
+            c"Allocating for %d knots and %d elements.\n".as_ptr() as *const c_char,
             noknots,
             noelements,
         );
     }
     AllocateKnots(data);
     // NOTE: C `Ivector` is a macro for `ivector` (egutils.h:16).
-    boundnodes = ivector(1, noknots);
+    let boundnodes: *mut c_int = ivector(1, noknots);
     i = 1;
     while i <= noknots {
         *boundnodes.wrapping_offset(i as isize) = 0;
@@ -4514,7 +4519,7 @@ pub unsafe extern "C" fn LoadTriangleInput(
     k = 0;
     jmax = 0;
     jmin = noknots;
-    input = fopen(nodefile.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(nodefile.as_ptr(), c"r".as_ptr() as *const c_char);
     ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, input);
     i = 1;
     while i <= noknots {
@@ -4546,19 +4551,19 @@ pub unsafe extern "C" fn LoadTriangleInput(
     fclose(input);
     if info != 0 {
         printf(
-            b"LoadTriangleInput: Node index different from order index for %d nodes\n\0".as_ptr()
+            c"LoadTriangleInput: Node index different from order index for %d nodes\n".as_ptr()
                 as *const c_char,
             k,
         );
         printf(
-            b"LoadTriangleInput: Node index ranged was [%d %d]\n\0".as_ptr() as *const c_char,
+            c"LoadTriangleInput: Node index ranged was [%d %d]\n".as_ptr() as *const c_char,
             jmin,
             jmax,
         );
     }
     offset = 0;
     if jmin == 0 {
-        printf(b"LoadTriangleInput: Using offset 1 to because of C-type indexing!\n\0".as_ptr() as *const c_char);
+        printf(c"LoadTriangleInput: Using offset 1 to because of C-type indexing!\n".as_ptr() as *const c_char);
         offset = 1;
     }
     k = 0;
@@ -4566,7 +4571,7 @@ pub unsafe extern "C" fn LoadTriangleInput(
     jmin = noelements;
     kmax = 0;
     kmin = noknots;
-    input = fopen(elemfile.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(elemfile.as_ptr(), c"r".as_ptr() as *const c_char);
     ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, input);
     i = 1;
     while i <= noelements {
@@ -4637,33 +4642,33 @@ pub unsafe extern "C" fn LoadTriangleInput(
     fclose(input);
     if info != 0 {
         printf(
-            b"LoadTriangleInput: Element index different from order index for %d nodes\n\0".as_ptr()
+            c"LoadTriangleInput: Element index different from order index for %d nodes\n".as_ptr()
                 as *const c_char,
             k,
         );
         printf(
-            b"LoadTriangleInput: Element index ranged was [%d %d]\n\0".as_ptr() as *const c_char,
+            c"LoadTriangleInput: Element index ranged was [%d %d]\n".as_ptr() as *const c_char,
             jmin,
             jmax,
         );
         printf(
-            b"LoadTriangleInput: Node indexes in elements range [%d %d] (with offset)\n\0".as_ptr()
+            c"LoadTriangleInput: Node indexes in elements range [%d %d] (with offset)\n".as_ptr()
                 as *const c_char,
             kmin,
             kmax,
         );
     }
-    sprintf(polyfile.as_mut_ptr(), b"%s.edge\0".as_ptr() as *const c_char, prefix);
-    input = fopen(polyfile.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    sprintf(polyfile.as_mut_ptr(), c"%s.edge".as_ptr() as *const c_char, prefix);
+    input = fopen(polyfile.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadTriangleInput: The opening of the poly file %s failed!\n\0".as_ptr()
+            c"LoadTriangleInput: The opening of the poly file %s failed!\n".as_ptr()
                 as *const c_char,
             polyfile.as_ptr(),
         );
         return 1;
     } else {
-        printf(b"Loading boundaries from file %s\n\0".as_ptr() as *const c_char, polyfile.as_ptr());
+        printf(c"Loading boundaries from file %s\n".as_ptr() as *const c_char, polyfile.as_ptr());
     }
     triangle_boundary(
         data, bound, &mut bcinds, &mut sideelemtype, &mut jmin, &mut jmax, &mut i,
@@ -4671,7 +4676,7 @@ pub unsafe extern "C" fn LoadTriangleInput(
         polyfile.as_mut_ptr(), input, info, noknots, offset,
     );
     // NOTE: `finish:` landing pad (C `goto` target).
-    printf(b"Successfully read the mesh from the Triangle input file.\n\0".as_ptr() as *const c_char);
+    printf(c"Successfully read the mesh from the Triangle input file.\n".as_ptr() as *const c_char);
     0
 }
 // SAFETY: triangle .edge boundary section (split for sizing); the C
@@ -4712,19 +4717,19 @@ unsafe fn triangle_boundary(
         let mut j2: c_int;
         let mut k2: c_int;
         let mut hit: c_int;
-        let elemsides: c_int;
+        
         let mut sideind: [c_int; 2] = [0; 2];
         // NOTE: C declares `side` here but it is scoped to search+use below.
         // NOTE: assigned before every read (C `=0` decl init shape).
         let mut elemind: c_int = 0;
         bctype = 1;
-        elemsides = 3;
+        let elemsides: c_int = 3;
         hit = FALSE;
         let _ = elemind;
         ioptr = fgets(line, MAXLINESIZE as c_int, input);
         sscanf(
             line,
-            b"%d %d\0".as_ptr() as *const c_char,
+            c"%d %d".as_ptr() as *const c_char,
             &mut bcelems,
             &mut markers,
         );
@@ -4732,7 +4737,7 @@ unsafe fn triangle_boundary(
         if bcelems != 0 {
             if info != 0 {
                 printf(
-                    b"Allocating for %d boundary elements.\n\0".as_ptr() as *const c_char,
+                    c"Allocating for %d boundary elements.\n".as_ptr() as *const c_char,
                     bcelems,
                 );
             }
@@ -4749,7 +4754,7 @@ unsafe fn triangle_boundary(
                 if markers != 0 {
                     sscanf(
                         line,
-                        b"%d %d %d %d\0".as_ptr() as *const c_char,
+                        c"%d %d %d %d".as_ptr() as *const c_char,
                         &mut (*j),
                         &mut ind1,
                         &mut ind2,
@@ -4758,7 +4763,7 @@ unsafe fn triangle_boundary(
                 } else {
                     sscanf(
                         line,
-                        b"%d %d %d\0".as_ptr() as *const c_char,
+                        c"%d %d %d".as_ptr() as *const c_char,
                         &mut (*j),
                         &mut ind1,
                         &mut ind2,
@@ -4868,7 +4873,7 @@ unsafe fn triangle_boundary(
             }
             (*bound).nosides = *i;
             printf(
-                b"LoadTriangleInput: Node indexes in boundary range [%d %d] (with offset)\n\0".as_ptr()
+                c"LoadTriangleInput: Node indexes in boundary range [%d %d] (with offset)\n".as_ptr()
                     as *const c_char,
                 *jmin,
                 *jmax,
@@ -4877,8 +4882,10 @@ unsafe fn triangle_boundary(
     }
     let _ = polyfile;
 }
-// SAFETY: medit reader over caller-owned data; C status codes.
-// Two passes (count then fill) exactly as in C (`allocate`/`end`).
+/// # Safety
+///
+/// medit reader over caller-owned data; C status codes.
+/// Two passes (count then fill) exactly as in C (`allocate`/`end`).
 #[no_mangle]
 pub unsafe extern "C" fn LoadMeditInput(
     data: *mut FemType,
@@ -4905,17 +4912,17 @@ pub unsafe extern "C" fn LoadMeditInput(
     let mut cp: *mut c_char;
     let mut line: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
     let mut nodefile: [c_char; MAXFILESIZE] = [0; MAXFILESIZE];
-    sprintf(nodefile.as_mut_ptr(), b"%s.mesh\0".as_ptr() as *const c_char, prefix);
+    sprintf(nodefile.as_mut_ptr(), c"%s.mesh".as_ptr() as *const c_char, prefix);
     if info != 0 {
         printf(
-            b"Loading mesh in Medit format from file %s\n\0".as_ptr() as *const c_char,
+            c"Loading mesh in Medit format from file %s\n".as_ptr() as *const c_char,
             prefix,
         );
     }
-    input = fopen(nodefile.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(nodefile.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadMeditInput: The opening of the mesh file %s failed!\n\0".as_ptr()
+            c"LoadMeditInput: The opening of the mesh file %s failed!\n".as_ptr()
                 as *const c_char,
             nodefile.as_ptr(),
         );
@@ -4935,37 +4942,37 @@ pub unsafe extern "C" fn LoadMeditInput(
             // read is dominated by `elementtype = 303` in TRIANGLES; dropped.
             if info != 0 {
                 printf(
-                    b"Allocating for %d knots and %d elements.\n\0".as_ptr() as *const c_char,
+                    c"Allocating for %d knots and %d elements.\n".as_ptr() as *const c_char,
                     noknots,
                     noelements,
                 );
             }
             AllocateKnots(data);
             // NOTE: C reopens without a NULL check; mirrored exactly.
-            input = fopen(nodefile.as_ptr(), b"r\0".as_ptr() as *const c_char);
+            input = fopen(nodefile.as_ptr(), c"r".as_ptr() as *const c_char);
         }
         loop {
             if Getrow(line.as_mut_ptr(), input, TRUE) != 0 {
                 break;
             }
-            if !strstr(line.as_ptr(), b"END\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"END".as_ptr() as *const c_char).is_null() {
                 break;
             }
-            if !strstr(line.as_ptr(), b"DIMENSION\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"DIMENSION".as_ptr() as *const c_char).is_null() {
                 if Getrow(line.as_mut_ptr(), input, TRUE) != 0 {
                     break;
                 }
                 cp = line.as_mut_ptr();
                 dim = next_int(&mut cp);
-                printf(b"dim = %d %s\0".as_ptr() as *const c_char, dim, line.as_ptr());
-            } else if !strstr(line.as_ptr(), b"VERTICES\0".as_ptr() as *const c_char).is_null() {
-                printf(b"verts: %s\0".as_ptr() as *const c_char, line.as_ptr());
+                printf(c"dim = %d %s".as_ptr() as *const c_char, dim, line.as_ptr());
+            } else if !strstr(line.as_ptr(), c"VERTICES".as_ptr() as *const c_char).is_null() {
+                printf(c"verts: %s".as_ptr() as *const c_char, line.as_ptr());
                 if Getrow(line.as_mut_ptr(), input, TRUE) != 0 {
                     break;
                 }
                 cp = line.as_mut_ptr();
                 noknots = next_int(&mut cp);
-                printf(b"noknots = %d %s\0".as_ptr() as *const c_char, noknots, line.as_ptr());
+                printf(c"noknots = %d %s".as_ptr() as *const c_char, noknots, line.as_ptr());
                 i = 1;
                 while i <= noknots {
                     // NOTE: C GETLINE macro (`ioptr=fgets(...)`); ioptr write-only.
@@ -4980,13 +4987,13 @@ pub unsafe extern "C" fn LoadMeditInput(
                     }
                     i += 1;
                 }
-            } else if !strstr(line.as_ptr(), b"TRIANGLES\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"TRIANGLES".as_ptr() as *const c_char).is_null() {
                 if Getrow(line.as_mut_ptr(), input, TRUE) != 0 {
                     break;
                 }
                 cp = line.as_mut_ptr();
                 noelements = next_int(&mut cp);
-                printf(b"noelements = %d %s\0".as_ptr() as *const c_char, noelements, line.as_ptr());
+                printf(c"noelements = %d %s".as_ptr() as *const c_char, noelements, line.as_ptr());
                 elementtype = 303;
                 if maxnodes < 3 {
                     maxnodes = 3;
@@ -5012,18 +5019,20 @@ pub unsafe extern "C" fn LoadMeditInput(
         }
         // NOTE: `end:` landing pad (C `goto` target).
         fclose(input);
-        printf(b"ALLOCATED=%d\n\0".as_ptr() as *const c_char, allocated);
+        printf(c"ALLOCATED=%d\n".as_ptr() as *const c_char, allocated);
         if allocated == 0 {
             allocated = TRUE;
             // NOTE: C `goto allocate` (second pass).
             continue;
         }
-        printf(b"Successfully read the mesh from the Medit input file.\n\0".as_ptr() as *const c_char);
+        printf(c"Successfully read the mesh from the Medit input file.\n".as_ptr() as *const c_char);
         return 0;
     }
 }
-// SAFETY: gid reader over caller-owned data/bound; C status codes.
-// Two passes (count then fill) exactly as in C (`omstart`/`end`).
+/// # Safety
+///
+/// gid reader over caller-owned data/bound; C status codes.
+/// Two passes (count then fill) exactly as in C (`omstart`/`end`).
 #[no_mangle]
 pub unsafe extern "C" fn LoadGidInput(
     data: *mut FemType,
@@ -5112,24 +5121,24 @@ pub unsafe extern "C" fn LoadGidInput(
     let mut z: Real = 0.0;
     debug = FALSE;
     strcpy(filename.as_mut_ptr(), prefix);
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         AddExtension(
             prefix,
             filename.as_mut_ptr(),
-            b"msh\0".as_ptr() as *const c_char,
+            c"msh".as_ptr() as *const c_char,
         );
-        input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if input.is_null() {
             printf(
-                b"LoadGidInput: opening of the GID-file '%s' wasn't successful !\n\0".as_ptr()
+                c"LoadGidInput: opening of the GID-file '%s' wasn't successful !\n".as_ptr()
                     as *const c_char,
                 filename.as_ptr(),
             );
             return 1;
         }
     }
-    printf(b"Reading mesh from GID file %s.\n\0".as_ptr() as *const c_char, filename.as_ptr());
+    printf(c"Reading mesh from GID file %s.\n".as_ptr() as *const c_char, filename.as_ptr());
     InitializeKnots(data);
     allocated = FALSE;
     // NOTE: the file gives no counts; read twice, register on 2nd pass.
@@ -5181,14 +5190,14 @@ pub unsafe extern "C" fn LoadGidInput(
             (*data).dim = dim;
             if info != 0 {
                 printf(
-                    b"Allocating for %d knots and %d %d-node elements.\n\0".as_ptr()
+                    c"Allocating for %d knots and %d %d-node elements.\n".as_ptr()
                         as *const c_char,
                     noknots,
                     noelements,
                     maxnodes,
                 );
                 printf(
-                    b"Initial material indexes are at interval %d to %d.\n\0".as_ptr()
+                    c"Initial material indexes are at interval %d to %d.\n".as_ptr()
                         as *const c_char,
                     minbulk,
                     maxbulk,
@@ -5197,11 +5206,11 @@ pub unsafe extern "C" fn LoadGidInput(
             AllocateKnots(data);
             if info != 0 {
                 printf(
-                    b"Allocating %d boundary elements\n\0".as_ptr() as *const c_char,
+                    c"Allocating %d boundary elements\n".as_ptr() as *const c_char,
                     nosides,
                 );
                 printf(
-                    b"Initial boundary indexes are at interval %d to %d.\n\0".as_ptr()
+                    c"Initial boundary indexes are at interval %d to %d.\n".as_ptr()
                         as *const c_char,
                     minbound,
                     maxbound,
@@ -5224,7 +5233,7 @@ pub unsafe extern "C" fn LoadGidInput(
         free_ivector(usedno, 1, (*data).noknots);
         free_imatrix(usedelem, 1, (*data).noknots, 1, usedmax);
         if info != 0 {
-            printf(b"The mesh was loaded from file %s.\n\0".as_ptr() as *const c_char, filename.as_ptr());
+            printf(c"The mesh was loaded from file %s.\n".as_ptr() as *const c_char, filename.as_ptr());
         }
         return 0;
     }
@@ -5254,34 +5263,34 @@ unsafe fn gid_cmd(
     allocated: c_int,
     _info: c_int,
 ) -> bool {
-    if !strstr(line, b"MESH\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(line, c"MESH".as_ptr() as *const c_char).is_null() {
         if *debug != 0 {
-            printf(b"MESH\n\0".as_ptr() as *const c_char);
+            printf(c"MESH\n".as_ptr() as *const c_char);
         }
-        if !strstr(line, b"dimension 3\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"dimension 3".as_ptr() as *const c_char).is_null() {
             *dim = 3;
-        } else if !strstr(line, b"dimension 2\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line, c"dimension 2".as_ptr() as *const c_char).is_null() {
             *dim = 2;
         } else {
-            printf(b"Unknown dimension\n\0".as_ptr() as *const c_char);
+            printf(c"Unknown dimension\n".as_ptr() as *const c_char);
         }
-        if !strstr(line, b"ElemType Tetrahedra\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"ElemType Tetrahedra".as_ptr() as *const c_char).is_null() {
             *elembasis = 500;
-        } else if !strstr(line, b"ElemType Triangle\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line, c"ElemType Triangle".as_ptr() as *const c_char).is_null() {
             *elembasis = 300;
-        } else if !strstr(line, b"ElemType Linear\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line, c"ElemType Linear".as_ptr() as *const c_char).is_null() {
             *elembasis = 200;
         } else {
-            printf(b"Unknown elementtype: %s\n\0".as_ptr() as *const c_char, line);
+            printf(c"Unknown elementtype: %s\n".as_ptr() as *const c_char, line);
         }
-        if !strstr(line, b"Nnode 4\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"Nnode 4".as_ptr() as *const c_char).is_null() {
             *elemnodes = 4;
-        } else if !strstr(line, b"Nnode 3\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line, c"Nnode 3".as_ptr() as *const c_char).is_null() {
             *elemnodes = 3;
-        } else if !strstr(line, b"Nnode 2\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line, c"Nnode 2".as_ptr() as *const c_char).is_null() {
             *elemnodes = 2;
         } else {
-            printf(b"Unknown elementnode: %s\n\0".as_ptr() as *const c_char, line);
+            printf(c"Unknown elementnode: %s\n".as_ptr() as *const c_char, line);
         }
         if *elemnodes > *maxnodes {
             *maxnodes = *elemnodes;
@@ -5289,42 +5298,42 @@ unsafe fn gid_cmd(
         *elemtype = *elembasis + *elemnodes;
         *mode = 0;
         if *debug != 0 {
-            printf(b"dim=%d elemtype=%d\n\0".as_ptr() as *const c_char, *dim, *elemtype);
+            printf(c"dim=%d elemtype=%d\n".as_ptr() as *const c_char, *dim, *elemtype);
         }
         return true;
     }
-    if !strstr(line, b"Coordinates\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(line, c"Coordinates".as_ptr() as *const c_char).is_null() {
         if *debug != 0 {
-            printf(b"Start coords\n\0".as_ptr() as *const c_char);
+            printf(c"Start coords\n".as_ptr() as *const c_char);
         }
         *mode = 1;
         return true;
     }
-    if !strstr(line, b"end coordinates\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(line, c"end coordinates".as_ptr() as *const c_char).is_null() {
         if *debug != 0 {
-            printf(b"End coords\n\0".as_ptr() as *const c_char);
+            printf(c"End coords\n".as_ptr() as *const c_char);
         }
         *mode = 0;
         return true;
     }
-    if !strstr(line, b"Elements\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(line, c"Elements".as_ptr() as *const c_char).is_null() {
         if *bulkdone != 0 {
             if *debug != 0 {
-                printf(b"Start boundary elems\n\0".as_ptr() as *const c_char);
+                printf(c"Start boundary elems\n".as_ptr() as *const c_char);
             }
             *mode = 3;
             *boundarytype += 1;
         } else {
             if *debug != 0 {
-                printf(b"Start bulk elems\n\0".as_ptr() as *const c_char);
+                printf(c"Start bulk elems\n".as_ptr() as *const c_char);
             }
             *mode = 2;
         }
         return true;
     }
-    if !strstr(line, b"end elements\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(line, c"end elements".as_ptr() as *const c_char).is_null() {
         if *debug != 0 {
-            printf(b"End elems\n\0".as_ptr() as *const c_char);
+            printf(c"End elems\n".as_ptr() as *const c_char);
         }
         *mode = 0;
         if *bulkdone == 0 && allocated != 0 {
@@ -5391,7 +5400,7 @@ unsafe fn gid_cmd(
     }
     if *mode == 0 {
         if *debug != 0 {
-            printf(b"mode: %d %s\n\0".as_ptr() as *const c_char, *mode, line);
+            printf(c"mode: %d %s\n".as_ptr() as *const c_char, *mode, line);
         }
         return true;
     }
@@ -5493,9 +5502,9 @@ unsafe fn gid_bulk(
     allocated: c_int,
 ) {
     // NOTE: `ind` is local to this arm in C.
-    let ind: c_int;
+    
     *cp = line;
-    ind = next_int(&mut (*cp));
+    let ind: c_int = next_int(&mut (*cp));
     if ind > *noelements {
         *noelements = ind;
     }
@@ -5569,8 +5578,8 @@ unsafe fn gid_side(
         *i += 1;
     }
     *label = next_int(&mut (*cp));
-    if allocated == 0 {
-        if *label != 0 {
+    if allocated == 0
+        && *label != 0 {
             if *label > *maxbound {
                 *maxbound = *label;
             }
@@ -5578,7 +5587,6 @@ unsafe fn gid_side(
                 *minbound = *label;
             }
         }
-    }
     if allocated != 0 {
         if *label != 0 {
             *boundarytype = *label - *minbound + 1;
@@ -5605,7 +5613,7 @@ unsafe fn gid_side(
                     &mut (*sideelemtype),
                 );
                 if elemnodes != *sideelemtype % 100 {
-                    printf(b"LoadGidMesh: bug?\n\0".as_ptr() as *const c_char);
+                    printf(c"LoadGidMesh: bug?\n".as_ptr() as *const c_char);
                 }
                 *hits = 0;
                 *j = 0;
@@ -5640,7 +5648,7 @@ unsafe fn gid_side(
                     *(*bound).side2.wrapping_offset(*nosides as isize) = *side;
                 } else if *foundsame > 1 {
                     printf(
-                        b"Boundary %d has more than 2 parents\n\0".as_ptr() as *const c_char,
+                        c"Boundary %d has more than 2 parents\n".as_ptr() as *const c_char,
                         *nosides,
                     );
                 }
@@ -5649,11 +5657,11 @@ unsafe fn gid_side(
             *i += 1;
         }
         if *foundsame == 0 {
-            printf(b"Did not find parent for side %d\n\0".as_ptr() as *const c_char, *nosides);
+            printf(c"Did not find parent for side %d\n".as_ptr() as *const c_char, *nosides);
             *nosides -= 1;
         } else if debug != 0 {
             printf(
-                b"Parent of side %d is %d\n\0".as_ptr() as *const c_char,
+                c"Parent of side %d is %d\n".as_ptr() as *const c_char,
                 *nosides,
                 *(*bound).parent.wrapping_offset(*nosides as isize),
             );
@@ -5708,8 +5716,10 @@ unsafe fn ReorderComsolNodes(elementtype: c_int, topo: *mut c_int) {
     // NOTE: default arm is empty in C.
 }
 
-// SAFETY: comsol reader over caller-owned data/bound; C status codes.
-// Two passes (count then fill) exactly as in C (`omstart`/`end`).
+/// # Safety
+///
+/// comsol reader over caller-owned data/bound; C status codes.
+/// Two passes (count then fill) exactly as in C (`omstart`/`end`).
 #[no_mangle]
 pub unsafe extern "C" fn LoadComsolMesh(
     data: *mut FemType,
@@ -5735,7 +5745,7 @@ pub unsafe extern "C" fn LoadComsolMesh(
     let mut elembasis: c_int = 0;
     // NOTE: assigned in the pass loop before every read.
     let mut elemtype: c_int = 0;
-    let debug: c_int;
+    
     // NOTE: assigned in the pass loop before every read.
     let mut domains: c_int;
     // NOTE: assigned before every read (C uninit decl shape).
@@ -5779,18 +5789,18 @@ pub unsafe extern "C" fn LoadComsolMesh(
     let mut k: c_int = 0;
     let mut input: *mut FILE;
     strcpy(filename.as_mut_ptr(), prefix);
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         AddExtension(
             prefix,
             filename.as_mut_ptr(),
-            b"mphtxt\0".as_ptr() as *const c_char,
+            c"mphtxt".as_ptr() as *const c_char,
         );
-        input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if input.is_null() {
             if info != 0 {
                 printf(
-                    b"LoadComsolMesh: opening of the Comsol mesh file '%s' wasn't successful !\n\0".as_ptr()
+                    c"LoadComsolMesh: opening of the Comsol mesh file '%s' wasn't successful !\n".as_ptr()
                         as *const c_char,
                     filename.as_ptr(),
                 );
@@ -5800,12 +5810,12 @@ pub unsafe extern "C" fn LoadComsolMesh(
     }
     if info != 0 {
         printf(
-            b"Reading mesh from Comsol mesh file %s.\n\0".as_ptr() as *const c_char,
+            c"Reading mesh from Comsol mesh file %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
     InitializeKnots(data);
-    debug = FALSE;
+    let debug: c_int = FALSE;
     allocated = FALSE;
     mindom = 1000;
     minbc = 1000;
@@ -5824,32 +5834,32 @@ pub unsafe extern "C" fn LoadComsolMesh(
             if Comsolrow(line.as_mut_ptr(), input) != 0 {
                 break;
             }
-            if !strstr(line.as_ptr(), b"# sdim\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"# sdim".as_ptr() as *const c_char).is_null() {
                 cp = line.as_mut_ptr();
                 dim = next_int(&mut cp);
                 if info != 0 && allocated == 0 {
-                    printf(b"Dimension of mesh is: %d\n\0".as_ptr() as *const c_char, dim);
+                    printf(c"Dimension of mesh is: %d\n".as_ptr() as *const c_char, dim);
                 }
-            } else if !strstr(line.as_ptr(), b"# number of mesh points\0".as_ptr() as *const c_char).is_null()
-                || !strstr(line.as_ptr(), b"# number of mesh vertices\0".as_ptr() as *const c_char).is_null()
+            } else if !strstr(line.as_ptr(), c"# number of mesh points".as_ptr() as *const c_char).is_null()
+                || !strstr(line.as_ptr(), c"# number of mesh vertices".as_ptr() as *const c_char).is_null()
             {
                 cp = line.as_mut_ptr();
                 noknots = next_int(&mut cp);
                 if debug != 0 {
-                    printf(b"noknots=%d\n\0".as_ptr() as *const c_char, noknots);
+                    printf(c"noknots=%d\n".as_ptr() as *const c_char, noknots);
                 }
-            } else if !strstr(line.as_ptr(), b"# lowest mesh point index\0".as_ptr() as *const c_char).is_null()
-                || !strstr(line.as_ptr(), b"# lowest mesh vertex index\0".as_ptr() as *const c_char).is_null()
+            } else if !strstr(line.as_ptr(), c"# lowest mesh point index".as_ptr() as *const c_char).is_null()
+                || !strstr(line.as_ptr(), c"# lowest mesh vertex index".as_ptr() as *const c_char).is_null()
             {
                 cp = line.as_mut_ptr();
                 offset = 1 - next_int(&mut cp);
                 if debug != 0 {
-                    printf(b"offset=%d\n\0".as_ptr() as *const c_char, offset);
+                    printf(c"offset=%d\n".as_ptr() as *const c_char, offset);
                 }
-            } else if !strstr(line.as_ptr(), b"# type name\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"# type name".as_ptr() as *const c_char).is_null() {
                 comsol_basis(line.as_ptr(), &mut elembasis);
-            } else if !strstr(line.as_ptr(), b"# number of nodes per element\0".as_ptr() as *const c_char).is_null()
-                || !strstr(line.as_ptr(), b"# number of vertices per element\0".as_ptr() as *const c_char).is_null()
+            } else if !strstr(line.as_ptr(), c"# number of nodes per element".as_ptr() as *const c_char).is_null()
+                || !strstr(line.as_ptr(), c"# number of vertices per element".as_ptr() as *const c_char).is_null()
             {
                 cp = line.as_mut_ptr();
                 elemnodes = next_int(&mut cp);
@@ -5857,10 +5867,10 @@ pub unsafe extern "C" fn LoadComsolMesh(
                     maxnodes = elemnodes;
                 }
                 if debug != 0 {
-                    printf(b"elemnodes=%d\n\0".as_ptr() as *const c_char, elemnodes);
+                    printf(c"elemnodes=%d\n".as_ptr() as *const c_char, elemnodes);
                 }
-            } else if !strstr(line.as_ptr(), b"# Mesh point coordinates\0".as_ptr() as *const c_char).is_null()
-                || !strstr(line.as_ptr(), b"# Mesh vertex coordinates\0".as_ptr() as *const c_char).is_null()
+            } else if !strstr(line.as_ptr(), c"# Mesh point coordinates".as_ptr() as *const c_char).is_null()
+                || !strstr(line.as_ptr(), c"# Mesh vertex coordinates".as_ptr() as *const c_char).is_null()
             {
                 i = 1;
                 while i <= noknots {
@@ -5875,14 +5885,14 @@ pub unsafe extern "C" fn LoadComsolMesh(
                     }
                     i += 1;
                 }
-            } else if !strstr(line.as_ptr(), b"# number of elements\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"# number of elements".as_ptr() as *const c_char).is_null() {
                 comsol_elems(
                     data, &mut elemtype, &mut elemdim, &mut domains, &mut noelements,
                     elemnodes, elembasis, dim, &mut k, &mut i, &mut j, &mut cp,
                     line.as_mut_ptr(), input, offset, allocated, debug, info,
                 );
-            } else if !strstr(line.as_ptr(), b"# number of geometric entity indices\0".as_ptr() as *const c_char).is_null()
-                || !strstr(line.as_ptr(), b"# number of domains\0".as_ptr() as *const c_char).is_null()
+            } else if !strstr(line.as_ptr(), c"# number of geometric entity indices".as_ptr() as *const c_char).is_null()
+                || !strstr(line.as_ptr(), c"# number of domains".as_ptr() as *const c_char).is_null()
             {
                 comsol_domains(
                     data, &mut domains, &mut material, &mut minbc, &mut maxbc,
@@ -5891,8 +5901,8 @@ pub unsafe extern "C" fn LoadComsolMesh(
                     &mut k, &mut i,
                     &mut cp, line.as_mut_ptr(), input, allocated, debug,
                 );
-            } else if !strstr(line.as_ptr(), b"# Label\0".as_ptr() as *const c_char).is_null()
-                && strstr(line.as_ptr(), b"Union Selection\0".as_ptr() as *const c_char).is_null()
+            } else if !strstr(line.as_ptr(), c"# Label".as_ptr() as *const c_char).is_null()
+                && strstr(line.as_ptr(), c"Union Selection".as_ptr() as *const c_char).is_null()
             {
                 if comsol_label(
                     data, &mut n_label, &mut maxlabel, &mut entitylen, &mut entitydim,
@@ -5902,17 +5912,16 @@ pub unsafe extern "C" fn LoadComsolMesh(
                 ) {
                     break;
                 }
-            } else if !strstr(line.as_ptr(), b"#\0".as_ptr() as *const c_char).is_null() {
-                if debug != 0 {
-                    printf(b"Unused command:  %s\0".as_ptr() as *const c_char, line.as_ptr());
+            } else if !strstr(line.as_ptr(), c"#".as_ptr() as *const c_char).is_null()
+                && debug != 0 {
+                    printf(c"Unused command:  %s".as_ptr() as *const c_char, line.as_ptr());
                 }
-            }
         }
         // NOTE: `end:` landing pad (C `goto` target).
         if allocated == 0 {
             if noknots == 0 || noelements == 0 || maxnodes == 0 {
                 printf(
-                    b"Invalid mesh consists of %d knots and %d %d-node elements.\n\0".as_ptr()
+                    c"Invalid mesh consists of %d knots and %d %d-node elements.\n".as_ptr()
                         as *const c_char,
                     noknots,
                     noelements,
@@ -5924,7 +5933,7 @@ pub unsafe extern "C" fn LoadComsolMesh(
             rewind(input);
             if info != 0 {
                 printf(
-                    b"Comsol mesh consists of %d nodes and %d elements\n\0".as_ptr()
+                    c"Comsol mesh consists of %d nodes and %d elements\n".as_ptr()
                         as *const c_char,
                     noknots,
                     noelements,
@@ -5939,26 +5948,26 @@ pub unsafe extern "C" fn LoadComsolMesh(
             domoffset = 1 - mindom;
             if info != 0 {
                 printf(
-                    b"Original body index range is [%d,%d]\n\0".as_ptr() as *const c_char,
+                    c"Original body index range is [%d,%d]\n".as_ptr() as *const c_char,
                     mindom,
                     maxdom,
                 );
                 printf(
-                    b"Original bc index range is [%d,%d]\n\0".as_ptr() as *const c_char,
+                    c"Original bc index range is [%d,%d]\n".as_ptr() as *const c_char,
                     minbc,
                     maxbc,
                 );
                 if domoffset != 0 {
-                    printf(b"Offset of body indexing set to start from one!\n\0".as_ptr() as *const c_char);
+                    printf(c"Offset of body indexing set to start from one!\n".as_ptr() as *const c_char);
                 }
                 if bcoffset != 0 {
-                    printf(b"Offset of BC indexing set to start from one!\n\0".as_ptr() as *const c_char);
+                    printf(c"Offset of BC indexing set to start from one!\n".as_ptr() as *const c_char);
                 }
             }
             if maxlabel > 0 {
                 if info != 0 {
                     printf(
-                        b"Mesh has %d labels with physical names.\n\0".as_ptr() as *const c_char,
+                        c"Mesh has %d labels with physical names.\n".as_ptr() as *const c_char,
                         maxlabel,
                     );
                 }
@@ -5990,7 +5999,7 @@ pub unsafe extern "C" fn LoadComsolMesh(
             }
             if info != 0 {
                 printf(
-                    b"Allocating for %d knots and %d %d-node elements.\n\0".as_ptr()
+                    c"Allocating for %d knots and %d %d-node elements.\n".as_ptr()
                         as *const c_char,
                     noknots,
                     noelements,
@@ -6009,7 +6018,7 @@ pub unsafe extern "C" fn LoadComsolMesh(
                 i = minbc;
                 while i <= maxbc {
                     if *bclabel.wrapping_offset(i as isize) > 0 {
-                        printf(b"bc map: %d %d\n\0".as_ptr() as *const c_char, i, *bclabel.wrapping_offset(i as isize));
+                        printf(c"bc map: %d %d\n".as_ptr() as *const c_char, i, *bclabel.wrapping_offset(i as isize));
                     }
                     i += 1;
                 }
@@ -6017,7 +6026,7 @@ pub unsafe extern "C" fn LoadComsolMesh(
                 while i <= maxdom {
                     if *domlabel.wrapping_offset(i as isize) > 0 {
                         printf(
-                            b"bulk map: %d %d\n\0".as_ptr() as *const c_char,
+                            c"bulk map: %d %d\n".as_ptr() as *const c_char,
                             i,
                             *domlabel.wrapping_offset(i as isize),
                         );
@@ -6045,7 +6054,7 @@ pub unsafe extern "C" fn LoadComsolMesh(
             free_ivector(bcinfo, 1, noelements);
         }
         if info != 0 {
-            printf(b"Comsol mesh was loaded from file %s.\n\n\0".as_ptr() as *const c_char, filename.as_ptr());
+            printf(c"Comsol mesh was loaded from file %s.\n\n".as_ptr() as *const c_char, filename.as_ptr());
         }
         ElementsToBoundaryConditions(data, bound, FALSE, TRUE);
         return 0;
@@ -6053,25 +6062,25 @@ pub unsafe extern "C" fn LoadComsolMesh(
 }
 // SAFETY: comsol element-basis map (pure table).
 unsafe fn comsol_basis(line: *const c_char, elembasis: &mut c_int) {
-    if !strstr(line, b"vtx\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(line, c"vtx".as_ptr() as *const c_char).is_null() {
         *elembasis = 100;
-    } else if !strstr(line, b"edg\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"edg".as_ptr() as *const c_char).is_null() {
         *elembasis = 200;
-    } else if !strstr(line, b"tri\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"tri".as_ptr() as *const c_char).is_null() {
         *elembasis = 300;
-    } else if !strstr(line, b"quad\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"quad".as_ptr() as *const c_char).is_null() {
         *elembasis = 400;
-    } else if !strstr(line, b"tet\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"tet".as_ptr() as *const c_char).is_null() {
         *elembasis = 500;
-    } else if !strstr(line, b"pyr\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"pyr".as_ptr() as *const c_char).is_null() {
         *elembasis = 600;
-    } else if !strstr(line, b"prism\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"prism".as_ptr() as *const c_char).is_null() {
         *elembasis = 700;
-    } else if !strstr(line, b"hex\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"hex".as_ptr() as *const c_char).is_null() {
         *elembasis = 800;
     } else {
-        printf(b"unknown element type = %s\0".as_ptr() as *const c_char, line);
-        bigerror(b"Cannot continue!\n\0".as_ptr() as *const c_char);
+        printf(c"unknown element type = %s".as_ptr() as *const c_char, line);
+        bigerror(c"Cannot continue!\n".as_ptr() as *const c_char);
     }
 }
 
@@ -6103,7 +6112,7 @@ unsafe fn comsol_elems(
     *elemtype = elemnodes + elembasis;
     *elemdim = GetElementDimension(*elemtype);
     if debug != 0 {
-        printf(b"Loading %d elements of type %d\n\0".as_ptr() as *const c_char, *k, *elemtype);
+        printf(c"Loading %d elements of type %d\n".as_ptr() as *const c_char, *k, *elemtype);
     }
     *domains = *noelements;
     *i = 1;
@@ -6117,7 +6126,7 @@ unsafe fn comsol_elems(
             *i += 1;
             continue;
         }
-        *noelements = *noelements + 1;
+        *noelements += 1;
         if allocated != 0 {
             *(*data).elementtypes.wrapping_offset(*noelements as isize) = *elemtype;
             *(*data).material.wrapping_offset(*noelements as isize) = 1;
@@ -6165,7 +6174,7 @@ unsafe fn comsol_domains(
     *k = next_int(&mut (*cp));
     Comsolrow(line, input);
     if debug != 0 {
-        printf(b"Loading %d domains for the elements\n\0".as_ptr() as *const c_char, *k);
+        printf(c"Loading %d domains for the elements\n".as_ptr() as *const c_char, *k);
     }
     *i = 1;
     while *i <= *k {
@@ -6178,7 +6187,7 @@ unsafe fn comsol_domains(
             *i += 1;
             continue;
         }
-        *domains = *domains + 1;
+        *domains += 1;
         *cp = line;
         *material = next_int(&mut (*cp));
         if allocated != 0 {
@@ -6245,7 +6254,7 @@ unsafe fn comsol_label(
         *maxlabel = *n_label;
     }
     if debug != 0 {
-        printf(b"Reading Label %d\n\0".as_ptr() as *const c_char, *n_label);
+        printf(c"Reading Label %d\n".as_ptr() as *const c_char, *n_label);
     }
     if allocated != 0 {
         // NOTE: read the length of the label and proceed over the empty space.
@@ -6255,35 +6264,35 @@ unsafe fn comsol_label(
         strncpy(entityname.as_mut_ptr(), *cp, *entitylen as usize);
         entityname[*entitylen as usize] = 0 as c_char;
         if debug != 0 {
-            printf(b"BoundaryName %d is: %s\n\0".as_ptr() as *const c_char, *n_label, entityname.as_ptr());
+            printf(c"BoundaryName %d is: %s\n".as_ptr() as *const c_char, *n_label, entityname.as_ptr());
         }
     }
     *j = 0;
     *i = 1;
     while *i <= 4 {
         Comsolrow(line, input);
-        if !strstr(line, b"# Geometry/mesh tag\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"# Geometry/mesh tag".as_ptr() as *const c_char).is_null() {
             *j += 1;
         }
-        if !strstr(line, b"# Dimension\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"# Dimension".as_ptr() as *const c_char).is_null() {
             *cp = line;
             *entitydim = next_int(&mut (*cp));
             if debug != 0 {
-                printf(b"Dimension of entity: %d\n\0".as_ptr() as *const c_char, *entitydim);
+                printf(c"Dimension of entity: %d\n".as_ptr() as *const c_char, *entitydim);
             }
             *j += 1;
         }
-        if !strstr(line, b"# Number of entities\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"# Number of entities".as_ptr() as *const c_char).is_null() {
             *j += 1;
             *cp = line;
             n_ent = next_int(&mut (*cp));
             if debug != 0 {
-                printf(b"Number of entities: %d\n\0".as_ptr() as *const c_char, n_ent);
+                printf(c"Number of entities: %d\n".as_ptr() as *const c_char, n_ent);
             }
         }
-        if !strstr(line, b"# Entities\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"# Entities".as_ptr() as *const c_char).is_null() {
             if debug != 0 {
-                printf(b"Reading %d entities\n\0".as_ptr() as *const c_char, n_ent);
+                printf(c"Reading %d entities\n".as_ptr() as *const c_char, n_ent);
             }
             *j += 1;
             *k = 1;
@@ -6306,7 +6315,7 @@ unsafe fn comsol_label(
                         *(*domlabel).wrapping_offset(ind as isize) = ind1;
                         if debug != 0 {
                             printf(
-                                b"Mapping bulk: %d %d %d\n\0".as_ptr() as *const c_char,
+                                c"Mapping bulk: %d %d %d\n".as_ptr() as *const c_char,
                                 *n_label,
                                 ind,
                                 ind1,
@@ -6327,7 +6336,7 @@ unsafe fn comsol_label(
                         *(*bclabel).wrapping_offset(ind as isize) = ind1;
                         if debug != 0 {
                             printf(
-                                b"Mapping bc: %d %d %d\n\0".as_ptr() as *const c_char,
+                                c"Mapping bc: %d %d %d\n".as_ptr() as *const c_char,
                                 *n_label,
                                 ind,
                                 ind1,
@@ -6342,7 +6351,7 @@ unsafe fn comsol_label(
     }
     if *j < 4 {
         if debug != 0 {
-            printf(b"We should have number 4 keywords after label so something might be off!\n\0".as_ptr() as *const c_char);
+            printf(c"We should have number 4 keywords after label so something might be off!\n".as_ptr() as *const c_char);
         }
         return true;
     }
@@ -6414,7 +6423,7 @@ unsafe fn GmshToElmerType(gmshtype: c_int) -> c_int {
         elmertype = 520;
     } else {
         printf(
-            b"Gmsh element %d does not have an Elmer counterpart!\n\0".as_ptr() as *const c_char,
+            c"Gmsh element %d does not have an Elmer counterpart!\n".as_ptr() as *const c_char,
             gmshtype,
         );
     }
@@ -6504,7 +6513,7 @@ unsafe fn gmsh1_alloc(
         (*data).noknots = noknots;
         if _info != 0 {
             printf(
-                b"Allocating for %d knots and %d elements.\n\0".as_ptr() as *const c_char,
+                c"Allocating for %d knots and %d elements.\n".as_ptr() as *const c_char,
                 noknots,
                 noelements,
             );
@@ -6518,7 +6527,7 @@ unsafe fn gmsh1_alloc(
                 *i += 1;
             }
         }
-        *input = fopen(filename, b"r\0".as_ptr() as *const c_char);
+        *input = fopen(filename, c"r".as_ptr() as *const c_char);
     }
 }
 
@@ -6563,9 +6572,9 @@ unsafe fn gmsh1_nodes(
         *i += 1;
     }
     Getrow(line, input, TRUE);
-    if strstr(line, b"$ENDNOD\0".as_ptr() as *const c_char).is_null() {
-        printf(b"NOD section should end to string ENDNOD\n\0".as_ptr() as *const c_char);
-        printf(b"%s\n\0".as_ptr() as *const c_char, line);
+    if strstr(line, c"$ENDNOD".as_ptr() as *const c_char).is_null() {
+        printf(c"NOD section should end to string ENDNOD\n".as_ptr() as *const c_char);
+        printf(c"%s\n".as_ptr() as *const c_char, line);
     }
 }
 
@@ -6612,7 +6621,7 @@ unsafe fn gmsh1_elems(
             *(*data).material.wrapping_offset(*i as isize) = *regphys;
             if *elemnodes != *elementtype % 100 {
                 printf(
-                    b"Conflict in elementtypes %d and number of nodes %d!\n\0".as_ptr()
+                    c"Conflict in elementtypes %d and number of nodes %d!\n".as_ptr()
                         as *const c_char,
                     *elementtype,
                     *elemnodes,
@@ -6639,8 +6648,8 @@ unsafe fn gmsh1_elems(
         *i += 1;
     }
     Getrow(line, input, TRUE);
-    if strstr(line, b"$ENDELM\0".as_ptr() as *const c_char).is_null() {
-        printf(b"ELM section should end to string ENDELM\n\0".as_ptr() as *const c_char);
+    if strstr(line, c"$ENDELM".as_ptr() as *const c_char).is_null() {
+        printf(c"ELM section should end to string ENDELM\n".as_ptr() as *const c_char);
     }
 }
 // SAFETY: gmsh node renumber (split for sizing).
@@ -6660,7 +6669,7 @@ unsafe fn gmsh1_renumber(
 ) {
     if maxindx > noknots {
         printf(
-            b"Renumbering the %s nodes from %d to %d\n\0".as_ptr() as *const c_char,
+            c"Renumbering the %s nodes from %d to %d\n".as_ptr() as *const c_char,
             kind,
             maxindx,
             noknots,
@@ -6674,10 +6683,10 @@ unsafe fn gmsh1_renumber(
                 *k = *(*(*data).topology.wrapping_offset(*i as isize))
                     .wrapping_offset(*j as isize);
                 if *k <= 0 || *k > maxindx {
-                    printf(b"index out of bounds %d\n\0".as_ptr() as *const c_char, *k);
+                    printf(c"index out of bounds %d\n".as_ptr() as *const c_char, *k);
                 } else if *revindx.wrapping_offset(*k as isize) <= 0 {
                     printf(
-                        b"unknown node %d %d in element %d\n\0".as_ptr() as *const c_char,
+                        c"unknown node %d %d in element %d\n".as_ptr() as *const c_char,
                         *k,
                         *revindx.wrapping_offset(*k as isize),
                         *i,
@@ -6712,7 +6721,7 @@ pub unsafe extern "C" fn LoadGmshInput1(
     let mut noelements: c_int = 0;
     // NOTE: assigned before every read (C uninit decl shape).
     let mut maxnodes: c_int;
-    let dim: c_int;
+    
     let mut elemind: [c_int; MAXNODESD2] = [0; MAXNODESD2];
     // NOTE: 0-init for the &mut handoff (set in gmsh1_elems before reads).
     let mut elementtype: c_int = 0;
@@ -6743,22 +6752,22 @@ pub unsafe extern "C" fn LoadGmshInput1(
     let mut cp: *mut c_char = core::ptr::null_mut();
     let mut line: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
     let mut allocated: c_int;
-    input = fopen(filename, b"r\0".as_ptr() as *const c_char);
+    input = fopen(filename, c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadGmshInput: The opening of the mesh file %s failed!\n\0".as_ptr() as *const c_char,
+            c"LoadGmshInput: The opening of the mesh file %s failed!\n".as_ptr() as *const c_char,
             filename,
         );
         return 1;
     }
     if info != 0 {
         printf(
-            b"Loading mesh in Gmsh format 1.0 from file %s\n\0".as_ptr() as *const c_char,
+            c"Loading mesh in Gmsh format 1.0 from file %s\n".as_ptr() as *const c_char,
             filename,
         );
     }
     allocated = FALSE;
-    dim = (*data).dim;
+    let dim: c_int = (*data).dim;
     maxnodes = 0;
     maxindx = 0;
     maxelemtype = 0;
@@ -6772,16 +6781,16 @@ pub unsafe extern "C" fn LoadGmshInput1(
             if Getrow(line.as_mut_ptr(), input, TRUE) != 0 {
                 break;
             }
-            if !strstr(line.as_ptr(), b"END\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"END".as_ptr() as *const c_char).is_null() {
                 break;
             }
-            if !strstr(line.as_ptr(), b"$NOD\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"$NOD".as_ptr() as *const c_char).is_null() {
                 gmsh1_nodes(
                     data, &mut revindx, &mut noknots, &mut maxindx, dim, &mut i,
                     &mut j, &mut cp, line.as_mut_ptr(), input, allocated,
                 );
             }
-            if !strstr(line.as_ptr(), b"$ELM\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"$ELM".as_ptr() as *const c_char).is_null() {
                 gmsh1_elems(
                     data, elemind.as_mut_ptr(), &mut elementtype, &mut maxelemtype,
                     &mut noelements, &mut elemnodes, &mut maxnodes, &mut elemno,
@@ -6798,12 +6807,12 @@ pub unsafe extern "C" fn LoadGmshInput1(
         break;
     }
     gmsh1_renumber(
-        data, revindx, noknots, noelements, maxindx, b"Gmsh\0".as_ptr() as *const c_char,
+        data, revindx, noknots, noelements, maxindx, c"Gmsh".as_ptr() as *const c_char,
         &mut elementtype, &mut elemnodes, &mut i, &mut j, &mut k,
     );
     ModifyUnsupportedElements(data);
     ElementsToBoundaryConditions(data, bound, FALSE, info);
-    printf(b"Successfully read the mesh from the Gmsh input file.\n\0".as_ptr() as *const c_char);
+    printf(c"Successfully read the mesh from the Gmsh input file.\n".as_ptr() as *const c_char);
     0
 }
 // SAFETY: gmsh-2 $MeshFormat section (split for sizing).
@@ -6825,15 +6834,15 @@ unsafe fn gmsh2_meshformat(
             input,
         );
         if one != 1 {
-            printf(b"Gmsh binary file needs to swap bytes, not implemented in ElmerGrid. Exiting!\n\0".as_ptr() as *const c_char);
-            bigerror(b"Gmsh binary file needs to swap bytes, not implemented in ElmerGrid. Exiting!\0".as_ptr() as *const c_char);
+            printf(c"Gmsh binary file needs to swap bytes, not implemented in ElmerGrid. Exiting!\n".as_ptr() as *const c_char);
+            bigerror(c"Gmsh binary file needs to swap bytes, not implemented in ElmerGrid. Exiting!".as_ptr() as *const c_char);
         }
         Getrow(line, input, FALSE);
     }
     Getrow(line, input, FALSE);
-    if strstr(line, b"$EndMeshFormat\0".as_ptr() as *const c_char).is_null() {
+    if strstr(line, c"$EndMeshFormat".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$MeshFormat section should end to string $EndMeshFormat:\n%s\n\0".as_ptr()
+            c"$MeshFormat section should end to string $EndMeshFormat:\n%s\n".as_ptr()
                 as *const c_char,
             line,
         );
@@ -6873,7 +6882,7 @@ unsafe fn gmsh2_nodes(
             ) as c_int;
             if *frcount != 1 {
                 printf(
-                    b"23 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+                    c"23 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
                     *frcount,
                     1,
                 );
@@ -6886,7 +6895,7 @@ unsafe fn gmsh2_nodes(
             ) as c_int;
             if *frcount != 3 {
                 printf(
-                    b"24 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+                    c"24 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
                     *frcount,
                     3,
                 );
@@ -6918,9 +6927,9 @@ unsafe fn gmsh2_nodes(
         Getrow(line, input, FALSE);
     }
     Getrow(line, input, FALSE);
-    if strstr(line, b"$EndNodes\0".as_ptr() as *const c_char).is_null() {
+    if strstr(line, c"$EndNodes".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$Nodes section should end to string $EndNodes:\n%s\n\0".as_ptr() as *const c_char,
+            c"$Nodes section should end to string $EndNodes:\n%s\n".as_ptr() as *const c_char,
             line,
         );
     }
@@ -6951,7 +6960,7 @@ unsafe fn gmsh2_elem_bin(
     // NOTE: assigned before every read (C uninit decl shape).
     let mut dataIn4: [c_int; 4];
     // NOTE: assigned before every read (C uninit decl shape).
-    let numTags: c_int;
+    
     // NOTE: block-scoped C local becomes a binding.
     let mut inTag: [c_int; 5] = [0; 5];
     dataIn4 = [0; 4];
@@ -6963,13 +6972,13 @@ unsafe fn gmsh2_elem_bin(
     ) as c_int;
     if *frcount != 4 {
         printf(
-            b"25 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+            c"25 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
             *frcount,
             4,
         );
     }
     *gmshtype = dataIn4[0];
-    numTags = dataIn4[2];
+    let numTags: c_int = dataIn4[2];
     *elemno = dataIn4[3];
     *frcount = fread(
         inTag.as_mut_ptr() as *mut c_void,
@@ -6979,7 +6988,7 @@ unsafe fn gmsh2_elem_bin(
     ) as c_int;
     if *frcount != numTags {
         printf(
-            b"26 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+            c"26 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
             *frcount,
             numTags,
         );
@@ -6994,7 +7003,7 @@ unsafe fn gmsh2_elem_bin(
     ) as c_int;
     if *frcount != *elemnodes {
         printf(
-            b"27 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+            c"27 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
             *frcount,
             *elemnodes,
         );
@@ -7145,11 +7154,11 @@ unsafe fn gmsh2_elements(
     // elements need the array grown and a recompile.
     if *elemnodes > 125 {
         printf(
-            b"error: number of nodes per element of %d, exceeds 125\n\0".as_ptr() as *const c_char,
+            c"error: number of nodes per element of %d, exceeds 125\n".as_ptr() as *const c_char,
             *elemnodes,
         );
-        printf(b"increase size of inElems and recompile. Exiting!\n\0".as_ptr() as *const c_char);
-        bigerror(b"number of nodes per element exceeds 125. Exiting!\0".as_ptr() as *const c_char);
+        printf(c"increase size of inElems and recompile. Exiting!\n".as_ptr() as *const c_char);
+        bigerror(c"number of nodes per element exceeds 125. Exiting!".as_ptr() as *const c_char);
     }
     *i = 1;
     while *i <= *noelements {
@@ -7172,9 +7181,9 @@ unsafe fn gmsh2_elements(
         Getrow(line, input, FALSE);
     }
     Getrow(line, input, FALSE);
-    if strstr(line, b"$EndElements\0".as_ptr() as *const c_char).is_null() {
+    if strstr(line, c"$EndElements".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$Elements section should end to string $EndElements:\n%s\n\0".as_ptr()
+            c"$Elements section should end to string $EndElements:\n%s\n".as_ptr()
                 as *const c_char,
             line,
         );
@@ -7209,7 +7218,7 @@ unsafe fn gmsh2_physical(
             *cp = line;
             *gmshtype = next_int(&mut (*cp));
             if *gmshtype < entdim - 1 {
-                printf(b"Assuming maximum entity dim to be %d\n\0".as_ptr() as *const c_char, dim - 1);
+                printf(c"Assuming maximum entity dim to be %d\n".as_ptr() as *const c_char, dim - 1);
                 entdim -= 1;
             }
             *tagphys = next_int(&mut (*cp));
@@ -7222,12 +7231,12 @@ unsafe fn gmsh2_physical(
                     }
                     sscanf(
                         *cp,
-                        b" \"%[^\"]\"\0".as_ptr() as *const c_char,
+                        c" \"%[^\"]\"".as_ptr() as *const c_char,
                         (*data).boundaryname[*tagphys as usize],
                     );
                 } else {
                     printf(
-                        b"Index %d too high: ignoring physical %s %s\0".as_ptr() as *const c_char,
+                        c"Index %d too high: ignoring physical %s %s".as_ptr() as *const c_char,
                         *tagphys,
                         manifoldname[*gmshtype as usize].as_ptr(),
                         (*cp).wrapping_offset(1),
@@ -7242,12 +7251,12 @@ unsafe fn gmsh2_physical(
                     }
                     sscanf(
                         *cp,
-                        b" \"%[^\"]\"\0".as_ptr() as *const c_char,
+                        c" \"%[^\"]\"".as_ptr() as *const c_char,
                         (*data).bodyname[*tagphys as usize],
                     );
                 } else {
                     printf(
-                        b"Index %d too high: ignoring physical %s %s\0".as_ptr() as *const c_char,
+                        c"Index %d too high: ignoring physical %s %s".as_ptr() as *const c_char,
                         *tagphys,
                         manifoldname[*gmshtype as usize].as_ptr(),
                         (*cp).wrapping_offset(1),
@@ -7255,7 +7264,7 @@ unsafe fn gmsh2_physical(
                 }
             } else {
                 printf(
-                    b"Physical groups of dimension %d not supported in %d-dimensional mesh: ignoring group %d %s\0".as_ptr() as *const c_char,
+                    c"Physical groups of dimension %d not supported in %d-dimensional mesh: ignoring group %d %s".as_ptr() as *const c_char,
                     *gmshtype,
                     dim,
                     *tagphys,
@@ -7266,9 +7275,9 @@ unsafe fn gmsh2_physical(
         *i += 1;
     }
     Getrow(line, input, FALSE);
-    if strstr(line, b"$EndPhysicalNames\0".as_ptr() as *const c_char).is_null() {
+    if strstr(line, c"$EndPhysicalNames".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$EndPhysicalNames section should end to string $EndPhysicalNames:\n%s\n\0".as_ptr() as *const c_char,
+            c"$EndPhysicalNames section should end to string $EndPhysicalNames:\n%s\n".as_ptr() as *const c_char,
             line,
         );
     }
@@ -7297,7 +7306,7 @@ unsafe fn gmsh2_alloc(
         (*data).noknots = noknots;
         if info != 0 {
             printf(
-                b"Allocating for %d knots and %d elements.\n\0".as_ptr() as *const c_char,
+                c"Allocating for %d knots and %d elements.\n".as_ptr() as *const c_char,
                 noknots,
                 noelements,
             );
@@ -7337,8 +7346,8 @@ pub unsafe extern "C" fn LoadGmshInput2(
     // NOTE: 0-init for the &mut handoff (set in gmsh2_physical before reads).
     let mut nophysical: c_int = 0;
     // NOTE: assigned before every read (C uninit decl shape).
-    let maxnodes: c_int;
-    let dim: c_int;
+    
+    
     // NOTE: 0-init for the &mut handoff (set in gmsh2_elem_* before reads).
     let mut notags: c_int = 0;
     // NOTE: 0-init for the &mut handoff (set in gmsh2_nodes before reads).
@@ -7400,16 +7409,16 @@ pub unsafe extern "C" fn LoadGmshInput2(
             b'm' as c_char, b'e' as c_char, 0, 0, 0, 0,
         ],
     ];
-    let input: *mut FILE;
+    
     // NOTE: null-init (set on section entry before reads).
     let mut cp: *mut c_char = core::ptr::null_mut();
     let mut line: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
     // NOTE: C overwrites the parameter with FALSE; bare decl (opacity-safe).
     let mut usetaggeom_local: c_int;
-    input = fopen(filename, b"rb\0".as_ptr() as *const c_char);
+    let input: *mut FILE = fopen(filename, c"rb".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadGmshInput2: The opening of the mesh file %s failed!\n\0".as_ptr()
+            c"LoadGmshInput2: The opening of the mesh file %s failed!\n".as_ptr()
                 as *const c_char,
             filename,
         );
@@ -7417,13 +7426,13 @@ pub unsafe extern "C" fn LoadGmshInput2(
     }
     if info != 0 {
         printf(
-            b"Loading mesh in Gmsh format 2 from file %s\n\0".as_ptr() as *const c_char,
+            c"Loading mesh in Gmsh format 2 from file %s\n".as_ptr() as *const c_char,
             filename,
         );
     }
     allocated = FALSE;
-    dim = (*data).dim;
-    maxnodes = 0;
+    let dim: c_int = (*data).dim;
+    let maxnodes: c_int = 0;
     maxindx = 0;
     maxelemtype = 0;
     physvolexist = FALSE;
@@ -7435,18 +7444,18 @@ pub unsafe extern "C" fn LoadGmshInput2(
             if Getrow(line.as_mut_ptr(), input, FALSE) != 0 {
                 break;
             }
-            if !strstr(line.as_ptr(), b"$End\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"$End".as_ptr() as *const c_char).is_null() {
                 continue;
             }
-            if !strstr(line.as_ptr(), b"$MeshFormat\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"$MeshFormat".as_ptr() as *const c_char).is_null() {
                 gmsh2_meshformat(gmshbinary, &mut cp, line.as_mut_ptr(), input);
-            } else if !strstr(line.as_ptr(), b"$Nodes\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"$Nodes".as_ptr() as *const c_char).is_null() {
                 gmsh2_nodes(
                     data, &mut revindx, &mut noknots, &mut maxindx, dim, &mut nodenum,
                     &mut frcount, &mut i, &mut cp, line.as_mut_ptr(), input, gmshbinary,
                     allocated,
                 );
-            } else if !strstr(line.as_ptr(), b"$Elements\0".as_ptr() as *const c_char).is_null()
+            } else if !strstr(line.as_ptr(), c"$Elements".as_ptr() as *const c_char).is_null()
             {
                 gmsh2_elements(
                     data, elemind.as_mut_ptr(), &mut noelements, &mut elementtype,
@@ -7455,7 +7464,7 @@ pub unsafe extern "C" fn LoadGmshInput2(
                     &mut tagmat, &mut frcount, &mut i, &mut j, &mut cp,
                     line.as_mut_ptr(), input, gmshbinary, allocated,
                 );
-            } else if !strstr(line.as_ptr(), b"$PhysicalNames\0".as_ptr() as *const c_char)
+            } else if !strstr(line.as_ptr(), c"$PhysicalNames".as_ptr() as *const c_char)
                 .is_null()
             {
                 gmsh2_physical(
@@ -7464,7 +7473,7 @@ pub unsafe extern "C" fn LoadGmshInput2(
                     line.as_mut_ptr(), input, allocated,
                 );
             } else if allocated == 0 {
-                printf(b"Untreated command: %s\0".as_ptr() as *const c_char, line.as_ptr());
+                printf(c"Untreated command: %s".as_ptr() as *const c_char, line.as_ptr());
             }
         }
         if allocated != 0 {
@@ -7477,7 +7486,7 @@ pub unsafe extern "C" fn LoadGmshInput2(
     }
     let _ = maxnodes;
     gmsh1_renumber(
-        data, revindx, noknots, noelements, maxindx, b"Gmsh\0".as_ptr() as *const c_char,
+        data, revindx, noknots, noelements, maxindx, c"Gmsh".as_ptr() as *const c_char,
         &mut elementtype, &mut elemnodes, &mut i, &mut j, &mut k,
     );
     ModifyUnsupportedElements(data);
@@ -7485,7 +7494,7 @@ pub unsafe extern "C" fn LoadGmshInput2(
     (*data).bodynamesexist = physvolexist;
     (*data).boundarynamesexist = physsurfexist;
     if info != 0 {
-        printf(b"Successfully read the mesh from the Gmsh input file.\n\0".as_ptr() as *const c_char);
+        printf(c"Successfully read the mesh from the Gmsh input file.\n".as_ptr() as *const c_char);
     }
     0
 }
@@ -7501,15 +7510,15 @@ unsafe fn gmsh4_meshformat(
     *verno = next_int(&mut (*cp));
     if *verno != 4 {
         printf(
-            b"Version number is not compatible with the parser: %d\n\0".as_ptr()
+            c"Version number is not compatible with the parser: %d\n".as_ptr()
                 as *const c_char,
             *verno,
         );
     }
     Getrow(line, input, FALSE);
-    if strstr(line, b"$EndMeshFormat\0".as_ptr() as *const c_char).is_null() {
+    if strstr(line, c"$EndMeshFormat".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$MeshFormat section should end to string $EndMeshFormat:\n%s\n\0".as_ptr()
+            c"$MeshFormat section should end to string $EndMeshFormat:\n%s\n".as_ptr()
                 as *const c_char,
             line,
         );
@@ -7534,7 +7543,7 @@ unsafe fn gmsh4_nodes(
     info: c_int,
 ) {
     // NOTE: block-scoped C locals become bindings (parsed, never read).
-    let numEntityBlocks: c_int;
+    
     let mut _tagEntity: c_int;
     let mut _dimEntity: c_int;
     let mut _parEntity: c_int;
@@ -7542,11 +7551,11 @@ unsafe fn gmsh4_nodes(
     let mut ind: c_int;
     Getrow(line, input, FALSE);
     *cp = line;
-    numEntityBlocks = next_int(&mut (*cp));
+    let numEntityBlocks: c_int = next_int(&mut (*cp));
     *noknots = next_int(&mut (*cp));
     if allocated != 0 && info != 0 {
         printf(
-            b"Reading %d nodes in %d blocks.\n\0".as_ptr() as *const c_char,
+            c"Reading %d nodes in %d blocks.\n".as_ptr() as *const c_char,
             *noknots,
             numEntityBlocks,
         );
@@ -7586,9 +7595,9 @@ unsafe fn gmsh4_nodes(
         *j += 1;
     }
     Getrow(line, input, FALSE);
-    if strstr(line, b"$EndNodes\0".as_ptr() as *const c_char).is_null() {
+    if strstr(line, c"$EndNodes".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$Nodes section should end to string $EndNodes:\n%s\n\0".as_ptr() as *const c_char,
+            c"$Nodes section should end to string $EndNodes:\n%s\n".as_ptr() as *const c_char,
             line,
         );
     }
@@ -7611,10 +7620,10 @@ unsafe fn gmsh4_entities(
     allocated: c_int,
 ) {
     // NOTE: block-scoped C locals become bindings.
-    let numPoints: c_int;
-    let numCurves: c_int;
-    let numSurfaces: c_int;
-    let numVolumes: c_int;
+    
+    
+    
+    
     let mut numEnt: c_int = 0;
     let mut tag: c_int;
     let mut tagdim: c_int;
@@ -7628,10 +7637,10 @@ unsafe fn gmsh4_entities(
     *usetaggeom = FALSE;
     Getrow(line, input, FALSE);
     *cp = line;
-    numPoints = next_int(&mut (*cp));
-    numCurves = next_int(&mut (*cp));
-    numSurfaces = next_int(&mut (*cp));
-    numVolumes = next_int(&mut (*cp));
+    let numPoints: c_int = next_int(&mut (*cp));
+    let numCurves: c_int = next_int(&mut (*cp));
+    let numSurfaces: c_int = next_int(&mut (*cp));
+    let numVolumes: c_int = next_int(&mut (*cp));
     if allocated != 0 {
         *tagsize = 0;
         tagdim = 0;
@@ -7670,7 +7679,7 @@ unsafe fn gmsh4_entities(
             maxtag[tagdim as usize] = 0;
         } else if maxtag[tagdim as usize] > 0 {
             printf(
-                b"Tag range for %d %dDIM entities is [%d %d]\n\0".as_ptr() as *const c_char,
+                c"Tag range for %d %dDIM entities is [%d %d]\n".as_ptr() as *const c_char,
                 numEnt,
                 tagdim,
                 0,
@@ -7678,7 +7687,7 @@ unsafe fn gmsh4_entities(
             );
         }
         if numEnt > 0 && allocated == 0 {
-            printf(b"Reading %d entities in %dD\n\0".as_ptr() as *const c_char, numEnt, tagdim);
+            printf(c"Reading %d entities in %dD\n".as_ptr() as *const c_char, numEnt, tagdim);
         }
         *i = 1;
         while *i <= numEnt {
@@ -7730,7 +7739,7 @@ unsafe fn gmsh4_entities(
             }
             if *k > 0 && allocated == 0 {
                 printf(
-                    b"Entity line %d has length %d.\n\0".as_ptr() as *const c_char,
+                    c"Entity line %d has length %d.\n".as_ptr() as *const c_char,
                     *i,
                     *k + *j,
                 );
@@ -7740,9 +7749,9 @@ unsafe fn gmsh4_entities(
         tagdim += 1;
     }
     fgets(longline, LONGLINESIZE as c_int, input);
-    if strstr(longline, b"$EndEntities\0".as_ptr() as *const c_char).is_null() {
+    if strstr(longline, c"$EndEntities".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$Entities section should end to string $EndEntities:\n%s\n\0".as_ptr()
+            c"$Entities section should end to string $EndEntities:\n%s\n".as_ptr()
                 as *const c_char,
             longline,
         );
@@ -7770,7 +7779,7 @@ unsafe fn gmsh4_elements(
     allocated: c_int,
 ) {
     // NOTE: block-scoped C locals become bindings.
-    let numEntityBlocks: c_int;
+    
     let mut numElements: c_int;
     let mut tagEntity: c_int;
     let mut dimEntity: c_int;
@@ -7778,11 +7787,11 @@ unsafe fn gmsh4_elements(
     Getrow(line, input, FALSE);
     *cp = line;
     *k = 0;
-    numEntityBlocks = next_int(&mut (*cp));
+    let numEntityBlocks: c_int = next_int(&mut (*cp));
     *noelements = next_int(&mut (*cp));
     if allocated != 0 {
         printf(
-            b"Reading %d elements in %d blocks.\n\0".as_ptr() as *const c_char,
+            c"Reading %d elements in %d blocks.\n".as_ptr() as *const c_char,
             *noelements,
             numEntityBlocks,
         );
@@ -7803,7 +7812,7 @@ unsafe fn gmsh4_elements(
         }
         if allocated != 0 && tagsize > 0 {
             printf(
-                b"Reading %d elements with tag %d of type %d\n\0".as_ptr() as *const c_char,
+                c"Reading %d elements with tag %d of type %d\n".as_ptr() as *const c_char,
                 numElements,
                 tagEntity,
                 *elementtype,
@@ -7813,7 +7822,7 @@ unsafe fn gmsh4_elements(
                     != 0
                 {
                     printf(
-                        b"  Mapping mesh tag %d to physical tag %d in %dDIM\n\0".as_ptr()
+                        c"  Mapping mesh tag %d to physical tag %d in %dDIM\n".as_ptr()
                             as *const c_char,
                         tagEntity,
                         *(*tagmap
@@ -7826,7 +7835,7 @@ unsafe fn gmsh4_elements(
                     .wrapping_offset(tagEntity as isize);
                 } else {
                     printf(
-                        b"   Mesh tag %d is not associated to any physical tag!\n\0".as_ptr()
+                        c"   Mesh tag %d is not associated to any physical tag!\n".as_ptr()
                             as *const c_char,
                         tagEntity,
                     );
@@ -7860,9 +7869,9 @@ unsafe fn gmsh4_elements(
         *j += 1;
     }
     Getrow(line, input, FALSE);
-    if strstr(line, b"$EndElements\0".as_ptr() as *const c_char).is_null() {
+    if strstr(line, c"$EndElements".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$Elements section should end to string $EndElements:\n%s\n\0".as_ptr()
+            c"$Elements section should end to string $EndElements:\n%s\n".as_ptr()
                 as *const c_char,
             line,
         );
@@ -7897,7 +7906,7 @@ unsafe fn gmsh4_physical(
             *cp = line;
             *gmshtype = next_int(&mut (*cp));
             if *gmshtype < entdim - 1 {
-                printf(b"Assuming maximum entity dim to be %d\n\0".as_ptr() as *const c_char, dim - 1);
+                printf(c"Assuming maximum entity dim to be %d\n".as_ptr() as *const c_char, dim - 1);
                 entdim -= 1;
             }
             *tagphys = next_int(&mut (*cp));
@@ -7910,18 +7919,18 @@ unsafe fn gmsh4_physical(
                     }
                     sscanf(
                         *cp,
-                        b" \"%[^\"]\"\0".as_ptr() as *const c_char,
+                        c" \"%[^\"]\"".as_ptr() as *const c_char,
                         (*data).boundaryname[*tagphys as usize],
                     );
                     printf(
-                        b"Boundary name for physical group %d is: %s\n\0".as_ptr()
+                        c"Boundary name for physical group %d is: %s\n".as_ptr()
                             as *const c_char,
                         *tagphys,
                         (*data).boundaryname[*tagphys as usize],
                     );
                 } else {
                     printf(
-                        b"Index %d too high: ignoring physical %s %s\0".as_ptr() as *const c_char,
+                        c"Index %d too high: ignoring physical %s %s".as_ptr() as *const c_char,
                         *tagphys,
                         manifoldname[*gmshtype as usize].as_ptr(),
                         (*cp).wrapping_offset(1),
@@ -7936,17 +7945,17 @@ unsafe fn gmsh4_physical(
                     }
                     sscanf(
                         *cp,
-                        b" \"%[^\"]\"\0".as_ptr() as *const c_char,
+                        c" \"%[^\"]\"".as_ptr() as *const c_char,
                         (*data).bodyname[*tagphys as usize],
                     );
                     printf(
-                        b"Body name for physical group %d is: %s\n\0".as_ptr() as *const c_char,
+                        c"Body name for physical group %d is: %s\n".as_ptr() as *const c_char,
                         *tagphys,
                         (*data).bodyname[*tagphys as usize],
                     );
                 } else {
                     printf(
-                        b"Index %d too high: ignoring physical %s %s\0".as_ptr() as *const c_char,
+                        c"Index %d too high: ignoring physical %s %s".as_ptr() as *const c_char,
                         *tagphys,
                         manifoldname[*gmshtype as usize].as_ptr(),
                         (*cp).wrapping_offset(1),
@@ -7954,7 +7963,7 @@ unsafe fn gmsh4_physical(
                 }
             } else {
                 printf(
-                    b"Physical groups of dimension %d not supported in %d-dimensional mesh: ignoring group %d %s\0".as_ptr() as *const c_char,
+                    c"Physical groups of dimension %d not supported in %d-dimensional mesh: ignoring group %d %s".as_ptr() as *const c_char,
                     *gmshtype,
                     dim,
                     *tagphys,
@@ -7965,9 +7974,9 @@ unsafe fn gmsh4_physical(
         *i += 1;
     }
     Getrow(line, input, FALSE);
-    if strstr(line, b"$EndPhysicalNames\0".as_ptr() as *const c_char).is_null() {
+    if strstr(line, c"$EndPhysicalNames".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$EndPhysicalNames section should end to string $EndPhysicalNames:\n%s\n\0".as_ptr() as *const c_char,
+            c"$EndPhysicalNames section should end to string $EndPhysicalNames:\n%s\n".as_ptr() as *const c_char,
             line,
         );
     }
@@ -7981,90 +7990,90 @@ unsafe fn gmsh4_skip(
     i: &mut c_int,
     cp: &mut *mut c_char,
 ) {
-    if !strstr(line, b"$Periodic\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(line, c"$Periodic".as_ptr() as *const c_char).is_null() {
         // NOTE: block-scoped C local becomes a binding.
-        let numPeriodicLinks: c_int;
+        
         if allocated != 0 {
-            printf(b"Reading periodic links but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading periodic links but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         Getrow(line, input, FALSE);
         *cp = line;
-        numPeriodicLinks = next_int(&mut (*cp));
+        let numPeriodicLinks: c_int = next_int(&mut (*cp));
         *i = 1;
         while *i <= numPeriodicLinks {
             Getrow(line, input, FALSE);
             *i += 1;
         }
         Getrow(line, input, FALSE);
-        if strstr(line, b"$EndPeriodic\0".as_ptr() as *const c_char).is_null() {
+        if strstr(line, c"$EndPeriodic".as_ptr() as *const c_char).is_null() {
             printf(
-                b"$Periodic section should end to string $EndPeriodic:\n%s\n\0".as_ptr()
+                c"$Periodic section should end to string $EndPeriodic:\n%s\n".as_ptr()
                     as *const c_char,
                 line,
             );
         }
-    } else if !strstr(line, b"$PartitionedEntities\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"$PartitionedEntities".as_ptr() as *const c_char).is_null() {
         if allocated != 0 {
-            printf(b"Reading partitioned entities but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading partitioned entities but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         loop {
             Getrow(line, input, FALSE);
-            if !strstr(line, b"$EndPartitionedEntities\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"$EndPartitionedEntities".as_ptr() as *const c_char).is_null() {
                 break;
             }
         }
-    } else if !strstr(line, b"$NodeData\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"$NodeData".as_ptr() as *const c_char).is_null() {
         if allocated != 0 {
-            printf(b"Reading node data but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading node data but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         loop {
             Getrow(line, input, FALSE);
-            if !strstr(line, b"$EndNodeData\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"$EndNodeData".as_ptr() as *const c_char).is_null() {
                 break;
             }
         }
-    } else if !strstr(line, b"$ElementData\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"$ElementData".as_ptr() as *const c_char).is_null() {
         if allocated != 0 {
-            printf(b"Reading element data but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading element data but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         loop {
             Getrow(line, input, FALSE);
-            if !strstr(line, b"$EndElementData\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"$EndElementData".as_ptr() as *const c_char).is_null() {
                 break;
             }
         }
-    } else if !strstr(line, b"$ElementNodeData\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"$ElementNodeData".as_ptr() as *const c_char).is_null() {
         if allocated != 0 {
-            printf(b"Reading element node data but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading element node data but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         loop {
             Getrow(line, input, FALSE);
-            if !strstr(line, b"$EndElementNodeData\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"$EndElementNodeData".as_ptr() as *const c_char).is_null() {
                 break;
             }
         }
-    } else if !strstr(line, b"$GhostElements\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"$GhostElements".as_ptr() as *const c_char).is_null() {
         if allocated != 0 {
-            printf(b"Reading ghost elements data but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading ghost elements data but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         loop {
             Getrow(line, input, FALSE);
-            if !strstr(line, b"$EndGhostElements\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"$EndGhostElements".as_ptr() as *const c_char).is_null() {
                 break;
             }
         }
-    } else if !strstr(line, b"$InterpolationScheme\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"$InterpolationScheme".as_ptr() as *const c_char).is_null() {
         if allocated != 0 {
-            printf(b"Reading interpolation scheme but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading interpolation scheme but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         loop {
             Getrow(line, input, FALSE);
-            if !strstr(line, b"$EndInterpolationScheme\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"$EndInterpolationScheme".as_ptr() as *const c_char).is_null() {
                 break;
             }
         }
     } else if allocated != 0 {
-        printf(b"Untreated command: %s\0".as_ptr() as *const c_char, line);
+        printf(c"Untreated command: %s".as_ptr() as *const c_char, line);
     }
 }
 /// Load the grid in Gmsh 4 format.
@@ -8086,8 +8095,8 @@ pub unsafe extern "C" fn LoadGmshInput4(
     let mut noelements: c_int = 0;
     // NOTE: 0-init for the &mut handoff (set in gmsh4_physical before reads).
     let mut nophysical: c_int = 0;
-    let maxnodes: c_int;
-    let dim: c_int;
+    
+    
     // NOTE: dead C local kept read-visible for audit.
     let notags: c_int = 0;
     let _ = notags;
@@ -8152,17 +8161,17 @@ pub unsafe extern "C" fn LoadGmshInput4(
             b'm' as c_char, b'e' as c_char, 0, 0, 0, 0,
         ],
     ];
-    let input: *mut FILE;
+    
     // NOTE: null-init (set on section entry before reads).
     let mut cp: *mut c_char = core::ptr::null_mut();
     let mut line: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
     let mut longline: [c_char; LONGLINESIZE] = [0; LONGLINESIZE];
     // NOTE: C overwrites the parameter with TRUE; bare decl (opacity-safe).
     let mut usetaggeom_local: c_int;
-    input = fopen(filename, b"r\0".as_ptr() as *const c_char);
+    let input: *mut FILE = fopen(filename, c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadGmshInput4: The opening of the mesh file %s failed!\n\0".as_ptr()
+            c"LoadGmshInput4: The opening of the mesh file %s failed!\n".as_ptr()
                 as *const c_char,
             filename,
         );
@@ -8170,13 +8179,13 @@ pub unsafe extern "C" fn LoadGmshInput4(
     }
     if info != 0 {
         printf(
-            b"Loading mesh in Gmsh format 4 from file %s\n\0".as_ptr() as *const c_char,
+            c"Loading mesh in Gmsh format 4 from file %s\n".as_ptr() as *const c_char,
             filename,
         );
     }
     allocated = FALSE;
-    dim = (*data).dim;
-    maxnodes = 0;
+    let dim: c_int = (*data).dim;
+    let maxnodes: c_int = 0;
     maxindx = 0;
     maxelemtype = 0;
     physvolexist = FALSE;
@@ -8189,24 +8198,24 @@ pub unsafe extern "C" fn LoadGmshInput4(
             if Getrow(line.as_mut_ptr(), input, FALSE) != 0 {
                 break;
             }
-            if !strstr(line.as_ptr(), b"$End\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"$End".as_ptr() as *const c_char).is_null() {
                 continue;
             }
-            if !strstr(line.as_ptr(), b"$MeshFormat\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"$MeshFormat".as_ptr() as *const c_char).is_null() {
                 gmsh4_meshformat(&mut verno, &mut cp, line.as_mut_ptr(), input);
-            } else if !strstr(line.as_ptr(), b"$Nodes\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"$Nodes".as_ptr() as *const c_char).is_null() {
                 gmsh4_nodes(
                     data, &mut revindx, &mut noknots, &mut maxindx, dim, &mut i,
                     &mut j, &mut k, &mut cp, line.as_mut_ptr(), input, allocated, info,
                 );
-            } else if !strstr(line.as_ptr(), b"$Entities\0".as_ptr() as *const c_char).is_null()
+            } else if !strstr(line.as_ptr(), c"$Entities".as_ptr() as *const c_char).is_null()
             {
                 gmsh4_entities(
                     &mut tagmap, &mut tagsize, &mut maxtag, &mut usetaggeom_local,
                     &mut i, &mut j, &mut k, &mut l, &mut cp, line.as_mut_ptr(),
                     longline.as_mut_ptr(), input, allocated,
                 );
-            } else if !strstr(line.as_ptr(), b"$Elements\0".as_ptr() as *const c_char).is_null()
+            } else if !strstr(line.as_ptr(), c"$Elements".as_ptr() as *const c_char).is_null()
             {
                 gmsh4_elements(
                     data, elemind.as_mut_ptr(), tagmap, tagsize, &mut noelements,
@@ -8214,7 +8223,7 @@ pub unsafe extern "C" fn LoadGmshInput4(
                     &mut i, &mut j, &mut k, &mut l, &mut cp, line.as_mut_ptr(), input,
                     allocated,
                 );
-            } else if !strstr(line.as_ptr(), b"$PhysicalNames\0".as_ptr() as *const c_char)
+            } else if !strstr(line.as_ptr(), c"$PhysicalNames".as_ptr() as *const c_char)
                 .is_null()
             {
                 gmsh4_physical(
@@ -8230,10 +8239,10 @@ pub unsafe extern "C" fn LoadGmshInput4(
             break;
         }
         if noelements == 0 {
-            bigerror(b"No elements to load in Gmsh file!\0".as_ptr() as *const c_char);
+            bigerror(c"No elements to load in Gmsh file!".as_ptr() as *const c_char);
         }
         if noknots == 0 {
-            bigerror(b"No nodes to load in Gmsh file!\0".as_ptr() as *const c_char);
+            bigerror(c"No nodes to load in Gmsh file!".as_ptr() as *const c_char);
         }
         gmsh2_alloc(
             data, &mut revindx, noknots, noelements, maxindx, maxelemtype, dim, &mut i,
@@ -8242,7 +8251,7 @@ pub unsafe extern "C" fn LoadGmshInput4(
     }
     let _ = (maxnodes, usetaggeom_local);
     gmsh1_renumber(
-        data, revindx, noknots, noelements, maxindx, b"Gmsh\0".as_ptr() as *const c_char,
+        data, revindx, noknots, noelements, maxindx, c"Gmsh".as_ptr() as *const c_char,
         &mut elementtype, &mut elemnodes, &mut i, &mut j, &mut k,
     );
     ModifyUnsupportedElements(data);
@@ -8253,7 +8262,7 @@ pub unsafe extern "C" fn LoadGmshInput4(
         free_imatrix(tagmap, 0, 3, 1, tagsize);
     }
     if info != 0 {
-        printf(b"Successfully read the mesh from the Gmsh input file.\n\0".as_ptr() as *const c_char);
+        printf(c"Successfully read the mesh from the Gmsh input file.\n".as_ptr() as *const c_char);
     }
     0
 }
@@ -8275,15 +8284,15 @@ unsafe fn gmsh41_meshformat(
             input,
         ) as c_int;
         if one != 1 {
-            printf(b"Gmsh binary file needs to swap bytes, not implemented in ElmerGrid. Exiting!\n\0".as_ptr() as *const c_char);
-            bigerror(b"Gmsh binary file needs to swap bytes, not implemented in ElmerGrid. Exiting!\0".as_ptr() as *const c_char);
+            printf(c"Gmsh binary file needs to swap bytes, not implemented in ElmerGrid. Exiting!\n".as_ptr() as *const c_char);
+            bigerror(c"Gmsh binary file needs to swap bytes, not implemented in ElmerGrid. Exiting!".as_ptr() as *const c_char);
         }
         Getrow(line, input, FALSE);
     }
     Getrow(line, input, FALSE);
-    if strstr(line, b"$EndMeshFormat\0".as_ptr() as *const c_char).is_null() {
+    if strstr(line, c"$EndMeshFormat".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$MeshFormat section should end to string $EndMeshFormat:\n%s\n\0".as_ptr()
+            c"$MeshFormat section should end to string $EndMeshFormat:\n%s\n".as_ptr()
                 as *const c_char,
             line,
         );
@@ -8329,7 +8338,7 @@ unsafe fn gmsh41_nodes(
         ) as c_int;
         if *frcount != 4 {
             printf(
-                b"1 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+                c"1 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
                 *frcount,
                 4,
             );
@@ -8348,7 +8357,7 @@ unsafe fn gmsh41_nodes(
     }
     if allocated != 0 && info != 0 {
         printf(
-            b"Reading %d nodes in %d blocks.\n\0".as_ptr() as *const c_char,
+            c"Reading %d nodes in %d blocks.\n".as_ptr() as *const c_char,
             *noknots,
             numEntityBlocks,
         );
@@ -8369,7 +8378,7 @@ unsafe fn gmsh41_nodes(
             ) as c_int;
             if *frcount != 3 {
                 printf(
-                    b"2 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+                    c"2 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
                     *frcount,
                     3,
                 );
@@ -8385,7 +8394,7 @@ unsafe fn gmsh41_nodes(
             ) as c_int;
             if *frcount != 1 {
                 printf(
-                    b"3 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+                    c"3 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
                     *frcount,
                     1,
                 );
@@ -8411,7 +8420,7 @@ unsafe fn gmsh41_nodes(
                 ) as c_int;
                 if *frcount != 1 {
                     printf(
-                        b"4 fread error, frcount = %d, not equal to %d\n\0".as_ptr()
+                        c"4 fread error, frcount = %d, not equal to %d\n".as_ptr()
                             as *const c_char,
                         *frcount,
                         1,
@@ -8425,7 +8434,7 @@ unsafe fn gmsh41_nodes(
             // NOTE: `if(0)` debug print omitted (dead in C).
             if allocated != 0 {
                 if *maxindx > *noknots {
-                    *(*revindx).wrapping_offset(tagNode as isize) = *k + *i;
+                    *(*revindx).wrapping_add(tagNode) = *k + *i;
                 }
             } else {
                 // NOTE: C MAX macro over (size_t, int) compares in size_t
@@ -8449,7 +8458,7 @@ unsafe fn gmsh41_nodes(
                 ) as c_int;
                 if *frcount != 3 {
                     printf(
-                        b"5 fread error, frcount = %d, not equal to %d\n\0".as_ptr()
+                        c"5 fread error, frcount = %d, not equal to %d\n".as_ptr()
                             as *const c_char,
                         *frcount,
                         3,
@@ -8478,9 +8487,9 @@ unsafe fn gmsh41_nodes(
         Getrow(line, input, FALSE);
     }
     Getrow(line, input, FALSE);
-    if strstr(line, b"$EndNodes\0".as_ptr() as *const c_char).is_null() {
+    if strstr(line, c"$EndNodes".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$Nodes section should end to string $EndNodes:\n%s\n\0".as_ptr() as *const c_char,
+            c"$Nodes section should end to string $EndNodes:\n%s\n".as_ptr() as *const c_char,
             line,
         );
     }
@@ -8519,7 +8528,7 @@ unsafe fn gmsh41_entities_head(
         ) as c_int;
         if *frcount != 4 {
             printf(
-                b"6 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+                c"6 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
                 *frcount,
                 4,
             );
@@ -8548,7 +8557,7 @@ unsafe fn gmsh41_entities_head(
         }
         if info != 0 {
             printf(
-                b"Allocating lookup table for tags of size %d\n\0".as_ptr() as *const c_char,
+                c"Allocating lookup table for tags of size %d\n".as_ptr() as *const c_char,
                 *tagsize,
             );
         }
@@ -8599,7 +8608,7 @@ unsafe fn gmsh41_entity_bin(
     ) as c_int;
     if *frcount != 1 {
         printf(
-            b"7 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+            c"7 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
             *frcount,
             1,
         );
@@ -8615,7 +8624,7 @@ unsafe fn gmsh41_entity_bin(
         ) as c_int;
         if *frcount != 3 {
             printf(
-                b"8 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+                c"8 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
                 *frcount,
                 3,
             );
@@ -8628,7 +8637,7 @@ unsafe fn gmsh41_entity_bin(
         ) as c_int;
         if *frcount != 1 {
             printf(
-                b"9 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+                c"9 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
                 *frcount,
                 1,
             );
@@ -8642,7 +8651,7 @@ unsafe fn gmsh41_entity_bin(
             ) as c_int;
             if *frcount != nophys as c_int {
                 printf(
-                    b"9 fread error, frcount = %d, not equal to %lu\n\0".as_ptr()
+                    c"9 fread error, frcount = %d, not equal to %lu\n".as_ptr()
                         as *const c_char,
                     *frcount,
                     nophys,
@@ -8660,7 +8669,7 @@ unsafe fn gmsh41_entity_bin(
         ) as c_int;
         if *frcount != 6 {
             printf(
-                b"10 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+                c"10 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
                 *frcount,
                 6,
             );
@@ -8673,7 +8682,7 @@ unsafe fn gmsh41_entity_bin(
         ) as c_int;
         if *frcount != 1 {
             printf(
-                b"11 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+                c"11 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
                 *frcount,
                 1,
             );
@@ -8687,7 +8696,7 @@ unsafe fn gmsh41_entity_bin(
             ) as c_int;
             if *frcount != nophys as c_int {
                 printf(
-                    b"12 fread error, frcount = %d, not equal to %lu\n\0".as_ptr()
+                    c"12 fread error, frcount = %d, not equal to %lu\n".as_ptr()
                         as *const c_char,
                     *frcount,
                     nophys,
@@ -8702,7 +8711,7 @@ unsafe fn gmsh41_entity_bin(
         ) as c_int;
         if *frcount != 1 {
             printf(
-                b"13 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+                c"13 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
                 *frcount,
                 1,
             );
@@ -8720,7 +8729,7 @@ unsafe fn gmsh41_entity_bin(
                 ) as c_int;
                 if *frcount != 1 {
                     printf(
-                        b"14 fread error, frcount = %d, not equal to %d\n\0".as_ptr()
+                        c"14 fread error, frcount = %d, not equal to %d\n".as_ptr()
                             as *const c_char,
                         *frcount,
                         1,
@@ -8769,7 +8778,7 @@ unsafe fn gmsh41_entity_ascii(
     allocated: c_int,
 ) {
     // NOTE: `=0` decl init kept (nophys read before any overwrite).
-    let nophys: size_t;
+    
     // NOTE: assigned before every read (C uninit decl shape).
     let phystag: c_int;
     // NOTE: parsed, never read (bounding-box skip cursor).
@@ -8801,7 +8810,7 @@ unsafe fn gmsh41_entity_ascii(
         _rdum = next_real(&mut (*cp));
         *j += 1;
     }
-    nophys = next_int(&mut (*cp)) as size_t;
+    let nophys: size_t = next_int(&mut (*cp)) as size_t;
     if nophys > 0 {
         // NOTE: `if(0)` debug prints omitted (dead in C).
         phystag = next_int(&mut (*cp));
@@ -8899,7 +8908,7 @@ unsafe fn gmsh41_entities_dim(
             }
             if *k > 0 && allocated == 0 {
                 printf(
-                    b"Entity line %d has length %d.\n\0".as_ptr() as *const c_char,
+                    c"Entity line %d has length %d.\n".as_ptr() as *const c_char,
                     *i,
                     *k + *j,
                 );
@@ -8968,7 +8977,7 @@ unsafe fn gmsh41_entities(
                 minphystag[*tagdim as usize] = maxphystag[*tagdim as usize];
             }
             printf(
-                b"Defined %d %dDIM entities with geometric tag range [%d %d]\n\0".as_ptr()
+                c"Defined %d %dDIM entities with geometric tag range [%d %d]\n".as_ptr()
                     as *const c_char,
                 *numEnt,
                 *tagdim,
@@ -8977,7 +8986,7 @@ unsafe fn gmsh41_entities(
             );
             if maxphystag[*tagdim as usize] > 0 || maxreadtag[*tagdim as usize] > 0 {
                 printf(
-                    b"   Physical given tag range is [%d %d]\n\0".as_ptr() as *const c_char,
+                    c"   Physical given tag range is [%d %d]\n".as_ptr() as *const c_char,
                     minphystag[*tagdim as usize],
                     maxphystag[*tagdim as usize],
                 );
@@ -8986,13 +8995,13 @@ unsafe fn gmsh41_entities(
                 {
                     if maxreadtag[*tagdim as usize] > 0 {
                         printf(
-                            b"   Physical read tag range is [%d %d]\n\0".as_ptr()
+                            c"   Physical read tag range is [%d %d]\n".as_ptr()
                                 as *const c_char,
                             minreadtag[*tagdim as usize],
                             maxreadtag[*tagdim as usize],
                         );
                     } else {
-                        printf(b"   No physical tags read for real!\n\0".as_ptr() as *const c_char);
+                        printf(c"   No physical tags read for real!\n".as_ptr() as *const c_char);
                     }
                     // NOTE: `if(0)` smallerror omitted (dead in C).
                 }
@@ -9001,7 +9010,7 @@ unsafe fn gmsh41_entities(
             }
             if *tagdim > meshdim {
                 printf(
-                    b"We have %d %dDIM tags that are beyond mesh dimension %d!\n\0".as_ptr()
+                    c"We have %d %dDIM tags that are beyond mesh dimension %d!\n".as_ptr()
                         as *const c_char,
                     *numEnt,
                     *tagdim,
@@ -9011,7 +9020,7 @@ unsafe fn gmsh41_entities(
         }
         if *numEnt > 0 && allocated == 0 {
             printf(
-                b"Reading %d entities in %dD\n\0".as_ptr() as *const c_char,
+                c"Reading %d entities in %dD\n".as_ptr() as *const c_char,
                 *numEnt,
                 *tagdim,
             );
@@ -9033,7 +9042,7 @@ unsafe fn gmsh41_entities(
         phystagoffset[*tagdim as usize] =
             phystagoffset[(*tagdim + 1) as usize] + upper;
         printf(
-            b"Physical tag offset for %dD is %d\n\0".as_ptr() as *const c_char,
+            c"Physical tag offset for %dD is %d\n".as_ptr() as *const c_char,
             *tagdim,
             phystagoffset[*tagdim as usize],
         );
@@ -9053,7 +9062,7 @@ unsafe fn gmsh41_entities(
         };
         tagoffset[*tagdim as usize] = tagoffset[(*tagdim + 1) as usize] + upper;
         printf(
-            b"Geometric tag offset for %dD is %d\n\0".as_ptr() as *const c_char,
+            c"Geometric tag offset for %dD is %d\n".as_ptr() as *const c_char,
             *tagdim,
             tagoffset[*tagdim as usize],
         );
@@ -9063,9 +9072,9 @@ unsafe fn gmsh41_entities(
         fgets(longline, LONGLINESIZE as c_int, input);
     }
     fgets(longline, LONGLINESIZE as c_int, input);
-    if strstr(longline, b"$EndEntities\0".as_ptr() as *const c_char).is_null() {
+    if strstr(longline, c"$EndEntities".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$Entities section should end to string $EndEntities:\n%s\n\0".as_ptr()
+            c"$Entities section should end to string $EndEntities:\n%s\n".as_ptr()
                 as *const c_char,
             longline,
         );
@@ -9116,7 +9125,7 @@ unsafe fn gmsh41_elements(
         // NOTE: block-scoped C local becomes a binding.
         let mut data4: [size_t; 4] = [0; 4];
         // NOTE: block-scoped C local becomes a binding.
-        let totalNumElements: size_t;
+        
         *frcount = fread(
             data4.as_mut_ptr() as *mut c_void,
             core::mem::size_of::<size_t>(),
@@ -9125,13 +9134,13 @@ unsafe fn gmsh41_elements(
         ) as c_int;
         if *frcount != 4 {
             printf(
-                b"17 fread error, frcount = %d, not equal to %d\n\0".as_ptr() as *const c_char,
+                c"17 fread error, frcount = %d, not equal to %d\n".as_ptr() as *const c_char,
                 *frcount,
                 4,
             );
         }
         numEntityBlocks = data4[0];
-        totalNumElements = data4[1];
+        let totalNumElements: size_t = data4[1];
         *noelements = totalNumElements as c_int;
         minElementTag = data4[2];
         maxElementTag = data4[3];
@@ -9145,7 +9154,7 @@ unsafe fn gmsh41_elements(
     }
     if allocated != 0 {
         printf(
-            b"Reading %d elements in %lu blocks.\n\0".as_ptr() as *const c_char,
+            c"Reading %d elements in %lu blocks.\n".as_ptr() as *const c_char,
             *noelements,
             numEntityBlocks,
         );
@@ -9163,7 +9172,7 @@ unsafe fn gmsh41_elements(
             ) as c_int;
             if *frcount != 3 {
                 printf(
-                    b"18 fread error, frcount = %d, not equal to %d\n\0".as_ptr()
+                    c"18 fread error, frcount = %d, not equal to %d\n".as_ptr()
                         as *const c_char,
                     *frcount,
                     3,
@@ -9180,7 +9189,7 @@ unsafe fn gmsh41_elements(
             ) as c_int;
             if *frcount != 1 {
                 printf(
-                    b"19 fread error, frcount = %d, not equal to %d\n\0".as_ptr()
+                    c"19 fread error, frcount = %d, not equal to %d\n".as_ptr()
                         as *const c_char,
                     *frcount,
                     1,
@@ -9198,7 +9207,7 @@ unsafe fn gmsh41_elements(
         *elementtype = GmshToElmerType(typeEle);
         if *elementtype == 0 {
             bigerror(
-                b"Gmsh element type does not have an Elmer counterpart!\n\0".as_ptr()
+                c"Gmsh element type does not have an Elmer counterpart!\n".as_ptr()
                     as *const c_char,
             );
         }
@@ -9221,7 +9230,7 @@ unsafe fn gmsh41_elements(
                     != 0
                 {
                     printf(
-                        b"   Mapping mesh tag %d to physical tag %d in %dDIM\n\0".as_ptr()
+                        c"   Mapping mesh tag %d to physical tag %d in %dDIM\n".as_ptr()
                             as *const c_char,
                         tagEntity,
                         *(*tagmap.wrapping_offset(dimEntity as isize))
@@ -9242,12 +9251,12 @@ unsafe fn gmsh41_elements(
         // elements need the array grown and a recompile.
         if *elemnodes > 125 {
             printf(
-                b"error: number of nodes per element of %d, exceeds 125\n\0".as_ptr()
+                c"error: number of nodes per element of %d, exceeds 125\n".as_ptr()
                     as *const c_char,
                 *elemnodes,
             );
-            printf(b"increase size of nodeTag and recompile. Exiting!\n\0".as_ptr() as *const c_char);
-            bigerror(b"number of nodes per element exceeds 125. Exiting!\0".as_ptr() as *const c_char);
+            printf(c"increase size of nodeTag and recompile. Exiting!\n".as_ptr() as *const c_char);
+            bigerror(c"number of nodes per element exceeds 125. Exiting!".as_ptr() as *const c_char);
         }
         *m = 1;
         while *m <= numElements {
@@ -9260,7 +9269,7 @@ unsafe fn gmsh41_elements(
                 ) as c_int;
                 if *frcount != 1 {
                     printf(
-                        b"20 fread error, frcount = %d, not equal to %d\n\0".as_ptr()
+                        c"20 fread error, frcount = %d, not equal to %d\n".as_ptr()
                             as *const c_char,
                         *frcount,
                         1,
@@ -9279,7 +9288,7 @@ unsafe fn gmsh41_elements(
                     ) as c_int;
                     if *frcount != *elemnodes {
                         printf(
-                            b"21 fread error, frcount = %d, not equal to %d\n\0".as_ptr()
+                            c"21 fread error, frcount = %d, not equal to %d\n".as_ptr()
                                 as *const c_char,
                             *frcount,
                             *elemnodes,
@@ -9307,7 +9316,7 @@ unsafe fn gmsh41_elements(
                     ) as c_int;
                     if *frcount != *elemnodes {
                         printf(
-                            b"22 fread error, frcount = %d, not equal to %d\n\0".as_ptr()
+                            c"22 fread error, frcount = %d, not equal to %d\n".as_ptr()
                                 as *const c_char,
                             *frcount,
                             *elemnodes,
@@ -9345,9 +9354,9 @@ unsafe fn gmsh41_elements(
         Getrow(line, input, FALSE);
     }
     Getrow(line, input, FALSE);
-    if strstr(line, b"$EndElements\0".as_ptr() as *const c_char).is_null() {
+    if strstr(line, c"$EndElements".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$Elements section should end to string $EndElements:\n%s\n\0".as_ptr()
+            c"$Elements section should end to string $EndElements:\n%s\n".as_ptr()
                 as *const c_char,
             line,
         );
@@ -9410,17 +9419,17 @@ unsafe fn gmsh41_physical(
                     }
                     sscanf(
                         *cp,
-                        b" \"%[^\"]\"\0".as_ptr() as *const c_char,
+                        c" \"%[^\"]\"".as_ptr() as *const c_char,
                         (*data).boundaryname[(*tagphys + *l) as usize],
                     );
                     printf(
-                        b"BC name for physical group %d is: %s\n\0".as_ptr() as *const c_char,
+                        c"BC name for physical group %d is: %s\n".as_ptr() as *const c_char,
                         *tagphys,
                         (*data).boundaryname[(*tagphys + *l) as usize],
                     );
                 } else {
                     printf(
-                        b"Index %d too high: ignoring physical %s %s\0".as_ptr()
+                        c"Index %d too high: ignoring physical %s %s".as_ptr()
                             as *const c_char,
                         *tagphys,
                         manifoldname[*tagdim as usize].as_ptr(),
@@ -9437,17 +9446,17 @@ unsafe fn gmsh41_physical(
                     }
                     sscanf(
                         *cp,
-                        b" \"%[^\"]\"\0".as_ptr() as *const c_char,
+                        c" \"%[^\"]\"".as_ptr() as *const c_char,
                         (*data).bodyname[*tagphys as usize],
                     );
                     printf(
-                        b"Body name for physical group %d is: %s\n\0".as_ptr() as *const c_char,
+                        c"Body name for physical group %d is: %s\n".as_ptr() as *const c_char,
                         *tagphys,
                         (*data).bodyname[*tagphys as usize],
                     );
                 } else {
                     printf(
-                        b"Index %d too large: ignoring physical %s %s\0".as_ptr()
+                        c"Index %d too large: ignoring physical %s %s".as_ptr()
                             as *const c_char,
                         *tagphys,
                         manifoldname[*tagdim as usize].as_ptr(),
@@ -9459,9 +9468,9 @@ unsafe fn gmsh41_physical(
         *i += 1;
     }
     Getrow(line, input, FALSE);
-    if strstr(line, b"$EndPhysicalNames\0".as_ptr() as *const c_char).is_null() {
+    if strstr(line, c"$EndPhysicalNames".as_ptr() as *const c_char).is_null() {
         printf(
-            b"$PhysicalNames section should end to string $EndPhysicalNames:\n%s\n\0".as_ptr()
+            c"$PhysicalNames section should end to string $EndPhysicalNames:\n%s\n".as_ptr()
                 as *const c_char,
             line,
         );
@@ -9476,20 +9485,20 @@ unsafe fn gmsh41_skip(
     i: &mut c_int,
     cp: &mut *mut c_char,
 ) {
-    if !strstr(line, b"$Periodic\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(line, c"$Periodic".as_ptr() as *const c_char).is_null() {
         // NOTE: block-scoped C local becomes a binding.
         let mut numPeriodicLinks: c_int;
         if allocated != 0 {
-            printf(b"Reading periodic links but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading periodic links but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         // NOTE: `if(1)` arm taken verbatim (dead `else` arm dropped).
         numPeriodicLinks = 0;
         loop {
             Getrow(line, input, FALSE);
-            if !strstr(line, b"$EndPeriodic\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"$EndPeriodic".as_ptr() as *const c_char).is_null() {
                 if allocated != 0 {
                     printf(
-                        b"Number of lines for periodic stuff: %d\n\0".as_ptr() as *const c_char,
+                        c"Number of lines for periodic stuff: %d\n".as_ptr() as *const c_char,
                         numPeriodicLinks,
                     );
                 }
@@ -9497,68 +9506,68 @@ unsafe fn gmsh41_skip(
             }
             numPeriodicLinks += 1;
         }
-    } else if !strstr(line, b"$PartitionedEntities\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"$PartitionedEntities".as_ptr() as *const c_char).is_null() {
         if allocated != 0 {
-            printf(b"Reading partitioned entities but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading partitioned entities but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         loop {
             Getrow(line, input, FALSE);
-            if !strstr(line, b"$EndPartitionedEntities\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"$EndPartitionedEntities".as_ptr() as *const c_char).is_null() {
                 break;
             }
         }
-    } else if !strstr(line, b"$NodeData\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"$NodeData".as_ptr() as *const c_char).is_null() {
         if allocated != 0 {
-            printf(b"Reading node data but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading node data but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         loop {
             Getrow(line, input, FALSE);
-            if !strstr(line, b"$EndNodeData\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"$EndNodeData".as_ptr() as *const c_char).is_null() {
                 break;
             }
         }
-    } else if !strstr(line, b"$ElementData\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"$ElementData".as_ptr() as *const c_char).is_null() {
         if allocated != 0 {
-            printf(b"Reading element data but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading element data but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         loop {
             Getrow(line, input, FALSE);
-            if !strstr(line, b"$EndElementData\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"$EndElementData".as_ptr() as *const c_char).is_null() {
                 break;
             }
         }
-    } else if !strstr(line, b"$ElementNodeData\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"$ElementNodeData".as_ptr() as *const c_char).is_null() {
         if allocated != 0 {
-            printf(b"Reading element node data but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading element node data but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         loop {
             Getrow(line, input, FALSE);
-            if !strstr(line, b"$EndElementNodeData\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"$EndElementNodeData".as_ptr() as *const c_char).is_null() {
                 break;
             }
         }
-    } else if !strstr(line, b"$GhostElements\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"$GhostElements".as_ptr() as *const c_char).is_null() {
         if allocated != 0 {
-            printf(b"Reading ghost elements data but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading ghost elements data but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         loop {
             Getrow(line, input, FALSE);
-            if !strstr(line, b"$EndGhostElements\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"$EndGhostElements".as_ptr() as *const c_char).is_null() {
                 break;
             }
         }
-    } else if !strstr(line, b"$InterpolationScheme\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(line, c"$InterpolationScheme".as_ptr() as *const c_char).is_null() {
         if allocated != 0 {
-            printf(b"Reading interpolation scheme but doing nothing with them!\n\0".as_ptr() as *const c_char);
+            printf(c"Reading interpolation scheme but doing nothing with them!\n".as_ptr() as *const c_char);
         }
         loop {
             Getrow(line, input, FALSE);
-            if !strstr(line, b"$EndInterpolationScheme\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line, c"$EndInterpolationScheme".as_ptr() as *const c_char).is_null() {
                 break;
             }
         }
     } else if allocated != 0 {
-        printf(b"Untreated command: %s\0".as_ptr() as *const c_char, line);
+        printf(c"Untreated command: %s".as_ptr() as *const c_char, line);
     }
     let _ = (i, cp);
 }
@@ -9584,7 +9593,7 @@ unsafe fn gmsh41_renumber(
         let mut cnt3: c_int;
         let mut cnt4: c_int;
         printf(
-            b"Renumbering the Gmsh nodes from %d to %d\n\0".as_ptr() as *const c_char,
+            c"Renumbering the Gmsh nodes from %d to %d\n".as_ptr() as *const c_char,
             maxindx,
             noknots,
         );
@@ -9600,7 +9609,7 @@ unsafe fn gmsh41_renumber(
             *i += 1;
         }
         printf(
-            b"   Number of tagged nodes in reverse index table (out of %d): %d\n\0".as_ptr()
+            c"   Number of tagged nodes in reverse index table (out of %d): %d\n".as_ptr()
                 as *const c_char,
             maxindx,
             cnt1,
@@ -9615,16 +9624,16 @@ unsafe fn gmsh41_renumber(
                     .wrapping_offset(*j as isize);
                 if *k <= 0 || *k > maxindx {
                     if cnt2 < 10 {
-                        printf(b"   index out of bounds %d\n\0".as_ptr() as *const c_char, *k);
+                        printf(c"   index out of bounds %d\n".as_ptr() as *const c_char, *k);
                     }
                     if cnt2 == 10 {
-                        printf(b"  ...\n\0".as_ptr() as *const c_char);
+                        printf(c"  ...\n".as_ptr() as *const c_char);
                     }
                     cnt2 += 1;
                 } else if *revindx.wrapping_offset(*k as isize) <= 0 {
                     if cnt3 < 10 {
                         printf(
-                            b"   node %d (local node %d in element %d of type %d) not found in revindx!\n\0".as_ptr() as *const c_char,
+                            c"   node %d (local node %d in element %d of type %d) not found in revindx!\n".as_ptr() as *const c_char,
                             *k,
                             *j + 1,
                             *i,
@@ -9632,7 +9641,7 @@ unsafe fn gmsh41_renumber(
                         );
                     }
                     if cnt3 == 10 {
-                        printf(b"  ...\n\0".as_ptr() as *const c_char);
+                        printf(c"  ...\n".as_ptr() as *const c_char);
                     }
                     cnt3 += 1;
                 } else {
@@ -9647,7 +9656,7 @@ unsafe fn gmsh41_renumber(
         }
         if cnt2 != 0 {
             printf(
-                b"   Number of node indexes out of bounds [0 %d]: %d\n\0".as_ptr()
+                c"   Number of node indexes out of bounds [0 %d]: %d\n".as_ptr()
                     as *const c_char,
                 maxindx,
                 cnt2,
@@ -9655,14 +9664,14 @@ unsafe fn gmsh41_renumber(
         }
         if cnt3 != 0 {
             printf(
-                b"   Number of node indexes not found in inverse index table: %d\n\0".as_ptr()
+                c"   Number of node indexes not found in inverse index table: %d\n".as_ptr()
                     as *const c_char,
                 cnt3,
             );
         }
         if cnt4 != 0 {
             printf(
-                b"   Number of node indexes found in inverse index table: %d\n\0".as_ptr()
+                c"   Number of node indexes found in inverse index table: %d\n".as_ptr()
                     as *const c_char,
                 cnt4,
             );
@@ -9690,8 +9699,8 @@ pub unsafe extern "C" fn LoadGmshInput41(
     let mut noelements: c_int = 0;
     // NOTE: 0-init for the &mut handoff (set in gmsh41_physical before reads).
     let mut nophysical: c_int = 0;
-    let maxnodes: c_int;
-    let dim: c_int;
+    
+    
     // NOTE: dead C local kept read-visible for audit.
     let notags: c_int = 0;
     let _ = notags;
@@ -9773,7 +9782,7 @@ pub unsafe extern "C" fn LoadGmshInput41(
             b'm' as c_char, b'e' as c_char, 0, 0, 0, 0,
         ],
     ];
-    let input: *mut FILE;
+    
     // NOTE: null-init (set on section entry before reads).
     let mut cp: *mut c_char = core::ptr::null_mut();
     let mut line: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
@@ -9792,24 +9801,24 @@ pub unsafe extern "C" fn LoadGmshInput41(
     let mut numEnt: c_int = 0;
     // NOTE: 0-init for the &mut handoff (set in gmsh41_entities before reads).
     let mut tag: c_int = 0;
-    input = fopen(filename, b"rb\0".as_ptr() as *const c_char);
+    let input: *mut FILE = fopen(filename, c"rb".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"The opening of the mesh file %s failed!\n\0".as_ptr() as *const c_char,
+            c"The opening of the mesh file %s failed!\n".as_ptr() as *const c_char,
             filename,
         );
         return 1;
     }
     if info != 0 {
         printf(
-            b"Loading mesh in Gmsh format 4.1 from file %s\n\0".as_ptr() as *const c_char,
+            c"Loading mesh in Gmsh format 4.1 from file %s\n".as_ptr() as *const c_char,
             filename,
         );
     }
     allocated = FALSE;
-    dim = (*data).dim;
+    let dim: c_int = (*data).dim;
     meshdim = 0;
-    maxnodes = 0;
+    let maxnodes: c_int = 0;
     maxindx = 0;
     maxelemtype = 0;
     physvolexist = FALSE;
@@ -9830,24 +9839,24 @@ pub unsafe extern "C" fn LoadGmshInput41(
     // NOTE: C `omstart:` label + `goto omstart`; two passes then fall through.
     loop {
         if allocated != 0 {
-            printf(b"Leading element dimension is %d\n\0".as_ptr() as *const c_char, meshdim);
+            printf(c"Leading element dimension is %d\n".as_ptr() as *const c_char, meshdim);
         }
         loop {
             if Getrow(line.as_mut_ptr(), input, FALSE) != 0 {
                 break;
             }
-            if !strstr(line.as_ptr(), b"$End\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"$End".as_ptr() as *const c_char).is_null() {
                 continue;
             }
-            if !strstr(line.as_ptr(), b"$MeshFormat\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"$MeshFormat".as_ptr() as *const c_char).is_null() {
                 gmsh41_meshformat(gmshbinary, &mut frcount, line.as_mut_ptr(), input);
-            } else if !strstr(line.as_ptr(), b"$Nodes\0".as_ptr() as *const c_char).is_null() {
+            } else if !strstr(line.as_ptr(), c"$Nodes".as_ptr() as *const c_char).is_null() {
                 gmsh41_nodes(
                     data, &mut revindx, &mut noknots, &mut maxindx, &mut frcount,
                     &mut i, &mut j, &mut k, &mut cp, line.as_mut_ptr(), input,
                     gmshbinary, allocated, info,
                 );
-            } else if !strstr(line.as_ptr(), b"$Entities\0".as_ptr() as *const c_char).is_null()
+            } else if !strstr(line.as_ptr(), c"$Entities".as_ptr() as *const c_char).is_null()
             {
                 gmsh41_entities(
                     &mut tagmap, &mut tagsize, &mut maxtag, &mut mintag, &mut maxreadtag,
@@ -9858,7 +9867,7 @@ pub unsafe extern "C" fn LoadGmshInput41(
                     &mut l, &mut cp, line.as_mut_ptr(), longline.as_mut_ptr(), input,
                     gmshbinary, allocated, info,
                 );
-            } else if !strstr(line.as_ptr(), b"$Elements\0".as_ptr() as *const c_char).is_null()
+            } else if !strstr(line.as_ptr(), c"$Elements".as_ptr() as *const c_char).is_null()
             {
                 gmsh41_elements(
                     data, elemind.as_mut_ptr(), tagmap, tagsize, &tagoffset,
@@ -9867,7 +9876,7 @@ pub unsafe extern "C" fn LoadGmshInput41(
                     &mut i, &mut j, &mut k, &mut l, &mut m, &mut cp,
                     line.as_mut_ptr(), input, gmshbinary, allocated,
                 );
-            } else if !strstr(line.as_ptr(), b"$PhysicalNames\0".as_ptr() as *const c_char)
+            } else if !strstr(line.as_ptr(), c"$PhysicalNames".as_ptr() as *const c_char)
                 .is_null()
             {
                 gmsh41_physical(
@@ -9884,10 +9893,10 @@ pub unsafe extern "C" fn LoadGmshInput41(
             break;
         }
         if noelements == 0 {
-            bigerror(b"No elements to load in Gmsh file!\0".as_ptr() as *const c_char);
+            bigerror(c"No elements to load in Gmsh file!".as_ptr() as *const c_char);
         }
         if noknots == 0 {
-            bigerror(b"No nodes to load in Gmsh file!\0".as_ptr() as *const c_char);
+            bigerror(c"No nodes to load in Gmsh file!".as_ptr() as *const c_char);
         }
         gmsh2_alloc(
             data, &mut revindx, noknots, noelements, maxindx, maxelemtype, dim, &mut i,
@@ -9908,7 +9917,7 @@ pub unsafe extern "C" fn LoadGmshInput41(
     }
     if info != 0 {
         printf(
-            b"Successfully read the mesh from the Gmsh input file %s\n\0".as_ptr()
+            c"Successfully read the mesh from the Gmsh input file %s\n".as_ptr()
                 as *const c_char,
             filename,
         );
@@ -9939,18 +9948,18 @@ pub unsafe extern "C" fn LoadGmshInput(
     let mut i: c_int;
     // NOTE: keeporphans decides whether lower-order elements without a
     // higher-order entity survive; ElmerGUI dislikes keeping them.
-    sprintf(filename.as_mut_ptr(), b"%s\0".as_ptr() as *const c_char, prefix);
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    sprintf(filename.as_mut_ptr(), c"%s".as_ptr() as *const c_char, prefix);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         sprintf(
             filename.as_mut_ptr(),
-            b"%s.msh\0".as_ptr() as *const c_char,
+            c"%s.msh".as_ptr() as *const c_char,
             prefix,
         );
-        input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if input.is_null() {
             printf(
-                b"LoadGmshInput: The opening of the mesh file %s failed!\n\0".as_ptr()
+                c"LoadGmshInput: The opening of the mesh file %s failed!\n".as_ptr()
                     as *const c_char,
                 filename.as_ptr(),
             );
@@ -9960,11 +9969,11 @@ pub unsafe extern "C" fn LoadGmshInput(
     Getrow(line.as_mut_ptr(), input, FALSE);
     if info != 0 {
         printf(
-            b"Format chosen using the first line: %s\0".as_ptr() as *const c_char,
+            c"Format chosen using the first line: %s".as_ptr() as *const c_char,
             line.as_ptr(),
         );
     }
-    if !strstr(line.as_ptr(), b"$MeshFormat\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(line.as_ptr(), c"$MeshFormat".as_ptr() as *const c_char).is_null() {
         // NOTE: gmsh writes the version as floating point; parse as double
         // so types 1 and 3 detect correctly.
         // NOTE: 0-init for the sscanf handoff (overwritten before reads).
@@ -9977,30 +9986,30 @@ pub unsafe extern "C" fn LoadGmshInput(
         fclose(input);
         if sscanf(
             line.as_ptr(),
-            b"%lf %d %d\0".as_ptr() as *const c_char,
+            c"%lf %d %d".as_ptr() as *const c_char,
             &mut gmshversion,
             &mut gmshbinary,
             &mut gmshsize,
         ) != 3
         {
             printf(
-                b"Gmsh input line: %s, expected but didn't receive three items on line. Exiting!\n\0".as_ptr() as *const c_char,
+                c"Gmsh input line: %s, expected but didn't receive three items on line. Exiting!\n".as_ptr() as *const c_char,
                 line.as_ptr(),
             );
-            printf(b"Input line: %s\n\0".as_ptr() as *const c_char, line.as_ptr());
-            bigerror(b"Gmsh input line didn't receive the expected three items!\0".as_ptr() as *const c_char);
+            printf(c"Input line: %s\n".as_ptr() as *const c_char, line.as_ptr());
+            bigerror(c"Gmsh input line didn't receive the expected three items!".as_ptr() as *const c_char);
         }
         // NOTE: gmshversion is a float, hence the decimal thresholds.
         if gmshversion < 2.99 {
             if gmshbinary != 0 {
                 printf(
-                    b"Gmsh input file format is type %5.1f in binary.\n\0".as_ptr()
+                    c"Gmsh input file format is type %5.1f in binary.\n".as_ptr()
                         as *const c_char,
                     gmshversion,
                 );
             } else {
                 printf(
-                    b"Gmsh input file format is type %5.1f in ASCII.\n\0".as_ptr()
+                    c"Gmsh input file format is type %5.1f in ASCII.\n".as_ptr()
                         as *const c_char,
                     gmshversion,
                 );
@@ -10016,15 +10025,15 @@ pub unsafe extern "C" fn LoadGmshInput(
             );
         } else if gmshversion < 3.99 {
             printf(
-                b"Gmsh input file of format type %5.1f, is not supported. Exiting!\n\0".as_ptr()
+                c"Gmsh input file of format type %5.1f, is not supported. Exiting!\n".as_ptr()
                     as *const c_char,
                 gmshversion,
             );
-            printf(b"Please use Gmsh 4 versions for output from Gmsh\n\0".as_ptr() as *const c_char);
-            bigerror(b"Gmsh input file format is not supported!\0".as_ptr() as *const c_char);
+            printf(c"Please use Gmsh 4 versions for output from Gmsh\n".as_ptr() as *const c_char);
+            bigerror(c"Gmsh input file format is not supported!".as_ptr() as *const c_char);
         } else if gmshversion < 4.09 {
             printf(
-                b"Gmsh input file format is type %5.1f in ASCII.\n\0".as_ptr()
+                c"Gmsh input file format is type %5.1f in ASCII.\n".as_ptr()
                     as *const c_char,
                 gmshversion,
             );
@@ -10039,13 +10048,13 @@ pub unsafe extern "C" fn LoadGmshInput(
         } else if gmshversion < 5.0 {
             if gmshbinary != 0 {
                 printf(
-                    b"Gmsh input file format is type %5.1f in binary.\n\0".as_ptr()
+                    c"Gmsh input file format is type %5.1f in binary.\n".as_ptr()
                         as *const c_char,
                     gmshversion,
                 );
             } else {
                 printf(
-                    b"Gmsh input file format is type %5.1f in ASCII.\n\0".as_ptr()
+                    c"Gmsh input file format is type %5.1f in ASCII.\n".as_ptr()
                         as *const c_char,
                     gmshversion,
                 );
@@ -10061,26 +10070,26 @@ pub unsafe extern "C" fn LoadGmshInput(
             );
         } else {
             printf(
-                b"Gmsh input file of format type %5.1f, is not supported. Exiting!\n\0".as_ptr()
+                c"Gmsh input file of format type %5.1f, is not supported. Exiting!\n".as_ptr()
                     as *const c_char,
                 gmshversion,
             );
-            printf(b"Please use Gmsh 4 versions for output from Gmsh\n\0".as_ptr() as *const c_char);
-            bigerror(b"Gmsh input file format is not supported!\0".as_ptr() as *const c_char);
+            printf(c"Please use Gmsh 4 versions for output from Gmsh\n".as_ptr() as *const c_char);
+            bigerror(c"Gmsh input file format is not supported!".as_ptr() as *const c_char);
         }
     } else {
-        printf(b"*****************************************************\n\0".as_ptr() as *const c_char);
-        printf(b"The first line did not start with $MeshFormat, assuming Gmsh 1 format\n\0".as_ptr() as *const c_char);
-        printf(b"This version of Gmsh format is no longer supported\n\0".as_ptr() as *const c_char);
-        printf(b"Please use Gmsh 4 versions for output from Gmsh\n\0".as_ptr() as *const c_char);
-        printf(b"*****************************************************\n\0".as_ptr() as *const c_char);
+        printf(c"*****************************************************\n".as_ptr() as *const c_char);
+        printf(c"The first line did not start with $MeshFormat, assuming Gmsh 1 format\n".as_ptr() as *const c_char);
+        printf(c"This version of Gmsh format is no longer supported\n".as_ptr() as *const c_char);
+        printf(c"Please use Gmsh 4 versions for output from Gmsh\n".as_ptr() as *const c_char);
+        printf(c"*****************************************************\n".as_ptr() as *const c_char);
         errnum = LoadGmshInput1(data, bound, filename.as_mut_ptr(), info);
     }
     if info != 0 {
         if usetaggeom != 0 {
-            printf(b"Using geometric numbering of entities\n\0".as_ptr() as *const c_char);
+            printf(c"Using geometric numbering of entities\n".as_ptr() as *const c_char);
         } else {
-            printf(b"Using physical numbering of entities\n\0".as_ptr() as *const c_char);
+            printf(c"Using physical numbering of entities\n".as_ptr() as *const c_char);
         }
     }
     if dim < 3 {
@@ -10115,7 +10124,7 @@ unsafe fn fvcom_elem(
         *i = next_int(&mut (*cp));
         if *i != *noelements {
             printf(
-                b"Invalid element number: %d %d\n\0".as_ptr() as *const c_char,
+                c"Invalid element number: %d %d\n".as_ptr() as *const c_char,
                 *noelements,
                 *i,
             );
@@ -10147,7 +10156,7 @@ unsafe fn fvcom_node(
         *i = next_int(&mut (*cp));
         if *i != *noknots {
             printf(
-                b"Invalid node number: %d %d\n\0".as_ptr() as *const c_char,
+                c"Invalid node number: %d %d\n".as_ptr() as *const c_char,
                 *noknots,
                 *i,
             );
@@ -10226,13 +10235,13 @@ unsafe fn fvcom_alloc(
         (*data).noknots = noknots;
         if info != 0 {
             printf(
-                b"Allocating for %d knots and %d elements.\n\0".as_ptr() as *const c_char,
+                c"Allocating for %d knots and %d elements.\n".as_ptr() as *const c_char,
                 noknots,
                 noelements,
             );
         }
         AllocateKnots(data);
-        printf(b"Number of BC lines: %d\n\0".as_ptr() as *const c_char, bclines);
+        printf(c"Number of BC lines: %d\n".as_ptr() as *const c_char, bclines);
         *bcinds = ivector(1, 10 * bclines);
         *bctags = ivector(1, 10 * bclines);
         *i = 1;
@@ -10262,8 +10271,8 @@ pub unsafe extern "C" fn LoadFvcomMesh(
     // NOTE: assigned in the pass loop before every read.
     let mut noelements: c_int;
     // NOTE: assigned before every read (C uninit decl shape).
-    let maxnodes: c_int;
-    let dim: c_int;
+    
+    
     // NOTE: dead C local kept read-visible for audit.
     let elemind: [c_int; MAXNODESD2] = [0; MAXNODESD2];
     let _ = elemind;
@@ -10287,7 +10296,7 @@ pub unsafe extern "C" fn LoadFvcomMesh(
     let elemnodes: c_int = 0;
     let _ = elemnodes;
     // NOTE: assigned before every read (C uninit decl shape).
-    let maxelemtype: c_int;
+    
     // NOTE: dead C local kept read-visible for audit.
     let elemtype0: c_int = 0;
     let _ = elemtype0;
@@ -10308,14 +10317,14 @@ pub unsafe extern "C" fn LoadFvcomMesh(
     let mut nbc0: c_int;
     // NOTE: 0-init for the &mut handoff (set in fvcom_bc before reads).
     let mut bc_id: c_int = 0;
-    let input: *mut FILE;
+    
     // NOTE: null-init (set on section entry before reads).
     let mut cp: *mut c_char = core::ptr::null_mut();
     let mut line: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
-    input = fopen(filename, b"r\0".as_ptr() as *const c_char);
+    let input: *mut FILE = fopen(filename, c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadFVCOMInput: The opening of the FVCOM mesh file %s failed!\n\0".as_ptr()
+            c"LoadFVCOMInput: The opening of the FVCOM mesh file %s failed!\n".as_ptr()
                 as *const c_char,
             filename,
         );
@@ -10323,15 +10332,15 @@ pub unsafe extern "C" fn LoadFvcomMesh(
     }
     if info != 0 {
         printf(
-            b"Loading mesh in FVCOM format from file %s\n\0".as_ptr() as *const c_char,
+            c"Loading mesh in FVCOM format from file %s\n".as_ptr() as *const c_char,
             filename,
         );
     }
     allocated = FALSE;
-    dim = 2;
-    maxnodes = 0;
+    let dim: c_int = 2;
+    let maxnodes: c_int = 0;
     maxindx = 0;
-    maxelemtype = 303;
+    let maxelemtype: c_int = 303;
     // NOTE: C pre-loop `noelements = 0; bclines = 0;` dropped (pass resets).
     // NOTE: C `omstart:` label + `goto omstart`; two passes then fall through.
     loop {
@@ -10350,7 +10359,7 @@ pub unsafe extern "C" fn LoadFvcomMesh(
             }
             if memcmp(
                 line.as_ptr() as *const c_void,
-                b"E3T\0".as_ptr() as *const c_void,
+                c"E3T".as_ptr() as *const c_void,
                 3,
             ) == 0
             {
@@ -10360,7 +10369,7 @@ pub unsafe extern "C" fn LoadFvcomMesh(
                 );
             } else if memcmp(
                 line.as_ptr() as *const c_void,
-                b"ND\0".as_ptr() as *const c_void,
+                c"ND".as_ptr() as *const c_void,
                 2,
             ) == 0
             {
@@ -10370,7 +10379,7 @@ pub unsafe extern "C" fn LoadFvcomMesh(
                 );
             } else if memcmp(
                 line.as_ptr() as *const c_void,
-                b"NS\0".as_ptr() as *const c_void,
+                c"NS".as_ptr() as *const c_void,
                 2,
             ) == 0
             {
@@ -10381,26 +10390,24 @@ pub unsafe extern "C" fn LoadFvcomMesh(
                 );
             } else if memcmp(
                 line.as_ptr() as *const c_void,
-                b"MESH2D\0".as_ptr() as *const c_void,
+                c"MESH2D".as_ptr() as *const c_void,
                 6,
             ) == 0
             {
                 if allocated == 0 {
-                    printf(b"Yes, we have MESH2D as we should\n\0".as_ptr() as *const c_char);
+                    printf(c"Yes, we have MESH2D as we should\n".as_ptr() as *const c_char);
                 }
             } else if memcmp(
                 line.as_ptr() as *const c_void,
-                b"MESHNAME\0".as_ptr() as *const c_void,
+                c"MESHNAME".as_ptr() as *const c_void,
                 8,
             ) == 0
-            {
-                if allocated == 0 {
+                && allocated == 0 {
                     printf(
-                        b"Mesh name found but not used: %s\n\0".as_ptr() as *const c_char,
+                        c"Mesh name found but not used: %s\n".as_ptr() as *const c_char,
                         line.as_ptr().wrapping_offset(9),
                     );
                 }
-            }
         }
         if allocated != 0 {
             break;
@@ -10411,13 +10418,13 @@ pub unsafe extern "C" fn LoadFvcomMesh(
         );
     }
     let _ = (maxnodes, maxindx);
-    printf(b"Number of different BCs: %d\n\0".as_ptr() as *const c_char, bccount);
-    printf(b"Number of BC nodes: %d\n\0".as_ptr() as *const c_char, nbc);
+    printf(c"Number of different BCs: %d\n".as_ptr() as *const c_char, bccount);
+    printf(c"Number of BC nodes: %d\n".as_ptr() as *const c_char, nbc);
     NodesToBoundaryChain(data, bound, bcinds, bctags, nbc, bccount, info);
     free_ivector(bcinds, 1, 10 * bclines);
     free_ivector(bctags, 1, 10 * bclines);
     if info != 0 {
-        printf(b"Successfully read the mesh from the FVCOM file!\n\0".as_ptr() as *const c_char);
+        printf(c"Successfully read the mesh from the FVCOM file!\n".as_ptr() as *const c_char);
     }
     0
 }
@@ -10439,7 +10446,7 @@ unsafe fn geo_coords(
     *i = 0;
     loop {
         Getrow(line, input, FALSE);
-        if !strstr(line, b"END_COORDINATES\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"END_COORDINATES".as_ptr() as *const c_char).is_null() {
             break;
         }
         *cp = line;
@@ -10488,7 +10495,7 @@ unsafe fn geo_elems(
     *tagmat = 1;
     loop {
         Getrow(line, input, FALSE);
-        if !strstr(line, b"END_ELEMENTS\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"END_ELEMENTS".as_ptr() as *const c_char).is_null() {
             break;
         }
         *cp = line;
@@ -10543,7 +10550,7 @@ unsafe fn geo_alloc(
         (*data).noknots = noknots;
         if info != 0 {
             printf(
-                b"Allocating for %d knots and %d elements.\n\0".as_ptr() as *const c_char,
+                c"Allocating for %d knots and %d elements.\n".as_ptr() as *const c_char,
                 noknots,
                 noelements,
             );
@@ -10578,8 +10585,8 @@ pub unsafe extern "C" fn LoadGeoInput(
     let mut noknots: c_int = 0;
     // NOTE: assigned in the pass loop before every read.
     let mut noelements: c_int = 0;
-    let maxnodes: c_int;
-    let dim: c_int;
+    
+    
     let mut elemind: [c_int; MAXNODESD2] = [0; MAXNODESD2];
     // NOTE: 0-init for the &mut handoff (set in geo_elems before reads).
     let mut elementtype: c_int = 0;
@@ -10602,14 +10609,14 @@ pub unsafe extern "C" fn LoadGeoInput(
     let mut elemtype0: c_int = 0;
     // NOTE: 0-init for the &mut handoff (set in geo_elems before reads).
     let mut tagmat: c_int = 0;
-    let input: *mut FILE;
+    
     // NOTE: null-init (set on section entry before reads).
     let mut cp: *mut c_char = core::ptr::null_mut();
     let mut line: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
-    input = fopen(filename, b"r\0".as_ptr() as *const c_char);
+    let input: *mut FILE = fopen(filename, c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadGeoInput: The opening of the mesh file %s failed!\n\0".as_ptr()
+            c"LoadGeoInput: The opening of the mesh file %s failed!\n".as_ptr()
                 as *const c_char,
             filename,
         );
@@ -10617,13 +10624,13 @@ pub unsafe extern "C" fn LoadGeoInput(
     }
     if info != 0 {
         printf(
-            b"Loading mesh in geo format from file %s\n\0".as_ptr() as *const c_char,
+            c"Loading mesh in geo format from file %s\n".as_ptr() as *const c_char,
             filename,
         );
     }
     allocated = FALSE;
-    dim = 3;
-    maxnodes = 0;
+    let dim: c_int = 3;
+    let maxnodes: c_int = 0;
     maxindx = 0;
     maxelemtype = 0;
     // NOTE: C `omstart:` label + `goto omstart`; two passes then fall through.
@@ -10635,41 +10642,41 @@ pub unsafe extern "C" fn LoadGeoInput(
             if line[0] == 0 {
                 break;
             }
-            if !strstr(line.as_ptr(), b"$End\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(line.as_ptr(), c"$End".as_ptr() as *const c_char).is_null() {
                 continue;
             }
-            if !strstr(line.as_ptr(), b"TYPES\0".as_ptr() as *const c_char).is_null() {
-                if strstr(line.as_ptr(), b"ALL=TET04\0".as_ptr() as *const c_char).is_null() {
-                    printf(b"Only all tets implemented at the moment!\n\0".as_ptr() as *const c_char);
+            if !strstr(line.as_ptr(), c"TYPES".as_ptr() as *const c_char).is_null() {
+                if strstr(line.as_ptr(), c"ALL=TET04".as_ptr() as *const c_char).is_null() {
+                    printf(c"Only all tets implemented at the moment!\n".as_ptr() as *const c_char);
                     return 1;
                 }
                 elemtype0 = 504;
                 Getrow(line.as_mut_ptr(), input, FALSE);
-            } else if !strstr(line.as_ptr(), b"COORDINATES\0".as_ptr() as *const c_char)
+            } else if !strstr(line.as_ptr(), c"COORDINATES".as_ptr() as *const c_char)
                 .is_null()
             {
                 geo_coords(
                     data, &mut revindx, &mut noknots, &mut maxindx, dim, &mut i,
                     &mut j, &mut cp, line.as_mut_ptr(), input, allocated,
                 );
-            } else if !strstr(line.as_ptr(), b"ELEMENTS\0".as_ptr() as *const c_char).is_null()
+            } else if !strstr(line.as_ptr(), c"ELEMENTS".as_ptr() as *const c_char).is_null()
             {
                 geo_elems(
                     data, elemind.as_mut_ptr(), &mut noelements, &mut maxelemtype,
                     &mut elementtype, elemtype0, &mut tagmat, &mut elemnodes, &mut i,
                     &mut j, &mut k, &mut cp, line.as_mut_ptr(), input, allocated,
                 );
-            } else if !strstr(line.as_ptr(), b"BOUNDARIES\0".as_ptr() as *const c_char)
+            } else if !strstr(line.as_ptr(), c"BOUNDARIES".as_ptr() as *const c_char)
                 .is_null()
             {
                 loop {
                     Getrow(line.as_mut_ptr(), input, FALSE);
-                    if !strstr(line.as_ptr(), b"END_BOUNDARIES\0".as_ptr() as *const c_char)
+                    if !strstr(line.as_ptr(), c"END_BOUNDARIES".as_ptr() as *const c_char)
                         .is_null()
                     {
                         break;
                     }
-                    printf(b"Implement boundaries!\n\0".as_ptr() as *const c_char);
+                    printf(c"Implement boundaries!\n".as_ptr() as *const c_char);
                 }
             }
         }
@@ -10683,24 +10690,24 @@ pub unsafe extern "C" fn LoadGeoInput(
     }
     let _ = maxnodes;
     gmsh1_renumber(
-        data, revindx, noknots, noelements, maxindx, b"Geo\0".as_ptr() as *const c_char,
+        data, revindx, noknots, noelements, maxindx, c"Geo".as_ptr() as *const c_char,
         &mut elementtype, &mut elemnodes, &mut i, &mut j, &mut k,
     );
     // NOTE: `if(0)` ElementsToBoundaryConditions omitted (dead in C).
     if info != 0 {
-        printf(b"Successfully read the mesh from the Geo input file.\n\0".as_ptr() as *const c_char);
+        printf(c"Successfully read the mesh from the Geo input file.\n".as_ptr() as *const c_char);
     }
     0
 }
 // SAFETY: universal→elmer type map (pure table).
 unsafe fn UnvToElmerType(unvtype: c_int) -> c_int {
     // NOTE: assigned before every read (C uninit decl shape).
-    let elmertype: c_int;
+    
     // NOTE: C switch over unvtype (multi-case arms grouped).
-    if unvtype == 11 || unvtype == 21 {
-        elmertype = 202;
+    let elmertype: c_int = if unvtype == 11 || unvtype == 21 {
+        202
     } else if unvtype == 22 || unvtype == 23 || unvtype == 24 {
-        elmertype = 203;
+        203
     } else if unvtype == 41
         || unvtype == 51
         || unvtype == 61
@@ -10708,7 +10715,7 @@ unsafe fn UnvToElmerType(unvtype: c_int) -> c_int {
         || unvtype == 81
         || unvtype == 91
     {
-        elmertype = 303;
+        303
     } else if unvtype == 42
         || unvtype == 52
         || unvtype == 62
@@ -10716,14 +10723,14 @@ unsafe fn UnvToElmerType(unvtype: c_int) -> c_int {
         || unvtype == 82
         || unvtype == 92
     {
-        elmertype = 306;
+        306
     } else if unvtype == 43
         || unvtype == 53
         || unvtype == 63
         || unvtype == 73
         || unvtype == 93
     {
-        elmertype = 310;
+        310
     } else if unvtype == 44
         || unvtype == 54
         || unvtype == 64
@@ -10731,7 +10738,7 @@ unsafe fn UnvToElmerType(unvtype: c_int) -> c_int {
         || unvtype == 84
         || unvtype == 94
     {
-        elmertype = 404;
+        404
     } else if unvtype == 45
         || unvtype == 46
         || unvtype == 56
@@ -10739,23 +10746,23 @@ unsafe fn UnvToElmerType(unvtype: c_int) -> c_int {
         || unvtype == 76
         || unvtype == 96
     {
-        elmertype = 408;
+        408
     } else if unvtype == 111 {
-        elmertype = 504;
+        504
     } else if unvtype == 118 {
-        elmertype = 510;
+        510
     } else if unvtype == 101 || unvtype == 112 {
-        elmertype = 706;
+        706
     } else if unvtype == 102 || unvtype == 113 {
-        elmertype = 715;
+        715
     } else if unvtype == 104 || unvtype == 115 {
-        elmertype = 808;
+        808
     } else if unvtype == 105 || unvtype == 116 {
-        elmertype = 820;
+        820
     } else {
-        elmertype = 0;
+        0
         // NOTE: `if(0)` printf omitted (dead in C).
-    }
+    };
     elmertype
 }
 
@@ -10780,13 +10787,13 @@ unsafe fn UnvRedundantIndexes(nonodes: c_int, ind: *mut c_int) -> c_int {
         i += 1;
     }
     if redundant != 0 {
-        printf(b"Redundant element %d: \0".as_ptr() as *const c_char, nonodes);
+        printf(c"Redundant element %d: ".as_ptr() as *const c_char, nonodes);
         i = 0;
         while i < nonodes {
-            printf(b" %d \0".as_ptr() as *const c_char, *ind.wrapping_offset(i as isize));
+            printf(c" %d ".as_ptr() as *const c_char, *ind.wrapping_offset(i as isize));
             i += 1;
         }
-        printf(b"\n\0".as_ptr() as *const c_char);
+        printf(c"\n".as_ptr() as *const c_char);
     }
     redundant
 }
@@ -10857,14 +10864,14 @@ unsafe fn unv_nodes(
     info: c_int,
 ) -> bool {
     if allocated != 0 && info != 0 {
-        printf(b"Reading node coordinates\n\0".as_ptr() as *const c_char);
+        printf(c"Reading node coordinates\n".as_ptr() as *const c_char);
     }
     loop {
         GetrowDouble(line, input);
-        if strncmp(line, b"    -1\0".as_ptr() as *const c_char, 6) == 0 {
+        if strncmp(line, c"    -1".as_ptr() as *const c_char, 6) == 0 {
             if allocated == 0 && info != 0 {
                 printf(
-                    b"There are %d nodes in the mesh\n\0".as_ptr() as *const c_char,
+                    c"There are %d nodes in the mesh\n".as_ptr() as *const c_char,
                     *noknots,
                 );
             }
@@ -10879,7 +10886,7 @@ unsafe fn unv_nodes(
             if *reordernodes != 0 {
                 if *u2eind.wrapping_offset(*nodeind as isize) != 0 {
                     printf(
-                        b"Reordering node %d already set (%d vs. %d)\n\0".as_ptr()
+                        c"Reordering node %d already set (%d vs. %d)\n".as_ptr()
                             as *const c_char,
                         *nodeind,
                         *u2eind.wrapping_offset(*nodeind as isize),
@@ -10938,14 +10945,14 @@ unsafe fn unv_elems2412(
     *minelemtype = c_int::MAX;
     *maxelemtype = 0;
     if allocated != 0 && info != 0 {
-        printf(b"Reading element topologies\n\0".as_ptr() as *const c_char);
+        printf(c"Reading element topologies\n".as_ptr() as *const c_char);
     }
     loop {
         Getrow(line, input, FALSE);
-        if !strstr(line, b"-1\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"-1".as_ptr() as *const c_char).is_null() {
             if info != 0 && allocated == 0 {
                 printf(
-                    b"Element type range in mesh [%d,%d]\n\0".as_ptr() as *const c_char,
+                    c"Element type range in mesh [%d,%d]\n".as_ptr() as *const c_char,
                     *minelemtype,
                     *maxelemtype,
                 );
@@ -10964,7 +10971,7 @@ unsafe fn unv_elems2412(
         *elmertype = UnvToElmerType(*unvtype);
         if *elmertype == 0 {
             printf(
-                b"Unknown elementtype %d %d %d %d %d %d %d\n\0".as_ptr() as *const c_char,
+                c"Unknown elementtype %d %d %d %d %d %d %d\n".as_ptr() as *const c_char,
                 *noelements,
                 *elid,
                 *unvtype,
@@ -10973,8 +10980,8 @@ unsafe fn unv_elems2412(
                 *colorind,
                 *nonodes,
             );
-            printf(b"line %d: %s\n\0".as_ptr() as *const c_char, linenumber, line);
-            bigerror(b"done\0".as_ptr() as *const c_char);
+            printf(c"line %d: %s\n".as_ptr() as *const c_char, linenumber, line);
+            bigerror(c"done".as_ptr() as *const c_char);
         }
         if allocated == 0 {
             // NOTE: C MIN macro (egdef.h:96); arms pure.
@@ -11018,7 +11025,7 @@ unsafe fn unv_elems2412(
             // NOTE: `if(debug ...)` report omitted (debug is FALSE).
             if *elmertype % 100 != *nonodes {
                 printf(
-                    b"nonodes = %d elemtype = %d elid = %d\n\0".as_ptr() as *const c_char,
+                    c"nonodes = %d elemtype = %d elid = %d\n".as_ptr() as *const c_char,
                     *nonodes,
                     *elmertype,
                     *elid,
@@ -11080,18 +11087,18 @@ unsafe fn unv_coordsys(
     let mut coeff: Real = 0.0;
     let _ = (partuid, coordtype, coeff);
     if allocated != 0 && info != 0 {
-        printf(b"Reading Coordinate system information\n\0".as_ptr() as *const c_char);
+        printf(c"Reading Coordinate system information\n".as_ptr() as *const c_char);
     }
     Getrow(line, input, FALSE);
     if allocated == 0 {
         *cp = line;
         partuid = next_int(&mut (*cp));
-        printf(b"Part UID = %d\n\0".as_ptr() as *const c_char, partuid);
+        printf(c"Part UID = %d\n".as_ptr() as *const c_char, partuid);
     }
     Getrow(line, input, FALSE);
     if allocated == 0 {
-        sscanf(line, b"%s\0".as_ptr() as *const c_char, entityname.as_mut_ptr());
-        printf(b"Part name = %s\n\0".as_ptr() as *const c_char, entityname.as_ptr());
+        sscanf(line, c"%s".as_ptr() as *const c_char, entityname.as_mut_ptr());
+        printf(c"Part name = %s\n".as_ptr() as *const c_char, entityname.as_ptr());
     }
     Getrow(line, input, FALSE);
     if allocated == 0 {
@@ -11099,14 +11106,14 @@ unsafe fn unv_coordsys(
         _coordlabel = next_int(&mut (*cp));
         coordtype = next_int(&mut (*cp));
         if coordtype != 0 {
-            printf(b"Coordinate system is not cartesian: %d\n\0".as_ptr() as *const c_char, coordtype);
-            printf(b"Code some more if you want to consider this!\n\0".as_ptr() as *const c_char);
+            printf(c"Coordinate system is not cartesian: %d\n".as_ptr() as *const c_char, coordtype);
+            printf(c"Code some more if you want to consider this!\n".as_ptr() as *const c_char);
         }
     }
     Getrow(line, input, FALSE);
     if allocated == 0 {
-        sscanf(line, b"%s\0".as_ptr() as *const c_char, entityname.as_mut_ptr());
-        printf(b"Coord system name = %s\n\0".as_ptr() as *const c_char, entityname.as_ptr());
+        sscanf(line, c"%s".as_ptr() as *const c_char, entityname.as_mut_ptr());
+        printf(c"Coord system name = %s\n".as_ptr() as *const c_char, entityname.as_ptr());
     }
     *i = 1;
     while *i <= 4 {
@@ -11115,7 +11122,7 @@ unsafe fn unv_coordsys(
             *cp = line;
             if (*cp).is_null() {
                 printf(
-                    b"Problem reading line %d for coordinate system\n\0".as_ptr()
+                    c"Problem reading line %d for coordinate system\n".as_ptr()
                         as *const c_char,
                     *i,
                 );
@@ -11127,7 +11134,7 @@ unsafe fn unv_coordsys(
                     scaling[*i as usize] = coeff;
                     if fabs(coeff) < 1.0e-20 {
                         printf(
-                            b"Scaling for component %d too small %le\n\0".as_ptr()
+                            c"Scaling for component %d too small %le\n".as_ptr()
                                 as *const c_char,
                             *i,
                             coeff,
@@ -11135,20 +11142,20 @@ unsafe fn unv_coordsys(
                     } else if fabs(coeff - 1.0) != 0.0 {
                         *doscaling = TRUE;
                         printf(
-                            b"Scaling component %d by %le\n\0".as_ptr() as *const c_char,
+                            c"Scaling component %d by %le\n".as_ptr() as *const c_char,
                             *i,
                             coeff,
                         );
                     }
                 } else if fabs(coeff) > 1.0e-20 {
                     printf(
-                        b"Transformation matrix is not diagonal %d%d: %e\n\0".as_ptr()
+                        c"Transformation matrix is not diagonal %d%d: %e\n".as_ptr()
                             as *const c_char,
                         *i,
                         *j,
                         coeff,
                     );
-                    smallerror(b"Code some more...\0".as_ptr() as *const c_char);
+                    smallerror(c"Code some more...".as_ptr() as *const c_char);
                 }
                 *j += 1;
             }
@@ -11156,9 +11163,9 @@ unsafe fn unv_coordsys(
         *i += 1;
     }
     Getrow(line, input, FALSE);
-    if strncmp(line, b"    -1\0".as_ptr() as *const c_char, 6) != 0 {
+    if strncmp(line, c"    -1".as_ptr() as *const c_char, 6) != 0 {
         printf(
-            b"Field 2420 should already be ending: %s\n\0".as_ptr() as *const c_char,
+            c"Field 2420 should already be ending: %s\n".as_ptr() as *const c_char,
             line,
         );
     }
@@ -11200,13 +11207,13 @@ unsafe fn unv_mode780(
     *minelemtype = 1000;
     if allocated != 0 && info != 0 {
         printf(
-            b"Reading element groups in mode %d\n\0".as_ptr() as *const c_char,
+            c"Reading element groups in mode %d\n".as_ptr() as *const c_char,
             mode,
         );
     }
     loop {
         Getrow(line, input, FALSE);
-        if strncmp(line, b"    -1\0".as_ptr() as *const c_char, 6) == 0 {
+        if strncmp(line, c"    -1".as_ptr() as *const c_char, 6) == 0 {
             return true;
         }
         *noelements += 1;
@@ -11262,7 +11269,7 @@ unsafe fn unv_mode780(
             // NOTE: `if(debug ...)` report omitted (debug is FALSE).
             if *elmertype % 100 != *nonodes {
                 printf(
-                    b"nonodes = %d elemtype = %d elid = %d\n\0".as_ptr() as *const c_char,
+                    c"nonodes = %d elemtype = %d elid = %d\n".as_ptr() as *const c_char,
                     *nonodes,
                     *elmertype,
                     *elid,
@@ -11319,13 +11326,13 @@ unsafe fn unv_groups(
 ) -> bool {
     if allocated != 0 && info != 0 {
         printf(
-            b"Reading element groups in mode %d\n\0".as_ptr() as *const c_char,
+            c"Reading element groups in mode %d\n".as_ptr() as *const c_char,
             mode,
         );
     }
     loop {
         Getrow(line, input, FALSE);
-        if strncmp(line, b"    -1\0".as_ptr() as *const c_char, 6) == 0 {
+        if strncmp(line, c"    -1".as_ptr() as *const c_char, 6) == 0 {
             return true;
         }
         *cp = line;
@@ -11351,14 +11358,14 @@ unsafe fn unv_groups(
             *nogroup += goffset;
         }
         Getrow(line, input, FALSE);
-        if strncmp(line, b"    -1\0".as_ptr() as *const c_char, 6) == 0 {
+        if strncmp(line, c"    -1".as_ptr() as *const c_char, 6) == 0 {
             return true;
         }
         // NOTE: salome empty-group skip stays commented out (dead in C).
         *group += 1;
         *k = 0;
         if allocated != 0 {
-            sscanf(line, b"%s\0".as_ptr() as *const c_char, entityname.as_mut_ptr());
+            sscanf(line, c"%s".as_ptr() as *const c_char, entityname.as_mut_ptr());
             if (*data).bodyname[*nogroup as usize].is_null() {
                 (*data).bodyname[*nogroup as usize] = cvector(0, MAXNAMESIZE as c_int);
             }
@@ -11367,7 +11374,7 @@ unsafe fn unv_groups(
             // NOTE: `if(0)` boundarynamesexist omitted (dead in C).
             if info != 0 {
                 printf(
-                    b"Reading %d:th group with index %d with %d entities: %s\n\0".as_ptr()
+                    c"Reading %d:th group with index %d with %d entities: %s\n".as_ptr()
                         as *const c_char,
                     *group,
                     *nogroup,
@@ -11383,7 +11390,7 @@ unsafe fn unv_groups(
         while *i < *noentities {
             if *i % 2 == 0 {
                 Getrow(line, input, FALSE);
-                if strncmp(line, b"    -1\0".as_ptr() as *const c_char, 6) == 0 {
+                if strncmp(line, c"    -1".as_ptr() as *const c_char, 6) == 0 {
                     return true;
                 }
                 *cp = line;
@@ -11451,13 +11458,13 @@ unsafe fn unv_groups(
                     *groupset += 1;
                 }
             } else {
-                printf(b"unknown group type %d\n\0".as_ptr() as *const c_char, *grouptype);
+                printf(c"unknown group type %d\n".as_ptr() as *const c_char, *grouptype);
             }
             *i += 1;
         }
         if allocated != 0 && info != 0 {
             printf(
-                b"Element type range in group is [%d %d]\n\0".as_ptr() as *const c_char,
+                c"Element type range in group is [%d %d]\n".as_ptr() as *const c_char,
                 *minelemtype,
                 *maxelemtype,
             );
@@ -11497,7 +11504,7 @@ unsafe fn unv_endalloc(
     if reordernodes != 0 {
         if info != 0 {
             printf(
-                b"Reordering %d nodes with indexes up to %d\n\0".as_ptr() as *const c_char,
+                c"Reordering %d nodes with indexes up to %d\n".as_ptr() as *const c_char,
                 noknots,
                 maxnodeind,
             );
@@ -11512,7 +11519,7 @@ unsafe fn unv_endalloc(
     if reorderelements != 0 {
         if info != 0 {
             printf(
-                b"Reordering %d elements with indexes up to %d\n\0".as_ptr()
+                c"Reordering %d elements with indexes up to %d\n".as_ptr()
                     as *const c_char,
                 noelements,
                 maxelem,
@@ -11527,7 +11534,7 @@ unsafe fn unv_endalloc(
     }
     if noknots == 0 || noelements == 0 || maxnodes == 0 {
         printf(
-            b"Invalid mesh consists of %d nodes and %d %d-node elements.\n\0".as_ptr()
+            c"Invalid mesh consists of %d nodes and %d %d-node elements.\n".as_ptr()
                 as *const c_char,
             noknots,
             noelements,
@@ -11544,7 +11551,7 @@ unsafe fn unv_endalloc(
     (*data).dim = dim;
     if info != 0 {
         printf(
-            b"Allocating mesh with %d nodes and %d %d-node elements in %d dims.\n\0".as_ptr()
+            c"Allocating mesh with %d nodes and %d %d-node elements in %d dims.\n".as_ptr()
                 as *const c_char,
             noknots,
             noelements,
@@ -11557,26 +11564,26 @@ unsafe fn unv_endalloc(
     // NOTE: group/physical offsets keep the two index spaces apart.
     if info != 0 {
         printf(
-            b"Physical index interval is [%d,%d]\n\0".as_ptr() as *const c_char,
+            c"Physical index interval is [%d,%d]\n".as_ptr() as *const c_char,
             *minphys,
             *maxphys,
         );
         if *maxgroup != 0 {
             printf(
-                b"Group index interval is [%d,%d]\n\0".as_ptr() as *const c_char,
+                c"Group index interval is [%d,%d]\n".as_ptr() as *const c_char,
                 *mingroup,
                 *maxgroup,
             );
         }
     }
     if *mingroup == 0 {
-        printf(b"Applying group offset to 1!\n\0".as_ptr() as *const c_char);
+        printf(c"Applying group offset to 1!\n".as_ptr() as *const c_char);
         *goffset = 1;
         *mingroup += 1;
         *maxgroup += 1;
     }
     if *minphys == 0 {
-        printf(b"Applying physical entity offset to 1!\n\0".as_ptr() as *const c_char);
+        printf(c"Applying physical entity offset to 1!\n".as_ptr() as *const c_char);
         *poffset = 1;
         *minphys += 1;
         *maxphys += 1;
@@ -11585,6 +11592,8 @@ unsafe fn unv_endalloc(
 }
 
 // SAFETY: universal group/physical index reconciliation (split for sizing).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn unv_physmap(
     data: *mut FemType,
     mingroup: c_int,
@@ -11601,7 +11610,7 @@ unsafe fn unv_physmap(
         return;
     }
     // NOTE: block-scoped C locals become bindings.
-    let i1: c_int;
+    
     let mut i2: c_int;
     // NOTE: `=0` decl inits kept (k/k2 read before any overwrite).
     let mut k: c_int;
@@ -11610,28 +11619,28 @@ unsafe fn unv_physmap(
     let ioffset: c_int = 0;
     let _ = ioffset;
     // NOTE: block-scoped C local becomes a binding.
-    let physmap: *mut c_int;
+    
     if info != 0 {
         printf(
-            b"Group given for %d elements out of %d\n\0".as_ptr() as *const c_char,
+            c"Group given for %d elements out of %d\n".as_ptr() as *const c_char,
             groupset,
             noelements,
         );
     }
     // NOTE: C MIN/MAX macros (egdef.h:96-97); arms pure.
-    if minphys < mingroup {
-        i1 = minphys;
+    let i1: c_int = if minphys < mingroup {
+        minphys
     } else {
-        i1 = mingroup;
-    }
+        mingroup
+    };
     if maxphys > maxgroup {
         i2 = maxphys;
     } else {
         i2 = maxgroup;
     }
     // NOTE: plenty of room for new indexes.
-    i2 = 2 * i2;
-    physmap = ivector(i1, i2);
+    i2 *= 2;
+    let physmap: *mut c_int = ivector(i1, i2);
     *i = i1;
     while *i <= i2 {
         *physmap.wrapping_offset(*i as isize) = 0;
@@ -11656,7 +11665,7 @@ unsafe fn unv_physmap(
             if *physmap.wrapping_offset(*j as isize) == -1 {
                 if info != 0 {
                     printf(
-                        b"Physical index and group index collide: %d\n\0".as_ptr()
+                        c"Physical index and group index collide: %d\n".as_ptr()
                             as *const c_char,
                         *j,
                     );
@@ -11678,7 +11687,7 @@ unsafe fn unv_physmap(
             *physmap.wrapping_offset(*j as isize) = -4;
             if info != 0 {
                 printf(
-                    b"Replacing physical index %d with free index %d\n\0".as_ptr()
+                    c"Replacing physical index %d with free index %d\n".as_ptr()
                         as *const c_char,
                     *i,
                     *j,
@@ -11687,7 +11696,7 @@ unsafe fn unv_physmap(
             // NOTE: drop the name remnant; the physical entity is unnamed.
             if !(*data).bodyname[*j as usize].is_null() {
                 printf(
-                    b"Removing name of an empty group: %s\n\0".as_ptr() as *const c_char,
+                    c"Removing name of an empty group: %s\n".as_ptr() as *const c_char,
                     (*data).bodyname[*j as usize],
                 );
                 free_cvector((*data).bodyname[*j as usize], 0, MAXNAMESIZE as c_int);
@@ -11714,14 +11723,14 @@ unsafe fn unv_physmap(
     }
     if k != 0 {
         printf(
-            b"Using original physical entity index for %d elements\n\0".as_ptr()
+            c"Using original physical entity index for %d elements\n".as_ptr()
                 as *const c_char,
             k,
         );
     }
     if k2 != 0 {
         printf(
-            b"Using mapped physical entity index for %d elements\n\0".as_ptr()
+            c"Using mapped physical entity index for %d elements\n".as_ptr()
                 as *const c_char,
             k2,
         );
@@ -11744,13 +11753,13 @@ unsafe fn unv_physmap(
         if *j != 0 {
             if !(*data).bodyname[*i as usize].is_null() {
                 printf(
-                    b"Entity %d (%s) count is %d\n\0".as_ptr() as *const c_char,
+                    c"Entity %d (%s) count is %d\n".as_ptr() as *const c_char,
                     *i,
                     (*data).bodyname[*i as usize],
                     *j,
                 );
             } else {
-                printf(b"Entity %d count is %d\n\0".as_ptr() as *const c_char, *i, *j);
+                printf(c"Entity %d count is %d\n".as_ptr() as *const c_char, *i, *j);
             }
         }
         *i += 1;
@@ -11782,19 +11791,19 @@ unsafe fn unv_finish(
 ) {
     if noconf1 != 0 {
         printf(
-            b"Group given multiple times with same group: %d\n\0".as_ptr() as *const c_char,
+            c"Group given multiple times with same group: %d\n".as_ptr() as *const c_char,
             noconf1,
         );
     }
     if noconf2 != 0 {
         printf(
-            b"Group given multiple times but with different group index: %d\n\0".as_ptr()
+            c"Group given multiple times but with different group index: %d\n".as_ptr()
                 as *const c_char,
             noconf2,
         );
     }
     if reordernodes != 0 {
-        printf(b"Reordering nodes continuously\n\0".as_ptr() as *const c_char);
+        printf(c"Reordering nodes continuously\n".as_ptr() as *const c_char);
         *j = 1;
         while *j <= noelements {
             *i = 0;
@@ -11840,7 +11849,7 @@ unsafe fn unv_finish(
     ElementsToBoundaryConditions(data, bound, TRUE, info);
     if info != 0 {
         printf(
-            b"The Universal mesh was loaded from file %s.\n\0".as_ptr() as *const c_char,
+            c"The Universal mesh was loaded from file %s.\n".as_ptr() as *const c_char,
             filename,
         );
     }
@@ -11868,7 +11877,7 @@ pub unsafe extern "C" fn LoadUniversalMesh(
     // NOTE: assigned before every read (C uninit decl shape).
     let mut maxnodes: c_int;
     let mut allocated: c_int;
-    let dim: c_int;
+    
     // NOTE: 0-init for the &mut handoff (set in unv_groups before reads).
     let mut ind: c_int = 0;
     // NOTE: assigned before every read (C uninit decl shape).
@@ -11961,24 +11970,24 @@ pub unsafe extern "C" fn LoadUniversalMesh(
     let mut scaling: [Real; 4] = [0.0; 4];
     let mut input: *mut FILE;
     strcpy(filename.as_mut_ptr(), prefix);
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
-        AddExtension(prefix, filename.as_mut_ptr(), b"unv\0".as_ptr() as *const c_char);
-        input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        AddExtension(prefix, filename.as_mut_ptr(), c"unv".as_ptr() as *const c_char);
+        input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if input.is_null() {
             printf(
-                b"LoadUniversalMesh: opening of the universal mesh file '%s' wasn't successful !\n\0".as_ptr() as *const c_char,
+                c"LoadUniversalMesh: opening of the universal mesh file '%s' wasn't successful !\n".as_ptr() as *const c_char,
                 filename.as_ptr(),
             );
             return 1;
         }
     }
     printf(
-        b"Reading mesh from universal mesh file %s.\n\0".as_ptr() as *const c_char,
+        c"Reading mesh from universal mesh file %s.\n".as_ptr() as *const c_char,
         filename.as_ptr(),
     );
     InitializeKnots(data);
-    dim = 3;
+    let dim: c_int = 3;
     allocated = FALSE;
     reordernodes = FALSE;
     reorderelements = FALSE;
@@ -12001,9 +12010,9 @@ pub unsafe extern "C" fn LoadUniversalMesh(
         linenumber = 0;
         if info != 0 {
             if allocated != 0 {
-                printf(b"Second round for reading data\n\0".as_ptr() as *const c_char);
+                printf(c"Second round for reading data\n".as_ptr() as *const c_char);
             } else {
-                printf(b"First round for allocating data\n\0".as_ptr() as *const c_char);
+                printf(c"First round for allocating data\n".as_ptr() as *const c_char);
             }
         }
         noknots = 0;
@@ -12015,7 +12024,7 @@ pub unsafe extern "C" fn LoadUniversalMesh(
         // NOTE: C `for(;;)` + `nextline:` label; helpers return true for nextline.
         // NOTE: `if(0)` line dump omitted (dead in C).
         'readloop: loop {
-            if strncmp(line.as_ptr(), b"    -1\0".as_ptr() as *const c_char, 6) == 0 {
+            if strncmp(line.as_ptr(), c"    -1".as_ptr() as *const c_char, 6) == 0 {
                 mode = 0;
             }
             if Getrow(line.as_mut_ptr(), input, FALSE) != 0 {
@@ -12024,40 +12033,39 @@ pub unsafe extern "C" fn LoadUniversalMesh(
             if line[0] == 0 {
                 break;
             }
-            if strncmp(line.as_ptr(), b"    -1\0".as_ptr() as *const c_char, 6) == 0 {
+            if strncmp(line.as_ptr(), c"    -1".as_ptr() as *const c_char, 6) == 0 {
                 mode = 0;
-            } else if strncmp(line.as_ptr(), b"  2411\0".as_ptr() as *const c_char, 6) == 0 {
+            } else if strncmp(line.as_ptr(), c"  2411".as_ptr() as *const c_char, 6) == 0 {
                 mode = 2411;
-            } else if strncmp(line.as_ptr(), b"  2412\0".as_ptr() as *const c_char, 6) == 0 {
+            } else if strncmp(line.as_ptr(), c"  2412".as_ptr() as *const c_char, 6) == 0 {
                 mode = 2412;
-            } else if strncmp(line.as_ptr(), b"  2420\0".as_ptr() as *const c_char, 6) == 0 {
+            } else if strncmp(line.as_ptr(), c"  2420".as_ptr() as *const c_char, 6) == 0 {
                 mode = 2420;
-            } else if strncmp(line.as_ptr(), b"  2467\0".as_ptr() as *const c_char, 6) == 0 {
+            } else if strncmp(line.as_ptr(), c"  2467".as_ptr() as *const c_char, 6) == 0 {
                 mode = 2467;
-            } else if strncmp(line.as_ptr(), b"  2435\0".as_ptr() as *const c_char, 6) == 0 {
+            } else if strncmp(line.as_ptr(), c"  2435".as_ptr() as *const c_char, 6) == 0 {
                 mode = 2435;
-            } else if strncmp(line.as_ptr(), b"   781\0".as_ptr() as *const c_char, 6) == 0 {
+            } else if strncmp(line.as_ptr(), c"   781".as_ptr() as *const c_char, 6) == 0 {
                 mode = 781;
-            } else if strncmp(line.as_ptr(), b"   780\0".as_ptr() as *const c_char, 6) == 0 {
+            } else if strncmp(line.as_ptr(), c"   780".as_ptr() as *const c_char, 6) == 0 {
                 mode = 780;
-            } else if strncmp(line.as_ptr(), b"   164\0".as_ptr() as *const c_char, 6) == 0 {
+            } else if strncmp(line.as_ptr(), c"   164".as_ptr() as *const c_char, 6) == 0 {
                 mode = 164;
-            } else if allocated != 0 && strncmp(line.as_ptr(), b"      \0".as_ptr() as *const c_char, 6) != 0 {
+            } else if allocated != 0 && strncmp(line.as_ptr(), c"      ".as_ptr() as *const c_char, 6) != 0 {
                 printf(
-                    b"Unknown mode line %d: %s\0".as_ptr() as *const c_char,
+                    c"Unknown mode line %d: %s".as_ptr() as *const c_char,
                     linenumber,
                     line.as_ptr(),
                 );
             }
             // NOTE: `if(debug && mode)` report omitted (debug is FALSE).
-            if mode == 2411 || mode == 781 {
-                if unv_nodes(
+            if (mode == 2411 || mode == 781)
+                && unv_nodes(
                     data, u2eind, &mut noknots, &mut maxnodeind, &mut reordernodes,
                     &mut nodeind, &mut cp, line.as_mut_ptr(), input, allocated, info,
                 ) {
                     continue 'readloop;
                 }
-            }
             if mode == 2412 {
                 // NOTE: the "whole mesh" range print after the section is
                 // unreachable in C (the section exits via goto nextline).
@@ -12079,8 +12087,8 @@ pub unsafe extern "C" fn LoadUniversalMesh(
                 );
                 continue 'readloop;
             }
-            if mode == 780 {
-                if unv_mode780(
+            if mode == 780
+                && unv_mode780(
                     data, u2eelem, &mut noelements, &mut maxnodes, &mut maxelem,
                     &mut minphys, &mut maxphys, poffset, &mut reorderelements,
                     &mut minelemtype, &mut maxelemtype, &mut elid, &mut unvtype,
@@ -12090,9 +12098,8 @@ pub unsafe extern "C" fn LoadUniversalMesh(
                 ) {
                     continue 'readloop;
                 }
-            }
-            if mode == 2467 || mode == 2435 {
-                if unv_groups(
+            if (mode == 2467 || mode == 2435)
+                && unv_groups(
                     data, u2eelem, &mut group, &mut groupset, goffset, &mut mingroup,
                     &mut maxgroup, &mut noconf1, &mut noconf2, noelements,
                     &mut nopoints, &mut nogroup, &mut grouptype, &mut ind,
@@ -12103,14 +12110,13 @@ pub unsafe extern "C" fn LoadUniversalMesh(
                 ) {
                     continue 'readloop;
                 }
-            }
             if mode == 164 {
                 if allocated == 0 {
-                    printf(b"Units dataset content is currently omitted!\n\0".as_ptr() as *const c_char);
+                    printf(c"Units dataset content is currently omitted!\n".as_ptr() as *const c_char);
                 }
                 loop {
                     Getrow(line.as_mut_ptr(), input, FALSE);
-                    if strncmp(line.as_ptr(), b"    -1\0".as_ptr() as *const c_char, 6) == 0 {
+                    if strncmp(line.as_ptr(), c"    -1".as_ptr() as *const c_char, 6) == 0 {
                         continue 'readloop;
                     }
                 }
@@ -12146,6 +12152,8 @@ pub unsafe extern "C" fn LoadUniversalMesh(
     0
 }
 // SAFETY: cgsim ZONE knots block (split for sizing).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn cgsim_knots(
     data: *mut FemType,
     noknots: c_int,
@@ -12189,6 +12197,8 @@ unsafe fn cgsim_knots(
 }
 
 // SAFETY: cgsim ZONE elements block (split for sizing).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn cgsim_elems(
     data: *mut FemType,
     inds: *mut c_int,
@@ -12253,7 +12263,7 @@ pub unsafe extern "C" fn LoadCGsimMesh(
     // NOTE: assigned in the pass loop before every read.
     let mut dim: c_int;
     // NOTE: `=FALSE` decl init kept (read before any overwrite).
-    let debug: c_int;
+    
     // NOTE: assigned in the pass loop before every read.
     let mut thismat: c_int;
     // NOTE: 0-init for the &mut handoff (set below before reads).
@@ -12270,31 +12280,31 @@ pub unsafe extern "C" fn LoadCGsimMesh(
     let mut j: c_int = 0;
     let mut inds: [c_int; MAXNODESD2] = [0; MAXNODESD2];
     // NOTE: `=FALSE` decl init kept (read before any overwrite).
-    let savedofs: c_int;
+    
     // NOTE: parsed, never read (dofs skip cursor).
     let mut _dummyreal: Real = 0.0;
     let mut input: *mut FILE;
     strcpy(filename.as_mut_ptr(), prefix);
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
-        AddExtension(prefix, filename.as_mut_ptr(), b"plt\0".as_ptr() as *const c_char);
-        input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        AddExtension(prefix, filename.as_mut_ptr(), c"plt".as_ptr() as *const c_char);
+        input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if input.is_null() {
             printf(
-                b"LoadCGsimMesh: opening of the CGsim mesh file '%s' wasn't successful !\n\0".as_ptr() as *const c_char,
+                c"LoadCGsimMesh: opening of the CGsim mesh file '%s' wasn't successful !\n".as_ptr() as *const c_char,
                 filename.as_ptr(),
             );
             return 1;
         }
     }
     printf(
-        b"Reading mesh from CGsim mesh file %s.\n\0".as_ptr() as *const c_char,
+        c"Reading mesh from CGsim mesh file %s.\n".as_ptr() as *const c_char,
         filename.as_ptr(),
     );
     InitializeKnots(data);
-    debug = FALSE;
+    let debug: c_int = FALSE;
     allocated = FALSE;
-    savedofs = FALSE;
+    let savedofs: c_int = FALSE;
     // NOTE: C `omstart:` label + `goto omstart`; two passes then fall through.
     loop {
         maxnodes = 4;
@@ -12310,21 +12320,21 @@ pub unsafe extern "C" fn LoadCGsimMesh(
             if line[0] == 0 {
                 break;
             }
-            cp = strstr(line.as_ptr(), b"ZONE\0".as_ptr() as *const c_char);
+            cp = strstr(line.as_ptr(), c"ZONE".as_ptr() as *const c_char);
             if cp.is_null() {
                 continue;
             }
             thismat += 1;
-            cp = strstr(line.as_ptr(), b" N=\0".as_ptr() as *const c_char);
+            cp = strstr(line.as_ptr(), c" N=".as_ptr() as *const c_char);
             cp = cp.wrapping_offset(3);
             thisknots = next_int(&mut cp);
-            cp = strstr(line.as_ptr(), b",E=\0".as_ptr() as *const c_char);
+            cp = strstr(line.as_ptr(), c",E=".as_ptr() as *const c_char);
             cp = cp.wrapping_offset(3);
             thiselems = next_int(&mut cp);
             if debug != 0 {
-                printf(b"%s\0".as_ptr() as *const c_char, line.as_ptr());
+                printf(c"%s".as_ptr() as *const c_char, line.as_ptr());
                 printf(
-                    b"thismat = %d knots = %d elems = %d\n\0".as_ptr() as *const c_char,
+                    c"thismat = %d knots = %d elems = %d\n".as_ptr() as *const c_char,
                     thismat,
                     thisknots,
                     thiselems,
@@ -12347,7 +12357,7 @@ pub unsafe extern "C" fn LoadCGsimMesh(
         }
         if noknots == 0 || noelements == 0 || maxnodes == 0 {
             printf(
-                b"Invalid mesh consists of %d knots and %d %d-node elements.\n\0".as_ptr()
+                c"Invalid mesh consists of %d knots and %d %d-node elements.\n".as_ptr()
                     as *const c_char,
                 noknots,
                 noelements,
@@ -12363,7 +12373,7 @@ pub unsafe extern "C" fn LoadCGsimMesh(
         (*data).dim = dim;
         if info != 0 {
             printf(
-                b"Allocating for %d knots and %d %d-node elements.\n\0".as_ptr()
+                c"Allocating for %d knots and %d %d-node elements.\n".as_ptr()
                     as *const c_char,
                 noknots,
                 noelements,
@@ -12372,14 +12382,14 @@ pub unsafe extern "C" fn LoadCGsimMesh(
         }
         AllocateKnots(data);
         if savedofs == 1 {
-            CreateVariable(data, 1, 1, 0.0, b"Temperature\0".as_ptr() as *const c_char, FALSE);
+            CreateVariable(data, 1, 1, 0.0, c"Temperature".as_ptr() as *const c_char, FALSE);
         } else if savedofs == 5 {
-            CreateVariable(data, 1, 1, 0.0, b"dTdX\0".as_ptr() as *const c_char, FALSE);
-            CreateVariable(data, 2, 1, 0.0, b"dTdY\0".as_ptr() as *const c_char, FALSE);
-            CreateVariable(data, 3, 1, 0.0, b"Qx\0".as_ptr() as *const c_char, FALSE);
-            CreateVariable(data, 4, 1, 0.0, b"Qy\0".as_ptr() as *const c_char, FALSE);
+            CreateVariable(data, 1, 1, 0.0, c"dTdX".as_ptr() as *const c_char, FALSE);
+            CreateVariable(data, 2, 1, 0.0, c"dTdY".as_ptr() as *const c_char, FALSE);
+            CreateVariable(data, 3, 1, 0.0, c"Qx".as_ptr() as *const c_char, FALSE);
+            CreateVariable(data, 4, 1, 0.0, c"Qy".as_ptr() as *const c_char, FALSE);
             CreateVariable(
-                data, 5, 1, 0.0, b"Temperature\0".as_ptr() as *const c_char, FALSE,
+                data, 5, 1, 0.0, c"Temperature".as_ptr() as *const c_char, FALSE,
             );
         }
         allocated = TRUE;
@@ -12388,7 +12398,7 @@ pub unsafe extern "C" fn LoadCGsimMesh(
     let _ = material;
     if info != 0 {
         printf(
-            b"The CGsim mesh was loaded from file %s.\n\n\0".as_ptr() as *const c_char,
+            c"The CGsim mesh was loaded from file %s.\n\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
@@ -12410,7 +12420,7 @@ unsafe fn FluxToElmerType(nonodes: c_int, dim: c_int) -> c_int {
     }
     if elmertype == 0 {
         printf(
-            b"FluxToElmerType could not deduce element type! (%d %d)\n\0".as_ptr()
+            c"FluxToElmerType could not deduce element type! (%d %d)\n".as_ptr()
                 as *const c_char,
             nonodes,
             dim,
@@ -12440,7 +12450,7 @@ unsafe fn flux_elems(
 ) {
     if info != 0 {
         printf(
-            b"Allocating mesh with %d nodes and %d %d-node elements in %d dims.\n\0".as_ptr()
+            c"Allocating mesh with %d nodes and %d %d-node elements in %d dims.\n".as_ptr()
                 as *const c_char,
             noknots,
             noelements,
@@ -12454,7 +12464,7 @@ unsafe fn flux_elems(
     (*data).dim = dim;
     AllocateKnots(data);
     if info != 0 {
-        printf(b"Reading %d element topologies\n\0".as_ptr() as *const c_char, noelements);
+        printf(c"Reading %d element topologies\n".as_ptr() as *const c_char, noelements);
     }
     *i = 1;
     while *i <= noelements {
@@ -12463,7 +12473,7 @@ unsafe fn flux_elems(
         *j = next_int(&mut (*cp));
         if *i != *j {
             printf(
-                b"It seems that reordering of elements should be performed! (%d %d)\n\0".as_ptr() as *const c_char,
+                c"It seems that reordering of elements should be performed! (%d %d)\n".as_ptr() as *const c_char,
                 *i,
                 *j,
             );
@@ -12486,6 +12496,8 @@ unsafe fn flux_elems(
 }
 
 // SAFETY: flux node-coordinate mode 11 (split for sizing).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn flux_nodes(
     data: *mut FemType,
     noknots: c_int,
@@ -12498,7 +12510,7 @@ unsafe fn flux_nodes(
     info: c_int,
 ) {
     if info != 0 {
-        printf(b"Reading %d element nodes\n\0".as_ptr() as *const c_char, noknots);
+        printf(c"Reading %d element nodes\n".as_ptr() as *const c_char, noknots);
     }
     *i = 1;
     while *i <= noknots {
@@ -12507,7 +12519,7 @@ unsafe fn flux_nodes(
         *j = next_int(&mut (*cp));
         if *i != *j {
             printf(
-                b"It seems that reordering of nodes should be performed! (%d %d)\n\0".as_ptr() as *const c_char,
+                c"It seems that reordering of nodes should be performed! (%d %d)\n".as_ptr() as *const c_char,
                 *i,
                 *j,
             );
@@ -12535,7 +12547,7 @@ unsafe fn flux_regions(
     info: c_int,
 ) {
     if info != 0 {
-        printf(b"Reading %d names of regions\n\0".as_ptr() as *const c_char, noregions);
+        printf(c"Reading %d names of regions\n".as_ptr() as *const c_char, noregions);
     }
     *i = 1;
     while *i <= noregions {
@@ -12544,12 +12556,12 @@ unsafe fn flux_regions(
         *j = next_int(&mut (*cp));
         if *i != *j {
             printf(
-                b"It seems that reordering of regions should be performed! (%d %d)\n\0".as_ptr() as *const c_char,
+                c"It seems that reordering of regions should be performed! (%d %d)\n".as_ptr() as *const c_char,
                 *i,
                 *j,
             );
         }
-        sscanf(*cp, b"%s\0".as_ptr() as *const c_char, entityname.as_mut_ptr());
+        sscanf(*cp, c"%s".as_ptr() as *const c_char, entityname.as_mut_ptr());
         if (*data).bodyname[*i as usize].is_null() {
             (*data).bodyname[*i as usize] = cvector(0, MAXNAMESIZE as c_int);
         }
@@ -12576,9 +12588,9 @@ pub unsafe extern "C" fn LoadFluxMesh(
     // NOTE: `=0` decl init kept (read before any overwrite).
     let mut noelements: c_int;
     // NOTE: `=8` decl init kept (read before any overwrite).
-    let maxnodes: c_int;
+    
     // NOTE: `=2` decl init kept (read before any overwrite).
-    let dim: c_int;
+    
     // NOTE: 0-init for the &mut handoff (set in flux_elems before reads).
     let mut elmertype: c_int = 0;
     // NOTE: 0-init for the &mut handoff (set in flux_elems before reads).
@@ -12606,29 +12618,29 @@ pub unsafe extern "C" fn LoadFluxMesh(
     let mut entityname: [c_char; MAXNAMESIZE] = [0; MAXNAMESIZE];
     let mut input: *mut FILE;
     strcpy(filename.as_mut_ptr(), prefix);
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
-        AddExtension(prefix, filename.as_mut_ptr(), b"TRA\0".as_ptr() as *const c_char);
-        input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        AddExtension(prefix, filename.as_mut_ptr(), c"TRA".as_ptr() as *const c_char);
+        input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if input.is_null() {
             printf(
-                b"LoadFluxMesh: opening of the Flux mesh file '%s' wasn't successful !\n\0".as_ptr() as *const c_char,
+                c"LoadFluxMesh: opening of the Flux mesh file '%s' wasn't successful !\n".as_ptr() as *const c_char,
                 filename.as_ptr(),
             );
             return 1;
         }
     }
     printf(
-        b"Reading 2D mesh from Flux mesh file %s.\n\0".as_ptr() as *const c_char,
+        c"Reading 2D mesh from Flux mesh file %s.\n".as_ptr() as *const c_char,
         filename.as_ptr(),
     );
     InitializeKnots(data);
     linenumber = 0;
-    dim = 2;
+    let dim: c_int = 2;
     noknots = 0;
     noelements = 0;
     // NOTE: C `mode = 0` dropped (every pass reassigns before reads).
-    maxnodes = 8;
+    let maxnodes: c_int = 8;
     loop {
         // NOTE: `if(0)` line dump omitted (dead in C).
         if Getrow(line.as_mut_ptr(), input, FALSE) != 0 {
@@ -12637,41 +12649,41 @@ pub unsafe extern "C" fn LoadFluxMesh(
         if line[0] == 0 {
             break;
         }
-        if !strstr(line.as_ptr(), b"Number of nodes\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line.as_ptr(), c"Number of nodes".as_ptr() as *const c_char).is_null() {
             mode = 1;
-        } else if !strstr(line.as_ptr(), b"Total number of elements\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"Total number of elements".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 2;
-        } else if !strstr(line.as_ptr(), b"Total number of regions\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"Total number of regions".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 3;
-        } else if !strstr(line.as_ptr(), b"Description of elements\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"Description of elements".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 10;
-        } else if !strstr(line.as_ptr(), b"Coordinates of the nodes\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"Coordinates of the nodes".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 11;
-        } else if !strstr(line.as_ptr(), b"Names of the regions\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"Names of the regions".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 12;
-        } else if !strstr(line.as_ptr(), b"Neighbouring element table\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"Neighbouring element table".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 13;
-        } else if !strstr(line.as_ptr(), b"List of boundary nodes\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"List of boundary nodes".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 14;
-        } else if !strstr(line.as_ptr(), b"Physical properties\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"Physical properties".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 15;
-        } else if !strstr(line.as_ptr(), b"Boundary conditions\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"Boundary conditions".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 16;
@@ -12713,7 +12725,7 @@ pub unsafe extern "C" fn LoadFluxMesh(
     ElementsToBoundaryConditions(data, bound, TRUE, info);
     if info != 0 {
         printf(
-            b"The Flux mesh was loaded from file %s.\n\n\0".as_ptr() as *const c_char,
+            c"The Flux mesh was loaded from file %s.\n\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
@@ -12784,7 +12796,7 @@ unsafe fn PF3ToElmerPermuteNodes(elemtype: c_int, topology: *mut c_int) {
         porder = order820.as_ptr();
     } else if elemtype != 101 && elemtype != 202 && elemtype != 203 && debug != 0 {
         printf(
-            b"Warning : Unknown element type: %d\n\0".as_ptr() as *const c_char,
+            c"Warning : Unknown element type: %d\n".as_ptr() as *const c_char,
             elemtype,
         );
     }
@@ -12843,7 +12855,7 @@ unsafe fn FluxToElmerType3D(nonodes: c_int, dim: c_int) -> c_int {
     }
     if elmertype == 0 {
         printf(
-            b"FluxToElmerType3D could not deduce element type! (%d %d)\n\0".as_ptr()
+            c"FluxToElmerType3D could not deduce element type! (%d %d)\n".as_ptr()
                 as *const c_char,
             nonodes,
             dim,
@@ -12875,7 +12887,7 @@ unsafe fn flux3d_elems(
 ) {
     if info != 0 {
         printf(
-            b"Allocating mesh with %d nodes and %d %d-node elements in %d dims.\n\0".as_ptr()
+            c"Allocating mesh with %d nodes and %d %d-node elements in %d dims.\n".as_ptr()
                 as *const c_char,
             noknots,
             noelements,
@@ -12889,7 +12901,7 @@ unsafe fn flux3d_elems(
     (*data).dim = dim;
     AllocateKnots(data);
     if info != 0 {
-        printf(b"Reading %d element topologies\n\0".as_ptr() as *const c_char, noelements);
+        printf(c"Reading %d element topologies\n".as_ptr() as *const c_char, noelements);
     }
     *i = 1;
     while *i <= noelements {
@@ -12898,7 +12910,7 @@ unsafe fn flux3d_elems(
         *j = next_int(&mut (*cp));
         if *i != *j {
             printf(
-                b"It seems that reordering of elements should be performed! (%d %d)\n\0".as_ptr() as *const c_char,
+                c"It seems that reordering of elements should be performed! (%d %d)\n".as_ptr() as *const c_char,
                 *i,
                 *j,
             );
@@ -12938,6 +12950,8 @@ unsafe fn flux3d_elems(
 }
 
 // SAFETY: flux-3D node-coordinate mode 11 (split for sizing).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn flux3d_nodes(
     data: *mut FemType,
     noknots: c_int,
@@ -12949,7 +12963,7 @@ unsafe fn flux3d_nodes(
     info: c_int,
 ) {
     if info != 0 {
-        printf(b"Reading %d element nodes\n\0".as_ptr() as *const c_char, noknots);
+        printf(c"Reading %d element nodes\n".as_ptr() as *const c_char, noknots);
     }
     *i = 1;
     while *i <= noknots {
@@ -12958,7 +12972,7 @@ unsafe fn flux3d_nodes(
         *j = next_int(&mut (*cp));
         if *i != *j {
             printf(
-                b"It seems that reordering of nodes should be performed! (%d %d)\n\0".as_ptr() as *const c_char,
+                c"It seems that reordering of nodes should be performed! (%d %d)\n".as_ptr() as *const c_char,
                 *i,
                 *j,
             );
@@ -12980,19 +12994,19 @@ unsafe fn flux3d_regions(
     info: c_int,
 ) {
     if info != 0 {
-        printf(b"Reading %d names of regions\n\0".as_ptr() as *const c_char, noregions);
+        printf(c"Reading %d names of regions\n".as_ptr() as *const c_char, noregions);
     }
     *i = 1;
     while *i <= noregions {
         Getrow(line, input, FALSE);
         // NOTE: skip over the section headers to the next name row.
-        if !strstr(line, b"REGIONS SURFACIQUES\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"REGIONS SURFACIQUES".as_ptr() as *const c_char).is_null() {
             Getrow(line, input, FALSE);
         }
-        if !strstr(line, b"REGIONS VOLUMIQUES\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"REGIONS VOLUMIQUES".as_ptr() as *const c_char).is_null() {
             Getrow(line, input, FALSE);
         }
-        sscanf(line, b"%s\0".as_ptr() as *const c_char, entityname.as_mut_ptr());
+        sscanf(line, c"%s".as_ptr() as *const c_char, entityname.as_mut_ptr());
         if (*data).bodyname[*i as usize].is_null() {
             (*data).bodyname[*i as usize] = cvector(0, MAXNAMESIZE as c_int);
         }
@@ -13018,7 +13032,7 @@ pub unsafe extern "C" fn LoadFluxMesh3D(
     // NOTE: `=0` decl init kept (read before any overwrite).
     let mut noelements: c_int;
     // NOTE: `=20` decl init kept (read before any overwrite).
-    let maxnodes: c_int;
+    
     // NOTE: `=3` decl init kept (read before any overwrite).
     let mut dim: c_int;
     // NOTE: 0-init for the &mut handoff (set in flux3d_elems before reads).
@@ -13034,7 +13048,7 @@ pub unsafe extern "C" fn LoadFluxMesh3D(
     // NOTE: 0-init for the &mut handoff (set in flux3d_elems before reads).
     let mut dimplusone: c_int = 0;
     // NOTE: `=12` decl init kept (nodes may span several lines).
-    let maxlinenodes: c_int;
+    
     // NOTE: 0-init for the &mut handoff (set in flux3d_elems before reads).
     let mut nodecnt: c_int = 0;
     // NOTE: always FALSE; the `if(debug)` arms are dead in C.
@@ -13054,20 +13068,20 @@ pub unsafe extern "C" fn LoadFluxMesh3D(
     let mut entityname: [c_char; MAXNAMESIZE] = [0; MAXNAMESIZE];
     let mut input: *mut FILE;
     strcpy(filename.as_mut_ptr(), prefix);
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
-        AddExtension(prefix, filename.as_mut_ptr(), b"PF3\0".as_ptr() as *const c_char);
-        input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        AddExtension(prefix, filename.as_mut_ptr(), c"PF3".as_ptr() as *const c_char);
+        input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if input.is_null() {
             printf(
-                b"LoadFluxMesh3D: opening of the Flux mesh file '%s' wasn't successful !\n\0".as_ptr() as *const c_char,
+                c"LoadFluxMesh3D: opening of the Flux mesh file '%s' wasn't successful !\n".as_ptr() as *const c_char,
                 filename.as_ptr(),
             );
             return 1;
         }
     }
     printf(
-        b"Reading 3D mesh from Flux mesh file %s.\n\0".as_ptr() as *const c_char,
+        c"Reading 3D mesh from Flux mesh file %s.\n".as_ptr() as *const c_char,
         filename.as_ptr(),
     );
     InitializeKnots(data);
@@ -13077,8 +13091,8 @@ pub unsafe extern "C" fn LoadFluxMesh3D(
     noelements = 0;
     // NOTE: C `mode = 0` dropped (every pass reassigns before reads).
     // NOTE: 20 nodes max (15?); topology rows may span several lines.
-    maxnodes = 20;
-    maxlinenodes = 12;
+    let maxnodes: c_int = 20;
+    let maxlinenodes: c_int = 12;
     loop {
         // NOTE: `if(0)` line dump omitted (dead in C).
         if Getrow(line.as_mut_ptr(), input, FALSE) != 0 {
@@ -13087,39 +13101,39 @@ pub unsafe extern "C" fn LoadFluxMesh3D(
         if line[0] == 0 {
             break;
         }
-        if !strstr(line.as_ptr(), b"==== DECOUPAGE  TERMINE\0".as_ptr() as *const c_char)
+        if !strstr(line.as_ptr(), c"==== DECOUPAGE  TERMINE".as_ptr() as *const c_char)
             .is_null()
         {
             break;
         }
-        if !strstr(line.as_ptr(), b"NOMBRE DE DIMENSIONS DU DECOUPAGE\0".as_ptr() as *const c_char)
+        if !strstr(line.as_ptr(), c"NOMBRE DE DIMENSIONS DU DECOUPAGE".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 1;
-        } else if !strstr(line.as_ptr(), b"NOMBRE  D'ELEMENTS\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"NOMBRE  D'ELEMENTS".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 3;
-        } else if !strstr(line.as_ptr(), b"NOMBRE DE POINTS\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"NOMBRE DE POINTS".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 2;
-        } else if !strstr(line.as_ptr(), b"NOMBRE DE REGIONS\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"NOMBRE DE REGIONS".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 4;
         } else if !strstr(
             line.as_ptr(),
-            b"DESCRIPTEUR DE TOPOLOGIE DES ELEMENTS\0".as_ptr() as *const c_char,
+            c"DESCRIPTEUR DE TOPOLOGIE DES ELEMENTS".as_ptr() as *const c_char,
         )
         .is_null()
         {
             mode = 10;
-        } else if !strstr(line.as_ptr(), b"COORDONNEES DES NOEUDS\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"COORDONNEES DES NOEUDS".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 11;
-        } else if !strstr(line.as_ptr(), b"NOMS DES REGIONS\0".as_ptr() as *const c_char)
+        } else if !strstr(line.as_ptr(), c"NOMS DES REGIONS".as_ptr() as *const c_char)
             .is_null()
         {
             mode = 12;
@@ -13133,7 +13147,7 @@ pub unsafe extern "C" fn LoadFluxMesh3D(
             dim = atoi(line.as_ptr());
         } else if mode == 2 {
             // NOTE: skip the integration-point count; want the node total.
-            if strstr(line.as_ptr(), b"NOMBRE DE POINTS D'INTEGRATION\0".as_ptr() as *const c_char)
+            if strstr(line.as_ptr(), c"NOMBRE DE POINTS D'INTEGRATION".as_ptr() as *const c_char)
                 .is_null()
             {
                 noknots = atoi(line.as_ptr());
@@ -13176,7 +13190,7 @@ pub unsafe extern "C" fn LoadFluxMesh3D(
     ElementsToBoundaryConditions(data, bound, TRUE, info);
     if info != 0 {
         printf(
-            b"The Flux 3D mesh was loaded from file %s.\n\n\0".as_ptr() as *const c_char,
+            c"The Flux 3D mesh was loaded from file %s.\n\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }

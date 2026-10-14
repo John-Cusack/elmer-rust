@@ -146,8 +146,10 @@ extern "C" {
 // NOTE: C file-local LONGLINE (2048) as a Rust const.
 pub const FUSE_LONGLINE: usize = 2048;
 
-// SAFETY: partitioned-solution fusion; `goto skip` becomes a guarded block;
-// res is block-local (assigned iff novctrs != 0, read iff the same).
+/// # Safety
+///
+/// partitioned-solution fusion; `goto skip` becomes a guarded block;
+/// res is block-local (assigned iff novctrs != 0, read iff the same).
 #[no_mangle]
 pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
     prefix: *mut c_char,
@@ -159,8 +161,8 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
     dstep: c_int,
     info: c_int,
 ) -> c_int {
-    let noknots: *mut c_int;
-    let noelements: *mut c_int;
+    
+    
     #[allow(unused_assignments)]
     let (mut novctrs, mut elemcode): (c_int, c_int) = (0, 0);
     let (totknots, totelements, mut sumknots, mut sumelements): (c_int, c_int, c_int, c_int);
@@ -195,26 +197,25 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
         (core::ptr::null_mut(), core::ptr::null_mut());
     #[allow(unused_assignments)]
     let (mut x, mut y, mut z): (Real, Real, Real) = (0.0, 0.0, 0.0);
-    if minstep != 0 || maxstep != 0 || dstep != 0 {
-        if info != 0 {
+    if (minstep != 0 || maxstep != 0 || dstep != 0)
+        && info != 0 {
             printf(
-                b"Saving results in the interval from %d to %d with step %d\n\0".as_ptr()
+                c"Saving results in the interval from %d to %d with step %d\n".as_ptr()
                     as *const c_char,
                 minstep,
                 maxstep,
                 dstep,
             );
         }
-    }
     i = 0;
     loop {
         sprintf(
             filename.as_mut_ptr(),
-            b"%s.ep.%d\0".as_ptr() as *const c_char,
+            c"%s.ep.%d".as_ptr() as *const c_char,
             prefix,
             i,
         );
-        intest = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        intest = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if intest.is_null() {
             break;
         }
@@ -225,16 +226,16 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
     }
     if i > MAXPARTITIONS as c_int {
         printf(
-            b"**********************************************************\n\0".as_ptr()
+            c"**********************************************************\n".as_ptr()
                 as *const c_char,
         );
         printf(
-            b"Only data for %d partitions is fused (%d)\n\0".as_ptr() as *const c_char,
+            c"Only data for %d partitions is fused (%d)\n".as_ptr() as *const c_char,
             MAXPARTITIONS as c_int,
             i,
         );
         printf(
-            b"**********************************************************\n\0".as_ptr()
+            c"**********************************************************\n".as_ptr()
                 as *const c_char,
         );
         i = MAXPARTITIONS as c_int;
@@ -242,7 +243,7 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
     nofiles = i;
     if nofiles < 2 {
         printf(
-            b"Opening of partitioned data from file %s wasn't successful!\n\0".as_ptr()
+            c"Opening of partitioned data from file %s wasn't successful!\n".as_ptr()
                 as *const c_char,
             filename.as_ptr(),
         );
@@ -253,25 +254,24 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
         }
         if info != 0 {
             printf(
-                b"Loading Elmer results from %d partitions.\n\0".as_ptr() as *const c_char,
+                c"Loading Elmer results from %d partitions.\n".as_ptr() as *const c_char,
                 nofiles,
             );
         }
     }
-    if minstep != 0 || maxstep != 0 || dstep != 0 {
-        if info != 0 {
+    if (minstep != 0 || maxstep != 0 || dstep != 0)
+        && info != 0 {
             printf(
-                b"Saving results in the interval from %d to %d with step %d\n\0".as_ptr()
+                c"Saving results in the interval from %d to %d with step %d\n".as_ptr()
                     as *const c_char,
                 minstep,
                 maxstep,
                 dstep,
             );
         }
-    }
     // NOTE: Ivector macro family (0-based here) = ivector.
-    noknots = ivector(0, nofiles - 1);
-    noelements = ivector(0, nofiles - 1);
+    let noknots: *mut c_int = ivector(0, nofiles - 1);
+    let noelements: *mut c_int = ivector(0, nofiles - 1);
     sumknots = 0;
     sumelements = 0;
     i = 0;
@@ -286,7 +286,7 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
         } else {
             sscanf(
                 line.as_ptr(),
-                b"%d %d\0".as_ptr() as *const c_char,
+                c"%d %d".as_ptr() as *const c_char,
                 &mut *noknots.wrapping_offset(i as isize),
                 &mut *noelements.wrapping_offset(i as isize),
             );
@@ -300,7 +300,7 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
     // NOTE: `res` lives in the novctrs-guarded block below (see SAFETY).
     if info != 0 {
         printf(
-            b"There are %d nodes, %d elements and %d vectors.\n\0".as_ptr() as *const c_char,
+            c"There are %d nodes, %d elements and %d vectors.\n".as_ptr() as *const c_char,
             totknots,
             sumelements,
             novctrs,
@@ -309,17 +309,17 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
     AddExtension(
         outfile,
         filename.as_mut_ptr(),
-        b"ep\0".as_ptr() as *const c_char,
+        c"ep".as_ptr() as *const c_char,
     );
     if info != 0 {
         printf(
-            b"Saving ElmerPost data to %s.\n\0".as_ptr() as *const c_char,
+            c"Saving ElmerPost data to %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     if out.is_null() {
-        printf(b"opening of file was not successful\n\0".as_ptr() as *const c_char);
+        printf(c"opening of file was not successful\n".as_ptr() as *const c_char);
         return 3;
     }
     i = timesteps;
@@ -339,23 +339,23 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
     }
     fprintf(
         out,
-        b"%d %d %d %d %s %s\0".as_ptr() as *const c_char,
+        c"%d %d %d %d %s %s".as_ptr() as *const c_char,
         totknots,
         totelements,
         novctrs + 1,
         i,
-        b"scalar: Partition\0".as_ptr() as *const c_char,
+        c"scalar: Partition".as_ptr() as *const c_char,
         cp,
     );
     if info != 0 {
         printf(
-            b"Reading and writing %d coordinates.\n\0".as_ptr() as *const c_char,
+            c"Reading and writing %d coordinates.\n".as_ptr() as *const c_char,
             totknots,
         );
     }
     sprintf(
         outstyle.as_mut_ptr(),
-        b"%%.%dg %%.%dg %%.%dg\n\0".as_ptr() as *const c_char,
+        c"%%.%dg %%.%dg %%.%dg\n".as_ptr() as *const c_char,
         decimals,
         decimals,
         decimals,
@@ -372,7 +372,7 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
             }
             sscanf(
                 line.as_ptr(),
-                b"%le %le %le\0".as_ptr() as *const c_char,
+                c"%le %le %le".as_ptr() as *const c_char,
                 &mut x,
                 &mut y,
                 &mut z,
@@ -384,7 +384,7 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
     }
     if info != 0 {
         printf(
-            b"Reading and writing %d element topologies.\n\0".as_ptr() as *const c_char,
+            c"Reading and writing %d element topologies.\n".as_ptr() as *const c_char,
             totelements,
         );
     }
@@ -401,15 +401,15 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
             }
             sscanf(
                 line.as_ptr(),
-                b"%s\0".as_ptr() as *const c_char,
+                c"%s".as_ptr() as *const c_char,
                 text.as_mut_ptr(),
             );
-            cp = strstr(line.as_ptr(), b" \0".as_ptr() as *const c_char);
+            cp = strstr(line.as_ptr(), c" ".as_ptr() as *const c_char);
             elemcode = next_int(&mut cp);
             k = 0;
             while k < elemcode % 100 {
                 // NOTE: strspn returns size_t; l is int in C (narrowing).
-                l = strspn(cp, b" \0".as_ptr() as *const c_char) as c_int;
+                l = strspn(cp, c" ".as_ptr() as *const c_char) as c_int;
                 if l == 0 {
                     _charend = fgets(line.as_mut_ptr(), FUSE_LONGLINE as c_int, inn[j as usize]);
                     cp = line.as_mut_ptr();
@@ -422,7 +422,7 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
             }
             fprintf(
                 out,
-                b"%s %d\0".as_ptr() as *const c_char,
+                c"%s %d".as_ptr() as *const c_char,
                 text.as_ptr(),
                 elemcode,
             );
@@ -430,12 +430,12 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
             while k < elemcode % 100 {
                 fprintf(
                     out,
-                    b" %d\0".as_ptr() as *const c_char,
+                    c" %d".as_ptr() as *const c_char,
                     ind[k as usize] + sumknots,
                 );
                 k += 1;
             }
-            fprintf(out, b"\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"\n".as_ptr() as *const c_char);
             i += 1;
         }
         sumknots += *noknots.wrapping_offset(j as isize);
@@ -443,7 +443,7 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
     }
     if info != 0 {
         printf(
-            b"Reading and writing %d degrees of freedom.\n\0".as_ptr() as *const c_char,
+            c"Reading and writing %d degrees of freedom.\n".as_ptr() as *const c_char,
             novctrs,
         );
     }
@@ -452,7 +452,7 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
         let res: *mut Real = dvector(1, novctrs);
         sprintf(
             outstyle.as_mut_ptr(),
-            b"%%.%dg \0".as_ptr() as *const c_char,
+            c"%%.%dg ".as_ptr() as *const c_char,
             decimals,
         );
         activestep = FALSE;
@@ -475,15 +475,14 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
                     loop {
                         _charend =
                             fgets(line.as_mut_ptr(), FUSE_LONGLINE as c_int, inn[k as usize]);
-                        if activestep != 0 {
-                            if k == 0
-                                && !strstr(line.as_ptr(), b"#time\0".as_ptr() as *const c_char)
+                        if activestep != 0
+                            && k == 0
+                                && !strstr(line.as_ptr(), c"#time".as_ptr() as *const c_char)
                                     .is_null()
                             {
-                                fprintf(out, b"%s\0".as_ptr() as *const c_char, line.as_ptr());
-                                fprintf(stderr, b"%s\0".as_ptr() as *const c_char, line.as_ptr());
+                                fprintf(out, c"%s".as_ptr() as *const c_char, line.as_ptr());
+                                fprintf(stderr, c"%s".as_ptr() as *const c_char, line.as_ptr());
                             }
-                        }
                         if line[0] != '#' as c_char {
                             break;
                         }
@@ -495,13 +494,13 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
                             *res.wrapping_offset(j as isize) = next_real(&mut cp);
                             j += 1;
                         }
-                        fprintf(out, b"%d \0".as_ptr() as *const c_char, k + 1);
+                        fprintf(out, c"%d ".as_ptr() as *const c_char, k + 1);
                         j = 1;
                         while j <= novctrs {
                             fprintf(out, outstyle.as_ptr(), *res.wrapping_offset(j as isize));
                             j += 1;
                         }
-                        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+                        fprintf(out, c"\n".as_ptr() as *const c_char);
                     }
                     i += 1;
                 }
@@ -518,7 +517,7 @@ pub unsafe extern "C" fn FuseSolutionElmerPartitioned(
     }
     fclose(out);
     if info != 0 {
-        printf(b"Successfully fused partitioned Elmer results\n\0".as_ptr() as *const c_char);
+        printf(c"Successfully fused partitioned Elmer results\n".as_ptr() as *const c_char);
     }
     0
 }
@@ -545,18 +544,18 @@ unsafe fn CreatePartitionTable(data: *mut FemType, info: c_int) -> c_int {
     let mut indxper: *mut c_int = core::ptr::null_mut();
     let mut debug: c_int;
     printf(
-        b"Creating a table showing all parenting partitions of nodes.\n\0".as_ptr()
+        c"Creating a table showing all parenting partitions of nodes.\n".as_ptr()
             as *const c_char,
     );
     if (*data).maxpartitiontable != 0 {
-        printf(b"The partition table already exists!\n\0".as_ptr() as *const c_char);
-        smallerror(b"Partition table not done\0".as_ptr() as *const c_char);
+        printf(c"The partition table already exists!\n".as_ptr() as *const c_char);
+        smallerror(c"Partition table not done".as_ptr() as *const c_char);
         return 0;
     }
     partitions = (*data).nopartitions;
     if partitions <= 1 {
         bigerror(
-            b"Cannot do partition table for less than two partitions\0".as_ptr() as *const c_char,
+            c"Cannot do partition table for less than two partitions".as_ptr() as *const c_char,
         );
     }
     noelements = (*data).noelements;
@@ -580,7 +579,7 @@ unsafe fn CreatePartitionTable(data: *mut FemType, info: c_int) -> c_int {
             debug = FALSE;
             if debug != 0 {
                 printf(
-                    b"ind=%d i=%d j=%d part=%d\n\0".as_ptr() as *const c_char,
+                    c"ind=%d i=%d j=%d part=%d\n".as_ptr() as *const c_char,
                     ind,
                     i,
                     j,
@@ -622,7 +621,7 @@ unsafe fn CreatePartitionTable(data: *mut FemType, info: c_int) -> c_int {
                 }
             }
             if debug != 0 {
-                printf(b"hit = %d\n\0".as_ptr() as *const c_char, hit);
+                printf(c"hit = %d\n".as_ptr() as *const c_char, hit);
             }
             j += 1;
         }
@@ -631,12 +630,11 @@ unsafe fn CreatePartitionTable(data: *mut FemType, info: c_int) -> c_int {
     notinany = 0;
     i = 1;
     while i <= noknots {
-        if periodic != 0 {
-            if i != *indxper.wrapping_offset(i as isize) {
+        if periodic != 0
+            && i != *indxper.wrapping_offset(i as isize) {
                 i += 1;
                 continue;
             }
-        }
         hit = FALSE;
         k = 1;
         while k <= maxneededtimes {
@@ -688,17 +686,17 @@ unsafe fn CreatePartitionTable(data: *mut FemType, info: c_int) -> c_int {
     }
     if info != 0 {
         printf(
-            b"Nodes belong to %d partitions in maximum\n\0".as_ptr() as *const c_char,
+            c"Nodes belong to %d partitions in maximum\n".as_ptr() as *const c_char,
             maxneededtimes,
         );
         printf(
-            b"There are %d shared nodes which is %.2f %% of all nodes.\n\0".as_ptr()
+            c"There are %d shared nodes which is %.2f %% of all nodes.\n".as_ptr()
                 as *const c_char,
             sharings,
             100.0 * sharings as Real / noknots as Real,
         );
         printf(
-            b"The initial owner was not any of the elements for %d nodes\n\0".as_ptr()
+            c"The initial owner was not any of the elements for %d nodes\n".as_ptr()
                 as *const c_char,
             notinany,
         );
@@ -846,11 +844,11 @@ unsafe fn PartitionElementsByNodes(data: *mut FemType, info: c_int) -> c_int {
     }
     if info != 0 {
         printf(
-            b"Set the element partitions by the dominating nodal partition\n\0".as_ptr()
+            c"Set the element partitions by the dominating nodal partition\n".as_ptr()
                 as *const c_char,
         );
         printf(
-            b"There are from %d to %d elements in the %d partitions.\n\0".as_ptr() as *const c_char,
+            c"There are from %d to %d elements in the %d partitions.\n".as_ptr() as *const c_char,
             minpart,
             maxpart,
             nopartitions,
@@ -889,7 +887,7 @@ unsafe fn PartitionNodesByElements(data: *mut FemType, info: c_int) -> c_int {
     nodepart = (*data).nodepart;
     if info != 0 {
         printf(
-            b"Number of nodal partitions: %d\n\0".as_ptr() as *const c_char,
+            c"Number of nodal partitions: %d\n".as_ptr() as *const c_char,
             nopartitions,
         );
     }
@@ -935,14 +933,12 @@ unsafe fn PartitionNodesByElements(data: *mut FemType, info: c_int) -> c_int {
             maxpart2 = 0;
             j = 1;
             while j <= nopartitions {
-                if *nodesinpart.wrapping_offset(j as isize) > 0 {
-                    if maxpart == 0 {
-                        maxpart = j;
-                    } else if *nodesinpart.wrapping_offset(j as isize)
-                        > *nodesinpart.wrapping_offset(maxpart as isize)
-                    {
-                        maxpart = j;
-                    }
+                if *nodesinpart.wrapping_offset(j as isize) > 0
+                    && (maxpart == 0
+                        || *nodesinpart.wrapping_offset(j as isize)
+                            > *nodesinpart.wrapping_offset(maxpart as isize))
+                {
+                    maxpart = j;
                 }
                 j += 1;
             }
@@ -953,10 +949,9 @@ unsafe fn PartitionNodesByElements(data: *mut FemType, info: c_int) -> c_int {
                         j += 1;
                         continue;
                     }
-                    if maxpart2 == 0 {
-                        maxpart2 = j;
-                    } else if *nodesinpart.wrapping_offset(j as isize)
-                        > *nodesinpart.wrapping_offset(maxpart2 as isize)
+                    if maxpart2 == 0
+                        || *nodesinpart.wrapping_offset(j as isize)
+                            > *nodesinpart.wrapping_offset(maxpart2 as isize)
                     {
                         maxpart2 = j;
                     }
@@ -965,7 +960,7 @@ unsafe fn PartitionNodesByElements(data: *mut FemType, info: c_int) -> c_int {
             }
             if maxpart == 0 && maxpart2 == 0 {
                 printf(
-                    b"Node is not included in any partition: %d\n\0".as_ptr() as *const c_char,
+                    c"Node is not included in any partition: %d\n".as_ptr() as *const c_char,
                     i,
                 );
             } else if maxpart2 == 0 {
@@ -1017,11 +1012,11 @@ unsafe fn PartitionNodesByElements(data: *mut FemType, info: c_int) -> c_int {
     }
     if info != 0 {
         printf(
-            b"Set the node partitions by the dominating element partition.\n\0".as_ptr()
+            c"Set the node partitions by the dominating element partition.\n".as_ptr()
                 as *const c_char,
         );
         printf(
-            b"There are from %d to %d nodes in the %d partitions.\n\0".as_ptr() as *const c_char,
+            c"There are from %d to %d nodes in the %d partitions.\n".as_ptr() as *const c_char,
             minpart,
             maxpart,
             nopartitions,
@@ -1033,9 +1028,11 @@ unsafe fn PartitionNodesByElements(data: *mut FemType, info: c_int) -> c_int {
     free_imatrix(cumknows, 1, nopartitions, 1, nopartitions);
     0
 }
-// SAFETY: recursive geometric partitioning over valid meshes (C contract).
-// `goto skippart` becomes an if/else split (the skipped region frees nothing
-// on that path in C either — same leak, same behavior).
+/// # Safety
+///
+/// recursive geometric partitioning over valid meshes (C contract).
+/// `goto skippart` becomes an if/else split (the skipped region frees nothing
+/// on that path in C either — same leak, same behavior).
 #[no_mangle]
 pub unsafe extern "C" fn PartitionSimpleElements(
     data: *mut FemType,
@@ -1072,7 +1069,7 @@ pub unsafe extern "C" fn PartitionSimpleElements(
     let arrange: *mut Real;
     let (mut x, mut y, mut z, cx, cy, cz): (Real, Real, Real, Real, Real, Real);
     if info != 0 {
-        printf(b"PartitionSimpleElements\n\0".as_ptr() as *const c_char);
+        printf(c"PartitionSimpleElements\n".as_ptr() as *const c_char);
     }
     noelements = (*data).noelements;
     noknots = (*data).noknots;
@@ -1085,22 +1082,22 @@ pub unsafe extern "C" fn PartitionSimpleElements(
     partitions = partitions1 * partitions2 * partitions3;
     if partitions1 < 2 && partitions2 < 2 && partitions3 < 2 && (*eg).connect == 0 {
         printf(
-            b"Some of the divisions must be larger than one: %d %d %d\n\0".as_ptr()
+            c"Some of the divisions must be larger than one: %d %d %d\n".as_ptr()
                 as *const c_char,
             partitions1,
             partitions2,
             partitions3,
         );
-        bigerror(b"Partitioning not performed\0".as_ptr() as *const c_char);
+        bigerror(c"Partitioning not performed".as_ptr() as *const c_char);
     }
     if partitions >= noelements {
         printf(
-            b"There must be fever partitions than elements (%d vs %d)!\n\0".as_ptr()
+            c"There must be fever partitions than elements (%d vs %d)!\n".as_ptr()
                 as *const c_char,
             partitions,
             noelements,
         );
-        bigerror(b"Partitioning not performed\0".as_ptr() as *const c_char);
+        bigerror(c"Partitioning not performed".as_ptr() as *const c_char);
     }
     if (*eg).partbcz > 1 || (*eg).partbcr != 0 {
         PartitionConnectedElements1D(data, bound, eg, info);
@@ -1130,21 +1127,21 @@ pub unsafe extern "C" fn PartitionSimpleElements(
         i = 1;
         while i <= (*data).noelements {
             if *elemconnect.wrapping_offset(i as isize) != 0 {
-                noelements0 = noelements0 + 1;
+                noelements0 += 1;
             }
             noparts0 = c_max_int(noparts0, *elemconnect.wrapping_offset(i as isize));
             i += 1;
         }
         if info != 0 {
             printf(
-                b"There are %d initial partitions in the connected mesh\n\0".as_ptr()
+                c"There are %d initial partitions in the connected mesh\n".as_ptr()
                     as *const c_char,
                 noparts0,
             );
         }
         if info != 0 {
             printf(
-                b"There are %d initial elements in the connected mesh\n\0".as_ptr()
+                c"There are %d initial elements in the connected mesh\n".as_ptr()
                     as *const c_char,
                 noelements0,
             );
@@ -1173,7 +1170,7 @@ pub unsafe extern "C" fn PartitionSimpleElements(
     if vpartitions == 1 && (*data).elemconnectexist != 0 {
         if info != 0 {
             printf(
-                b"Only one regular partitions requested, skipping 2nd part of hybrid partitioning\n\0"
+                c"Only one regular partitions requested, skipping 2nd part of hybrid partitioning\n"
                     .as_ptr() as *const c_char,
             );
         }
@@ -1191,7 +1188,7 @@ pub unsafe extern "C" fn PartitionSimpleElements(
     } else {
         if info != 0 {
             printf(
-                b"Making a simple partitioning for %d elements in %d-dimensions.\n\0".as_ptr()
+                c"Making a simple partitioning for %d elements in %d-dimensions.\n".as_ptr()
                     as *const c_char,
                 noelements1,
                 (*data).dim,
@@ -1218,7 +1215,7 @@ pub unsafe extern "C" fn PartitionSimpleElements(
         if vpartitions1 > 1 {
             if info != 0 {
                 printf(
-                    b"Ordering 1st direction with (%.3lg*x + %.3lg*y + %.3lg*z)\n\0".as_ptr()
+                    c"Ordering 1st direction with (%.3lg*x + %.3lg*y + %.3lg*z)\n".as_ptr()
                         as *const c_char,
                     cx,
                     cy,
@@ -1227,13 +1224,12 @@ pub unsafe extern "C" fn PartitionSimpleElements(
             }
             j = 1;
             while j <= noelements {
-                if (*data).elemconnectexist != 0 {
-                    if *elemconnect.wrapping_offset(j as isize) > 0 {
+                if (*data).elemconnectexist != 0
+                    && *elemconnect.wrapping_offset(j as isize) > 0 {
                         *arrange.wrapping_offset(j as isize) = 1.0e9;
                         j += 1;
                         continue;
                     }
-                }
                 nonodes = *(*data).elementtypes.wrapping_offset(j as isize) % 100;
                 x = 0.0;
                 y = 0.0;
@@ -1261,17 +1257,16 @@ pub unsafe extern "C" fn PartitionSimpleElements(
         }
         if vpartitions2 > 1 {
             if info != 0 {
-                printf(b"Ordering in the 2nd direction.\n\0".as_ptr() as *const c_char);
+                printf(c"Ordering in the 2nd direction.\n".as_ptr() as *const c_char);
             }
             j = 1;
             while j <= noelements {
-                if (*data).elemconnectexist != 0 {
-                    if *elemconnect.wrapping_offset(j as isize) > 0 {
+                if (*data).elemconnectexist != 0
+                    && *elemconnect.wrapping_offset(j as isize) > 0 {
                         *arrange.wrapping_offset(j as isize) = 1.0e9;
                         j += 1;
                         continue;
                     }
-                }
                 nonodes = *(*data).elementtypes.wrapping_offset(j as isize) % 100;
                 x = 0.0;
                 y = 0.0;
@@ -1315,17 +1310,16 @@ pub unsafe extern "C" fn PartitionSimpleElements(
         }
         if vpartitions3 > 1 {
             if info != 0 {
-                printf(b"Ordering in the 3rd direction.\n\0".as_ptr() as *const c_char);
+                printf(c"Ordering in the 3rd direction.\n".as_ptr() as *const c_char);
             }
             j = 1;
             while j <= noelements {
-                if (*data).elemconnectexist != 0 {
-                    if *elemconnect.wrapping_offset(j as isize) > 0 {
+                if (*data).elemconnectexist != 0
+                    && *elemconnect.wrapping_offset(j as isize) > 0 {
                         *arrange.wrapping_offset(j as isize) = 1.0e9;
                         j += 1;
                         continue;
                     }
-                }
                 nonodes = *(*data).elementtypes.wrapping_offset(j as isize) % 100;
                 x = 0.0;
                 y = 0.0;
@@ -1371,13 +1365,12 @@ pub unsafe extern "C" fn PartitionSimpleElements(
             // NOTE: `if(0)` count dumps omitted (runtime-dead).
             j = 1;
             while j <= noelements {
-                if (*data).elemconnectexist != 0 {
-                    if *elemconnect.wrapping_offset(j as isize) > 0 {
+                if (*data).elemconnectexist != 0
+                    && *elemconnect.wrapping_offset(j as isize) > 0 {
                         *arrange.wrapping_offset(j as isize) = 1.0e9;
                         j += 1;
                         continue;
                     }
-                }
                 nonodes = *(*data).elementtypes.wrapping_offset(j as isize) % 100;
                 x = 0.0;
                 y = 0.0;
@@ -1403,8 +1396,8 @@ pub unsafe extern "C" fn PartitionSimpleElements(
             while i <= noelements1 {
                 ind = *indx.wrapping_offset(i as isize);
                 k = *inpart.wrapping_offset(ind as isize);
-                if k != kprev {
-                    if fabs(
+                if k != kprev
+                    && fabs(
                         *arrange.wrapping_offset(i as isize)
                             - *arrange.wrapping_offset((i - 1) as isize),
                     ) < parttol
@@ -1416,13 +1409,12 @@ pub unsafe extern "C" fn PartitionSimpleElements(
                         // NOTE: `if(0)` diagnostic omitted (runtime-dead).
                         l += 1;
                     }
-                }
                 kprev = k;
                 i += 1;
             }
             if info != 0 {
                 printf(
-                    b"Number of partition changes due to tolerance: %d\n\0".as_ptr()
+                    c"Number of partition changes due to tolerance: %d\n".as_ptr()
                         as *const c_char,
                     l,
                 );
@@ -1441,13 +1433,13 @@ pub unsafe extern "C" fn PartitionSimpleElements(
                 }
                 j += 1;
             }
-            partitions = partitions + noparts0;
+            partitions += noparts0;
             (*data).nopartitions = partitions;
         }
         if periodic != 0 {
             // NOTE: block-scoped C locals become a Rust block.
             {
-                let partmap: *mut c_int;
+                
                 let (mut p1, mut p2, mut p3, mut q1, mut q2, mut q3): (
                     c_int,
                     c_int,
@@ -1460,13 +1452,13 @@ pub unsafe extern "C" fn PartitionSimpleElements(
                 let (mut P, mut Q): (c_int, c_int);
                 if (*data).elemconnectexist != 0 {
                     bigerror(
-                        b"Cannot use connect flag with periodic systems\n\0".as_ptr()
+                        c"Cannot use connect flag with periodic systems\n".as_ptr()
                             as *const c_char,
                     );
                 }
                 // NOTE: C pre-inits p1=p2=p3=1, but the for-loops below
                 // reassign first; the stores are dead and dropped.
-                partmap = ivector(1, vpartitions);
+                let partmap: *mut c_int = ivector(1, vpartitions);
                 i = 1;
                 while i <= vpartitions {
                     *partmap.wrapping_offset(i as isize) = 0;
@@ -1543,7 +1535,7 @@ pub unsafe extern "C" fn PartitionSimpleElements(
     PartitionNodesByElements(data, info);
     if info != 0 {
         printf(
-            b"Successfully made a partitioning with %d to %d elements.\n\0".as_ptr()
+            c"Successfully made a partitioning with %d to %d elements.\n".as_ptr()
                 as *const c_char,
             minpart,
             maxpart,
@@ -1551,7 +1543,9 @@ pub unsafe extern "C" fn PartitionSimpleElements(
     }
     0
 }
-// SAFETY: non-recursive geometric partitioning over valid meshes (C contract).
+/// # Safety
+///
+/// non-recursive geometric partitioning over valid meshes (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn PartitionSimpleElementsNonRecursive(
     data: *mut FemType,
@@ -1586,13 +1580,13 @@ pub unsafe extern "C" fn PartitionSimpleElementsNonRecursive(
     partitions = partitions1 * partitions2 * partitions3;
     if partitions1 < 2 && partitions2 < 2 && partitions3 < 2 {
         printf(
-            b"Some of the divisions must be larger than one: %d %d %d\n\0".as_ptr()
+            c"Some of the divisions must be larger than one: %d %d %d\n".as_ptr()
                 as *const c_char,
             partitions1,
             partitions2,
             partitions3,
         );
-        bigerror(b"Partitioning not performed\0".as_ptr() as *const c_char);
+        bigerror(c"Partitioning not performed".as_ptr() as *const c_char);
     }
     if (*data).partitionexist == 0 {
         (*data).partitionexist = TRUE;
@@ -1606,18 +1600,18 @@ pub unsafe extern "C" fn PartitionSimpleElementsNonRecursive(
     periodic = *dimper.wrapping_offset(0) | *dimper.wrapping_offset(1) | *dimper.wrapping_offset(2);
     if periodic != 0 {
         printf(
-            b"Implement periodicity for this partitioning routine!\n\0".as_ptr() as *const c_char,
+            c"Implement periodicity for this partitioning routine!\n".as_ptr() as *const c_char,
         );
     }
     if info != 0 {
         printf(
-            b"Making a simple partitioning for %d elements in %d-dimensions.\n\0".as_ptr()
+            c"Making a simple partitioning for %d elements in %d-dimensions.\n".as_ptr()
                 as *const c_char,
             noelements,
             (*data).dim,
         );
         printf(
-            b"There can be at maximum %d partitions\n\0".as_ptr() as *const c_char,
+            c"There can be at maximum %d partitions\n".as_ptr() as *const c_char,
             partitions,
         );
     }
@@ -1656,17 +1650,17 @@ pub unsafe extern "C" fn PartitionSimpleElementsNonRecursive(
     }
     if info != 0 {
         printf(
-            b"Range in x-direction: %12.5le %12.5le\n\0".as_ptr() as *const c_char,
+            c"Range in x-direction: %12.5le %12.5le\n".as_ptr() as *const c_char,
             minx,
             maxx,
         );
         printf(
-            b"Range in y-direction: %12.5le %12.5le\n\0".as_ptr() as *const c_char,
+            c"Range in y-direction: %12.5le %12.5le\n".as_ptr() as *const c_char,
             miny,
             maxy,
         );
         printf(
-            b"Range in z-direction: %12.5le %12.5le\n\0".as_ptr() as *const c_char,
+            c"Range in z-direction: %12.5le %12.5le\n".as_ptr() as *const c_char,
             minz,
             maxz,
         );
@@ -1685,9 +1679,9 @@ pub unsafe extern "C" fn PartitionSimpleElementsNonRecursive(
             z += *(*data).z.wrapping_offset(k as isize);
             i += 1;
         }
-        x = x / nonodes as Real;
-        y = y / nonodes as Real;
-        z = z / nonodes as Real;
+        x /= nonodes as Real;
+        y /= nonodes as Real;
+        z /= nonodes as Real;
         indx1 = ceil(partitions1 as Real * (x - minx) / (maxx - minx)) as c_int;
         indy1 = ceil(partitions2 as Real * (y - miny) / (maxy - miny)) as c_int;
         if (*data).dim == 3 {
@@ -1702,7 +1696,7 @@ pub unsafe extern "C" fn PartitionSimpleElementsNonRecursive(
     minpart = noelements;
     j = 0;
     if info != 0 {
-        printf(b"Renumbering the partitions (showing only 64):\n\0".as_ptr() as *const c_char);
+        printf(c"Renumbering the partitions (showing only 64):\n".as_ptr() as *const c_char);
     }
     i = 1;
     while i <= partitions {
@@ -1713,14 +1707,14 @@ pub unsafe extern "C" fn PartitionSimpleElementsNonRecursive(
             j += 1;
             *nopart.wrapping_offset(i as isize) = j;
             if info != 0 && j <= 64 {
-                printf(b"%d -> %d\n\0".as_ptr() as *const c_char, i, j);
+                printf(c"%d -> %d\n".as_ptr() as *const c_char, i, j);
             }
         }
         i += 1;
     }
     if info != 0 {
         printf(
-            b"There are %d active partitions out of %d possible ones\n\0".as_ptr() as *const c_char,
+            c"There are %d active partitions out of %d possible ones\n".as_ptr() as *const c_char,
             j,
             partitions,
         );
@@ -1736,7 +1730,7 @@ pub unsafe extern "C" fn PartitionSimpleElementsNonRecursive(
     PartitionNodesByElements(data, info);
     if info != 0 {
         printf(
-            b"Successfully made a partitioning with %d to %d elements.\n\0".as_ptr()
+            c"Successfully made a partitioning with %d to %d elements.\n".as_ptr()
                 as *const c_char,
             minpart,
             maxpart,
@@ -1747,7 +1741,9 @@ pub unsafe extern "C" fn PartitionSimpleElementsNonRecursive(
 // NOTE: C function-local MAXCATEGORY as a Rust const.
 pub const MAXCATEGORY: c_int = 500;
 
-// SAFETY: rotational geometric partitioning over valid meshes (C contract).
+/// # Safety
+///
+/// rotational geometric partitioning over valid meshes (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn PartitionSimpleElementsRotational(
     data: *mut FemType,
@@ -1789,17 +1785,17 @@ pub unsafe extern "C" fn PartitionSimpleElementsRotational(
         SetConnectedElements(data, info);
         connect = TRUE;
         elemconnect = (*data).elemconnect;
-        partitions = partitions + partitions3;
+        partitions += partitions3;
     }
     if partitions1 < 2 && partitions2 < 2 && partitions3 < 2 {
         printf(
-            b"Some of the divisions must be larger than one: %d %d %d\n\0".as_ptr()
+            c"Some of the divisions must be larger than one: %d %d %d\n".as_ptr()
                 as *const c_char,
             partitions1,
             partitions2,
             partitions3,
         );
-        bigerror(b"Partitioning not performed\0".as_ptr() as *const c_char);
+        bigerror(c"Partitioning not performed".as_ptr() as *const c_char);
     }
     if (*data).partitionexist == 0 {
         (*data).partitionexist = TRUE;
@@ -1813,18 +1809,18 @@ pub unsafe extern "C" fn PartitionSimpleElementsRotational(
     periodic = *dimper.wrapping_offset(0) | *dimper.wrapping_offset(1) | *dimper.wrapping_offset(2);
     if periodic != 0 {
         printf(
-            b"Implement periodicity for this partitioning routine!\n\0".as_ptr() as *const c_char,
+            c"Implement periodicity for this partitioning routine!\n".as_ptr() as *const c_char,
         );
     }
     if info != 0 {
         printf(
-            b"Making a simple rotational partitioning for %d elements in %d-dimensions.\n\0"
+            c"Making a simple rotational partitioning for %d elements in %d-dimensions.\n"
                 .as_ptr() as *const c_char,
             noelements,
             (*data).dim,
         );
         printf(
-            b"There can be at maximum %d partitions\n\0".as_ptr() as *const c_char,
+            c"There can be at maximum %d partitions\n".as_ptr() as *const c_char,
             partitions,
         );
     }
@@ -1847,7 +1843,7 @@ pub unsafe extern "C" fn PartitionSimpleElementsRotational(
     r = sqrt(x * x + y * y);
     f = 180.0 * atan2(y, x) / FM_PI;
     if f < 0.0 {
-        f = f + 360.0;
+        f += 360.0;
     }
     maxr = r;
     minr = r;
@@ -1863,7 +1859,7 @@ pub unsafe extern "C" fn PartitionSimpleElementsRotational(
         r = sqrt(x * x + y * y);
         f = 180.0 * atan2(y, x) / FM_PI;
         if f < 0.0 {
-            f = f + 360.0;
+            f += 360.0;
         }
         maxr = c_max_real(maxr, r);
         minr = c_min_real(minr, r);
@@ -1875,17 +1871,17 @@ pub unsafe extern "C" fn PartitionSimpleElementsRotational(
     }
     if info != 0 {
         printf(
-            b"Range in r-direction: %12.5le %12.5le\n\0".as_ptr() as *const c_char,
+            c"Range in r-direction: %12.5le %12.5le\n".as_ptr() as *const c_char,
             minr,
             maxr,
         );
         printf(
-            b"Range in f-direction: %12.5le %12.5le\n\0".as_ptr() as *const c_char,
+            c"Range in f-direction: %12.5le %12.5le\n".as_ptr() as *const c_char,
             minf,
             maxf,
         );
         printf(
-            b"Range in z-direction: %12.5le %12.5le\n\0".as_ptr() as *const c_char,
+            c"Range in z-direction: %12.5le %12.5le\n".as_ptr() as *const c_char,
             minz,
             maxz,
         );
@@ -1922,37 +1918,37 @@ pub unsafe extern "C" fn PartitionSimpleElementsRotational(
             z += *(*data).z.wrapping_offset(k as isize);
             i += 1;
         }
-        x = x / nonodes as Real;
-        y = y / nonodes as Real;
-        z = z / nonodes as Real;
+        x /= nonodes as Real;
+        y /= nonodes as Real;
+        z /= nonodes as Real;
         r = sqrt(x * x + y * y);
         f = 180.0 * atan2(y, x) / FM_PI;
         if f < 0.0 {
-            f = f + 360.0;
+            f += 360.0;
         }
         indr = ceil(MAXCATEGORY as Real * (r - minr) / (maxr - minr)) as c_int;
         indf = ceil(MAXCATEGORY as Real * (f - minf) / (maxf - minf)) as c_int;
         if dim == 3 {
             indz = ceil(MAXCATEGORY as Real * (z - minz) / (maxz - minz)) as c_int;
         }
-        if indr < 1 || indr > MAXCATEGORY {
+        if !(1..=MAXCATEGORY).contains(&indr) {
             printf(
-                b"IndR out of bounds : %d\n\0".as_ptr() as *const c_char,
+                c"IndR out of bounds : %d\n".as_ptr() as *const c_char,
                 indr,
             );
             indr = c_min_int(c_max_int(indr, 1), MAXCATEGORY);
         }
-        if indf < 1 || indf > MAXCATEGORY {
+        if !(1..=MAXCATEGORY).contains(&indf) {
             printf(
-                b"IndF out of bounds : %d\n\0".as_ptr() as *const c_char,
+                c"IndF out of bounds : %d\n".as_ptr() as *const c_char,
                 indf,
             );
             indf = c_min_int(c_max_int(indf, 1), MAXCATEGORY);
         }
         if dim == 3 {
-            if indz < 1 || indz > MAXCATEGORY {
+            if !(1..=MAXCATEGORY).contains(&indz) {
                 printf(
-                    b"IndZ out of bounds : %d\n\0".as_ptr() as *const c_char,
+                    c"IndZ out of bounds : %d\n".as_ptr() as *const c_char,
                     indz,
                 );
                 indz = c_min_int(c_max_int(indz, 1), MAXCATEGORY);
@@ -2010,13 +2006,13 @@ pub unsafe extern "C" fn PartitionSimpleElementsRotational(
             z += *(*data).z.wrapping_offset(k as isize);
             i += 1;
         }
-        x = x / nonodes as Real;
-        y = y / nonodes as Real;
-        z = z / nonodes as Real;
+        x /= nonodes as Real;
+        y /= nonodes as Real;
+        z /= nonodes as Real;
         r = sqrt(x * x + y * y);
         f = 180.0 * atan2(y, x) / FM_PI;
         if f < 0.0 {
-            f = f + 360.0;
+            f += 360.0;
         }
         indr = ceil(MAXCATEGORY as Real * (r - minr) / (maxr - minr)) as c_int;
         indf = ceil(MAXCATEGORY as Real * (f - minf) / (maxf - minf)) as c_int;
@@ -2060,7 +2056,7 @@ pub unsafe extern "C" fn PartitionSimpleElementsRotational(
     }
     if hit != 0 {
         if info != 0 {
-            printf(b"Renumbering the partitions (showing only 64):\n\0".as_ptr() as *const c_char);
+            printf(c"Renumbering the partitions (showing only 64):\n".as_ptr() as *const c_char);
         }
         i = 1;
         while i <= partitions {
@@ -2071,14 +2067,14 @@ pub unsafe extern "C" fn PartitionSimpleElementsRotational(
                 j += 1;
                 *nopart.wrapping_offset(i as isize) = j;
                 if info != 0 && i != j && j <= 64 {
-                    printf(b"%d -> %d %d\n\0".as_ptr() as *const c_char, i, j, k);
+                    printf(c"%d -> %d %d\n".as_ptr() as *const c_char, i, j, k);
                 }
             }
             i += 1;
         }
         if info != 0 {
             printf(
-                b"There are %d active partitions out of %d possible ones\n\0".as_ptr()
+                c"There are %d active partitions out of %d possible ones\n".as_ptr()
                     as *const c_char,
                 j,
                 partitions,
@@ -2094,7 +2090,7 @@ pub unsafe extern "C" fn PartitionSimpleElementsRotational(
     } else {
         if info != 0 {
             printf(
-                b"All possible %d out of %d partitions are active\n\0".as_ptr() as *const c_char,
+                c"All possible %d out of %d partitions are active\n".as_ptr() as *const c_char,
                 j,
                 partitions,
             );
@@ -2110,7 +2106,7 @@ pub unsafe extern "C" fn PartitionSimpleElementsRotational(
     PartitionNodesByElements(data, info);
     if info != 0 {
         printf(
-            b"Successfully made a partitioning with %d to %d elements.\n\0".as_ptr()
+            c"Successfully made a partitioning with %d to %d elements.\n".as_ptr()
                 as *const c_char,
             minpart,
             maxpart,
@@ -2118,10 +2114,12 @@ pub unsafe extern "C" fn PartitionSimpleElementsRotational(
     }
     0
 }
-// SAFETY: direct BC-to-partition linking over valid meshes (C contract).
-// NOTE: C-dead locals (dim, allocated, partz, IndZ, noconnect, maxbcelem,
-// cumz, partelems, nodeconnect) are dropped — declared/assigned, never read
-// in the C source either.
+/// # Safety
+///
+/// direct BC-to-partition linking over valid meshes (C contract).
+/// NOTE: C-dead locals (dim, allocated, partz, IndZ, noconnect, maxbcelem,
+/// cumz, partelems, nodeconnect) are dropped — declared/assigned, never read
+/// in the C source either.
 #[no_mangle]
 pub unsafe extern "C" fn PartitionConnectedElementsStraight(
     data: *mut FemType,
@@ -2136,14 +2134,14 @@ pub unsafe extern "C" fn PartitionConnectedElementsStraight(
     let (noelements, mut bcelem, mut bc): (c_int, c_int, c_int);
     let mut totpartelems: c_int;
     let mut sideelemtype: c_int = 0;
-    let elemconnect: *mut c_int;
+    
     let mut sideind: [c_int; MAXNODESD2] = [0; MAXNODESD2];
     // NOTE: C stores debug = FALSE here but never reads it (dropped).
     if info != 0 {
-        printf(b"Link the connected set directly to the partition\n\0".as_ptr() as *const c_char);
+        printf(c"Link the connected set directly to the partition\n".as_ptr() as *const c_char);
     }
     if (*data).nodeconnectexist == 0 {
-        printf(b"There are no connected boundary nodes?\n\0".as_ptr() as *const c_char);
+        printf(c"There are no connected boundary nodes?\n".as_ptr() as *const c_char);
         return 1;
     }
     // NOTE: C stores noknots here but never reads it (dropped).
@@ -2151,7 +2149,7 @@ pub unsafe extern "C" fn PartitionConnectedElementsStraight(
     totpartelems = 0;
     bcelem = 0;
     (*data).elemconnect = ivector(1, noelements);
-    elemconnect = (*data).elemconnect;
+    let elemconnect: *mut c_int = (*data).elemconnect;
     i = 1;
     while i <= noelements {
         *elemconnect.wrapping_offset(i as isize) = 0;
@@ -2211,18 +2209,16 @@ pub unsafe extern "C" fn PartitionConnectedElementsStraight(
             l = *(*bound.wrapping_offset(bc as isize))
                 .parent2
                 .wrapping_offset(i as isize);
-            if k != 0 {
-                if *elemconnect.wrapping_offset(k as isize) == 0 {
+            if k != 0
+                && *elemconnect.wrapping_offset(k as isize) == 0 {
                     *elemconnect.wrapping_offset(k as isize) = 1;
                     totpartelems += 1;
                 }
-            }
-            if l != 0 {
-                if *elemconnect.wrapping_offset(l as isize) == 0 {
+            if l != 0
+                && *elemconnect.wrapping_offset(l as isize) == 0 {
                     *elemconnect.wrapping_offset(l as isize) = 1;
                     totpartelems += 1;
                 }
-            }
             i += 1;
         }
         bc += 1;
@@ -2230,26 +2226,28 @@ pub unsafe extern "C" fn PartitionConnectedElementsStraight(
     (*data).elemconnectexist = totpartelems;
     if info != 0 {
         printf(
-            b"Number of constrained boundary elements = %d\n\0".as_ptr() as *const c_char,
+            c"Number of constrained boundary elements = %d\n".as_ptr() as *const c_char,
             bcelem,
         );
     }
     if info != 0 {
         printf(
-            b"Number of constrained bulk elements = %d\n\0".as_ptr() as *const c_char,
+            c"Number of constrained bulk elements = %d\n".as_ptr() as *const c_char,
             totpartelems,
         );
     }
     if info != 0 {
         printf(
-            b"Successfully made connected elements to a partition\n\0".as_ptr() as *const c_char,
+            c"Successfully made connected elements to a partition\n".as_ptr() as *const c_char,
         );
     }
     0
 }
 
-// SAFETY: 1D BC partitioning with two-pass (omstart) category mapping.
-// NOTE: C-dead locals (partelems, nodeconnect, maxbcelem store) dropped as above.
+/// # Safety
+///
+/// 1D BC partitioning with two-pass (omstart) category mapping.
+/// NOTE: C-dead locals (partelems, nodeconnect, maxbcelem store) dropped as above.
 #[no_mangle]
 pub unsafe extern "C" fn PartitionConnectedElements1D(
     data: *mut FemType,
@@ -2267,7 +2265,7 @@ pub unsafe extern "C" fn PartitionConnectedElements1D(
     let mut sidenodes: c_int;
     // NOTE: elemconnect is loop-carried (assigned end of pass 1, read from
     // pass 2 under the allocated flag); null init is unobservable.
-    let cumz: *mut c_int;
+    
     let mut elemconnect: *mut c_int = core::ptr::null_mut();
     let mut sideind: [c_int; MAXNODESD2] = [0; MAXNODESD2];
     let (mut val, mut z, mut maxz, mut minz): (Real, Real, Real, Real);
@@ -2281,24 +2279,24 @@ pub unsafe extern "C" fn PartitionConnectedElements1D(
     if info != 0 {
         if partz != 0 {
             printf(
-                b"Making a simple 1D partitioning in z for the connected elements only\n\0".as_ptr()
+                c"Making a simple 1D partitioning in z for the connected elements only\n".as_ptr()
                     as *const c_char,
             );
         } else {
             printf(
-                b"Making a simple 1D partitioning in r for the connected elements only\n\0".as_ptr()
+                c"Making a simple 1D partitioning in r for the connected elements only\n".as_ptr()
                     as *const c_char,
             );
         }
     }
     if (*data).nodeconnectexist == 0 {
-        printf(b"There are no connected boundary nodes?\n\0".as_ptr() as *const c_char);
+        printf(c"There are no connected boundary nodes?\n".as_ptr() as *const c_char);
         return 1;
     }
     dim = (*data).dim;
     if dim < 3 {
         printf(
-            b"PartitionConnectedElements1D is only applicable in 3D\n\0".as_ptr() as *const c_char,
+            c"PartitionConnectedElements1D is only applicable in 3D\n".as_ptr() as *const c_char,
         );
         return 2;
     }
@@ -2332,12 +2330,12 @@ pub unsafe extern "C" fn PartitionConnectedElements1D(
     }
     if info != 0 {
         printf(
-            b"Range in coordinate extent: %12.5le %12.5le\n\0".as_ptr() as *const c_char,
+            c"Range in coordinate extent: %12.5le %12.5le\n".as_ptr() as *const c_char,
             minz,
             maxz,
         );
     }
-    cumz = ivector(0, MAXCATEGORY);
+    let cumz: *mut c_int = ivector(0, MAXCATEGORY);
     i = 0;
     while i <= MAXCATEGORY {
         *cumz.wrapping_offset(i as isize) = 0;
@@ -2410,8 +2408,8 @@ pub unsafe extern "C" fn PartitionConnectedElements1D(
                         {
                             hit = TRUE;
                         }
-                    } else if bctype == -3 {
-                        if *(*bound.wrapping_offset(bc as isize))
+                    } else if bctype == -3
+                        && *(*bound.wrapping_offset(bc as isize))
                             .parent
                             .wrapping_offset(i as isize)
                             != 0
@@ -2422,7 +2420,6 @@ pub unsafe extern "C" fn PartitionConnectedElements1D(
                         {
                             hit = TRUE;
                         }
-                    }
                     if hit != 0 {
                         break;
                     }
@@ -2449,7 +2446,7 @@ pub unsafe extern "C" fn PartitionConnectedElements1D(
                     z += val;
                     j += 1;
                 }
-                z = z / sidenodes as Real;
+                z /= sidenodes as Real;
                 indz = ceil(MAXCATEGORY as Real * (z - minz) / (maxz - minz)) as c_int;
                 indz = c_min_int(c_max_int(indz, 1), MAXCATEGORY);
                 if allocated != 0 {
@@ -2481,11 +2478,11 @@ pub unsafe extern "C" fn PartitionConnectedElements1D(
             // NOTE: C stores maxbcelem = bcelem here but never reads it.
             if debug != 0 {
                 printf(
-                    b"Number of constrained boundary elements = %d\n\0".as_ptr() as *const c_char,
+                    c"Number of constrained boundary elements = %d\n".as_ptr() as *const c_char,
                     bcelem,
                 );
                 printf(
-                    b"Differential categories (showing only 20 active ones from %d)\n\0".as_ptr()
+                    c"Differential categories (showing only 20 active ones from %d)\n".as_ptr()
                         as *const c_char,
                     MAXCATEGORY,
                 );
@@ -2495,7 +2492,7 @@ pub unsafe extern "C" fn PartitionConnectedElements1D(
                     if *cumz.wrapping_offset(j as isize) > 0 {
                         k += 1;
                         printf(
-                            b"%d : %d\n\0".as_ptr() as *const c_char,
+                            c"%d : %d\n".as_ptr() as *const c_char,
                             j,
                             *cumz.wrapping_offset(j as isize),
                         );
@@ -2513,11 +2510,11 @@ pub unsafe extern "C" fn PartitionConnectedElements1D(
                 i += 1;
             }
             if debug != 0 {
-                printf(b"Cumulative categories\n\0".as_ptr() as *const c_char);
+                printf(c"Cumulative categories\n".as_ptr() as *const c_char);
                 j = 0;
                 while j <= MAXCATEGORY {
                     printf(
-                        b"%d : %d\n\0".as_ptr() as *const c_char,
+                        c"%d : %d\n".as_ptr() as *const c_char,
                         j,
                         *cumz.wrapping_offset(j as isize),
                     );
@@ -2534,11 +2531,11 @@ pub unsafe extern "C" fn PartitionConnectedElements1D(
                 i += 1;
             }
             if debug != 0 {
-                printf(b"Partition categories\n\0".as_ptr() as *const c_char);
+                printf(c"Partition categories\n".as_ptr() as *const c_char);
                 j = 0;
                 while j <= MAXCATEGORY {
                     printf(
-                        b"%d : %d\n\0".as_ptr() as *const c_char,
+                        c"%d : %d\n".as_ptr() as *const c_char,
                         j,
                         *cumz.wrapping_offset(j as isize),
                     );
@@ -2554,7 +2551,7 @@ pub unsafe extern "C" fn PartitionConnectedElements1D(
             }
             allocated = TRUE;
             if info != 0 {
-                printf(b"Allocated and now setting the entries\n\0".as_ptr() as *const c_char);
+                printf(c"Allocated and now setting the entries\n".as_ptr() as *const c_char);
             }
             // NOTE: `goto omstart` via loop-continue.
             continue;
@@ -2565,7 +2562,7 @@ pub unsafe extern "C" fn PartitionConnectedElements1D(
     free_ivector(cumz, 0, MAXCATEGORY);
     if info != 0 {
         printf(
-            b"Successfully made a partitioning 1D with %d elements\n\0".as_ptr() as *const c_char,
+            c"Successfully made a partitioning 1D with %d elements\n".as_ptr() as *const c_char,
             totpartelems,
         );
     }
@@ -2574,39 +2571,41 @@ pub unsafe extern "C" fn PartitionConnectedElements1D(
 // SAFETY: METIS option setup; indices/values pinned to bundled metis-5.1.0.
 unsafe fn SetMetisOptions(options: *mut idx_t, eg: *mut ElmergridType, info: c_int) -> c_int {
     if info != 0 {
-        printf(b"Setting default Metis options!\n\0".as_ptr() as *const c_char);
+        printf(c"Setting default Metis options!\n".as_ptr() as *const c_char);
     }
     METIS_SetDefaultOptions(options);
     if info != 0 {
-        printf(b"Setting user defined Metis options!\n\0".as_ptr() as *const c_char);
+        printf(c"Setting user defined Metis options!\n".as_ptr() as *const c_char);
     }
-    *options.wrapping_offset(METIS_OPTION_NUMBERING as isize) = 0;
-    *options.wrapping_offset(METIS_OPTION_DBGLVL as isize) = 3;
-    *options.wrapping_offset(METIS_OPTION_CTYPE as isize) = METIS_CTYPE_SHEM;
-    *options.wrapping_offset(METIS_OPTION_IPTYPE as isize) = METIS_IPTYPE_GROW;
-    *options.wrapping_offset(METIS_OPTION_RTYPE as isize) = METIS_RTYPE_GREEDY;
+    *options.wrapping_add(METIS_OPTION_NUMBERING) = 0;
+    *options.wrapping_add(METIS_OPTION_DBGLVL) = 3;
+    *options.wrapping_add(METIS_OPTION_CTYPE) = METIS_CTYPE_SHEM;
+    *options.wrapping_add(METIS_OPTION_IPTYPE) = METIS_IPTYPE_GROW;
+    *options.wrapping_add(METIS_OPTION_RTYPE) = METIS_RTYPE_GREEDY;
     if (*eg).metis_contig != 0 {
-        *options.wrapping_offset(METIS_OPTION_CONTIG as isize) = 1;
+        *options.wrapping_add(METIS_OPTION_CONTIG) = 1;
     }
     if (*eg).metis_seed != 0 {
-        *options.wrapping_offset(METIS_OPTION_SEED as isize) = (*eg).metis_seed;
+        *options.wrapping_add(METIS_OPTION_SEED) = (*eg).metis_seed;
     }
     if (*eg).metis_ncuts > 1 {
-        *options.wrapping_offset(METIS_OPTION_NCUTS as isize) = (*eg).metis_ncuts;
+        *options.wrapping_add(METIS_OPTION_NCUTS) = (*eg).metis_ncuts;
     }
     if (*eg).metis_volcut != 0 {
-        *options.wrapping_offset(METIS_OPTION_OBJTYPE as isize) = METIS_OBJTYPE_VOL;
+        *options.wrapping_add(METIS_OPTION_OBJTYPE) = METIS_OBJTYPE_VOL;
     }
     if (*eg).metis_minconn != 0 {
-        *options.wrapping_offset(METIS_OPTION_MINCONN as isize) = 1;
+        *options.wrapping_add(METIS_OPTION_MINCONN) = 1;
     }
     0
 }
 
-// SAFETY: dual-graph build + METIS call over valid connected BCs.
-// NOTE: C reads maxbcelem uninitialized on the first step-2 growth (stack
-// garbage sizing the Ivector); transcribed as a deterministic 0-init
-// (fail-safe exit(1) via the ivector guard instead of silent UB).
+/// # Safety
+///
+/// dual-graph build + METIS call over valid connected BCs.
+/// NOTE: C reads maxbcelem uninitialized on the first step-2 growth (stack
+/// garbage sizing the Ivector); transcribed as a deterministic 0-init
+/// (fail-safe exit(1) via the ivector guard instead of silent UB).
 #[no_mangle]
 pub unsafe extern "C" fn PartitionConnectedElementsMetis(
     data: *mut FemType,
@@ -2656,15 +2655,15 @@ pub unsafe extern "C" fn PartitionConnectedElementsMetis(
     // &ncon); dropped.
     let (mut edgecut, mut ncon): (idx_t, idx_t) = (0, 1);
     let mut wgtflag: idx_t;
-    let npart: *mut idx_t;
+    
     if info != 0 {
         printf(
-            b"Making a Metis partitioning for the connected BC elements only\n\0".as_ptr()
+            c"Making a Metis partitioning for the connected BC elements only\n".as_ptr()
                 as *const c_char,
         );
     }
     if (*data).nodeconnectexist == 0 {
-        printf(b"There are no connected elements\n\0".as_ptr() as *const c_char);
+        printf(c"There are no connected elements\n".as_ptr() as *const c_char);
         return 1;
     }
     SetMetisOptions(options.as_mut_ptr(), eg, info);
@@ -2680,12 +2679,12 @@ pub unsafe extern "C" fn PartitionConnectedElementsMetis(
         i += 1;
     }
     if noconnect == 0 {
-        printf(b"There are really no connected nodes?\n\0".as_ptr() as *const c_char);
+        printf(c"There are really no connected nodes?\n".as_ptr() as *const c_char);
         return 2;
     }
     if info != 0 {
         printf(
-            b"Number of connected nodes is %d\n\0".as_ptr() as *const c_char,
+            c"Number of connected nodes is %d\n".as_ptr() as *const c_char,
             noconnect,
         );
     }
@@ -2705,7 +2704,7 @@ pub unsafe extern "C" fn PartitionConnectedElementsMetis(
         i += 1;
     }
     if info != 0 {
-        printf(b"Permuted the connected nodes\n\0".as_ptr() as *const c_char);
+        printf(c"Permuted the connected nodes\n".as_ptr() as *const c_char);
     }
     invmaxcon = 0;
     dualmaxcon = 0;
@@ -2799,14 +2798,14 @@ pub unsafe extern "C" fn PartitionConnectedElementsMetis(
                                     dualmaxcon += 1;
                                     if l >= MAXCONNECTIONS as c_int {
                                         printf(
-                                            b"Number of connections %d vs. static limit %d\n\0"
+                                            c"Number of connections %d vs. static limit %d\n"
                                                 .as_ptr()
                                                 as *const c_char,
                                             l,
                                             MAXCONNECTIONS as c_int - 1,
                                         );
                                         bigerror(
-                                            b"Maximum of connections in dual graph larger than the static limit!\0"
+                                            c"Maximum of connections in dual graph larger than the static limit!"
                                                 .as_ptr() as *const c_char,
                                         );
                                     }
@@ -2836,11 +2835,11 @@ pub unsafe extern "C" fn PartitionConnectedElementsMetis(
     }
     if info != 0 {
         printf(
-            b"There are %d connected boundary elements.\n\0".as_ptr() as *const c_char,
+            c"There are %d connected boundary elements.\n".as_ptr() as *const c_char,
             maxbcelem,
         );
         printf(
-            b"There are %d connections altogether in the dual graph.\n\0".as_ptr() as *const c_char,
+            c"There are %d connections altogether in the dual graph.\n".as_ptr() as *const c_char,
             totcon,
         );
     }
@@ -2881,14 +2880,14 @@ pub unsafe extern "C" fn PartitionConnectedElementsMetis(
     }
     // NOTE: C stores numflag = 0 here but never reads it (dropped).
     nn = maxbcelem;
-    npart = ivector(0, nn - 1);
+    let npart: *mut idx_t = ivector(0, nn - 1);
     wgtflag = 0;
     vwgt = core::ptr::null_mut();
     adjwgt = core::ptr::null_mut();
     if metisopt == 2 {
         if info != 0 {
             printf(
-                b"Starting graph partitioning METIS_PartGraphRecursive.\n\0".as_ptr()
+                c"Starting graph partitioning METIS_PartGraphRecursive.\n".as_ptr()
                     as *const c_char,
             );
         }
@@ -2911,7 +2910,7 @@ pub unsafe extern "C" fn PartitionConnectedElementsMetis(
     } else if metisopt == 3 || metisopt == 4 {
         if info != 0 {
             printf(
-                b"Starting graph partitioning METIS_PartGraphKway.\n\0".as_ptr() as *const c_char,
+                c"Starting graph partitioning METIS_PartGraphKway.\n".as_ptr() as *const c_char,
             );
         }
         ncon = 0;
@@ -2934,7 +2933,7 @@ pub unsafe extern "C" fn PartitionConnectedElementsMetis(
         );
     } else {
         printf(
-            b"Unknown Metis option %d\n\0".as_ptr() as *const c_char,
+            c"Unknown Metis option %d\n".as_ptr() as *const c_char,
             metisopt,
         );
     }
@@ -3009,14 +3008,16 @@ pub unsafe extern "C" fn PartitionConnectedElementsMetis(
     (*data).elemconnectexist = totpartelems;
     if info != 0 {
         printf(
-            b"Successfully created boundary partitioning for %d bulk elements\n\0".as_ptr()
+            c"Successfully created boundary partitioning for %d bulk elements\n".as_ptr()
                 as *const c_char,
             totpartelems,
         );
     }
     0
 }
-// SAFETY: majority-rule extension over valid inverse topology (C contract).
+/// # Safety
+///
+/// majority-rule extension over valid inverse topology (C contract).
 #[no_mangle]
 // NOTE: C never uses the bound parameter either (signature only).
 pub unsafe extern "C" fn ExtendBoundaryPartitioning(
@@ -3039,14 +3040,14 @@ pub unsafe extern "C" fn ExtendBoundaryPartitioning(
     let mut refpart: c_int = 0;
     let (partelems, elemconnect): (*mut c_int, *mut c_int);
     let (invrow, invcol): (*mut c_int, *mut c_int);
-    printf(b"Extending boundary partitioning by majority rule\n\0".as_ptr() as *const c_char);
+    printf(c"Extending boundary partitioning by majority rule\n".as_ptr() as *const c_char);
     CreateInverseTopology(data, info);
     invrow = (*data).invtopo.rows;
     invcol = (*data).invtopo.cols;
     noelements = (*data).noelements;
     // NOTE: C stores noknots here but never reads it (dropped).
     if (*data).elemconnectexist == 0 {
-        printf(b"Initial partitioning does not exist!\n\0".as_ptr() as *const c_char);
+        printf(c"Initial partitioning does not exist!\n".as_ptr() as *const c_char);
         return 1;
     }
     elemconnect = (*data).elemconnect;
@@ -3074,7 +3075,7 @@ pub unsafe extern "C" fn ExtendBoundaryPartitioning(
     }
     if info != 0 {
         printf(
-            b"Initial partitioning with %d elements:\n\0".as_ptr() as *const c_char,
+            c"Initial partitioning with %d elements:\n".as_ptr() as *const c_char,
             totpartelems,
         );
     }
@@ -3087,7 +3088,7 @@ pub unsafe extern "C" fn ExtendBoundaryPartitioning(
         j += 1;
     }
     printf(
-        b"Initial partitioning has %d to %d elements in partition\n\0".as_ptr() as *const c_char,
+        c"Initial partitioning has %d to %d elements in partition\n".as_ptr() as *const c_char,
         minpartelems,
         maxpartelems,
     );
@@ -3158,14 +3159,14 @@ pub unsafe extern "C" fn ExtendBoundaryPartitioning(
         }
         if info != 0 {
             printf(
-                b"Setting partition for %d elements in layer %d\n\0".as_ptr() as *const c_char,
+                c"Setting partition for %d elements in layer %d\n".as_ptr() as *const c_char,
                 n,
                 m,
             );
         }
         if n == 0 {
             printf(
-                b"No elements set in the layer, breaking loop %d!\n\0".as_ptr() as *const c_char,
+                c"No elements set in the layer, breaking loop %d!\n".as_ptr() as *const c_char,
                 m,
             );
             break;
@@ -3189,7 +3190,7 @@ pub unsafe extern "C" fn ExtendBoundaryPartitioning(
     }
     if info != 0 {
         printf(
-            b"Extended partitioning of %d elements:\n\0".as_ptr() as *const c_char,
+            c"Extended partitioning of %d elements:\n".as_ptr() as *const c_char,
             totpartelems,
         );
     }
@@ -3204,7 +3205,7 @@ pub unsafe extern "C" fn ExtendBoundaryPartitioning(
     }
     if info != 0 {
         printf(
-            b"Extended partitioning has %d to %d elements in partition\n\0".as_ptr()
+            c"Extended partitioning has %d to %d elements in partition\n".as_ptr()
                 as *const c_char,
             minpartelems,
             maxpartelems,
@@ -3214,13 +3215,15 @@ pub unsafe extern "C" fn ExtendBoundaryPartitioning(
     free_ivector(partelems, 1, nparts);
     if info != 0 {
         printf(
-            b"Successfully extended the partitioning by %d layers\n\0".as_ptr() as *const c_char,
+            c"Successfully extended the partitioning by %d layers\n".as_ptr() as *const c_char,
             elemlayers,
         );
     }
     0
 }
-// SAFETY: nodal geometric partitioning over valid meshes (C contract).
+/// # Safety
+///
+/// nodal geometric partitioning over valid meshes (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn PartitionSimpleNodes(
     data: *mut FemType,
@@ -3251,7 +3254,7 @@ pub unsafe extern "C" fn PartitionSimpleNodes(
         c_int,
     );
     let (indx, nopart, nodepart): (*mut c_int, *mut c_int, *mut c_int);
-    let arrange: *mut Real;
+    
     let (mut x, mut y, mut z, cx, cy, cz): (Real, Real, Real, Real, Real, Real);
     partitions1 = *dimpart.wrapping_offset(0);
     partitions2 = *dimpart.wrapping_offset(1);
@@ -3262,22 +3265,22 @@ pub unsafe extern "C" fn PartitionSimpleNodes(
     partitions = partitions1 * partitions2 * partitions3;
     if partitions1 < 2 && partitions2 < 2 && partitions3 < 2 {
         printf(
-            b"Some of the divisions must be larger than one: %d %d %d\n\0".as_ptr()
+            c"Some of the divisions must be larger than one: %d %d %d\n".as_ptr()
                 as *const c_char,
             partitions1,
             partitions2,
             partitions3,
         );
-        bigerror(b"Partitioning not performed\0".as_ptr() as *const c_char);
+        bigerror(c"Partitioning not performed".as_ptr() as *const c_char);
     }
     if partitions >= (*data).noelements {
         printf(
-            b"There must be fever partitions than elements (%d vs %d)!\n\0".as_ptr()
+            c"There must be fever partitions than elements (%d vs %d)!\n".as_ptr()
                 as *const c_char,
             partitions,
             (*data).noelements,
         );
-        bigerror(b"Partitioning not performed\0".as_ptr() as *const c_char);
+        bigerror(c"Partitioning not performed".as_ptr() as *const c_char);
     }
     if (*data).partitionexist == 0 {
         (*data).partitionexist = TRUE;
@@ -3307,13 +3310,13 @@ pub unsafe extern "C" fn PartitionSimpleNodes(
     noknots = (*data).noknots;
     if info != 0 {
         printf(
-            b"Making a simple partitioning for %d nodes in %d-dimensions.\n\0".as_ptr()
+            c"Making a simple partitioning for %d nodes in %d-dimensions.\n".as_ptr()
                 as *const c_char,
             noknots,
             (*data).dim,
         );
     }
-    arrange = dvector(1, noknots);
+    let arrange: *mut Real = dvector(1, noknots);
     indx = ivector(1, noknots);
     if partorder != 0 {
         cx = *corder.wrapping_offset(0);
@@ -3333,7 +3336,7 @@ pub unsafe extern "C" fn PartitionSimpleNodes(
     if vpartitions1 > 1 {
         if info != 0 {
             printf(
-                b"Ordering 1st direction with (%.3lg*x + %.3lg*y + %.3lg*z)\n\0".as_ptr()
+                c"Ordering 1st direction with (%.3lg*x + %.3lg*y + %.3lg*z)\n".as_ptr()
                     as *const c_char,
                 cx,
                 cy,
@@ -3359,7 +3362,7 @@ pub unsafe extern "C" fn PartitionSimpleNodes(
     }
     if vpartitions2 > 1 {
         if info != 0 {
-            printf(b"Ordering in the 2nd direction.\n\0".as_ptr() as *const c_char);
+            printf(c"Ordering in the 2nd direction.\n".as_ptr() as *const c_char);
         }
         j = 1;
         while j <= noknots {
@@ -3386,18 +3389,16 @@ pub unsafe extern "C" fn PartitionSimpleNodes(
             // vpartitions < 1); the hit-break exits early as in C.
             while l <= vpartitions {
                 hit = FALSE;
-                if j < vpartitions {
-                    if *nopart.wrapping_offset((k0 + j) as isize) >= elemsinpart {
+                if j < vpartitions
+                    && *nopart.wrapping_offset((k0 + j) as isize) >= elemsinpart {
                         j += 1;
                         hit = TRUE;
                     }
-                }
-                if j > 1 {
-                    if *nopart.wrapping_offset((k0 + j - 1) as isize) < elemsinpart {
+                if j > 1
+                    && *nopart.wrapping_offset((k0 + j - 1) as isize) < elemsinpart {
                         j -= 1;
                         hit = TRUE;
                     }
-                }
                 if hit == 0 {
                     break;
                 }
@@ -3411,7 +3412,7 @@ pub unsafe extern "C" fn PartitionSimpleNodes(
     }
     if vpartitions3 > 1 {
         if info != 0 {
-            printf(b"Ordering in the 3rd direction.\n\0".as_ptr() as *const c_char);
+            printf(c"Ordering in the 3rd direction.\n".as_ptr() as *const c_char);
         }
         j = 1;
         while j <= noknots {
@@ -3437,18 +3438,16 @@ pub unsafe extern "C" fn PartitionSimpleNodes(
             // NOTE: exact C `for(l=1;l<=vpartitions;l++)` shape (see 2nd dir).
             while l <= vpartitions {
                 hit = FALSE;
-                if j < vpartitions3 {
-                    if *nopart.wrapping_offset((k0 + j) as isize) >= elemsinpart {
+                if j < vpartitions3
+                    && *nopart.wrapping_offset((k0 + j) as isize) >= elemsinpart {
                         j += 1;
                         hit = TRUE;
                     }
-                }
-                if j > 1 {
-                    if *nopart.wrapping_offset((k0 + j - 1) as isize) < elemsinpart {
+                if j > 1
+                    && *nopart.wrapping_offset((k0 + j - 1) as isize) < elemsinpart {
                         j -= 1;
                         hit = TRUE;
                     }
-                }
                 if hit == 0 {
                     break;
                 }
@@ -3477,8 +3476,8 @@ pub unsafe extern "C" fn PartitionSimpleNodes(
         while i <= noknots {
             ind = *indx.wrapping_offset(i as isize);
             k = *nodepart.wrapping_offset(ind as isize);
-            if k != kprev {
-                if fabs(
+            if k != kprev
+                && fabs(
                     *arrange.wrapping_offset(i as isize)
                         - *arrange.wrapping_offset((i - 1) as isize),
                 ) < parttol
@@ -3490,21 +3489,20 @@ pub unsafe extern "C" fn PartitionSimpleNodes(
                     // NOTE: `if(0)` diagnostic omitted (runtime-dead).
                     l += 1;
                 }
-            }
             kprev = k;
             i += 1;
         }
         // NOTE: `if(0)` dump omitted (runtime-dead).
         if info != 0 {
             printf(
-                b"Number of partition changes due to tolerance: %d\n\0".as_ptr() as *const c_char,
+                c"Number of partition changes due to tolerance: %d\n".as_ptr() as *const c_char,
                 l,
             );
         }
     }
     if periodic != 0 {
         {
-            let partmap: *mut c_int;
+            
             let (mut p1, mut p2, mut p3, mut q1, mut q2, mut q3): (
                 c_int,
                 c_int,
@@ -3515,7 +3513,7 @@ pub unsafe extern "C" fn PartitionSimpleNodes(
             );
             // NOTE: P/Q match the C locals.
             let (mut P, mut Q): (c_int, c_int);
-            partmap = ivector(1, vpartitions);
+            let partmap: *mut c_int = ivector(1, vpartitions);
             i = 1;
             while i <= vpartitions {
                 *partmap.wrapping_offset(i as isize) = 0;
@@ -3590,7 +3588,7 @@ pub unsafe extern "C" fn PartitionSimpleNodes(
     PartitionElementsByNodes(data, info);
     if info != 0 {
         printf(
-            b"Successfully made a partitioning with %d to %d nodes.\n\0".as_ptr() as *const c_char,
+            c"Successfully made a partitioning with %d to %d nodes.\n".as_ptr() as *const c_char,
             minpart,
             maxpart,
         );
@@ -3619,7 +3617,7 @@ unsafe fn CheckPartitioning(data: *mut FemType, info: c_int) {
         i += 1;
     }
     if info != 0 {
-        printf(b"Checking for partitioning\n\0".as_ptr() as *const c_char);
+        printf(c"Checking for partitioning\n".as_ptr() as *const c_char);
     }
     elempart = (*data).elempart;
     j = 0;
@@ -3635,11 +3633,11 @@ unsafe fn CheckPartitioning(data: *mut FemType, info: c_int) {
     }
     if j != 0 {
         printf(
-            b"Bad initial partitioning: %d elements do not belong anywhere!\n\0".as_ptr()
+            c"Bad initial partitioning: %d elements do not belong anywhere!\n".as_ptr()
                 as *const c_char,
             j,
         );
-        bigerror(b"Can't continue with broken partitioning\0".as_ptr() as *const c_char);
+        bigerror(c"Can't continue with broken partitioning".as_ptr() as *const c_char);
     }
     nodepart = (*data).nodepart;
     j = 0;
@@ -3655,11 +3653,11 @@ unsafe fn CheckPartitioning(data: *mut FemType, info: c_int) {
     }
     if j != 0 {
         printf(
-            b"Bad initial partitioning: %d nodes do not belong anywhere!\n\0".as_ptr()
+            c"Bad initial partitioning: %d nodes do not belong anywhere!\n".as_ptr()
                 as *const c_char,
             j,
         );
-        bigerror(b"Can't continue with broken partitioning\0".as_ptr() as *const c_char);
+        bigerror(c"Can't continue with broken partitioning".as_ptr() as *const c_char);
     }
     if (*data).partitiontableexists != 0 {
         i = 1;
@@ -3680,22 +3678,22 @@ unsafe fn CheckPartitioning(data: *mut FemType, info: c_int) {
         }
     }
     if info != 0 {
-        printf(b"Information on partition bandwidth\n\0".as_ptr() as *const c_char);
+        printf(c"Information on partition bandwidth\n".as_ptr() as *const c_char);
         if partitions <= 10 {
             printf(
-                b"Distribution of elements, nodes and shared nodes\n\0".as_ptr() as *const c_char,
+                c"Distribution of elements, nodes and shared nodes\n".as_ptr() as *const c_char,
             );
             printf(
-                b"     %-10s %-10s %-10s %-10s\n\0".as_ptr() as *const c_char,
-                b"partition\0".as_ptr() as *const c_char,
-                b"elements\0".as_ptr() as *const c_char,
-                b"nodes\0".as_ptr() as *const c_char,
-                b"shared\0".as_ptr() as *const c_char,
+                c"     %-10s %-10s %-10s %-10s\n".as_ptr() as *const c_char,
+                c"partition".as_ptr() as *const c_char,
+                c"elements".as_ptr() as *const c_char,
+                c"nodes".as_ptr() as *const c_char,
+                c"shared".as_ptr() as *const c_char,
             );
             i = 1;
             while i <= partitions {
                 printf(
-                    b"     %-10d %-10d %-10d %-10d\n\0".as_ptr() as *const c_char,
+                    c"     %-10d %-10d %-10d %-10d\n".as_ptr() as *const c_char,
                     i,
                     *elemsinpart.wrapping_offset(i as isize),
                     *nodesinpart.wrapping_offset(i as isize),
@@ -3713,7 +3711,7 @@ unsafe fn CheckPartitioning(data: *mut FemType, info: c_int) {
                 i += 1;
             }
             printf(
-                b"Average %d elements with range %d in partition\n\0".as_ptr() as *const c_char,
+                c"Average %d elements with range %d in partition\n".as_ptr() as *const c_char,
                 noelements / partitions,
                 maxi - mini,
             );
@@ -3726,7 +3724,7 @@ unsafe fn CheckPartitioning(data: *mut FemType, info: c_int) {
                 i += 1;
             }
             printf(
-                b"Average %d nodes with range %d in partition\n\0".as_ptr() as *const c_char,
+                c"Average %d nodes with range %d in partition\n".as_ptr() as *const c_char,
                 noknots / partitions,
                 maxi - mini,
             );
@@ -3741,7 +3739,7 @@ unsafe fn CheckPartitioning(data: *mut FemType, info: c_int) {
                 i += 1;
             }
             printf(
-                b"Average %d shared nodes with range %d in partition\n\0".as_ptr() as *const c_char,
+                c"Average %d shared nodes with range %d in partition\n".as_ptr() as *const c_char,
                 sumi / partitions,
                 maxi - mini,
             );
@@ -3773,9 +3771,9 @@ unsafe fn CheckPartitioning(data: *mut FemType, info: c_int) {
                 k += 1;
             }
             if hit == 0 {
-                printf(b"******** Warning *******\n\0".as_ptr() as *const c_char);
+                printf(c"******** Warning *******\n".as_ptr() as *const c_char);
                 printf(
-                    b"Node %d in element %d does not belong to partition %d (%d)\n\0".as_ptr()
+                    c"Node %d in element %d does not belong to partition %d (%d)\n".as_ptr()
                         as *const c_char,
                     ind,
                     i,
@@ -3783,14 +3781,14 @@ unsafe fn CheckPartitioning(data: *mut FemType, info: c_int) {
                     part2,
                 );
                 printf(
-                    b"elemtype = %d nodesd2 = %d\n\0".as_ptr() as *const c_char,
+                    c"elemtype = %d nodesd2 = %d\n".as_ptr() as *const c_char,
                     elemtype,
                     nodesd2,
                 );
                 k = 0;
                 while k < nodesd2 {
                     printf(
-                        b"ind[%d] = %d\n\0".as_ptr() as *const c_char,
+                        c"ind[%d] = %d\n".as_ptr() as *const c_char,
                         k,
                         *(*(*data).topology.wrapping_offset(i as isize))
                             .wrapping_offset(k as isize),
@@ -3820,7 +3818,7 @@ unsafe fn CheckPartitioning(data: *mut FemType, info: c_int) {
         }
         if hit == 0 {
             printf(
-                b"***** Node %d in partition %d is not in partition list\n\0".as_ptr()
+                c"***** Node %d in partition %d is not in partition list\n".as_ptr()
                     as *const c_char,
                 i,
                 part,
@@ -3830,8 +3828,13 @@ unsafe fn CheckPartitioning(data: *mut FemType, info: c_int) {
     }
 }
 
-// SAFETY: BC-interface ownership repair over valid partitions (C contract).
-// `do {} while` becomes loop+break; `if(0)` blocks omitted.
+/// # Safety
+///
+/// BC-interface ownership repair over valid partitions (C contract).
+/// `do {} while` becomes loop+break; `if(0)` blocks omitted.
+// Dead `fix1/fix2 = 0` stores mirror C exactly (empty `if(fix1 || fix2)` kept
+// verbatim for oscillation-damping intent); lane precedent: setdiv allows.
+#[allow(unused_assignments)]
 #[no_mangle]
 pub unsafe extern "C" fn OptimizePartitioningAtBoundary(
     data: *mut FemType,
@@ -3850,18 +3853,18 @@ pub unsafe extern "C" fn OptimizePartitioningAtBoundary(
         c_int,
         c_int,
     );
-    let alteredparent: *mut c_int;
+    
     if (*data).partitionexist == 0 {
         printf(
-            b"OptimizePartitioningAtBoundary: this should be called only after partitioning\n\0"
+            c"OptimizePartitioningAtBoundary: this should be called only after partitioning\n"
                 .as_ptr() as *const c_char,
         );
-        bigerror(b"Optimization not performed!\0".as_ptr() as *const c_char);
+        bigerror(c"Optimization not performed!".as_ptr() as *const c_char);
     }
     if info != 0 {
-        printf(b"Optimizing the partitioning at boundaries.\n\0".as_ptr() as *const c_char);
+        printf(c"Optimizing the partitioning at boundaries.\n".as_ptr() as *const c_char);
     }
-    alteredparent = ivector(1, (*data).noelements);
+    let alteredparent: *mut c_int = ivector(1, (*data).noelements);
     i = 1;
     while i <= (*data).noelements {
         *alteredparent.wrapping_offset(i as isize) = *(*data).elempart.wrapping_offset(i as isize);
@@ -3879,8 +3882,8 @@ pub unsafe extern "C" fn OptimizePartitioningAtBoundary(
             }
             i = 1;
             while i <= (*bound.wrapping_offset(j as isize)).nosides {
-                if (*bound.wrapping_offset(j as isize)).ediscont != 0 {
-                    if *(*bound.wrapping_offset(j as isize))
+                if (*bound.wrapping_offset(j as isize)).ediscont != 0
+                    && *(*bound.wrapping_offset(j as isize))
                         .discont
                         .wrapping_offset(i as isize)
                         != 0
@@ -3888,7 +3891,6 @@ pub unsafe extern "C" fn OptimizePartitioningAtBoundary(
                         i += 1;
                         continue;
                     }
-                }
                 mam1 = *(*bound.wrapping_offset(j as isize))
                     .parent
                     .wrapping_offset(i as isize);
@@ -3918,7 +3920,7 @@ pub unsafe extern "C" fn OptimizePartitioningAtBoundary(
                 }
                 // NOTE: empty `if(fix1 || fix2)` block kept verbatim (C has
                 // it empty too; it documents the oscillation-damping intent).
-                if fix1 != 0 || fix2 != 0 {}
+                
                 if k < 5 {
                     hit1 = 0;
                     hit2 = 0;
@@ -3971,7 +3973,7 @@ pub unsafe extern "C" fn OptimizePartitioningAtBoundary(
         }
         if info != 0 && boundaryelems != 0 {
             printf(
-                b"Round %d: %d bulk elements with BCs removed from interface.\n\0".as_ptr()
+                c"Round %d: %d bulk elements with BCs removed from interface.\n".as_ptr()
                     as *const c_char,
                 k,
                 boundaryelems,
@@ -3996,7 +3998,7 @@ pub unsafe extern "C" fn OptimizePartitioningAtBoundary(
     free_ivector(alteredparent, 1, (*data).noelements);
     if info != 0 {
         printf(
-            b"Ownership of %d parents was changed at BCs\n\0".as_ptr() as *const c_char,
+            c"Ownership of %d parents was changed at BCs\n".as_ptr() as *const c_char,
             j,
         );
     }
@@ -4080,7 +4082,7 @@ unsafe fn RenumberCuthillMckee(
         i += 1;
     }
     printf(
-        b"RenumberCuthillMckee: Bandwidth before: %d\n\0".as_ptr() as *const c_char,
+        c"RenumberCuthillMckee: Bandwidth before: %d\n".as_ptr() as *const c_char,
         bw_bef,
     );
     startn = 0;
@@ -4108,12 +4110,11 @@ unsafe fn RenumberCuthillMckee(
         k = startn;
         i = 0;
         while i < nrows {
-            if *level.wrapping_offset(i as isize) == maxlevel {
-                if *degree.wrapping_offset(i as isize) < mindegree {
+            if *level.wrapping_offset(i as isize) == maxlevel
+                && *degree.wrapping_offset(i as isize) < mindegree {
                     k = i;
                     mindegree = *degree.wrapping_offset(i as isize);
                 }
-            }
             i += 1;
         }
         if k != startn {
@@ -4188,7 +4189,7 @@ unsafe fn RenumberCuthillMckee(
         i += 1;
     }
     printf(
-        b"RenumberCuthillMckee: Bandwidth after: %d\n\0".as_ptr() as *const c_char,
+        c"RenumberCuthillMckee: Bandwidth after: %d\n".as_ptr() as *const c_char,
         bw_aft,
     );
     free_ivector(level, 0, nrows - 1);
@@ -4211,11 +4212,11 @@ unsafe fn RenumberPartitions(data: *mut FemType, info: c_int) {
     let (maxneededtimes, mut totneededtimes): (c_int, c_int);
     let (mut part, mut part1, mut part2, bw_reduced): (c_int, c_int, c_int, c_int);
     let (nodepart, elempart): (*mut c_int, *mut c_int);
-    let perm: *mut c_int;
+    
     let (xadj, adjncy): (*mut c_int, *mut c_int);
     let mut partparttable: [*mut c_int; MAXCONNECTIONS] = [core::ptr::null_mut(); MAXCONNECTIONS];
     if info != 0 {
-        printf(b"Renumbering partitions to minimize bandwidth.\n\0".as_ptr() as *const c_char);
+        printf(c"Renumbering partitions to minimize bandwidth.\n".as_ptr() as *const c_char);
     }
     partitions = (*data).nopartitions;
     noelements = (*data).noelements;
@@ -4278,11 +4279,11 @@ unsafe fn RenumberPartitions(data: *mut FemType, info: c_int) {
     }
     if info != 0 {
         printf(
-            b"There are %d connections altogether\n\0".as_ptr() as *const c_char,
+            c"There are %d connections altogether\n".as_ptr() as *const c_char,
             totcon,
         );
         printf(
-            b"There are %.3f connections between partitions in average\n\0".as_ptr()
+            c"There are %.3f connections between partitions in average\n".as_ptr()
                 as *const c_char,
             1.0 * totcon as Real / partitions as Real,
         );
@@ -4312,13 +4313,13 @@ unsafe fn RenumberPartitions(data: *mut FemType, info: c_int) {
         i += 1;
     }
     *xadj.wrapping_offset(partitions as isize) = totcon;
-    perm = ivector(0, partitions - 1);
+    let perm: *mut c_int = ivector(0, partitions - 1);
     bw_reduced = RenumberCuthillMckee(partitions, xadj, adjncy, perm);
     // NOTE: `if(0 && info)` diagnostic omitted (runtime-dead).
     if bw_reduced != 0 {
         if info != 0 {
             printf(
-                b"Successful ordering: moving partitions to new positions\n\0".as_ptr()
+                c"Successful ordering: moving partitions to new positions\n".as_ptr()
                     as *const c_char,
             );
         }
@@ -4392,26 +4393,28 @@ unsafe fn CheckSharedDeviation(neededvector: *mut c_int, partitions: c_int, info
             - 1.0 * (sumshared / partitions as Real) * (sumshared / partitions as Real);
         varshared = sqrt(det);
         printf(
-            b"Average number of elements in partition %.3le\n\0".as_ptr() as *const c_char,
+            c"Average number of elements in partition %.3le\n".as_ptr() as *const c_char,
             ave,
         );
         printf(
-            b"Maximum deviation in ownership %d\n\0".as_ptr() as *const c_char,
+            c"Maximum deviation in ownership %d\n".as_ptr() as *const c_char,
             dshared,
         );
         printf(
-            b"Average deviation in ownership %.3le\n\0".as_ptr() as *const c_char,
+            c"Average deviation in ownership %.3le\n".as_ptr() as *const c_char,
             varshared,
         );
         printf(
-            b"Average relative deviation %.2lf %%\n\0".as_ptr() as *const c_char,
+            c"Average relative deviation %.2lf %%\n".as_ptr() as *const c_char,
             100.0 * varshared / ave,
         );
     }
     dshared
 }
-// SAFETY: iterative load-balance optimization over valid partitions.
-// `goto optimizeownership` becomes loop-continue; block decls become blocks.
+/// # Safety
+///
+/// iterative load-balance optimization over valid partitions.
+/// `goto optimizeownership` becomes loop-continue; block decls become blocks.
 #[no_mangle]
 // NOTE: C never uses the bound parameter either (signature only).
 pub unsafe extern "C" fn OptimizePartitioning(
@@ -4435,24 +4438,24 @@ pub unsafe extern "C" fn OptimizePartitioning(
     // same flags that guard the reads — unobservable inits.
     let mut probnodes: *mut c_int = core::ptr::null_mut();
     let mut optimize: c_int;
-    let neededvector: *mut c_int;
+    
     let mut somethingdone: c_int = 0;
     let mut elemparts: *mut c_int = core::ptr::null_mut();
     let mut invelemparts: *mut c_int = core::ptr::null_mut();
     let mut knows: *mut *mut c_int = core::ptr::null_mut();
     if (*data).partitionexist == 0 {
         printf(
-            b"OptimizePartitioning: this should be called only after partitioning\n\0".as_ptr()
+            c"OptimizePartitioning: this should be called only after partitioning\n".as_ptr()
                 as *const c_char,
         );
-        bigerror(b"Optimization not performed!\0".as_ptr() as *const c_char);
+        bigerror(c"Optimization not performed!".as_ptr() as *const c_char);
     }
     noknots = (*data).noknots;
     noelements = (*data).noelements;
     partitions = (*data).nopartitions;
     if info != 0 {
         printf(
-            b"Optimizing for %d partitions\n\0".as_ptr() as *const c_char,
+            c"Optimizing for %d partitions\n".as_ptr() as *const c_char,
             partitions,
         );
     }
@@ -4461,20 +4464,20 @@ pub unsafe extern "C" fn OptimizePartitioning(
     maxshared = 0;
     if partitions < 2 {
         printf(
-            b"OptimizePartitioning: does not make sense for %d partitions\n\0".as_ptr()
+            c"OptimizePartitioning: does not make sense for %d partitions\n".as_ptr()
                 as *const c_char,
             partitions,
         );
-        bigerror(b"Optimization not performed!\0".as_ptr() as *const c_char);
+        bigerror(c"Optimization not performed!".as_ptr() as *const c_char);
     }
     CreatePartitionTable(data, info);
     maxneededtimes = (*data).maxpartitiontable;
     if partbw != 0 {
         RenumberPartitions(data, info);
     }
-    printf(b"Checking partitioning before optimization\n\0".as_ptr() as *const c_char);
+    printf(c"Checking partitioning before optimization\n".as_ptr() as *const c_char);
     CheckPartitioning(data, info);
-    neededvector = ivector(1, partitions);
+    let neededvector: *mut c_int = ivector(1, partitions);
     i = 1;
     while i <= partitions {
         *neededvector.wrapping_offset(i as isize) = 0;
@@ -4494,7 +4497,7 @@ pub unsafe extern "C" fn OptimizePartitioning(
             i += 1;
         }
         printf(
-            b"Applying aggressive optimization for load balancing\n\0".as_ptr() as *const c_char,
+            c"Applying aggressive optimization for load balancing\n".as_ptr() as *const c_char,
         );
     } else {
         optimize = 1;
@@ -4521,12 +4524,11 @@ pub unsafe extern "C" fn OptimizePartitioning(
                             i += 1;
                             continue;
                         }
-                        if maxneededtimes > 2 {
-                            if *(*data).partitiontable[3].wrapping_offset(ind as isize) != 0 {
+                        if maxneededtimes > 2
+                            && *(*data).partitiontable[3].wrapping_offset(ind as isize) != 0 {
                                 i += 1;
                                 continue;
                             }
-                        }
                         if *probnodes.wrapping_offset(ind as isize) != 0 {
                             i += 1;
                             continue;
@@ -4560,7 +4562,7 @@ pub unsafe extern "C" fn OptimizePartitioning(
                     }
                     if info != 0 && nochanges != 0 {
                         printf(
-                            b"Changed the ownership of %d nodes\n\0".as_ptr() as *const c_char,
+                            c"Changed the ownership of %d nodes\n".as_ptr() as *const c_char,
                             nochanges,
                         );
                     }
@@ -4569,19 +4571,19 @@ pub unsafe extern "C" fn OptimizePartitioning(
                     if dshared >= dshared0 {
                         break;
                     }
-                    somethingdone = somethingdone + nochanges;
+                    somethingdone += nochanges;
                     n += 1;
                 }
             }
         }
         if info != 0 {
-            printf(b"Checking for problematic sharings\n\0".as_ptr() as *const c_char);
+            printf(c"Checking for problematic sharings\n".as_ptr() as *const c_char);
         }
         m = 0;
         if partitions > 2 {
             if info != 0 {
                 printf(
-                    b"Optimizing sharing for %d partitions\n\0".as_ptr() as *const c_char,
+                    c"Optimizing sharing for %d partitions\n".as_ptr() as *const c_char,
                     partitions,
                 );
             }
@@ -4730,10 +4732,10 @@ pub unsafe extern "C" fn OptimizePartitioning(
                         if hit != 0 {
                             e1 = 0;
                             e2 = 0;
-                            if info != 0 {
-                                if hit + m > 2 {
+                            if info != 0
+                                && hit + m > 2 {
                                     printf(
-                                        b"Partitions %d and %d in element %d (%d owners) oddly related %d times\n\0"
+                                        c"Partitions %d and %d in element %d (%d owners) oddly related %d times\n"
                                             .as_ptr() as *const c_char,
                                         i1,
                                         i2,
@@ -4742,7 +4744,6 @@ pub unsafe extern "C" fn OptimizePartitioning(
                                         hit,
                                     );
                                 }
-                            }
                             j = 0;
                             while j < nodesd2 {
                                 ind = *(*(*data).topology.wrapping_offset(i as isize))
@@ -4789,7 +4790,7 @@ pub unsafe extern "C" fn OptimizePartitioning(
                     somethingdone += sharings;
                     if info != 0 && sharings != 0 {
                         printf(
-                            b"Changed the ownership of %d nodes\n\0".as_ptr() as *const c_char,
+                            c"Changed the ownership of %d nodes\n".as_ptr() as *const c_char,
                             sharings,
                         );
                     }
@@ -4801,12 +4802,12 @@ pub unsafe extern "C" fn OptimizePartitioning(
             if info != 0 {
                 if sharings != 0 {
                     printf(
-                        b"%d problematic sharings may still exist\n\0".as_ptr() as *const c_char,
+                        c"%d problematic sharings may still exist\n".as_ptr() as *const c_char,
                         sharings,
                     );
                 } else {
                     printf(
-                        b"There shouldn't be any problematic sharings, knock, knock...\n\0".as_ptr()
+                        c"There shouldn't be any problematic sharings, knock, knock...\n".as_ptr()
                             as *const c_char,
                     );
                 }
@@ -4816,7 +4817,7 @@ pub unsafe extern "C" fn OptimizePartitioning(
         if noopt == 0 && m + n > 10 && optimize < 50 {
             optimize += 1;
             printf(
-                b"Performing ownership optimization round %d\n\0".as_ptr() as *const c_char,
+                c"Performing ownership optimization round %d\n".as_ptr() as *const c_char,
                 optimize,
             );
             continue;
@@ -4835,22 +4836,24 @@ pub unsafe extern "C" fn OptimizePartitioning(
     if somethingdone != 0 {
         if info != 0 {
             printf(
-                b"The partitioning was optimized: %d\n\0".as_ptr() as *const c_char,
+                c"The partitioning was optimized: %d\n".as_ptr() as *const c_char,
                 somethingdone,
             );
-            printf(b"Checking partitioning after optimization\n\0".as_ptr() as *const c_char);
+            printf(c"Checking partitioning after optimization\n".as_ptr() as *const c_char);
         }
         CheckPartitioning(data, info);
     } else {
         if info != 0 {
-            printf(b"Partitioning was not altered\n\0".as_ptr() as *const c_char);
+            printf(c"Partitioning was not altered\n".as_ptr() as *const c_char);
         }
     }
     0
 }
-// SAFETY: partitioned mesh export with chdir round-trip and binary paths.
-// `goto next_*_set` becomes loop-continue; the stale-`out` fwrite quirk at
-// the binary-nodes path is preserved exactly (same handle value, same fate).
+/// # Safety
+///
+/// partitioned mesh export with chdir round-trip and binary paths.
+/// `goto next_*_set` becomes loop-continue; the stale-`out` fwrite quirk at
+/// the binary-nodes path is preserved exactly (same handle value, same fate).
 #[no_mangle]
 pub unsafe extern "C" fn SaveElmerInputPartitioned(
     data: *mut FemType,
@@ -4880,8 +4883,8 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     // NOTE: &mut-handoff init (see SaveBoundary note in egextra).
     let mut sideelemtype: c_int = 0;
     let (needednodes, neededtwice): (*mut c_int, *mut c_int);
-    let bulktypes: *mut *mut c_int;
-    let sidetypes: *mut c_int;
+    
+    
     let (mut tottypes, mut splitsides): (c_int, c_int);
     let (mut i, mut j, mut k, mut l, mut l2, mut m, n): (
         c_int,
@@ -4911,9 +4914,9 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
         c_int,
         c_int,
     );
-    let ownerpart: *mut c_int;
+    
     let (sharednodes, ownnodes): (*mut c_int, *mut c_int);
-    let reorder: c_int;
+    
     // NOTE: NULL-inits in C; assigned iff reorder, read under the same flag.
     let mut order: *mut c_int = core::ptr::null_mut();
     let mut invorder: *mut c_int = core::ptr::null_mut();
@@ -4947,31 +4950,31 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
         c_int,
     );
     if info != 0 {
-        printf(b"Saving Elmer mesh in partitioned format\n\0".as_ptr() as *const c_char);
+        printf(c"Saving Elmer mesh in partitioned format\n".as_ptr() as *const c_char);
         if subparts != 0 {
             printf(
-                b"There are %d subpartitions\n\0".as_ptr() as *const c_char,
+                c"There are %d subpartitions\n".as_ptr() as *const c_char,
                 subparts,
             );
         }
     }
     if (*data).created == 0 {
-        printf(b"You tried to save points that were never created.\n\0".as_ptr() as *const c_char);
-        bigerror(b"No Elmer mesh files saved!\0".as_ptr() as *const c_char);
+        printf(c"You tried to save points that were never created.\n".as_ptr() as *const c_char);
+        bigerror(c"No Elmer mesh files saved!".as_ptr() as *const c_char);
     }
     partitions = (*data).nopartitions;
     if partitions == 0 {
         printf(
-            b"Tried to save partitioned format without partitions!\n\0".as_ptr() as *const c_char,
+            c"Tried to save partitioned format without partitions!\n".as_ptr() as *const c_char,
         );
-        bigerror(b"No Elmer mesh files saved!\0".as_ptr() as *const c_char);
+        bigerror(c"No Elmer mesh files saved!".as_ptr() as *const c_char);
     }
     anyparthalo = FALSE;
     i = 0;
     while i < MAXHALOMODES as c_int {
         if *parthalo.wrapping_offset(i as isize) != 0 {
             printf(
-                b"Saving halo elements mode active: %d\n\0".as_ptr() as *const c_char,
+                c"Saving halo elements mode active: %d\n".as_ptr() as *const c_char,
                 i,
             );
             anyparthalo = TRUE;
@@ -4980,16 +4983,16 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     }
     if subparts < 1 && *parthalo.wrapping_offset(3) != 0 {
         printf(
-            b"There can be no layer halo since there are no layers!\n\0".as_ptr() as *const c_char,
+            c"There can be no layer halo since there are no layers!\n".as_ptr() as *const c_char,
         );
-        bigerror(b"No Elmer mesh files saved!\0".as_ptr() as *const c_char);
+        bigerror(c"No Elmer mesh files saved!".as_ptr() as *const c_char);
     }
     singleprec = FALSE;
     if binary == 2 {
         singleprec = TRUE;
     }
     elempart = (*data).elempart;
-    ownerpart = (*data).nodepart;
+    let ownerpart: *mut c_int = (*data).nodepart;
     noelements = (*data).noelements;
     noknots = (*data).noknots;
     minelemtype = 101;
@@ -4999,10 +5002,10 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     neededtwice = ivector(1, partitions);
     sharednodes = ivector(1, partitions);
     ownnodes = ivector(1, partitions);
-    sidetypes = ivector(minelemtype, maxelemtype);
-    bulktypes = imatrix(1, partitions, minelemtype, maxelemtype);
+    let sidetypes: *mut c_int = ivector(minelemtype, maxelemtype);
+    let bulktypes: *mut *mut c_int = imatrix(1, partitions, minelemtype, maxelemtype);
     bcnodedummy = ivector(1, noknots);
-    reorder = parthypre;
+    let reorder: c_int = parthypre;
     if reorder != 0 {
         order = ivector(1, noknots);
         k = 0;
@@ -5025,7 +5028,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
             i += 1;
         }
         if info != 0 {
-            printf(b"Created continuous parallel ordering\n\0".as_ptr() as *const c_char);
+            printf(c"Created continuous parallel ordering\n".as_ptr() as *const c_char);
         }
     }
     bcnode = ivector(1, noknots);
@@ -5069,7 +5072,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     }
     if info != 0 {
         printf(
-            b"Number of boundary nodes at the boundary: %d\n\0".as_ptr() as *const c_char,
+            c"Number of boundary nodes at the boundary: %d\n".as_ptr() as *const c_char,
             nobcnodes,
         );
     }
@@ -5111,26 +5114,26 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     }
     if info != 0 {
         printf(
-            b"Number of additional interface nodes: %d\n\0".as_ptr() as *const c_char,
+            c"Number of additional interface nodes: %d\n".as_ptr() as *const c_char,
             nobcnodes,
         );
     }
     sprintf(
         directoryname.as_mut_ptr(),
-        b"%s\0".as_ptr() as *const c_char,
+        c"%s".as_ptr() as *const c_char,
         prefix,
     );
     sprintf(
         subdirectoryname.as_mut_ptr(),
-        b"%s.%d\0".as_ptr() as *const c_char,
-        b"partitioning\0".as_ptr() as *const c_char,
+        c"%s.%d".as_ptr() as *const c_char,
+        c"partitioning".as_ptr() as *const c_char,
         partitions,
     );
     // NOTE: MINGW32 undefined on this target; mkdir(path,0750) arms taken.
     fail = mkdir(directoryname.as_ptr(), 0o750);
     if info != 0 && fail == 0 {
         printf(
-            b"Created mesh directory: %s\n\0".as_ptr() as *const c_char,
+            c"Created mesh directory: %s\n".as_ptr() as *const c_char,
             directoryname.as_ptr(),
         );
     }
@@ -5141,20 +5144,20 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     if fail != 0 {
         if info != 0 {
             printf(
-                b"Reusing existing subdirectory: %s\n\0".as_ptr() as *const c_char,
+                c"Reusing existing subdirectory: %s\n".as_ptr() as *const c_char,
                 subdirectoryname.as_ptr(),
             );
         }
         if nooverwrite != 0 {
             printf(
-                b"Mesh seems to already exist, writing is cancelled!\n\0".as_ptr() as *const c_char,
+                c"Mesh seems to already exist, writing is cancelled!\n".as_ptr() as *const c_char,
             );
             return 0;
         }
     } else {
         if info != 0 {
             printf(
-                b"Created subdirectory: %s\n\0".as_ptr() as *const c_char,
+                c"Created subdirectory: %s\n".as_ptr() as *const c_char,
                 subdirectoryname.as_ptr(),
             );
         }
@@ -5162,7 +5165,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     chdir(subdirectoryname.as_ptr());
     if info != 0 {
         printf(
-            b"Saving mesh in parallel ElmerSolver format to directory %s/%s.\n\0".as_ptr()
+            c"Saving mesh in parallel ElmerSolver format to directory %s/%s.\n".as_ptr()
                 as *const c_char,
             directoryname.as_ptr(),
             subdirectoryname.as_ptr(),
@@ -5171,7 +5174,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     filesetsize = MAXPARTITIONS as c_int;
     if partitions > filesetsize && info != 0 {
         printf(
-            b"Saving %d partitions in maximum sets of %d\n\0".as_ptr() as *const c_char,
+            c"Saving %d partitions in maximum sets of %d\n".as_ptr() as *const c_char,
             partitions,
             filesetsize,
         );
@@ -5211,7 +5214,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     }
     if info != 0 {
         printf(
-            b"Nodes belong to %d partitions in maximum\n\0".as_ptr() as *const c_char,
+            c"Nodes belong to %d partitions in maximum\n".as_ptr() as *const c_char,
             maxneededtimes,
         );
     }
@@ -5224,22 +5227,22 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
             if binary != 0 {
                 sprintf(
                     filename.as_mut_ptr(),
-                    b"%s.%d.%s\0".as_ptr() as *const c_char,
-                    b"part\0".as_ptr() as *const c_char,
+                    c"%s.%d.%s".as_ptr() as *const c_char,
+                    c"part".as_ptr() as *const c_char,
                     part,
-                    b"elements.bin\0".as_ptr() as *const c_char,
+                    c"elements.bin".as_ptr() as *const c_char,
                 );
             } else {
                 sprintf(
                     filename.as_mut_ptr(),
-                    b"%s.%d.%s\0".as_ptr() as *const c_char,
-                    b"part\0".as_ptr() as *const c_char,
+                    c"%s.%d.%s".as_ptr() as *const c_char,
+                    c"part".as_ptr() as *const c_char,
                     part,
-                    b"elements\0".as_ptr() as *const c_char,
+                    c"elements".as_ptr() as *const c_char,
                 );
             }
             nofile = part - partstart + 1;
-            outfiles[nofile as usize] = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+            outfiles[nofile as usize] = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
             part += 1;
         }
         i = 1;
@@ -5289,7 +5292,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                 } else {
                     fprintf(
                         outfiles[nofile as usize],
-                        b"%d %d %d \0".as_ptr() as *const c_char,
+                        c"%d %d %d ".as_ptr() as *const c_char,
                         i,
                         *(*data).material.wrapping_offset(i as isize),
                         elemtype,
@@ -5303,12 +5306,12 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                         }
                         fprintf(
                             outfiles[nofile as usize],
-                            b"%d \0".as_ptr() as *const c_char,
+                            c"%d ".as_ptr() as *const c_char,
                             ind,
                         );
                         j += 1;
                     }
-                    fprintf(outfiles[nofile as usize], b"\n\0".as_ptr() as *const c_char);
+                    fprintf(outfiles[nofile as usize], c"\n".as_ptr() as *const c_char);
                 }
             }
             if anyparthalo == 0 {
@@ -5322,8 +5325,8 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                     halomode += 1;
                     continue;
                 }
-                if halomode == 3 {
-                    if part <= subparts {
+                if halomode == 3
+                    && part <= subparts {
                         // NOTE: block-scoped C local becomes a Rust block.
                         {
                             let mut leftright: c_int;
@@ -5340,7 +5343,6 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                             }
                         }
                     }
-                }
                 otherpart = 0;
                 hasbcnodes = FALSE;
                 j = 0;
@@ -5360,10 +5362,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                     if elemsides == 8 {
                         immersed = (otherpart >= 4) as c_int;
                         elemsides = 6;
-                    } else if elemsides == 7 {
-                        immersed = (otherpart >= 3) as c_int;
-                        elemsides = 5;
-                    } else if elemsides == 6 {
+                    } else if elemsides == 7 || elemsides == 6 {
                         immersed = (otherpart >= 3) as c_int;
                         elemsides = 5;
                     } else if elemsides == 5 {
@@ -5553,7 +5552,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                     } else {
                         fprintf(
                             outfiles[nofile2 as usize],
-                            b"%d/%d %d %d \0".as_ptr() as *const c_char,
+                            c"%d/%d %d %d ".as_ptr() as *const c_char,
                             i,
                             part,
                             *(*data).material.wrapping_offset(i as isize),
@@ -5568,14 +5567,14 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                             }
                             fprintf(
                                 outfiles[nofile2 as usize],
-                                b"%d \0".as_ptr() as *const c_char,
+                                c"%d ".as_ptr() as *const c_char,
                                 ind,
                             );
                             j += 1;
                         }
                         fprintf(
                             outfiles[nofile2 as usize],
-                            b"\n\0".as_ptr() as *const c_char,
+                            c"\n".as_ptr() as *const c_char,
                         );
                     }
                     *(*bulktypes.wrapping_offset(part2 as isize))
@@ -5625,7 +5624,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
         }
         if anyparthalo != 0 && info != 0 {
             printf(
-                b"There are %d bulk elements in the halo.\n\0".as_ptr() as *const c_char,
+                c"There are %d bulk elements in the halo.\n".as_ptr() as *const c_char,
                 halobulkelems,
             );
         }
@@ -5671,7 +5670,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                 (*data).maxpartitiontable = maxneededtimes;
                 if info != 0 {
                     printf(
-                        b"With the halos nodes belong to %d partitions in maximum\n\0".as_ptr()
+                        c"With the halos nodes belong to %d partitions in maximum\n".as_ptr()
                             as *const c_char,
                         maxneededtimes,
                     );
@@ -5679,7 +5678,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
             }
             if info != 0 {
                 printf(
-                    b"There are %d additional shared nodes resulting from the halo.\n\0".as_ptr()
+                    c"There are %d additional shared nodes resulting from the halo.\n".as_ptr()
                         as *const c_char,
                     halonodes,
                 );
@@ -5691,14 +5690,14 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     if (*data).dim == 2 {
         sprintf(
             outstyle.as_mut_ptr(),
-            b"%%d %%d %%.%dg %%.%dg 0.0\n\0".as_ptr() as *const c_char,
+            c"%%d %%d %%.%dg %%.%dg 0.0\n".as_ptr() as *const c_char,
             decimals,
             decimals,
         );
     } else {
         sprintf(
             outstyle.as_mut_ptr(),
-            b"%%d %%d %%.%dg %%.%dg %%.%dg\n\0".as_ptr() as *const c_char,
+            c"%%d %%d %%.%dg %%.%dg %%.%dg\n".as_ptr() as *const c_char,
             decimals,
             decimals,
             decimals,
@@ -5706,7 +5705,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     }
     if info != 0 {
         printf(
-            b"Saving mesh for %d partitions\n\0".as_ptr() as *const c_char,
+            c"Saving mesh for %d partitions\n".as_ptr() as *const c_char,
             partitions,
         );
     }
@@ -5728,31 +5727,31 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                 if singleprec != 0 {
                     sprintf(
                         filename.as_mut_ptr(),
-                        b"%s.%d.%s\0".as_ptr() as *const c_char,
-                        b"part\0".as_ptr() as *const c_char,
+                        c"%s.%d.%s".as_ptr() as *const c_char,
+                        c"part".as_ptr() as *const c_char,
                         part,
-                        b"nodes.sbin\0".as_ptr() as *const c_char,
+                        c"nodes.sbin".as_ptr() as *const c_char,
                     );
                 } else {
                     sprintf(
                         filename.as_mut_ptr(),
-                        b"%s.%d.%s\0".as_ptr() as *const c_char,
-                        b"part\0".as_ptr() as *const c_char,
+                        c"%s.%d.%s".as_ptr() as *const c_char,
+                        c"part".as_ptr() as *const c_char,
                         part,
-                        b"nodes.bin\0".as_ptr() as *const c_char,
+                        c"nodes.bin".as_ptr() as *const c_char,
                     );
                 }
             } else {
                 sprintf(
                     filename.as_mut_ptr(),
-                    b"%s.%d.%s\0".as_ptr() as *const c_char,
-                    b"part\0".as_ptr() as *const c_char,
+                    c"%s.%d.%s".as_ptr() as *const c_char,
+                    c"part".as_ptr() as *const c_char,
                     part,
-                    b"nodes\0".as_ptr() as *const c_char,
+                    c"nodes".as_ptr() as *const c_char,
                 );
             }
             nofile = part - partstart + 1;
-            outfiles[nofile as usize] = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+            outfiles[nofile as usize] = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
             part += 1;
         }
         l = 1;
@@ -5869,13 +5868,13 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
         while part <= partfin {
             sprintf(
                 filename.as_mut_ptr(),
-                b"%s.%d.%s\0".as_ptr() as *const c_char,
-                b"part\0".as_ptr() as *const c_char,
+                c"%s.%d.%s".as_ptr() as *const c_char,
+                c"part".as_ptr() as *const c_char,
                 part,
-                b"shared\0".as_ptr() as *const c_char,
+                c"shared".as_ptr() as *const c_char,
             );
             nofile = part - partstart + 1;
-            outfiles[nofile as usize] = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+            outfiles[nofile as usize] = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
             part += 1;
         }
         l = 1;
@@ -5905,7 +5904,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                 // NOTE: commented-out parthalo[2] arm omitted (never compiled).
                 fprintf(
                     outfiles[nofile as usize],
-                    b"%d %d %d\0".as_ptr() as *const c_char,
+                    c"%d %d %d".as_ptr() as *const c_char,
                     ind,
                     *neededtimes2.wrapping_offset(i as isize),
                     *ownerpart.wrapping_offset(i as isize),
@@ -5917,13 +5916,13 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                     {
                         fprintf(
                             outfiles[nofile as usize],
-                            b" %d\0".as_ptr() as *const c_char,
+                            c" %d".as_ptr() as *const c_char,
                             *(*data).partitiontable[m as usize].wrapping_offset(i as isize),
                         );
                     }
                     m += 1;
                 }
-                fprintf(outfiles[nofile as usize], b"\n\0".as_ptr() as *const c_char);
+                fprintf(outfiles[nofile as usize], c"\n".as_ptr() as *const c_char);
                 j += 1;
             }
             l += 1;
@@ -5961,21 +5960,21 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
             if binary != 0 {
                 sprintf(
                     filename.as_mut_ptr(),
-                    b"%s.%d.%s\0".as_ptr() as *const c_char,
-                    b"part\0".as_ptr() as *const c_char,
+                    c"%s.%d.%s".as_ptr() as *const c_char,
+                    c"part".as_ptr() as *const c_char,
                     part,
-                    b"boundary.bin\0".as_ptr() as *const c_char,
+                    c"boundary.bin".as_ptr() as *const c_char,
                 );
             } else {
                 sprintf(
                     filename.as_mut_ptr(),
-                    b"%s.%d.%s\0".as_ptr() as *const c_char,
-                    b"part\0".as_ptr() as *const c_char,
+                    c"%s.%d.%s".as_ptr() as *const c_char,
+                    c"part".as_ptr() as *const c_char,
                     part,
-                    b"boundary\0".as_ptr() as *const c_char,
+                    c"boundary".as_ptr() as *const c_char,
                 );
             }
-            out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+            out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
             i = minelemtype;
             while i <= maxelemtype {
                 *sidetypes.wrapping_offset(i as isize) = 0;
@@ -6170,7 +6169,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                         if part2 != 0 {
                             fprintf(
                                 out,
-                                b"%d/%d %d %d %d %d\0".as_ptr() as *const c_char,
+                                c"%d/%d %d %d %d %d".as_ptr() as *const c_char,
                                 totsides,
                                 part2,
                                 bctype,
@@ -6181,7 +6180,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                         } else {
                             fprintf(
                                 out,
-                                b"%d %d %d %d %d\0".as_ptr() as *const c_char,
+                                c"%d %d %d %d %d".as_ptr() as *const c_char,
                                 totsides,
                                 bctype,
                                 parent,
@@ -6195,10 +6194,10 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                             if reorder != 0 {
                                 k = *order.wrapping_offset(k as isize);
                             }
-                            fprintf(out, b" %d\0".as_ptr() as *const c_char, k);
+                            fprintf(out, c" %d".as_ptr() as *const c_char, k);
                             l += 1;
                         }
-                        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+                        fprintf(out, c"\n".as_ptr() as *const c_char);
                     }
                     i += 1;
                 }
@@ -6341,7 +6340,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                     } else {
                         fprintf(
                             out,
-                            b"%d %d %d %d %d\0".as_ptr() as *const c_char,
+                            c"%d %d %d %d %d".as_ptr() as *const c_char,
                             totsides,
                             *(*bound.wrapping_offset(j as isize))
                                 .types
@@ -6360,10 +6359,10 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                             if reorder != 0 {
                                 k = *order.wrapping_offset(k as isize);
                             }
-                            fprintf(out, b" %d\0".as_ptr() as *const c_char, k);
+                            fprintf(out, c" %d".as_ptr() as *const c_char, k);
                             l += 1;
                         }
-                        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+                        fprintf(out, c"\n".as_ptr() as *const c_char);
                     }
                     i += 1;
                 }
@@ -6386,26 +6385,26 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
             }
             sprintf(
                 filename.as_mut_ptr(),
-                b"%s.%d.%s\0".as_ptr() as *const c_char,
-                b"part\0".as_ptr() as *const c_char,
+                c"%s.%d.%s".as_ptr() as *const c_char,
+                c"part".as_ptr() as *const c_char,
                 part,
-                b"header\0".as_ptr() as *const c_char,
+                c"header".as_ptr() as *const c_char,
             );
-            out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+            out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
             fprintf(
                 out,
-                b"%-6d %-6d %-6d\n\0".as_ptr() as *const c_char,
+                c"%-6d %-6d %-6d\n".as_ptr() as *const c_char,
                 *needednodes.wrapping_offset(part as isize),
                 *elementsinpart.wrapping_offset(part as isize),
                 sumsides,
             );
-            fprintf(out, b"%-6d\n\0".as_ptr() as *const c_char, tottypes);
+            fprintf(out, c"%-6d\n".as_ptr() as *const c_char, tottypes);
             i = minelemtype;
             while i <= maxelemtype {
                 if *(*bulktypes.wrapping_offset(part as isize)).wrapping_offset(i as isize) != 0 {
                     fprintf(
                         out,
-                        b"%-6d %-6d\n\0".as_ptr() as *const c_char,
+                        c"%-6d %-6d\n".as_ptr() as *const c_char,
                         i,
                         *(*bulktypes.wrapping_offset(part as isize)).wrapping_offset(i as isize),
                     );
@@ -6417,7 +6416,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
                 if *sidetypes.wrapping_offset(i as isize) != 0 {
                     fprintf(
                         out,
-                        b"%-6d %-6d\n\0".as_ptr() as *const c_char,
+                        c"%-6d %-6d\n".as_ptr() as *const c_char,
                         i,
                         *sidetypes.wrapping_offset(i as isize),
                     );
@@ -6426,7 +6425,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
             }
             fprintf(
                 out,
-                b"%-6d %-6d\n\0".as_ptr() as *const c_char,
+                c"%-6d %-6d\n".as_ptr() as *const c_char,
                 *neededtwice.wrapping_offset(part as isize),
                 0,
             );
@@ -6434,16 +6433,16 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
             if info != 0 {
                 if part == 1 {
                     printf(
-                        b"   %-5s %-10s %-10s %-8s %-8s\n\0".as_ptr() as *const c_char,
-                        b"part\0".as_ptr() as *const c_char,
-                        b"elements\0".as_ptr() as *const c_char,
-                        b"nodes\0".as_ptr() as *const c_char,
-                        b"shared\0".as_ptr() as *const c_char,
-                        b"bc elems\0".as_ptr() as *const c_char,
+                        c"   %-5s %-10s %-10s %-8s %-8s\n".as_ptr() as *const c_char,
+                        c"part".as_ptr() as *const c_char,
+                        c"elements".as_ptr() as *const c_char,
+                        c"nodes".as_ptr() as *const c_char,
+                        c"shared".as_ptr() as *const c_char,
+                        c"bc elems".as_ptr() as *const c_char,
                     );
                 }
                 printf(
-                    b"   %-5d %-10d %-10d %-8d %-8d\n\0".as_ptr() as *const c_char,
+                    c"   %-5d %-10d %-10d %-8d %-8d\n".as_ptr() as *const c_char,
                     part,
                     *elementsinpart.wrapping_offset(part as isize),
                     *ownnodes.wrapping_offset(part as isize),
@@ -6469,11 +6468,11 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     }
     n = partitions;
     printf(
-        b"----------------------------------------------------------------------------------------------\n\0"
+        c"----------------------------------------------------------------------------------------------\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"   ave   %-10.1f %-10.1f %-8.1f %-8.1f\n\0".as_ptr() as *const c_char,
+        c"   ave   %-10.1f %-10.1f %-8.1f %-8.1f\n".as_ptr() as *const c_char,
         1.0 * sumelementsinpart as Real / n as Real,
         1.0 * sumownnodes as Real / n as Real,
         1.0 * sumsharednodes as Real / n as Real,
@@ -6481,37 +6480,37 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     );
     if info != 0 && halobcs != 0 {
         printf(
-            b"Number of boundary elements associated with halo: %d\n\0".as_ptr() as *const c_char,
+            c"Number of boundary elements associated with halo: %d\n".as_ptr() as *const c_char,
             halobcs,
         );
     }
     if splitsides != 0 && anyparthalo == 0 {
         printf(
-            b"************************* Warning ****************************\n\0".as_ptr()
+            c"************************* Warning ****************************\n".as_ptr()
                 as *const c_char,
         );
         printf(
-            b"Number or boundary elements split at between parents: %d\n\0".as_ptr()
+            c"Number or boundary elements split at between parents: %d\n".as_ptr()
                 as *const c_char,
             splitsides,
         );
         printf(
-            b"This could be a problem for internal jump conditions\n\0".as_ptr() as *const c_char,
+            c"This could be a problem for internal jump conditions\n".as_ptr() as *const c_char,
         );
         printf(
-            b"You could try to use '-halobc' flag as remedy with ElmerSolver.\n\0".as_ptr()
+            c"You could try to use '-halobc' flag as remedy with ElmerSolver.\n".as_ptr()
                 as *const c_char,
         );
         printf(
-            b"**************************************************************\n\0".as_ptr()
+            c"**************************************************************\n".as_ptr()
                 as *const c_char,
         );
     }
     if anyparthalo != 0 {
         free_ivector(neededtimes2, 1, noknots);
     }
-    chdir(b"..\0".as_ptr() as *const c_char);
-    chdir(b"..\0".as_ptr() as *const c_char);
+    chdir(c"..".as_ptr() as *const c_char);
+    chdir(c"..".as_ptr() as *const c_char);
     if reorder != 0 {
         free_ivector(order, 1, noknots);
     }
@@ -6522,7 +6521,7 @@ pub unsafe extern "C" fn SaveElmerInputPartitioned(
     free_ivector(sidetypes, minelemtype, maxelemtype);
     free_imatrix(bulktypes, 1, partitions, minelemtype, maxelemtype);
     if info != 0 {
-        printf(b"Writing of partitioned mesh finished\n\0".as_ptr() as *const c_char);
+        printf(c"Writing of partitioned mesh finished\n".as_ptr() as *const c_char);
     }
     0
 }
@@ -6535,9 +6534,11 @@ unsafe fn LinearNodes(elemtype: c_int) -> c_int {
     fam2nodemap[elemfamily as usize]
 }
 
-// SAFETY: METIS mesh partitioning over valid single-type meshes.
-// NOTE: minnodes/mintype/maxtype carry 0-inits for the empty-mesh proof
-// (assigned in-loop on every real mesh; unobservable).
+/// # Safety
+///
+/// METIS mesh partitioning over valid single-type meshes.
+/// NOTE: minnodes/mintype/maxtype carry 0-inits for the empty-mesh proof
+/// (assigned in-loop on every real mesh; unobservable).
 #[no_mangle]
 pub unsafe extern "C" fn PartitionMetisMesh(
     data: *mut FemType,
@@ -6570,7 +6571,7 @@ pub unsafe extern "C" fn PartitionMetisMesh(
     SetMetisOptions(options.as_mut_ptr(), eg, info);
     if info != 0 {
         printf(
-            b"Making a Metis partitioning for %d elements in %d-dimensions.\n\0".as_ptr()
+            c"Making a Metis partitioning for %d elements in %d-dimensions.\n".as_ptr()
                 as *const c_char,
             (*data).noelements,
             (*data).dim,
@@ -6596,16 +6597,16 @@ pub unsafe extern "C" fn PartitionMetisMesh(
     if info != 0 {
         if mintype == maxtype {
             printf(
-                b"All elements are of type %d\n\0".as_ptr() as *const c_char,
+                c"All elements are of type %d\n".as_ptr() as *const c_char,
                 mintype,
             );
         } else {
             printf(
-                b"Minimum element type is %d\n\0".as_ptr() as *const c_char,
+                c"Minimum element type is %d\n".as_ptr() as *const c_char,
                 mintype,
             );
             printf(
-                b"Maximum element type is %d\n\0".as_ptr() as *const c_char,
+                c"Maximum element type is %d\n".as_ptr() as *const c_char,
                 maxtype,
             );
         }
@@ -6619,11 +6620,11 @@ pub unsafe extern "C" fn PartitionMetisMesh(
     }
     if info != 0 {
         printf(
-            b"Minimum number of linear nodes in elements %d\n\0".as_ptr() as *const c_char,
+            c"Minimum number of linear nodes in elements %d\n".as_ptr() as *const c_char,
             minnodes,
         );
         printf(
-            b"Requiring number of nodes in dual graph %d\n\0".as_ptr() as *const c_char,
+            c"Requiring number of nodes in dual graph %d\n".as_ptr() as *const c_char,
             ncommon,
         );
     }
@@ -6637,7 +6638,7 @@ pub unsafe extern "C" fn PartitionMetisMesh(
     periodic = (*data).periodicexist;
     if periodic != 0 {
         if info != 0 {
-            printf(b"There seems to be periodic boundaries\n\0".as_ptr() as *const c_char);
+            printf(c"There seems to be periodic boundaries\n".as_ptr() as *const c_char);
         }
         indxper = (*data).periodic;
     }
@@ -6697,19 +6698,19 @@ pub unsafe extern "C" fn PartitionMetisMesh(
     if info != 0 {
         if nn == noknots {
             printf(
-                b"Using all %d possible nodes in the Metis graph\n\0".as_ptr() as *const c_char,
+                c"Using all %d possible nodes in the Metis graph\n".as_ptr() as *const c_char,
                 nn,
             );
         } else {
             printf(
-                b"Using %d nodes of %d possible nodes in the Metis graph\n\0".as_ptr()
+                c"Using %d nodes of %d possible nodes in the Metis graph\n".as_ptr()
                     as *const c_char,
                 nn,
                 noknots,
             );
         }
         printf(
-            b"Allocating mesh topology of size %d\n\0".as_ptr() as *const c_char,
+            c"Allocating mesh topology of size %d\n".as_ptr() as *const c_char,
             k,
         );
     }
@@ -6782,7 +6783,7 @@ pub unsafe extern "C" fn PartitionMetisMesh(
     if dual != 0 {
         if info != 0 {
             printf(
-                b"Starting graph partitioning METIS_PartMeshDual.\n\0".as_ptr() as *const c_char,
+                c"Starting graph partitioning METIS_PartMeshDual.\n".as_ptr() as *const c_char,
             );
         }
         METIS_PartMeshDual(
@@ -6802,13 +6803,13 @@ pub unsafe extern "C" fn PartitionMetisMesh(
         );
         if info != 0 {
             printf(
-                b"Finished graph partitioning METIS_PartMeshDual.\n\0".as_ptr() as *const c_char,
+                c"Finished graph partitioning METIS_PartMeshDual.\n".as_ptr() as *const c_char,
             );
         }
     } else {
         if info != 0 {
             printf(
-                b"Starting graph partitioning METIS_PartMeshNodal.\n\0".as_ptr() as *const c_char,
+                c"Starting graph partitioning METIS_PartMeshNodal.\n".as_ptr() as *const c_char,
             );
         }
         METIS_PartMeshNodal(
@@ -6827,7 +6828,7 @@ pub unsafe extern "C" fn PartitionMetisMesh(
         );
         if info != 0 {
             printf(
-                b"Finished graph partitioning METIS_PartMeshNodal.\n\0".as_ptr() as *const c_char,
+                c"Finished graph partitioning METIS_PartMeshNodal.\n".as_ptr() as *const c_char,
             );
         }
     }
@@ -6840,7 +6841,7 @@ pub unsafe extern "C" fn PartitionMetisMesh(
         {
             if ninv < 10 {
                 printf(
-                    b"Invalid partition %d for element %d\n\0".as_ptr() as *const c_char,
+                    c"Invalid partition %d for element %d\n".as_ptr() as *const c_char,
                     *inpart.wrapping_offset(i as isize),
                     i,
                 );
@@ -6851,16 +6852,16 @@ pub unsafe extern "C" fn PartitionMetisMesh(
     }
     if ninv != 0 {
         printf(
-            b"Number of invalid element partitions by Metis %d\n\0".as_ptr() as *const c_char,
+            c"Number of invalid element partitions by Metis %d\n".as_ptr() as *const c_char,
             ninv,
         );
-        bigerror(b"Cannot continue with invalid partitioning!\0".as_ptr() as *const c_char);
+        bigerror(c"Cannot continue with invalid partitioning!".as_ptr() as *const c_char);
     }
     if highorder != 0 {
         PartitionNodesByElements(data, info);
     } else {
         if info != 0 {
-            printf(b"Set the partition given by Metis for each node\n\0".as_ptr() as *const c_char);
+            printf(c"Set the partition given by Metis for each node\n".as_ptr() as *const c_char);
         }
         i = 1;
         while i <= noknots {
@@ -6873,7 +6874,7 @@ pub unsafe extern "C" fn PartitionMetisMesh(
             }
             if j == 0 {
                 printf(
-                    b"Cannot set partitioning for node %d\n\0".as_ptr() as *const c_char,
+                    c"Cannot set partitioning for node %d\n".as_ptr() as *const c_char,
                     i,
                 );
             }
@@ -6884,7 +6885,7 @@ pub unsafe extern "C" fn PartitionMetisMesh(
             {
                 if ninv < 10 {
                     printf(
-                        b"Invalid partition %d for node %d\n\0".as_ptr() as *const c_char,
+                        c"Invalid partition %d for node %d\n".as_ptr() as *const c_char,
                         *(*data).nodepart.wrapping_offset(i as isize),
                         i,
                     );
@@ -6895,10 +6896,10 @@ pub unsafe extern "C" fn PartitionMetisMesh(
         }
         if ninv != 0 {
             printf(
-                b"Number of invalid node partitions by Metis %d\n\0".as_ptr() as *const c_char,
+                c"Number of invalid node partitions by Metis %d\n".as_ptr() as *const c_char,
                 ninv,
             );
-            bigerror(b"Cannot continue with invalid partitioning!\0".as_ptr() as *const c_char);
+            bigerror(c"Cannot continue with invalid partitioning!".as_ptr() as *const c_char);
         }
     }
     free_ivector(neededby, 1, noknots);
@@ -6908,14 +6909,16 @@ pub unsafe extern "C" fn PartitionMetisMesh(
     free_ivector(eptr, 0, noelements + 1);
     if info != 0 {
         printf(
-            b"Successfully made a Metis partition using the element mesh.\n\0".as_ptr()
+            c"Successfully made a Metis partition using the element mesh.\n".as_ptr()
                 as *const c_char,
         );
     }
     0
 }
-// SAFETY: METIS graph partitioning with skip-path (nparts==1) preserved.
-// `goto skippart` becomes a skip flag (frees skipped on that path, as in C).
+/// # Safety
+///
+/// METIS graph partitioning with skip-path (nparts==1) preserved.
+/// `goto skippart` becomes a skip flag (frees skipped on that path, as in C).
 #[no_mangle]
 pub unsafe extern "C" fn PartitionMetisGraph(
     data: *mut FemType,
@@ -6978,7 +6981,7 @@ pub unsafe extern "C" fn PartitionMetisGraph(
     // only as block-local shadows in the weights/integrity blocks below).
     if info != 0 {
         printf(
-            b"Making a Metis partitioning for %d nodes in %d-dimensions.\n\0".as_ptr()
+            c"Making a Metis partitioning for %d nodes in %d-dimensions.\n".as_ptr()
                 as *const c_char,
             (*data).noknots,
             (*data).dim,
@@ -6986,7 +6989,7 @@ pub unsafe extern "C" fn PartitionMetisGraph(
     }
     if partitions < 2 {
         bigerror(
-            b"There should be at least two partitions for partitioning!\0".as_ptr()
+            c"There should be at least two partitions for partitioning!".as_ptr()
                 as *const c_char,
         );
     }
@@ -6994,8 +6997,8 @@ pub unsafe extern "C" fn PartitionMetisGraph(
     noelements = (*data).noelements;
     maxconset = 0;
     if (*data).periodicexist != 0 && dual != 0 {
-        printf(b"Dual graph not implemented for periodic system!\n\0".as_ptr() as *const c_char);
-        printf(b"Enforcing nodal graph for partitioning\n\0".as_ptr() as *const c_char);
+        printf(c"Dual graph not implemented for periodic system!\n".as_ptr() as *const c_char);
+        printf(c"Enforcing nodal graph for partitioning\n".as_ptr() as *const c_char);
     }
     // NOTE: C reassigns the dual parameter; mirrored with a shadow binding
     // so later reads see the enforced value.
@@ -7020,7 +7023,7 @@ pub unsafe extern "C" fn PartitionMetisGraph(
             errstat = ExtendBoundaryPartitioning(data, bound, (*eg).partbclayers, info);
             if errstat != 0 {
                 bigerror(
-                    b"Extend boundary partitioning returned error!\0".as_ptr() as *const c_char
+                    c"Extend boundary partitioning returned error!".as_ptr() as *const c_char
                 );
             }
         }
@@ -7036,7 +7039,7 @@ pub unsafe extern "C" fn PartitionMetisGraph(
         if nparts == 1 {
             if info != 0 {
                 printf(
-                    b"Just one partition left, skipping 2nd part of hybrid partitioning!\n\0"
+                    c"Just one partition left, skipping 2nd part of hybrid partitioning!\n"
                         .as_ptr() as *const c_char,
                 );
             }
@@ -7097,7 +7100,7 @@ pub unsafe extern "C" fn PartitionMetisGraph(
         }
         if info != 0 {
             printf(
-                b"There are %d connections altogether in the graph.\n\0".as_ptr() as *const c_char,
+                c"There are %d connections altogether in the graph.\n".as_ptr() as *const c_char,
                 totcon,
             );
         }
@@ -7111,7 +7114,7 @@ pub unsafe extern "C" fn PartitionMetisGraph(
             if (*data).periodicexist != 0 || (*eg).connect != 0 {
                 if info != 0 {
                     printf(
-                        b"Creating weight for %d connections.\n\0".as_ptr() as *const c_char,
+                        c"Creating weight for %d connections.\n".as_ptr() as *const c_char,
                         totcon,
                     );
                 }
@@ -7124,7 +7127,7 @@ pub unsafe extern "C" fn PartitionMetisGraph(
                 }
                 if metisopt != 3 {
                     printf(
-                        b"For weighted partitioning Metis subroutine METIS_PartGraphKway is enforced\n\0"
+                        c"For weighted partitioning Metis subroutine METIS_PartGraphKway is enforced\n"
                             .as_ptr() as *const c_char,
                     );
                     metisopt = 3;
@@ -7133,7 +7136,7 @@ pub unsafe extern "C" fn PartitionMetisGraph(
             if (*data).periodicexist != 0 {
                 if info != 0 {
                     printf(
-                        b"Setting periodic connections to dominate %d\n\0".as_ptr()
+                        c"Setting periodic connections to dominate %d\n".as_ptr()
                             as *const c_char,
                         totcon,
                     );
@@ -7158,10 +7161,10 @@ pub unsafe extern "C" fn PartitionMetisGraph(
             if (*eg).connect != 0 {
                 // NOTE: block-scoped C locals become a Rust block.
                 {
-                    let maxweight: c_int;
-                    maxweight = noknots + noelements;
+                    
+                    let maxweight: c_int = noknots + noelements;
                     printf(
-                        b"Adding weight of %d for constrained nodes\n\0".as_ptr() as *const c_char,
+                        c"Adding weight of %d for constrained nodes\n".as_ptr() as *const c_char,
                         maxweight,
                     );
                     con = 1;
@@ -7231,7 +7234,7 @@ pub unsafe extern "C" fn PartitionMetisGraph(
         if metisopt == 2 {
             if info != 0 {
                 printf(
-                    b"Starting graph partitioning METIS_PartGraphRecursive.\n\0".as_ptr()
+                    c"Starting graph partitioning METIS_PartGraphRecursive.\n".as_ptr()
                         as *const c_char,
                 );
             }
@@ -7256,7 +7259,7 @@ pub unsafe extern "C" fn PartitionMetisGraph(
             wgtflag = 0;
             if info != 0 {
                 printf(
-                    b"Starting graph partitioning METIS_PartGraphKway.\n\0".as_ptr()
+                    c"Starting graph partitioning METIS_PartGraphKway.\n".as_ptr()
                         as *const c_char,
                 );
             }
@@ -7278,12 +7281,12 @@ pub unsafe extern "C" fn PartitionMetisGraph(
             );
         } else {
             printf(
-                b"Unknown Metis option %d\n\0".as_ptr() as *const c_char,
+                c"Unknown Metis option %d\n".as_ptr() as *const c_char,
                 metisopt,
             );
         }
         if info != 0 {
-            printf(b"Finished Metis graph partitioning call.\n\0".as_ptr() as *const c_char);
+            printf(c"Finished Metis graph partitioning call.\n".as_ptr() as *const c_char);
         }
         free_ivector(adjncy, 0, totcon - 1);
         free_ivector(xadj, 0, nn);
@@ -7345,10 +7348,10 @@ pub unsafe extern "C" fn PartitionMetisGraph(
                 let mut sideelemtype: c_int = 0;
                 let (mut par, mut ind): (c_int, c_int);
                 let mut sideind: [c_int; MAXNODESD1] = [0; MAXNODESD1];
-                let sidehits: *mut c_int;
+                
                 let mut sidepartitions: c_int;
-                printf(b"Checking connection integrity\n\0".as_ptr() as *const c_char);
-                sidehits = ivector(1, partitions);
+                printf(c"Checking connection integrity\n".as_ptr() as *const c_char);
+                let sidehits: *mut c_int = ivector(1, partitions);
                 con = 1;
                 while con <= (*eg).connect {
                     bctype = *(*eg)
@@ -7411,13 +7414,13 @@ pub unsafe extern "C" fn PartitionMetisGraph(
                     }
                     if sidepartitions != 1 {
                         printf(
-                            b"PartitionMetisGraph: side %d belongs to %d partitions\n\0".as_ptr()
+                            c"PartitionMetisGraph: side %d belongs to %d partitions\n".as_ptr()
                                 as *const c_char,
                             bctype,
                             sidepartitions,
                         );
                         bigerror(
-                            b"Parallel constraints might not be set!\0".as_ptr() as *const c_char
+                            c"Parallel constraints might not be set!".as_ptr() as *const c_char
                         );
                     }
                     con += 1;
@@ -7431,19 +7434,21 @@ pub unsafe extern "C" fn PartitionMetisGraph(
     if info != 0 {
         if dual != 0 {
             printf(
-                b"Successfully made a Metis partition using the dual graph.\n\0".as_ptr()
+                c"Successfully made a Metis partition using the dual graph.\n".as_ptr()
                     as *const c_char,
             );
         } else {
             printf(
-                b"Successfully made a Metis partition using the nodal graph.\n\0".as_ptr()
+                c"Successfully made a Metis partition using the nodal graph.\n".as_ptr()
                     as *const c_char,
             );
         }
     }
     0
 }
-// SAFETY: METIS fill-reducing reorder over the valid nodal graph.
+/// # Safety
+///
+/// METIS fill-reducing reorder over the valid nodal graph.
 #[no_mangle]
 pub unsafe extern "C" fn ReorderElementsMetis(data: *mut FemType, info: c_int) -> c_int {
     let (mut i, mut j, mut k): (c_int, c_int, c_int);
@@ -7455,14 +7460,14 @@ pub unsafe extern "C" fn ReorderElementsMetis(data: *mut FemType, info: c_int) -
     let (xadj, adjncy): (*mut c_int, *mut c_int);
     // NOTE: NULL-inits in C; assigned before METIS reads.
     let (iperm, mut perm): (*mut c_int, *mut c_int);
-    let newtopology: *mut *mut c_int;
+    
     let (newx, newy, newz): (*mut Real, *mut Real, *mut Real);
     let mut options: [c_int; 8] = [0; 8];
     noelements = (*data).noelements;
     noknots = (*data).noknots;
     if info != 0 {
         printf(
-            b"Reordering %d knots and %d elements using Metis reordering routine.\n\0".as_ptr()
+            c"Reordering %d knots and %d elements using Metis reordering routine.\n".as_ptr()
                 as *const c_char,
             noknots,
             noelements,
@@ -7472,7 +7477,7 @@ pub unsafe extern "C" fn ReorderElementsMetis(data: *mut FemType, info: c_int) -
     i = CalculateIndexwidth(data, FALSE, perm);
     if info != 0 {
         printf(
-            b"Indexwidth of the original node order is %d.\n\0".as_ptr() as *const c_char,
+            c"Indexwidth of the original node order is %d.\n".as_ptr() as *const c_char,
             i,
         );
     }
@@ -7494,7 +7499,7 @@ pub unsafe extern "C" fn ReorderElementsMetis(data: *mut FemType, info: c_int) -
     }
     if info != 0 {
         printf(
-            b"There are %d connections altogether\n\0".as_ptr() as *const c_char,
+            c"There are %d connections altogether\n".as_ptr() as *const c_char,
             totcon,
         );
     }
@@ -7532,7 +7537,7 @@ pub unsafe extern "C" fn ReorderElementsMetis(data: *mut FemType, info: c_int) -
     perm = ivector(0, noknots - 1);
     iperm = ivector(0, noknots - 1);
     if info != 0 {
-        printf(b"Starting Metis reordering routine.\n\0".as_ptr() as *const c_char);
+        printf(c"Starting Metis reordering routine.\n".as_ptr() as *const c_char);
     }
     METIS_NodeND(
         &mut nn,
@@ -7544,10 +7549,10 @@ pub unsafe extern "C" fn ReorderElementsMetis(data: *mut FemType, info: c_int) -
         iperm,
     );
     if info != 0 {
-        printf(b"Finished Metis reordering routine.\n\0".as_ptr() as *const c_char);
+        printf(c"Finished Metis reordering routine.\n".as_ptr() as *const c_char);
     }
     if info != 0 {
-        printf(b"Moving knots to new positions\n\0".as_ptr() as *const c_char);
+        printf(c"Moving knots to new positions\n".as_ptr() as *const c_char);
     }
     newx = dvector(1, (*data).noknots);
     newy = dvector(1, (*data).noknots);
@@ -7573,9 +7578,9 @@ pub unsafe extern "C" fn ReorderElementsMetis(data: *mut FemType, info: c_int) -
     (*data).y = newy;
     (*data).z = newz;
     if info != 0 {
-        printf(b"Changing the element topology\n\0".as_ptr() as *const c_char);
+        printf(c"Changing the element topology\n".as_ptr() as *const c_char);
     }
-    newtopology = imatrix(1, noelements, 0, (*data).maxnodes - 1);
+    let newtopology: *mut *mut c_int = imatrix(1, noelements, 0, (*data).maxnodes - 1);
     j = 1;
     while j <= noelements {
         nonodes = *(*data).elementtypes.wrapping_offset(j as isize) % 100;
@@ -7593,7 +7598,7 @@ pub unsafe extern "C" fn ReorderElementsMetis(data: *mut FemType, info: c_int) -
     i = CalculateIndexwidth(data, FALSE, perm);
     if info != 0 {
         printf(
-            b"Indexwidth of the new node order is %d.\n\0".as_ptr() as *const c_char,
+            c"Indexwidth of the new node order is %d.\n".as_ptr() as *const c_char,
             i,
         );
     }

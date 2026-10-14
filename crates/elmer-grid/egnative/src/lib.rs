@@ -134,46 +134,48 @@ pub static mut iodebug: c_int = FALSE;
 // mutable global, initialized once with literal pointers, never written).
 #[no_mangle]
 pub static mut InMethods: [*const c_char; 22] = [
-    b"EG\0".as_ptr() as *const c_char,
-    b"ELMERGRID\0".as_ptr() as *const c_char,
-    b"ELMERSOLVER\0".as_ptr() as *const c_char,
-    b"ELMERPOST\0".as_ptr() as *const c_char,
-    b"ANSYS\0".as_ptr() as *const c_char,
-    b"IDEAS\0".as_ptr() as *const c_char,
-    b"ABAQUS\0".as_ptr() as *const c_char,
-    b"FIDAP\0".as_ptr() as *const c_char,
-    b"UNV\0".as_ptr() as *const c_char,
-    b"COMSOL\0".as_ptr() as *const c_char,
-    b"FIELDVIEW\0".as_ptr() as *const c_char,
-    b"TRIANGLE\0".as_ptr() as *const c_char,
-    b"MEDIT\0".as_ptr() as *const c_char,
-    b"GID\0".as_ptr() as *const c_char,
-    b"GMSH\0".as_ptr() as *const c_char,
-    b"PARTITIONED\0".as_ptr() as *const c_char,
-    b"FVCOM\0".as_ptr() as *const c_char,
-    b"NASTRAN\0".as_ptr() as *const c_char,
-    b"CGSIM\0".as_ptr() as *const c_char,
-    b"GEO\0".as_ptr() as *const c_char,
-    b"FLUX2D\0".as_ptr() as *const c_char,
-    b"FLUX3D\0".as_ptr() as *const c_char,
+    c"EG".as_ptr() as *const c_char,
+    c"ELMERGRID".as_ptr() as *const c_char,
+    c"ELMERSOLVER".as_ptr() as *const c_char,
+    c"ELMERPOST".as_ptr() as *const c_char,
+    c"ANSYS".as_ptr() as *const c_char,
+    c"IDEAS".as_ptr() as *const c_char,
+    c"ABAQUS".as_ptr() as *const c_char,
+    c"FIDAP".as_ptr() as *const c_char,
+    c"UNV".as_ptr() as *const c_char,
+    c"COMSOL".as_ptr() as *const c_char,
+    c"FIELDVIEW".as_ptr() as *const c_char,
+    c"TRIANGLE".as_ptr() as *const c_char,
+    c"MEDIT".as_ptr() as *const c_char,
+    c"GID".as_ptr() as *const c_char,
+    c"GMSH".as_ptr() as *const c_char,
+    c"PARTITIONED".as_ptr() as *const c_char,
+    c"FVCOM".as_ptr() as *const c_char,
+    c"NASTRAN".as_ptr() as *const c_char,
+    c"CGSIM".as_ptr() as *const c_char,
+    c"GEO".as_ptr() as *const c_char,
+    c"FLUX2D".as_ptr() as *const c_char,
+    c"FLUX3D".as_ptr() as *const c_char,
 ];
 
 #[no_mangle]
 pub static mut OutMethods: [*const c_char; 6] = [
-    b"EG\0".as_ptr() as *const c_char,
-    b"ELMERGRID\0".as_ptr() as *const c_char,
-    b"ELMERSOLVER\0".as_ptr() as *const c_char,
-    b"ELMERPOST\0".as_ptr() as *const c_char,
-    b"GMSH\0".as_ptr() as *const c_char,
-    b"VTU\0".as_ptr() as *const c_char,
+    c"EG".as_ptr() as *const c_char,
+    c"ELMERGRID".as_ptr() as *const c_char,
+    c"ELMERSOLVER".as_ptr() as *const c_char,
+    c"ELMERPOST".as_ptr() as *const c_char,
+    c"GMSH".as_ptr() as *const c_char,
+    c"VTU".as_ptr() as *const c_char,
 ];
 
-// SAFETY: usage text; the Instructions body is long literal output.
-// (Transcribed in full below; elided here for the append.)
+/// # Safety
+///
+/// usage text; the Instructions body is long literal output.
+/// (Transcribed in full below; elided here for the append.)
 #[no_mangle]
 pub unsafe extern "C" fn Instructions() {
     printf(
-        b"This program can create simple 2D structured meshes consisting of\n\0".as_ptr()
+        c"This program can create simple 2D structured meshes consisting of\n".as_ptr()
             as *const c_char,
     );
     instructions_tail();
@@ -182,92 +184,92 @@ pub unsafe extern "C" fn Instructions() {
 // SAFETY: remainder of the usage text (split for patch sizing only).
 unsafe fn instructions_tail() {
     printf(
-        b"linear, quadratic or cubic rectangles or triangles. The meshes may\n\0".as_ptr()
+        c"linear, quadratic or cubic rectangles or triangles. The meshes may\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"also be extruded and revolved to create 3D forms. In addition many\n\0".as_ptr()
+        c"also be extruded and revolved to create 3D forms. In addition many\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"mesh formats may be imported into Elmer software. Some options have\n\0".as_ptr()
+        c"mesh formats may be imported into Elmer software. Some options have\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"not been properly tested. Contact the author if you face problems.\n\0".as_ptr()
+        c"not been properly tested. Contact the author if you face problems.\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"------------------------------------------------------------------\n\0".as_ptr()
+        c"------------------------------------------------------------------\n".as_ptr()
             as *const c_char,
     );
-    printf(b"The program has two operation modes\n\0".as_ptr() as *const c_char);
+    printf(c"The program has two operation modes\n".as_ptr() as *const c_char);
     printf(
-        b"A) Command file mode which has the command file as the only argument\n\0".as_ptr()
+        c"A) Command file mode which has the command file as the only argument\n".as_ptr()
             as *const c_char,
     );
-    printf(b"   'ElmerGrid commandfile.eg'\n\n\0".as_ptr() as *const c_char);
+    printf(c"   'ElmerGrid commandfile.eg'\n\n".as_ptr() as *const c_char);
     printf(
-        b"------------------------------------------------------------------\n\0".as_ptr()
+        c"------------------------------------------------------------------\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"B) Inline mode which expects at least three input parameters\n\0".as_ptr()
+        c"B) Inline mode which expects at least three input parameters\n".as_ptr()
             as *const c_char,
     );
-    printf(b"   'ElmerGrid 1 3 test'\n\n\0".as_ptr() as *const c_char);
-    printf(b"The first parameter defines the input file format:\n\0".as_ptr() as *const c_char);
+    printf(c"   'ElmerGrid 1 3 test'\n\n".as_ptr() as *const c_char);
+    printf(c"The first parameter defines the input file format:\n".as_ptr() as *const c_char);
     instructions_formats();
 }
 
 // SAFETY: format list (literal output); the `#if 0` Nastran/CGsim/Geo/Flux
 // lines are runtime-dead exactly as in C.
 unsafe fn instructions_formats() {
-    printf(b"1)  .grd      : ElmerGrid file format\n\0".as_ptr() as *const c_char);
-    printf(b"2)  .mesh.*   : Elmer input format\n\0".as_ptr() as *const c_char);
-    printf(b"3)  .ep       : Elmer output format\n\0".as_ptr() as *const c_char);
-    printf(b"4)  .ansys    : Ansys input format\n\0".as_ptr() as *const c_char);
-    printf(b"5)  .inp      : Abaqus input format by Ideas\n\0".as_ptr() as *const c_char);
-    printf(b"6)  .fil      : Abaqus output format\n\0".as_ptr() as *const c_char);
-    printf(b"7)  .FDNEUT   : Gambit (Fidap) neutral file\n\0".as_ptr() as *const c_char);
-    printf(b"8)  .unv      : Universal mesh file format\n\0".as_ptr() as *const c_char);
-    printf(b"9)  .mphtxt   : Comsol Multiphysics mesh format\n\0".as_ptr() as *const c_char);
-    printf(b"10) .dat      : Fieldview format\n\0".as_ptr() as *const c_char);
-    printf(b"11) .node,.ele: Triangle 2D mesh format\n\0".as_ptr() as *const c_char);
-    printf(b"12) .mesh     : Medit mesh format\n\0".as_ptr() as *const c_char);
-    printf(b"13) .msh      : GID mesh format\n\0".as_ptr() as *const c_char);
-    printf(b"14) .msh      : Gmsh mesh format\n\0".as_ptr() as *const c_char);
-    printf(b"15) .ep.i     : Partitioned ElmerPost format\n\0".as_ptr() as *const c_char);
-    printf(b"16) .2dm      : 2D triangular FVCOM format\n\0".as_ptr() as *const c_char);
+    printf(c"1)  .grd      : ElmerGrid file format\n".as_ptr() as *const c_char);
+    printf(c"2)  .mesh.*   : Elmer input format\n".as_ptr() as *const c_char);
+    printf(c"3)  .ep       : Elmer output format\n".as_ptr() as *const c_char);
+    printf(c"4)  .ansys    : Ansys input format\n".as_ptr() as *const c_char);
+    printf(c"5)  .inp      : Abaqus input format by Ideas\n".as_ptr() as *const c_char);
+    printf(c"6)  .fil      : Abaqus output format\n".as_ptr() as *const c_char);
+    printf(c"7)  .FDNEUT   : Gambit (Fidap) neutral file\n".as_ptr() as *const c_char);
+    printf(c"8)  .unv      : Universal mesh file format\n".as_ptr() as *const c_char);
+    printf(c"9)  .mphtxt   : Comsol Multiphysics mesh format\n".as_ptr() as *const c_char);
+    printf(c"10) .dat      : Fieldview format\n".as_ptr() as *const c_char);
+    printf(c"11) .node,.ele: Triangle 2D mesh format\n".as_ptr() as *const c_char);
+    printf(c"12) .mesh     : Medit mesh format\n".as_ptr() as *const c_char);
+    printf(c"13) .msh      : GID mesh format\n".as_ptr() as *const c_char);
+    printf(c"14) .msh      : Gmsh mesh format\n".as_ptr() as *const c_char);
+    printf(c"15) .ep.i     : Partitioned ElmerPost format\n".as_ptr() as *const c_char);
+    printf(c"16) .2dm      : 2D triangular FVCOM format\n".as_ptr() as *const c_char);
     // NOTE: `#if 0` entries 17-21 omitted (unreachable in C as well).
-    printf(b"\nThe second parameter defines the output file format:\n\0".as_ptr() as *const c_char);
-    printf(b"1)  .grd      : ElmerGrid file format\n\0".as_ptr() as *const c_char);
+    printf(c"\nThe second parameter defines the output file format:\n".as_ptr() as *const c_char);
+    printf(c"1)  .grd      : ElmerGrid file format\n".as_ptr() as *const c_char);
     printf(
-        b"2)  .mesh.*   : ElmerSolver format (also partitioned .part format)\n\0".as_ptr()
+        c"2)  .mesh.*   : ElmerSolver format (also partitioned .part format)\n".as_ptr()
             as *const c_char,
     );
-    printf(b"3)  .ep       : ElmerPost format\n\0".as_ptr() as *const c_char);
-    printf(b"4)  .msh      : Gmsh mesh format\n\0".as_ptr() as *const c_char);
-    printf(b"5)  .vtu      : VTK ascii XML format\n\0".as_ptr() as *const c_char);
+    printf(c"3)  .ep       : ElmerPost format\n".as_ptr() as *const c_char);
+    printf(c"4)  .msh      : Gmsh mesh format\n".as_ptr() as *const c_char);
+    printf(c"5)  .vtu      : VTK ascii XML format\n".as_ptr() as *const c_char);
     // NOTE: `#if 0` Abaqus/Fidap/Fastcap entries omitted.
     printf(
-        b"------------------------------------------------------------------\n\0".as_ptr()
+        c"------------------------------------------------------------------\n".as_ptr()
             as *const c_char,
     );
-    printf(b"\nThe third parameter is the name of the input file.\n\0".as_ptr() as *const c_char);
+    printf(c"\nThe third parameter is the name of the input file.\n".as_ptr() as *const c_char);
     printf(
-        b"If the file does not exist, an example with the same name is created.\n\0".as_ptr()
-            as *const c_char,
-    );
-    printf(
-        b"The default output file name is the same with a different suffix.\n\n\0".as_ptr()
+        c"If the file does not exist, an example with the same name is created.\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"There are several additional in-line parameters that are\n\0".as_ptr() as *const c_char,
+        c"The default output file name is the same with a different suffix.\n\n".as_ptr()
+            as *const c_char,
     );
     printf(
-        b"taken into account only when applicable to the given format.\n\0".as_ptr()
+        c"There are several additional in-line parameters that are\n".as_ptr() as *const c_char,
+    );
+    printf(
+        c"taken into account only when applicable to the given format.\n".as_ptr()
             as *const c_char,
     );
     instructions_options();
@@ -275,180 +277,180 @@ unsafe fn instructions_formats() {
 
 // SAFETY: inline-parameter reference (literal output).
 unsafe fn instructions_options() {
-    printf(b"-out str             : name of the output file\n\0".as_ptr() as *const c_char);
-    printf(b"-in str              : name of a secondary input file\n\0".as_ptr() as *const c_char);
+    printf(c"-out str             : name of the output file\n".as_ptr() as *const c_char);
+    printf(c"-in str              : name of a secondary input file\n".as_ptr() as *const c_char);
     printf(
-        b"-decimals            : number of decimals in the saved mesh (eg. 8)\n\0".as_ptr()
+        c"-decimals            : number of decimals in the saved mesh (eg. 8)\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-bin                 : save mesh for ElmerSolver in binary format\n\0".as_ptr()
+        c"-bin                 : save mesh for ElmerSolver in binary format\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-sbin                : save mesh for ElmerSolver in binary & single precision format\n\0"
+        c"-sbin                : save mesh for ElmerSolver in binary & single precision format\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-relh real           : give relative mesh density parameter for ElmerGrid meshing\n\0"
+        c"-relh real           : give relative mesh density parameter for ElmerGrid meshing\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-triangles           : rectangles will be divided to triangles\n\0".as_ptr()
+        c"-triangles           : rectangles will be divided to triangles\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-merge real          : merges nodes that are close to each other\n\0".as_ptr()
+        c"-merge real          : merges nodes that are close to each other\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-order real[3]       : reorder elements and nodes using c1*x+c2*y+c3*z\n\0".as_ptr()
+        c"-order real[3]       : reorder elements and nodes using c1*x+c2*y+c3*z\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-centralize          : set the center of the mesh to origin\n\0".as_ptr()
+        c"-centralize          : set the center of the mesh to origin\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-scale real[3]       : scale the coordinates with vector real[3]\n\0".as_ptr()
+        c"-scale real[3]       : scale the coordinates with vector real[3]\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-translate real[3]   : translate the nodes with vector real[3]\n\0".as_ptr()
+        c"-translate real[3]   : translate the nodes with vector real[3]\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-rotate real[3]      : rotate around the main axis with angles real[3]\n\0".as_ptr()
+        c"-rotate real[3]      : rotate around the main axis with angles real[3]\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-clone int[3]        : make identical copies of the mesh\n\0".as_ptr() as *const c_char,
+        c"-clone int[3]        : make identical copies of the mesh\n".as_ptr() as *const c_char,
     );
     printf(
-        b"-clonesize real[3]   : the size of the mesh to be cloned if larger to the original\n\0"
+        c"-clonesize real[3]   : the size of the mesh to be cloned if larger to the original\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-mirror int[3]       : copy the mesh around the origin in coordinate directions\n\0"
+        c"-mirror int[3]       : copy the mesh around the origin in coordinate directions\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-cloneinds           : when performing cloning should cloned entities be given new indexes\n\0"
+        c"-cloneinds           : when performing cloning should cloned entities be given new indexes\n"
             .as_ptr() as *const c_char,
     );
-    printf(b"-unite               : the meshes will be united\n\0".as_ptr() as *const c_char);
+    printf(c"-unite               : the meshes will be united\n".as_ptr() as *const c_char);
     printf(
-        b"-unitenooverlap      : the meshes will be united without overlap in entity numbering\n\0"
-            .as_ptr() as *const c_char,
-    );
-    printf(
-        b"-polar real          : map 2D mesh to a cylindrical shell with given radius\n\0".as_ptr()
-            as *const c_char,
-    );
-    printf(
-        b"-cylinder            : map 2D/3D cylindrical mesh to a cartesian mesh\n\0".as_ptr()
-            as *const c_char,
-    );
-    printf(
-        b"-reduce int[2]       : reduce element order at material interval [int1 int2]\n\0".as_ptr()
-            as *const c_char,
-    );
-    printf(
-        b"-increase            : increase element order from linear to quadratic\n\0".as_ptr()
-            as *const c_char,
-    );
-    printf(
-        b"-bcoffset int        : add an offset to the boundary conditions\n\0".as_ptr()
-            as *const c_char,
-    );
-    printf(
-        b"-discont int         : make the boundary to have secondary nodes\n\0".as_ptr()
-            as *const c_char,
-    );
-    printf(
-        b"-connect int         : make the boundary to have internal connection among its elements\n\0"
+        c"-unitenooverlap      : the meshes will be united without overlap in entity numbering\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-removeintbcs        : remove internal boundaries if they are not needed\n\0".as_ptr()
+        c"-polar real          : map 2D mesh to a cylindrical shell with given radius\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-removelowdim        : remove boundaries that are two ranks lower than highest dim\n\0"
+        c"-cylinder            : map 2D/3D cylindrical mesh to a cartesian mesh\n".as_ptr()
+            as *const c_char,
+    );
+    printf(
+        c"-reduce int[2]       : reduce element order at material interval [int1 int2]\n".as_ptr()
+            as *const c_char,
+    );
+    printf(
+        c"-increase            : increase element order from linear to quadratic\n".as_ptr()
+            as *const c_char,
+    );
+    printf(
+        c"-bcoffset int        : add an offset to the boundary conditions\n".as_ptr()
+            as *const c_char,
+    );
+    printf(
+        c"-discont int         : make the boundary to have secondary nodes\n".as_ptr()
+            as *const c_char,
+    );
+    printf(
+        c"-connect int         : make the boundary to have internal connection among its elements\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-removeunused        : remove nodes that are not used in any element\n\0".as_ptr()
+        c"-removeintbcs        : remove internal boundaries if they are not needed\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-bulkorder           : renumber materials types from 1 so that every number is used\n\0"
+        c"-removelowdim        : remove boundaries that are two ranks lower than highest dim\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-boundorder          : renumber boundary types from 1 so that every number is used\n\0"
+        c"-removeunused        : remove nodes that are not used in any element\n".as_ptr()
+            as *const c_char,
+    );
+    printf(
+        c"-bulkorder           : renumber materials types from 1 so that every number is used\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-autoclean           : this performs the united action of the four above\n\0".as_ptr()
-            as *const c_char,
-    );
-    printf(
-        b"-multidim            : keep lower order entities even if they are not boundaries\n\0"
+        c"-boundorder          : renumber boundary types from 1 so that every number is used\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-bulkbound int[3]    : set the intersection of materials [int1 int2] to be boundary int3\n\0"
+        c"-autoclean           : this performs the united action of the four above\n".as_ptr()
+            as *const c_char,
+    );
+    printf(
+        c"-multidim            : keep lower order entities even if they are not boundaries\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-boundbound int[3]   : set the intersection of boundaries [int1 int2] to be boundary int3\n\0"
+        c"-bulkbound int[3]    : set the intersection of materials [int1 int2] to be boundary int3\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-bulktype int[3]     : set material types in interval [int1 int2] to type int3\n\0"
+        c"-boundbound int[3]   : set the intersection of boundaries [int1 int2] to be boundary int3\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-boundtype int[3]    : set sidetypes in interval [int1 int2] to type int3\n\0".as_ptr()
-            as *const c_char,
-    );
-    printf(
-        b"-layer int[2] real[2]: make a boundary layer for given boundary\n\0".as_ptr()
-            as *const c_char,
-    );
-    printf(
-        b"-layermove int       : apply Jacobi filter int times to move the layered mesh\n\0"
+        c"-bulktype int[3]     : set material types in interval [int1 int2] to type int3\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-divlayer int[2] real[2]: make a boundary layer for given boundary\n\0".as_ptr()
+        c"-boundtype int[3]    : set sidetypes in interval [int1 int2] to type int3\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-3d / -2d / -1d      : mesh is 3, 2 or 1-dimensional (applies to examples)\n\0".as_ptr()
+        c"-layer int[2] real[2]: make a boundary layer for given boundary\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-isoparam            : ensure that higher order elements are convex\n\0".as_ptr()
-            as *const c_char,
-    );
-    printf(
-        b"-nonames             : disable use of mesh.names even if it would be supported by the format\n\0"
+        c"-layermove int       : apply Jacobi filter int times to move the layered mesh\n"
             .as_ptr() as *const c_char,
     );
-    printf(b"-nosave              : disable saving part altogether\n\0".as_ptr() as *const c_char);
     printf(
-        b"-nooverwrite         : if mesh already exists don't overwrite it\n\0".as_ptr()
+        c"-divlayer int[2] real[2]: make a boundary layer for given boundary\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-vtuone              : start real node indexes in vtu file from one\n\0".as_ptr()
+        c"-3d / -2d / -1d      : mesh is 3, 2 or 1-dimensional (applies to examples)\n".as_ptr()
             as *const c_char,
     );
-    printf(b"-timer               : show timer information\n\0".as_ptr() as *const c_char);
     printf(
-        b"-infofile str        : file for saving the timer and size information\n\0".as_ptr()
+        c"-isoparam            : ensure that higher order elements are convex\n".as_ptr()
+            as *const c_char,
+    );
+    printf(
+        c"-nonames             : disable use of mesh.names even if it would be supported by the format\n"
+            .as_ptr() as *const c_char,
+    );
+    printf(c"-nosave              : disable saving part altogether\n".as_ptr() as *const c_char);
+    printf(
+        c"-nooverwrite         : if mesh already exists don't overwrite it\n".as_ptr()
+            as *const c_char,
+    );
+    printf(
+        c"-vtuone              : start real node indexes in vtu file from one\n".as_ptr()
+            as *const c_char,
+    );
+    printf(c"-timer               : show timer information\n".as_ptr() as *const c_char);
+    printf(
+        c"-infofile str        : file for saving the timer and size information\n".as_ptr()
             as *const c_char,
     );
     instructions_keywords();
@@ -457,128 +459,130 @@ unsafe fn instructions_options() {
 // SAFETY: partitioning keywords (literal output); USE_METIS=1 arms live.
 unsafe fn instructions_keywords() {
     printf(
-        b"\nKeywords are related to mesh partitioning for parallel ElmerSolver runs:\n\0".as_ptr()
+        c"\nKeywords are related to mesh partitioning for parallel ElmerSolver runs:\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-partition int[3]    : the mesh will be partitioned in cartesian main directions\n\0"
+        c"-partition int[3]    : the mesh will be partitioned in cartesian main directions\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-partorder real[3]   : in the 'partition' method set the direction of the ordering\n\0"
+        c"-partorder real[3]   : in the 'partition' method set the direction of the ordering\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-parttol real        : in the 'partition' method set the tolerance for ordering\n\0"
+        c"-parttol real        : in the 'partition' method set the tolerance for ordering\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-partcell int[3]     : the mesh will be partitioned in cells of fixed sizes\n\0".as_ptr()
+        c"-partcell int[3]     : the mesh will be partitioned in cells of fixed sizes\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-partcyl int[3]      : the mesh will be partitioned in cylindrical main directions\n\0"
+        c"-partcyl int[3]      : the mesh will be partitioned in cylindrical main directions\n"
             .as_ptr() as *const c_char,
     );
     // NOTE: `#if USE_METIS` — live here (pairs build the METIS binary).
     printf(
-        b"-metiskway int       : mesh will be partitioned with Metis using graph Kway routine\n\0"
+        c"-metiskway int       : mesh will be partitioned with Metis using graph Kway routine\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-metisrec int        : mesh will be partitioned with Metis using graph Recursive routine\n\0"
+        c"-metisrec int        : mesh will be partitioned with Metis using graph Recursive routine\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-metiscontig         : enforce that the metis partitions are contiguous\n\0".as_ptr()
+        c"-metiscontig         : enforce that the metis partitions are contiguous\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-metisvol            : minimize total communication volume in Metis\n\0".as_ptr()
+        c"-metisvol            : minimize total communication volume in Metis\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-metisminconn        : minimize the maximum connectivity count in Metis\n\0".as_ptr()
+        c"-metisminconn        : minimize the maximum connectivity count in Metis\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-metisseed int       : random number generator seed for Metis algorithms\n\0".as_ptr()
+        c"-metisseed int       : random number generator seed for Metis algorithms\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-metisncuts int      : number of competing partitions to generate\n\0".as_ptr()
+        c"-metisncuts int      : number of competing partitions to generate\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-partdual            : use the dual graph in partition method (when available)\n\0"
+        c"-partdual            : use the dual graph in partition method (when available)\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-halo                : create halo for the partitioning for DG\n\0".as_ptr()
+        c"-halo                : create halo for the partitioning for DG\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-halobc              : create halo for the partitioning at boundaries only\n\0".as_ptr()
+        c"-halobc              : create halo for the partitioning at boundaries only\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-haloz / -halor      : create halo for the the special z- or r-partitioning\n\0".as_ptr()
+        c"-haloz / -halor      : create halo for the the special z- or r-partitioning\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-halogreedy          : create halo being greedy over the partition interfaces\n\0"
+        c"-halogreedy          : create halo being greedy over the partition interfaces\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-periodic int[3]     : periodic coordinate directions for parallel & conforming meshes\n\0"
+        c"-periodic int[3]     : periodic coordinate directions for parallel & conforming meshes\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-partoptim           : apply aggressive optimization to node sharing\n\0".as_ptr()
+        c"-partoptim           : apply aggressive optimization to node sharing\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-partnobcoptim       : do not apply optimization to bc ownership sharing\n\0".as_ptr()
+        c"-partnobcoptim       : do not apply optimization to bc ownership sharing\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-partbw              : minimize the bandwidth of partition-partition couplings\n\0"
+        c"-partbw              : minimize the bandwidth of partition-partition couplings\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-parthypre           : number the nodes continuously partitionwise\n\0".as_ptr()
+        c"-parthypre           : number the nodes continuously partitionwise\n".as_ptr()
             as *const c_char,
     );
     printf(
-        b"-partzbc             : partition connected BCs separately to partitions in Z-direction\n\0"
+        c"-partzbc             : partition connected BCs separately to partitions in Z-direction\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-partrbc             : partition connected BCs separately to partitions in R-direction\n\0"
+        c"-partrbc             : partition connected BCs separately to partitions in R-direction\n"
             .as_ptr() as *const c_char,
     );
     // NOTE: `#if USE_METIS` — live.
     printf(
-        b"-metisbc             : partition connected BCs separately to partitions by Metis\n\0"
+        c"-metisbc             : partition connected BCs separately to partitions by Metis\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"-partlayers int      : extend boundary partitioning by element layers\n\0".as_ptr()
+        c"-partlayers int      : extend boundary partitioning by element layers\n".as_ptr()
             as *const c_char,
     );
     // NOTE: `#if 0` ElmerPost block and `if(0)` names line omitted.
     printf(
-        b"------------------------------------------------------------------\n\0".as_ptr()
+        c"------------------------------------------------------------------\n".as_ptr()
             as *const c_char,
     );
 }
 
-// SAFETY: diverges via exit(0) on every path (see fempre note).
+/// # Safety
+///
+/// diverges via exit(0) on every path (see fempre note).
 #[no_mangle]
 pub unsafe extern "C" fn Goodbye() -> ! {
-    printf(b"\nThank you for using ElmerGrid!\n\0".as_ptr() as *const c_char);
-    printf(b"Repository: https://github.com/ElmerCSC/elmerfem\n\0".as_ptr() as *const c_char);
-    printf(b"Contact: elmeradm@csc.fi\n\0".as_ptr() as *const c_char);
+    printf(c"\nThank you for using ElmerGrid!\n".as_ptr() as *const c_char);
+    printf(c"Repository: https://github.com/ElmerCSC/elmerfem\n".as_ptr() as *const c_char);
+    printf(c"Contact: elmeradm@csc.fi\n".as_ptr() as *const c_char);
     exit(0);
 }
 
@@ -611,20 +615,20 @@ unsafe fn Getline(line1: *mut c_char, io: *mut FILE) -> c_int {
         if matcactive == 0 && !strchr(line0.as_ptr(), '$' as c_int).is_null() {
             // NOTE: USE_MATC=0 arm (the #else branch in C).
             printf(
-                b"\n a $ found and MATC has not been compiled into ElmerGrid,\n\0".as_ptr()
+                c"\n a $ found and MATC has not been compiled into ElmerGrid,\n".as_ptr()
                     as *const c_char,
             );
             printf(
-                b"either remove the $ or compile ElmerGrid with MATC\n\0".as_ptr() as *const c_char,
+                c"either remove the $ or compile ElmerGrid with MATC\n".as_ptr() as *const c_char,
             );
             bigerror(
-                b"Error: $ found in command and MATC is not active\0".as_ptr() as *const c_char,
+                c"Error: $ found in command and MATC is not active".as_ptr() as *const c_char,
             );
         }
         // NOTE: USE_MATC substitution block compiled out exactly as in C.
         if !strstr(
             line0.as_ptr(),
-            b"subcell boundaries\0".as_ptr() as *const c_char,
+            c"subcell boundaries".as_ptr() as *const c_char,
         )
         .is_null()
         {
@@ -632,16 +636,16 @@ unsafe fn Getline(line1: *mut c_char, io: *mut FILE) -> c_int {
         }
         if !strstr(
             line0.as_ptr(),
-            b"material structure\0".as_ptr() as *const c_char,
+            c"material structure".as_ptr() as *const c_char,
         )
         .is_null()
         {
             continue;
         }
-        if !strstr(line0.as_ptr(), b"mode\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line0.as_ptr(), c"mode".as_ptr() as *const c_char).is_null() {
             continue;
         }
-        if !strstr(line0.as_ptr(), b"type\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line0.as_ptr(), c"type".as_ptr() as *const c_char).is_null() {
             continue;
         }
         i = 0;
@@ -650,12 +654,14 @@ unsafe fn Getline(line1: *mut c_char, io: *mut FILE) -> c_int {
             i += 1;
         }
         if iodebug != 0 {
-            printf(b"line: %s\n\0".as_ptr() as *const c_char, line1);
+            printf(c"line: %s\n".as_ptr() as *const c_char, line1);
         }
         return 0;
     }
 }
-// SAFETY: grid-default initializer over a valid GridType.
+/// # Safety
+///
+/// grid-default initializer over a valid GridType.
 #[no_mangle]
 pub unsafe extern "C" fn InitGrid(grid: *mut GridType) {
     // NOTE: C function-local define; hoisted as a Rust const.
@@ -786,10 +792,10 @@ pub unsafe extern "C" fn InitGrid(grid: *mut GridType) {
 // SAFETY: allocating 1D example grid (C `malloc` shape preserved).
 unsafe fn ExampleGrid1D(grids: *mut *mut GridType, nogrids: *mut c_int, info: c_int) {
     let mut j: c_int;
-    let grid: *mut GridType;
+    
     *nogrids = 1;
     *grids = malloc((*nogrids as usize) * size_of::<GridType>()) as *mut GridType;
-    grid = *grids;
+    let grid: *mut GridType = *grids;
     InitGrid(grid);
     (*grid).nonodes = 2;
     (*grid).xcells = 3;
@@ -823,17 +829,17 @@ unsafe fn ExampleGrid1D(grids: *mut *mut GridType, nogrids: *mut c_int, info: c_
     (*grid).boundsolid[1] = 1;
     (*grid).mappings = 0;
     if info != 0 {
-        printf(b"A simple 1D example mesh was created\n\0".as_ptr() as *const c_char);
+        printf(c"A simple 1D example mesh was created\n".as_ptr() as *const c_char);
     }
 }
 
 // SAFETY: allocating 2D example grid (C `malloc` shape preserved).
 unsafe fn ExampleGrid2D(grids: *mut *mut GridType, nogrids: *mut c_int, info: c_int) {
     let mut j: c_int;
-    let grid: *mut GridType;
+    
     *nogrids = 1;
     *grids = malloc((*nogrids as usize) * size_of::<GridType>()) as *mut GridType;
-    grid = *grids;
+    let grid: *mut GridType = *grids;
     InitGrid(grid);
     (*grid).xcells = 4;
     (*grid).ycells = 3;
@@ -916,17 +922,17 @@ unsafe fn ExampleGrid2D(grids: *mut *mut GridType, nogrids: *mut c_int, info: c_
     *(*grid).mappingparams[1].wrapping_offset(2) = 6.0;
     *(*grid).mappingparams[1].wrapping_offset(3) = 0.3;
     if info != 0 {
-        printf(b"A simple 2D example mesh was created\n\0".as_ptr() as *const c_char);
+        printf(c"A simple 2D example mesh was created\n".as_ptr() as *const c_char);
     }
 }
 // SAFETY: allocating 3D example grid (C `malloc` shape preserved).
 unsafe fn ExampleGrid3D(grids: *mut *mut GridType, nogrids: *mut c_int, info: c_int) {
     let mut i: c_int;
     let mut j: c_int;
-    let grid: *mut GridType;
+    
     *nogrids = 1;
     *grids = malloc((*nogrids as usize) * size_of::<GridType>()) as *mut GridType;
-    grid = *grids;
+    let grid: *mut GridType = *grids;
     InitGrid(grid);
     (*grid).dimension = 3;
     (*grid).coordsystem = COORD_CART3;
@@ -1002,11 +1008,13 @@ unsafe fn ExampleGrid3D(grids: *mut *mut GridType, nogrids: *mut c_int, info: c_
     (*grid).boundsolid[2] = 1;
     (*grid).boundsolid[3] = 1;
     if info != 0 {
-        printf(b"A simple 3D example mesh was created\n\0".as_ptr() as *const c_char);
+        printf(c"A simple 3D example mesh was created\n".as_ptr() as *const c_char);
     }
 }
 
-// SAFETY: allocating example-grid dispatcher.
+/// # Safety
+///
+/// allocating example-grid dispatcher.
 #[no_mangle]
 pub unsafe extern "C" fn CreateExampleGrid(
     dim: c_int,
@@ -1023,7 +1031,9 @@ pub unsafe extern "C" fn CreateExampleGrid(
         ExampleGrid3D(grids, nogrids, info);
     }
 }
-// SAFETY: per-cell derivation over valid grid + cells.
+/// # Safety
+///
+/// per-cell derivation over valid grid + cells.
 #[no_mangle]
 pub unsafe extern "C" fn SetCellData(grid: *mut GridType, cell: *mut CellType, info: c_int) {
     let mut i: c_int;
@@ -1144,7 +1154,7 @@ pub unsafe extern "C" fn SetCellData(grid: *mut GridType, cell: *mut CellType, i
     }
     if info != 0 {
         printf(
-            b"%d cells were created.\n\0".as_ptr() as *const c_char,
+            c"%d cells were created.\n".as_ptr() as *const c_char,
             (*grid).nocells,
         );
     }
@@ -1158,7 +1168,7 @@ unsafe fn SetCellKnots(grid: *mut GridType, cell: *mut CellType, info: c_int) ->
     let degree: c_int;
     let centernodes: c_int;
     let sidenodes: c_int;
-    let nonodes: c_int;
+    
     // NOTE: assigned before every read (C `=0` decl init shape).
     let mut cnew: c_int = 0;
     let mut cup: c_int = 0;
@@ -1168,15 +1178,15 @@ unsafe fn SetCellKnots(grid: *mut GridType, cell: *mut CellType, info: c_int) ->
     let mut knotno: c_int;
     let mut maxwidth: c_int;
     let mut width: c_int;
-    let numbering: c_int;
+    
     let xcells: c_int;
     let ycells: c_int;
     // NOTE: NULL-inits in C; set on every path before reads (the
     // numbering error path returns early).
     let yelems: *mut c_int;
     let xelems: *mut c_int;
-    numbering = (*grid).numbering;
-    nonodes = (*grid).nonodes;
+    let numbering: c_int = (*grid).numbering;
+    let nonodes: c_int = (*grid).nonodes;
     knotno = 0;
     elemno = 0;
     if numbering == NUMBER_XY {
@@ -1191,7 +1201,7 @@ unsafe fn SetCellKnots(grid: *mut GridType, cell: *mut CellType, info: c_int) ->
         yelems = (*grid).xelems.as_mut_ptr();
     } else {
         printf(
-            b"No %d numbering scheme exists!\n\0".as_ptr() as *const c_char,
+            c"No %d numbering scheme exists!\n".as_ptr() as *const c_char,
             numbering,
         );
         return 1;
@@ -1223,7 +1233,7 @@ unsafe fn SetCellKnots(grid: *mut GridType, cell: *mut CellType, info: c_int) ->
         degree = 3;
     } else {
         printf(
-            b"SetCellKnots: No numbering scheme for %d-node elements.\n\0".as_ptr()
+            c"SetCellKnots: No numbering scheme for %d-node elements.\n".as_ptr()
                 as *const c_char,
             (*grid).nonodes,
         );
@@ -1400,19 +1410,19 @@ unsafe fn SetCellKnots(grid: *mut GridType, cell: *mut CellType, info: c_int) ->
     (*grid).noelements = elemno;
     if info != 0 {
         printf(
-            b"Numbered %d knots in %d %d-node elements.\n\0".as_ptr() as *const c_char,
+            c"Numbered %d knots in %d %d-node elements.\n".as_ptr() as *const c_char,
             knotno,
             elemno,
             nonodes,
         );
         if numbering == NUMBER_XY {
             printf(
-                b"Numbering order was <x><y> and max levelwidth %d.\n\0".as_ptr() as *const c_char,
+                c"Numbering order was <x><y> and max levelwidth %d.\n".as_ptr() as *const c_char,
                 maxwidth,
             );
         } else if numbering == NUMBER_YX {
             printf(
-                b"Numbering order was <y><x> and max levelwidth %d.\n\0".as_ptr() as *const c_char,
+                c"Numbering order was <y><x> and max levelwidth %d.\n".as_ptr() as *const c_char,
                 maxwidth,
             );
         }
@@ -1422,36 +1432,36 @@ unsafe fn SetCellKnots(grid: *mut GridType, cell: *mut CellType, info: c_int) ->
 // SAFETY: 1D knot numbering over valid grid + cells; returns C status codes.
 unsafe fn SetCellKnots1D(grid: *mut GridType, cell: *mut CellType, info: c_int) -> c_int {
     let mut i: c_int;
-    let degree: c_int;
-    let nonodes: c_int;
+    
+    
     let mut cnew: c_int;
     let mut cleft: c_int;
     let mut elemno: c_int;
     let mut knotno: c_int;
-    let maxwidth: c_int;
-    let xcells: c_int;
+    
+    
     // NOTE: points at grid storage (C array decay).
-    let xelems: *mut c_int;
-    nonodes = (*grid).nonodes;
+    
+    let nonodes: c_int = (*grid).nonodes;
     knotno = 0;
     elemno = 0;
-    xcells = (*grid).xcells;
-    xelems = (*grid).xelems.as_mut_ptr();
+    let xcells: c_int = (*grid).xcells;
+    let xelems: *mut c_int = (*grid).xelems.as_mut_ptr();
     // NOTE: C switch over 2/3/4.
-    if nonodes == 2 {
-        degree = 1;
+    let degree: c_int = if nonodes == 2 {
+        1
     } else if nonodes == 3 {
-        degree = 2;
+        2
     } else if nonodes == 4 {
-        degree = 3;
+        3
     } else {
         printf(
-            b"SetCellKnots1D: No numbering scheme for %d-node elements.\n\0".as_ptr()
+            c"SetCellKnots1D: No numbering scheme for %d-node elements.\n".as_ptr()
                 as *const c_char,
             (*grid).nonodes,
         );
         return 2;
-    }
+    };
     i = 1;
     while i <= xcells {
         cnew = (*grid).numbered[1][i as usize];
@@ -1472,13 +1482,13 @@ unsafe fn SetCellKnots1D(grid: *mut GridType, cell: *mut CellType, info: c_int) 
         }
         i += 1;
     }
-    maxwidth = degree;
+    let maxwidth: c_int = degree;
     (*grid).maxwidth = maxwidth;
     (*grid).noknots = knotno;
     (*grid).noelements = elemno;
     if info != 0 {
         printf(
-            b"Numbered %d knots in %d %d-node elements.\n\0".as_ptr() as *const c_char,
+            c"Numbered %d knots in %d %d-node elements.\n".as_ptr() as *const c_char,
             knotno,
             elemno,
             nonodes,
@@ -1487,7 +1497,9 @@ unsafe fn SetCellKnots1D(grid: *mut GridType, cell: *mut CellType, info: c_int) 
     0
 }
 
-// SAFETY: allocating cell array (C `malloc` shape preserved).
+/// # Safety
+///
+/// allocating cell array (C `malloc` shape preserved).
 #[no_mangle]
 pub unsafe extern "C" fn CreateCells(grid: *mut GridType, cell: *mut *mut CellType, info: c_int) {
     *cell = malloc((((*grid).nocells + 1) as usize) * size_of::<CellType>()) as *mut CellType;
@@ -1499,7 +1511,9 @@ pub unsafe extern "C" fn CreateCells(grid: *mut GridType, cell: *mut *mut CellTy
     }
 }
 
-// SAFETY: never called in C either (no callers); kept for ABI shape.
+/// # Safety
+///
+/// never called in C either (no callers); kept for ABI shape.
 #[no_mangle]
 pub unsafe extern "C" fn DestroyCells(cell: *mut *mut CellType) {
     // NOTE: C literally frees the handle (`free(cell)` on the `**`);
@@ -1507,7 +1521,9 @@ pub unsafe extern "C" fn DestroyCells(cell: *mut *mut CellType) {
     free(cell as *mut c_void);
 }
 
-// SAFETY: pure index arithmetic over a valid cell.
+/// # Safety
+///
+/// pure index arithmetic over a valid cell.
 #[no_mangle]
 pub unsafe extern "C" fn GetKnotIndex(cell: *mut CellType, i: c_int, j: c_int) -> c_int {
     // NOTE: assigned on every path before reads (C `=0` decl init shape).
@@ -1538,7 +1554,7 @@ pub unsafe extern "C" fn GetKnotIndex(cell: *mut CellType, i: c_int, j: c_int) -
         maxj = (*cell).xelem;
     } else {
         maxj = 0;
-        bigerror(b"GetKnotIndex: Unknown numbering scheme!\0".as_ptr() as *const c_char);
+        bigerror(c"GetKnotIndex: Unknown numbering scheme!".as_ptr() as *const c_char);
     }
     if j == 0 {
         ind = (*cell).left1st;
@@ -1547,9 +1563,7 @@ pub unsafe extern "C" fn GetKnotIndex(cell: *mut CellType, i: c_int, j: c_int) -
     } else {
         ind = (*cell).left2nd + (j - 1) * (*cell).levelwidth;
     }
-    if (*cell).nonodes == 4 {
-        ind += i;
-    } else if (*cell).nonodes == 5 {
+    if (*cell).nonodes == 4 || (*cell).nonodes == 5 {
         ind += i;
     } else if (*cell).nonodes == 8 || (*cell).nonodes == 9 {
         ind += 2 * i;
@@ -1558,7 +1572,9 @@ pub unsafe extern "C" fn GetKnotIndex(cell: *mut CellType, i: c_int, j: c_int) -
     }
     ind
 }
-// SAFETY: pure coordinate arithmetic over a valid cell.
+/// # Safety
+///
+/// pure coordinate arithmetic over a valid cell.
 #[no_mangle]
 pub unsafe extern "C" fn GetKnotCoordinate(
     cell: *mut CellType,
@@ -1567,7 +1583,7 @@ pub unsafe extern "C" fn GetKnotCoordinate(
     x: *mut Real,
     y: *mut Real,
 ) -> c_int {
-    let ind: c_int;
+    
     if (*cell).xlinear == 1 {
         *x = (*cell).xcorner[BOTLEFT as usize] + (*cell).dx1 * i as Real;
     } else if (*cell).xlinear == 0 {
@@ -1598,10 +1614,12 @@ pub unsafe extern "C" fn GetKnotCoordinate(
                     / (1.0 - (*cell).yratio);
         }
     }
-    ind = GetKnotIndex(cell, i, j);
+    let ind: c_int = GetKnotIndex(cell, i, j);
     ind
 }
-// SAFETY: knot-index fill over a valid cell with caller-sized ind.
+/// # Safety
+///
+/// knot-index fill over a valid cell with caller-sized ind.
 #[no_mangle]
 pub unsafe extern "C" fn GetElementIndices(
     cell: *mut CellType,
@@ -1609,12 +1627,12 @@ pub unsafe extern "C" fn GetElementIndices(
     j: c_int,
     ind: *mut c_int,
 ) -> c_int {
-    let nonodes: c_int;
-    let numbering: c_int;
+    
+    
     // NOTE: assigned before every read (C `=0` decl init shape).
     let mut elemind: c_int = 0;
-    nonodes = (*cell).nonodes;
-    numbering = (*cell).numbering;
+    let nonodes: c_int = (*cell).nonodes;
+    let numbering: c_int = (*cell).numbering;
     if numbering != NUMBER_1D {
         *ind.wrapping_offset(TOPRIGHT as isize) = GetKnotIndex(cell, i, j);
         *ind.wrapping_offset(BOTRIGHT as isize) = GetKnotIndex(cell, i, j - 1);
@@ -1666,7 +1684,7 @@ pub unsafe extern "C" fn GetElementIndices(
             *ind.wrapping_offset(15) = *ind.wrapping_offset(7) - 2;
         } else {
             printf(
-                b"GetElementIndices: not implemented for %d nodes.\n\0".as_ptr() as *const c_char,
+                c"GetElementIndices: not implemented for %d nodes.\n".as_ptr() as *const c_char,
                 nonodes,
             );
         }
@@ -1715,7 +1733,7 @@ pub unsafe extern "C" fn GetElementIndices(
             *ind.wrapping_offset(13) = *ind.wrapping_offset(8) - 2;
         } else {
             printf(
-                b"GetElementIndices: not implemented for %d nodes.\n\0".as_ptr() as *const c_char,
+                c"GetElementIndices: not implemented for %d nodes.\n".as_ptr() as *const c_char,
                 nonodes,
             );
         }
@@ -1735,7 +1753,9 @@ pub unsafe extern "C" fn GetElementIndices(
     }
     elemind
 }
-// SAFETY: pure index arithmetic over a valid cell.
+/// # Safety
+///
+/// pure index arithmetic over a valid cell.
 #[no_mangle]
 pub unsafe extern "C" fn GetElementIndex(cell: *mut CellType, i: c_int, j: c_int) -> c_int {
     // NOTE: assigned before every read (C `=0` decl init shape).
@@ -1748,8 +1768,10 @@ pub unsafe extern "C" fn GetElementIndex(cell: *mut CellType, i: c_int, j: c_int
     elemind
 }
 
-// SAFETY: coordinate + index fill over a valid cell with caller-sized buffers.
-// Assumes rectangular elements exactly as in C.
+/// # Safety
+///
+/// coordinate + index fill over a valid cell with caller-sized buffers.
+/// Assumes rectangular elements exactly as in C.
 #[no_mangle]
 pub unsafe extern "C" fn GetElementCoordinates(
     cell: *mut CellType,
@@ -1758,17 +1780,17 @@ pub unsafe extern "C" fn GetElementCoordinates(
     globalcoord: *mut Real,
     ind: *mut c_int,
 ) -> c_int {
-    let k: c_int;
-    let nonodes: c_int;
-    let numbering: c_int;
+    
+    
+    
     // NOTE: assigned before every read (C `=0` decl init shape).
     let mut elemind: c_int = 0;
     // NOTE: `k = nonodes` decides the 2nd-half stride for y coords.
-    let xrat: Real;
-    let yrat: Real;
-    k = (*cell).nonodes;
-    nonodes = (*cell).nonodes;
-    numbering = (*cell).numbering;
+    
+    
+    let k: c_int = (*cell).nonodes;
+    let nonodes: c_int = (*cell).nonodes;
+    let numbering: c_int = (*cell).numbering;
     if numbering == NUMBER_1D {
         elemind = (*cell).elem1st + (i - 1);
         *ind.wrapping_offset(0) = GetKnotCoordinate(
@@ -1843,8 +1865,8 @@ pub unsafe extern "C" fn GetElementCoordinates(
     GetElementIndices(cell, i, j, ind);
     // NOTE: `#if 0` sqrt-ratio block is runtime-dead; the live tail
     // assigns both ratios to 1.0.
-    xrat = 1.0;
-    yrat = 1.0;
+    let xrat: Real = 1.0;
+    let yrat: Real = 1.0;
     if nonodes == 5 {
         *globalcoord.wrapping_offset(4) =
             0.5 * (*globalcoord.wrapping_offset(0) + *globalcoord.wrapping_offset(2));
@@ -1956,7 +1978,9 @@ unsafe fn coords12(globalcoord: *mut Real, k: c_int, nonodes: c_int) {
             / 3.0;
     }
 }
-// SAFETY: side-element lookup over valid cells; returns C boolean status.
+/// # Safety
+///
+/// side-element lookup over valid cells; returns C boolean status.
 #[no_mangle]
 pub unsafe extern "C" fn GetSideInfo(
     cell: *mut CellType,
@@ -2101,11 +2125,13 @@ pub unsafe extern "C" fn GetSideInfo(
             *elemind.wrapping_offset(1) = 0;
         }
     } else {
-        printf(b"Impossible option in GetSideInfo.\n\0".as_ptr() as *const c_char);
+        printf(c"Impossible option in GetSideInfo.\n".as_ptr() as *const c_char);
     }
     more
 }
-// SAFETY: z-division sizing over a valid grid.
+/// # Safety
+///
+/// z-division sizing over a valid grid.
 #[no_mangle]
 pub unsafe extern "C" fn SetElementDivisionExtruded(grid: *mut GridType, info: c_int) {
     let mut i: c_int;
@@ -2113,12 +2139,12 @@ pub unsafe extern "C" fn SetElementDivisionExtruded(grid: *mut GridType, info: c
     let mut nzmax: c_int = 0;
     let mut sumzelems: c_int;
     let mut ratio: Real;
-    let linearlimit: Real;
+    
     // NOTE: assigned before every read (C `= 0` decl init shape).
     let mut dzmax: Real = 0.0;
     // NOTE: assigned before every read (C `= 0` decl init shape).
     let mut dz: Real = 0.0;
-    linearlimit = 0.001;
+    let linearlimit: Real = 0.001;
     if (*grid).autoratio != 0 {
         i = 1;
         while i <= (*grid).zcells {
@@ -2273,22 +2299,24 @@ pub unsafe extern "C" fn SetElementDivisionExtruded(grid: *mut GridType, info: c
     }
     if info != 0 {
         printf(
-            b"Created %d extruded divisions.\n\0".as_ptr() as *const c_char,
+            c"Created %d extruded divisions.\n".as_ptr() as *const c_char,
             (*grid).totzelems,
         );
     }
     (*grid).dz0 = dzmax;
 }
-// SAFETY: rotation-direction division sizing over a valid grid.
+/// # Safety
+///
+/// rotation-direction division sizing over a valid grid.
 #[no_mangle]
 pub unsafe extern "C" fn SetElementDivisionCylinder(grid: *mut GridType, info: c_int) {
     let mut i: c_int;
     // NOTE: assigned before every read (C uninit decl shape).
-    let k: c_int;
+    
     let mut ratio: Real;
-    let eps: Real;
+    
     let mut dzmax: Real;
-    eps = 1.0e-8;
+    let eps: Real = 1.0e-8;
     (*grid).zcells = 2 * (*grid).rotateblocks;
     (*grid).z[0] = 0.0;
     i = 0;
@@ -2296,14 +2324,14 @@ pub unsafe extern "C" fn SetElementDivisionCylinder(grid: *mut GridType, info: c
     while (*grid).x[i as usize] < eps {
         i += 1;
     }
-    k = i;
+    let k: c_int = i;
     (*grid).rotateradius1 = (*grid).x[k as usize];
     if (*grid).rotateradius2 < 0.0 {
         (*grid).rotatecartesian = TRUE;
         (*grid).rotateradius2 = 1.0e6;
     }
     if (*grid).rotateradius2 <= sqrt(2.0) * (*grid).rotateradius1 {
-        if k + 1 <= (*grid).xcells {
+        if k < (*grid).xcells {
             (*grid).rotateradius2 = (*grid).x[(k + 1) as usize];
         }
         // NOTE: C `MAX(a,b)` macro (egdef.h:97); both arms pure.
@@ -2313,7 +2341,7 @@ pub unsafe extern "C" fn SetElementDivisionCylinder(grid: *mut GridType, info: c
     }
     if (*grid).xlinear[k as usize] == 0 {
         printf(
-            b"SetElementDivisionCylinder: The division must be linear!\n\0".as_ptr()
+            c"SetElementDivisionCylinder: The division must be linear!\n".as_ptr()
                 as *const c_char,
         );
     }
@@ -2373,7 +2401,7 @@ pub unsafe extern "C" fn SetElementDivisionCylinder(grid: *mut GridType, info: c
     }
     if info != 0 {
         printf(
-            b"Created %d divisions in %d cells for rotation [%.2lg  %.2lg].\n\0".as_ptr()
+            c"Created %d divisions in %d cells for rotation [%.2lg  %.2lg].\n".as_ptr()
                 as *const c_char,
             (*grid).totzelems,
             (*grid).zcells,
@@ -2407,7 +2435,7 @@ unsafe fn GetCommand(line1: *mut c_char, line2: *mut c_char, io: *mut FILE) -> c
         if isend != 0 {
             return 1;
         }
-        if strlen(line0.as_ptr()) <= strspn(line0.as_ptr(), b" \t\r\n\0".as_ptr() as *const c_char)
+        if strlen(line0.as_ptr()) <= strspn(line0.as_ptr(), c" \t\r\n".as_ptr() as *const c_char)
         {
             continue;
         }
@@ -2424,14 +2452,14 @@ unsafe fn GetCommand(line1: *mut c_char, line2: *mut c_char, io: *mut FILE) -> c
         if matcactive == 0 && !strchr(line0.as_ptr(), '$' as c_int).is_null() {
             // NOTE: USE_MATC=0 arm (the #else branch in C).
             printf(
-                b"\n a $ found and MATC has not been compiled into ElmerGrid,\n\0".as_ptr()
+                c"\n a $ found and MATC has not been compiled into ElmerGrid,\n".as_ptr()
                     as *const c_char,
             );
             printf(
-                b"either remove the $ or compile ElmerGrid with MATC\n\0".as_ptr() as *const c_char,
+                c"either remove the $ or compile ElmerGrid with MATC\n".as_ptr() as *const c_char,
             );
             bigerror(
-                b"Error: $ found in command and MATC is not active\0".as_ptr() as *const c_char,
+                c"Error: $ found in command and MATC is not active".as_ptr() as *const c_char,
             );
         }
         // NOTE: USE_MATC substitution block compiled out exactly as in C.
@@ -2452,10 +2480,10 @@ unsafe fn GetCommand(line1: *mut c_char, line2: *mut c_char, io: *mut FILE) -> c
         }
         // NOTE: after these commands there will be no nextline even though
         // there is no equality sign.
-        if !strstr(line1, b"END\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line1, c"END".as_ptr() as *const c_char).is_null() {
             return 0;
         }
-        if !strstr(line1, b"NEW MESH\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line1, c"NEW MESH".as_ptr() as *const c_char).is_null() {
             return 0;
         }
         if j != 0 {
@@ -2471,11 +2499,11 @@ unsafe fn GetCommand(line1: *mut c_char, line2: *mut c_char, io: *mut FILE) -> c
             }
             if gotlinefeed == 0 {
                 printf(
-                    b"There is a risk that somethings was missed in line:\n\0".as_ptr()
+                    c"There is a risk that somethings was missed in line:\n".as_ptr()
                         as *const c_char,
                 );
-                printf(b"%s\n\0".as_ptr() as *const c_char, line0.as_ptr());
-                smallerror(b"Check your output line length!\n\0".as_ptr() as *const c_char);
+                printf(c"%s\n".as_ptr() as *const c_char, line0.as_ptr());
+                smallerror(c"Check your output line length!\n".as_ptr() as *const c_char);
             }
         } else {
             // NOTE: arguments are on the next line.
@@ -2509,37 +2537,39 @@ unsafe fn GetCommand(line1: *mut c_char, line2: *mut c_char, io: *mut FILE) -> c
             }
             if gotlinefeed == 0 {
                 printf(
-                    b"There is a risk that somethings was missed in line:\n\0".as_ptr()
+                    c"There is a risk that somethings was missed in line:\n".as_ptr()
                         as *const c_char,
                 );
-                printf(b"%s\n\0".as_ptr() as *const c_char, line2);
-                smallerror(b"Check your output line length!\n\0".as_ptr() as *const c_char);
+                printf(c"%s\n".as_ptr() as *const c_char, line2);
+                smallerror(c"Check your output line length!\n".as_ptr() as *const c_char);
             }
             // NOTE: C tests line0 here (not line2); mirrored exactly.
             if matcactive == 0 && !strchr(line0.as_ptr(), '$' as c_int).is_null() {
                 // NOTE: USE_MATC=0 arm (the #else branch in C).
                 printf(
-                    b"\n a $ found and MATC has not been compiled into ElmerGrid,\n\0".as_ptr()
+                    c"\n a $ found and MATC has not been compiled into ElmerGrid,\n".as_ptr()
                         as *const c_char,
                 );
                 printf(
-                    b"either remove the $ or compile ElmerGrid with MATC\n\0".as_ptr()
+                    c"either remove the $ or compile ElmerGrid with MATC\n".as_ptr()
                         as *const c_char,
                 );
                 bigerror(
-                    b"Error: $ found in command and MATC is not active\0".as_ptr() as *const c_char,
+                    c"Error: $ found in command and MATC is not active".as_ptr() as *const c_char,
                 );
             }
             // NOTE: USE_MATC substitution block compiled out exactly as in C.
         }
         if iodebug != 0 {
-            printf(b"command: %s\n\0".as_ptr() as *const c_char, line1);
-            printf(b"params:  %s\n\0".as_ptr() as *const c_char, line2);
+            printf(c"command: %s\n".as_ptr() as *const c_char, line1);
+            printf(c"params:  %s\n".as_ptr() as *const c_char, line2);
         }
         return 0;
     }
 }
-// SAFETY: .grd writer over valid grids; return codes as in C.
+/// # Safety
+///
+/// .grd writer over valid grids; return codes as in C.
 #[no_mangle]
 pub unsafe extern "C" fn SaveElmergrid(
     grid: *mut GridType,
@@ -2548,18 +2578,18 @@ pub unsafe extern "C" fn SaveElmergrid(
     info: c_int,
 ) -> c_int {
     let mut sameline: c_int;
-    let maxsameline: c_int;
+    
     let mut i: c_int;
     let mut j: c_int;
     let mut dim: c_int;
-    let out: *mut FILE;
+    
     let mut filename: [c_char; MAXFILESIZE] = [0; MAXFILESIZE];
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"grd\0".as_ptr() as *const c_char,
+        c"grd".as_ptr() as *const c_char,
     );
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    let out: *mut FILE = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     dim = (*grid).dimension;
     if (*grid).coordsystem == COORD_CART1 {
         dim = 1;
@@ -2567,7 +2597,7 @@ pub unsafe extern "C" fn SaveElmergrid(
     // NOTE: C also zeroes `j` here, but the mappings loop (or the
     // rotate-block `j = 0` below) overwrites it before any read.
     sameline = TRUE;
-    maxsameline = 6;
+    let maxsameline: c_int = 6;
     if (*grid).xcells > maxsameline {
         sameline = FALSE;
     }
@@ -2579,123 +2609,123 @@ pub unsafe extern "C" fn SaveElmergrid(
     }
     fprintf(
         out,
-        b"#####  ElmerGrid input file for structured grid generation  ######\n\0".as_ptr()
+        c"#####  ElmerGrid input file for structured grid generation  ######\n".as_ptr()
             as *const c_char,
     );
-    fprintf(out, b"Version = 210903\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"Coordinate System = \0".as_ptr() as *const c_char);
+    fprintf(out, c"Version = 210903\n".as_ptr() as *const c_char);
+    fprintf(out, c"Coordinate System = ".as_ptr() as *const c_char);
     if (*grid).coordsystem == COORD_AXIS {
-        fprintf(out, b"2D Axisymmetric\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"2D Axisymmetric\n".as_ptr() as *const c_char);
     } else if (*grid).coordsystem == COORD_POLAR {
-        fprintf(out, b"2D Polar\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"2D Polar\n".as_ptr() as *const c_char);
     } else {
-        fprintf(out, b"Cartesian %dD\n\0".as_ptr() as *const c_char, dim);
+        fprintf(out, c"Cartesian %dD\n".as_ptr() as *const c_char, dim);
     }
     fprintf(
         out,
-        b"Subcell Divisions in %dD = \0".as_ptr() as *const c_char,
+        c"Subcell Divisions in %dD = ".as_ptr() as *const c_char,
         dim,
     );
     if dim >= 1 {
-        fprintf(out, b"%d \0".as_ptr() as *const c_char, (*grid).xcells);
+        fprintf(out, c"%d ".as_ptr() as *const c_char, (*grid).xcells);
     }
     if dim >= 2 {
-        fprintf(out, b"%d \0".as_ptr() as *const c_char, (*grid).ycells);
+        fprintf(out, c"%d ".as_ptr() as *const c_char, (*grid).ycells);
     }
     if dim >= 3 {
-        fprintf(out, b"%d \0".as_ptr() as *const c_char, (*grid).zcells);
+        fprintf(out, c"%d ".as_ptr() as *const c_char, (*grid).zcells);
     }
-    fprintf(out, b"\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"\n".as_ptr() as *const c_char);
     // NOTE: C `sameline ? "= " : "\n  "` (same pattern throughout).
     if sameline != 0 {
-        fprintf(out, b"Subcell Limits 1 = \0".as_ptr() as *const c_char);
+        fprintf(out, c"Subcell Limits 1 = ".as_ptr() as *const c_char);
     } else {
-        fprintf(out, b"Subcell Limits 1 \n  \0".as_ptr() as *const c_char);
+        fprintf(out, c"Subcell Limits 1 \n  ".as_ptr() as *const c_char);
     }
     i = 0;
     while i <= (*grid).xcells {
         fprintf(
             out,
-            b"%.5lg \0".as_ptr() as *const c_char,
+            c"%.5lg ".as_ptr() as *const c_char,
             (*grid).x[i as usize],
         );
         i += 1;
     }
-    fprintf(out, b"\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"\n".as_ptr() as *const c_char);
     if dim >= 2 {
         if sameline != 0 {
-            fprintf(out, b"Subcell Limits 2 = \0".as_ptr() as *const c_char);
+            fprintf(out, c"Subcell Limits 2 = ".as_ptr() as *const c_char);
         } else {
-            fprintf(out, b"Subcell Limits 2 \n  \0".as_ptr() as *const c_char);
+            fprintf(out, c"Subcell Limits 2 \n  ".as_ptr() as *const c_char);
         }
         i = 0;
         while i <= (*grid).ycells {
             fprintf(
                 out,
-                b"%.5lg \0".as_ptr() as *const c_char,
+                c"%.5lg ".as_ptr() as *const c_char,
                 (*grid).y[i as usize],
             );
             i += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
     }
     if dim >= 3 {
         if sameline != 0 {
-            fprintf(out, b"Subcell Limits 3 = \0".as_ptr() as *const c_char);
+            fprintf(out, c"Subcell Limits 3 = ".as_ptr() as *const c_char);
         } else {
-            fprintf(out, b"Subcell Limits 3 \n  \0".as_ptr() as *const c_char);
+            fprintf(out, c"Subcell Limits 3 \n  ".as_ptr() as *const c_char);
         }
         i = 0;
         while i <= (*grid).zcells {
             fprintf(
                 out,
-                b"%.5lg \0".as_ptr() as *const c_char,
+                c"%.5lg ".as_ptr() as *const c_char,
                 (*grid).z[i as usize],
             );
             i += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
     }
     if dim == 1 {
         fprintf(
             out,
-            b"Material Structure in %dD\n\0".as_ptr() as *const c_char,
+            c"Material Structure in %dD\n".as_ptr() as *const c_char,
             1,
         );
     } else {
         fprintf(
             out,
-            b"Material Structure in %dD\n\0".as_ptr() as *const c_char,
+            c"Material Structure in %dD\n".as_ptr() as *const c_char,
             2,
         );
     }
     j = (*grid).ycells;
     while j >= 1 {
-        fprintf(out, b"  \0".as_ptr() as *const c_char);
+        fprintf(out, c"  ".as_ptr() as *const c_char);
         i = 1;
         while i <= (*grid).xcells {
             fprintf(
                 out,
-                b"%-5d\0".as_ptr() as *const c_char,
+                c"%-5d".as_ptr() as *const c_char,
                 (*grid).structure[j as usize][i as usize],
             );
             i += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
         j -= 1;
     }
-    fprintf(out, b"End\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"End\n".as_ptr() as *const c_char);
     if (*grid).mappings > 0 {
-        fprintf(out, b"Geometry Mappings\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"Geometry Mappings\n".as_ptr() as *const c_char);
         fprintf(
             out,
-            b"# mode  line  limits(2)   Np  params(Np)\n\0".as_ptr() as *const c_char,
+            c"# mode  line  limits(2)   Np  params(Np)\n".as_ptr() as *const c_char,
         );
         i = 0;
         while i < (*grid).mappings {
             fprintf(
                 out,
-                b"  %-5d %-5d %-7.5lg %-7.5lg %-3d \0".as_ptr() as *const c_char,
+                c"  %-5d %-5d %-7.5lg %-7.5lg %-3d ".as_ptr() as *const c_char,
                 (*grid).mappingtype[i as usize],
                 (*grid).mappingline[i as usize],
                 (*grid).mappinglimits[(2 * i) as usize],
@@ -2706,32 +2736,32 @@ pub unsafe extern "C" fn SaveElmergrid(
             while j < (*grid).mappingpoints[i as usize] {
                 fprintf(
                     out,
-                    b"%.4lg \0".as_ptr() as *const c_char,
+                    c"%.4lg ".as_ptr() as *const c_char,
                     *(*grid).mappingparams[i as usize].wrapping_offset(j as isize),
                 );
                 j += 1;
             }
-            fprintf(out, b"\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"\n".as_ptr() as *const c_char);
             i += 1;
         }
-        fprintf(out, b"End\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"End\n".as_ptr() as *const c_char);
     }
     j = 0;
     if (*grid.wrapping_offset(j as isize)).rotate != 0 {
         fprintf(
             out,
-            b"Revolve Blocks = %d\n\0".as_ptr() as *const c_char,
+            c"Revolve Blocks = %d\n".as_ptr() as *const c_char,
             (*grid.wrapping_offset(j as isize)).rotateblocks,
         );
         fprintf(
             out,
-            b"Revolve Radius = %-8.3lg\n\0".as_ptr() as *const c_char,
+            c"Revolve Radius = %-8.3lg\n".as_ptr() as *const c_char,
             (*grid.wrapping_offset(j as isize)).rotateradius2,
         );
         if fabs((*grid.wrapping_offset(j as isize)).rotateimprove - 1.0) > 1.0e-10 {
             fprintf(
                 out,
-                b"Revolve Improve = %-8.3lg\n\0".as_ptr() as *const c_char,
+                c"Revolve Improve = %-8.3lg\n".as_ptr() as *const c_char,
                 (*grid.wrapping_offset(j as isize)).rotateimprove,
             );
         }
@@ -2739,31 +2769,31 @@ pub unsafe extern "C" fn SaveElmergrid(
     if (*grid.wrapping_offset(j as isize)).rotatecurve != 0 {
         fprintf(
             out,
-            b"Revolve Curve Direct = %-8.3lg\n\0".as_ptr() as *const c_char,
+            c"Revolve Curve Direct = %-8.3lg\n".as_ptr() as *const c_char,
             (*grid.wrapping_offset(j as isize)).curvezet,
         );
         fprintf(
             out,
-            b"Revolve Curve Radius = %-8.3lg\n\0".as_ptr() as *const c_char,
+            c"Revolve Curve Radius = %-8.3lg\n".as_ptr() as *const c_char,
             (*grid.wrapping_offset(j as isize)).curverad,
         );
         fprintf(
             out,
-            b"Revolve Curve Angle = %-8.3lg\n\0".as_ptr() as *const c_char,
+            c"Revolve Curve Angle = %-8.3lg\n".as_ptr() as *const c_char,
             (*grid.wrapping_offset(j as isize)).curveangle,
         );
     }
     if (*grid.wrapping_offset(j as isize)).coordsystem == COORD_POLAR {
         fprintf(
             out,
-            b"Polar Radius = %.3lg\n\0".as_ptr() as *const c_char,
+            c"Polar Radius = %.3lg\n".as_ptr() as *const c_char,
             (*grid.wrapping_offset(j as isize)).polarradius,
         );
     }
     save_grids(out, grid, nogrids, dim, sameline);
     if info != 0 {
         printf(
-            b"The Elmergrid input was saved to file %s.\n\0".as_ptr() as *const c_char,
+            c"The Elmergrid input was saved to file %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
@@ -2784,50 +2814,50 @@ unsafe fn save_grids(
     j = 0;
     while j < nogrids {
         if j > 0 {
-            fprintf(out, b"\nStart New Mesh\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"\nStart New Mesh\n".as_ptr() as *const c_char);
         }
         fprintf(
             out,
-            b"Materials Interval = %d %d\n\0".as_ptr() as *const c_char,
+            c"Materials Interval = %d %d\n".as_ptr() as *const c_char,
             (*grid.wrapping_offset(j as isize)).firstmaterial,
             (*grid.wrapping_offset(j as isize)).lastmaterial,
         );
         if dim == 3 {
-            fprintf(out, b"Extruded Structure\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"Extruded Structure\n".as_ptr() as *const c_char);
             fprintf(
                 out,
-                b"# %-8s %-8s %-8s\n\0".as_ptr() as *const c_char,
-                b"1stmat\0".as_ptr() as *const c_char,
-                b"lastmat\0".as_ptr() as *const c_char,
-                b"newmat\0".as_ptr() as *const c_char,
+                c"# %-8s %-8s %-8s\n".as_ptr() as *const c_char,
+                c"1stmat".as_ptr() as *const c_char,
+                c"lastmat".as_ptr() as *const c_char,
+                c"newmat".as_ptr() as *const c_char,
             );
             i = 1;
             while i <= (*grid.wrapping_offset(j as isize)).zcells {
                 fprintf(
                     out,
-                    b"  %-8d %-8d %-8d\n\0".as_ptr() as *const c_char,
+                    c"  %-8d %-8d %-8d\n".as_ptr() as *const c_char,
                     (*grid.wrapping_offset(j as isize)).zfirstmaterial[i as usize],
                     (*grid.wrapping_offset(j as isize)).zlastmaterial[i as usize],
                     (*grid.wrapping_offset(j as isize)).zmaterial[i as usize],
                 );
                 i += 1;
             }
-            fprintf(out, b"End\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"End\n".as_ptr() as *const c_char);
         }
         if (*grid.wrapping_offset(j as isize)).noboundaries > 0 {
-            fprintf(out, b"Boundary Definitions\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"Boundary Definitions\n".as_ptr() as *const c_char);
             fprintf(
                 out,
-                b"# %-8s %-8s %-8s\n\0".as_ptr() as *const c_char,
-                b"type\0".as_ptr() as *const c_char,
-                b"out\0".as_ptr() as *const c_char,
-                b"int\0".as_ptr() as *const c_char,
+                c"# %-8s %-8s %-8s\n".as_ptr() as *const c_char,
+                c"type".as_ptr() as *const c_char,
+                c"out".as_ptr() as *const c_char,
+                c"int".as_ptr() as *const c_char,
             );
             i = 0;
             while i < (*grid.wrapping_offset(j as isize)).noboundaries {
                 fprintf(
                     out,
-                    b"  %-8d %-8d %-8d %-8d\n\0".as_ptr() as *const c_char,
+                    c"  %-8d %-8d %-8d %-8d\n".as_ptr() as *const c_char,
                     (*grid.wrapping_offset(j as isize)).boundtype[i as usize],
                     (*grid.wrapping_offset(j as isize)).boundext[i as usize],
                     (*grid.wrapping_offset(j as isize)).boundint[i as usize],
@@ -2835,102 +2865,102 @@ unsafe fn save_grids(
                 );
                 i += 1;
             }
-            fprintf(out, b"End\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"End\n".as_ptr() as *const c_char);
         }
         // NOTE: C reads grid[0] here (`grid->numbering`), not grid[j].
         if (*grid).numbering == NUMBER_XY {
-            fprintf(out, b"Numbering = Horizontal\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"Numbering = Horizontal\n".as_ptr() as *const c_char);
         }
         if (*grid).numbering == NUMBER_YX {
-            fprintf(out, b"Numbering = Vertical\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"Numbering = Vertical\n".as_ptr() as *const c_char);
         }
         fprintf(
             out,
-            b"Element Degree = %d\n\0".as_ptr() as *const c_char,
+            c"Element Degree = %d\n".as_ptr() as *const c_char,
             (*grid.wrapping_offset(j as isize)).elemorder,
         );
         if (*grid.wrapping_offset(j as isize)).elemmidpoints != 0 {
             fprintf(
                 out,
-                b"Element Innernodes = %s\n\0".as_ptr() as *const c_char,
-                b"True\0".as_ptr() as *const c_char,
+                c"Element Innernodes = %s\n".as_ptr() as *const c_char,
+                c"True".as_ptr() as *const c_char,
             );
         } else {
             fprintf(
                 out,
-                b"Element Innernodes = %s\n\0".as_ptr() as *const c_char,
-                b"False\0".as_ptr() as *const c_char,
+                c"Element Innernodes = %s\n".as_ptr() as *const c_char,
+                c"False".as_ptr() as *const c_char,
             );
         }
         if (*grid.wrapping_offset(j as isize)).triangles != 0 {
             fprintf(
                 out,
-                b"Triangles = %s\n\0".as_ptr() as *const c_char,
-                b"True\0".as_ptr() as *const c_char,
+                c"Triangles = %s\n".as_ptr() as *const c_char,
+                c"True".as_ptr() as *const c_char,
             );
         } else {
             fprintf(
                 out,
-                b"Triangles = %s\n\0".as_ptr() as *const c_char,
-                b"False\0".as_ptr() as *const c_char,
+                c"Triangles = %s\n".as_ptr() as *const c_char,
+                c"False".as_ptr() as *const c_char,
             );
         }
         if (*grid.wrapping_offset(j as isize)).autoratio != 0 {
             fprintf(
                 out,
-                b"Surface Elements = %d\n\0".as_ptr() as *const c_char,
+                c"Surface Elements = %d\n".as_ptr() as *const c_char,
                 (*grid.wrapping_offset(j as isize)).wantedelems,
             );
         }
         if dim == 3 && (*grid.wrapping_offset(j as isize)).wantedelems3d != 0 {
             fprintf(
                 out,
-                b"Volume Elements = %d\n\0".as_ptr() as *const c_char,
+                c"Volume Elements = %d\n".as_ptr() as *const c_char,
                 (*grid.wrapping_offset(j as isize)).wantedelems3d,
             );
         }
         if dim == 3 && (*grid.wrapping_offset(j as isize)).wantednodes3d != 0 {
             fprintf(
                 out,
-                b"Volume Nodes = %d\n\0".as_ptr() as *const c_char,
+                c"Volume Nodes = %d\n".as_ptr() as *const c_char,
                 (*grid.wrapping_offset(j as isize)).wantednodes3d,
             );
         }
         if dim == 2 {
             fprintf(
                 out,
-                b"Coordinate Ratios = %-8.3lg\n\0".as_ptr() as *const c_char,
+                c"Coordinate Ratios = %-8.3lg\n".as_ptr() as *const c_char,
                 (*grid.wrapping_offset(j as isize)).xyratio,
             );
         }
         if dim == 3 {
             fprintf(
                 out,
-                b"Coordinate Ratios = %-8.3lg %-8.3lg\n\0".as_ptr() as *const c_char,
+                c"Coordinate Ratios = %-8.3lg %-8.3lg\n".as_ptr() as *const c_char,
                 (*grid.wrapping_offset(j as isize)).xyratio,
                 (*grid.wrapping_offset(j as isize)).xzratio,
             );
         }
         fprintf(
             out,
-            b"Minimum Element Divisions = %d\0".as_ptr() as *const c_char,
+            c"Minimum Element Divisions = %d".as_ptr() as *const c_char,
             (*grid.wrapping_offset(j as isize)).minxelems,
         );
         if dim >= 2 {
             fprintf(
                 out,
-                b" %d\0".as_ptr() as *const c_char,
+                c" %d".as_ptr() as *const c_char,
                 (*grid.wrapping_offset(j as isize)).minyelems,
             );
         }
         if dim >= 3 {
             fprintf(
                 out,
-                b" %d\0".as_ptr() as *const c_char,
+                c" %d".as_ptr() as *const c_char,
                 (*grid.wrapping_offset(j as isize)).minzelems,
             );
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
         save_divisions(out, grid, j, dim, sameline);
         j += 1;
     }
@@ -2946,105 +2976,105 @@ unsafe fn save_divisions(
 ) {
     let mut i: c_int;
     if sameline != 0 {
-        fprintf(out, b"Element Ratios 1 = \0".as_ptr() as *const c_char);
+        fprintf(out, c"Element Ratios 1 = ".as_ptr() as *const c_char);
     } else {
-        fprintf(out, b"Element Ratios 1 \n  \0".as_ptr() as *const c_char);
+        fprintf(out, c"Element Ratios 1 \n  ".as_ptr() as *const c_char);
     }
     i = 1;
     while i <= (*grid.wrapping_offset(j as isize)).xcells {
         fprintf(
             out,
-            b"%.3lg \0".as_ptr() as *const c_char,
+            c"%.3lg ".as_ptr() as *const c_char,
             (*grid.wrapping_offset(j as isize)).xexpand[i as usize],
         );
         i += 1;
     }
-    fprintf(out, b"\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"\n".as_ptr() as *const c_char);
     if dim >= 2 {
         if sameline != 0 {
-            fprintf(out, b"Element Ratios 2 = \0".as_ptr() as *const c_char);
+            fprintf(out, c"Element Ratios 2 = ".as_ptr() as *const c_char);
         } else {
-            fprintf(out, b"Element Ratios 2 \n  \0".as_ptr() as *const c_char);
+            fprintf(out, c"Element Ratios 2 \n  ".as_ptr() as *const c_char);
         }
         i = 1;
         while i <= (*grid.wrapping_offset(j as isize)).ycells {
             fprintf(
                 out,
-                b"%.3lg \0".as_ptr() as *const c_char,
+                c"%.3lg ".as_ptr() as *const c_char,
                 (*grid.wrapping_offset(j as isize)).yexpand[i as usize],
             );
             i += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
     }
     if dim >= 3 {
         if sameline != 0 {
-            fprintf(out, b"Element Ratios 3 = \0".as_ptr() as *const c_char);
+            fprintf(out, c"Element Ratios 3 = ".as_ptr() as *const c_char);
         } else {
-            fprintf(out, b"Element Ratios 3 \n  \0".as_ptr() as *const c_char);
+            fprintf(out, c"Element Ratios 3 \n  ".as_ptr() as *const c_char);
         }
         i = 1;
         while i <= (*grid.wrapping_offset(j as isize)).zcells {
             fprintf(
                 out,
-                b"%.3lg \0".as_ptr() as *const c_char,
+                c"%.3lg ".as_ptr() as *const c_char,
                 (*grid.wrapping_offset(j as isize)).zexpand[i as usize],
             );
             i += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
     }
     if (*grid.wrapping_offset(j as isize)).autoratio != 0 {
         save_densities(out, grid, j, dim, sameline);
     } else {
         if sameline != 0 {
-            fprintf(out, b"Element Divisions 1 = \0".as_ptr() as *const c_char);
+            fprintf(out, c"Element Divisions 1 = ".as_ptr() as *const c_char);
         } else {
-            fprintf(out, b"Element Divisions 1 \n  \0".as_ptr() as *const c_char);
+            fprintf(out, c"Element Divisions 1 \n  ".as_ptr() as *const c_char);
         }
         i = 1;
         while i <= (*grid.wrapping_offset(j as isize)).xcells {
             fprintf(
                 out,
-                b"%d \0".as_ptr() as *const c_char,
+                c"%d ".as_ptr() as *const c_char,
                 (*grid.wrapping_offset(j as isize)).xelems[i as usize],
             );
             i += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
         if dim >= 2 {
             if sameline != 0 {
-                fprintf(out, b"Element Divisions 2 = \0".as_ptr() as *const c_char);
+                fprintf(out, c"Element Divisions 2 = ".as_ptr() as *const c_char);
             } else {
-                fprintf(out, b"Element Divisions 2 \n  \0".as_ptr() as *const c_char);
+                fprintf(out, c"Element Divisions 2 \n  ".as_ptr() as *const c_char);
             }
             i = 1;
             while i <= (*grid.wrapping_offset(j as isize)).ycells {
                 fprintf(
                     out,
-                    b"%d \0".as_ptr() as *const c_char,
+                    c"%d ".as_ptr() as *const c_char,
                     (*grid.wrapping_offset(j as isize)).yelems[i as usize],
                 );
                 i += 1;
             }
-            fprintf(out, b"\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"\n".as_ptr() as *const c_char);
         }
         if dim >= 3 {
             if sameline != 0 {
-                fprintf(out, b"Element Divisions 3 = \0".as_ptr() as *const c_char);
+                fprintf(out, c"Element Divisions 3 = ".as_ptr() as *const c_char);
             } else {
-                fprintf(out, b"Element Divisions 3 \n  \0".as_ptr() as *const c_char);
+                fprintf(out, c"Element Divisions 3 \n  ".as_ptr() as *const c_char);
             }
             i = 1;
             while i <= (*grid.wrapping_offset(j as isize)).zcells {
                 fprintf(
                     out,
-                    b"%d \0".as_ptr() as *const c_char,
+                    c"%d ".as_ptr() as *const c_char,
                     (*grid.wrapping_offset(j as isize)).zelems[i as usize],
                 );
                 i += 1;
             }
-            fprintf(out, b"\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"\n".as_ptr() as *const c_char);
         }
     }
 }
@@ -3059,63 +3089,65 @@ unsafe fn save_densities(
 ) {
     let mut i: c_int;
     if sameline != 0 {
-        fprintf(out, b"Element Densities 1 = \0".as_ptr() as *const c_char);
+        fprintf(out, c"Element Densities 1 = ".as_ptr() as *const c_char);
     } else {
-        fprintf(out, b"Element Densities 1 \n  \0".as_ptr() as *const c_char);
+        fprintf(out, c"Element Densities 1 \n  ".as_ptr() as *const c_char);
     }
     i = 1;
     while i <= (*grid.wrapping_offset(j as isize)).xcells {
         fprintf(
             out,
-            b"%.3lg \0".as_ptr() as *const c_char,
+            c"%.3lg ".as_ptr() as *const c_char,
             (*grid.wrapping_offset(j as isize)).xdens[i as usize],
         );
         i += 1;
     }
-    fprintf(out, b"\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"\n".as_ptr() as *const c_char);
     if dim >= 2 {
         if sameline != 0 {
-            fprintf(out, b"Element Densities 2 = \0".as_ptr() as *const c_char);
+            fprintf(out, c"Element Densities 2 = ".as_ptr() as *const c_char);
         } else {
-            fprintf(out, b"Element Densities 2 \n  \0".as_ptr() as *const c_char);
+            fprintf(out, c"Element Densities 2 \n  ".as_ptr() as *const c_char);
         }
         i = 1;
         while i <= (*grid.wrapping_offset(j as isize)).ycells {
             fprintf(
                 out,
-                b"%.3lg \0".as_ptr() as *const c_char,
+                c"%.3lg ".as_ptr() as *const c_char,
                 (*grid.wrapping_offset(j as isize)).ydens[i as usize],
             );
             i += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
     }
     if dim >= 3 {
         if sameline != 0 {
-            fprintf(out, b"Element Densities 3 = \0".as_ptr() as *const c_char);
+            fprintf(out, c"Element Densities 3 = ".as_ptr() as *const c_char);
         } else {
-            fprintf(out, b"Element Densities 3 \n  \0".as_ptr() as *const c_char);
+            fprintf(out, c"Element Densities 3 \n  ".as_ptr() as *const c_char);
         }
         i = 1;
         while i <= (*grid.wrapping_offset(j as isize)).zcells {
             fprintf(
                 out,
-                b"%.3lg \0".as_ptr() as *const c_char,
+                c"%.3lg ".as_ptr() as *const c_char,
                 (*grid.wrapping_offset(j as isize)).zdens[i as usize],
             );
             i += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
     }
 }
-// SAFETY: 2D element-division optimizer over a valid grid.
+/// # Safety
+///
+/// 2D element-division optimizer over a valid grid.
 #[no_mangle]
 pub unsafe extern "C" fn SetElementDivision(grid: *mut GridType, relh: Real, _info: c_int) {
     // NOTE: C never reads `info` here either.
     let mut i: c_int;
     let mut j: c_int;
-    let nx: c_int;
-    let ny: c_int;
+    
+    
     // NOTE: assigned before every read (C `= 0` decl init shape).
     let mut nxmax: c_int = 0;
     // NOTE: assigned before every read (C `= 0` decl init shape).
@@ -3130,7 +3162,7 @@ pub unsafe extern "C" fn SetElementDivision(grid: *mut GridType, relh: Real, _in
     let mut wantedelemsy: c_int;
     // NOTE: 0-init for the &mut handoff (set before reads on every path).
     let mut ratio: Real = 0.0;
-    let linearlimit: Real;
+    
     // NOTE: assigned before every read (C `= 0` decl init shape).
     let mut dxmax: Real = 0.0;
     // NOTE: assigned before every read (C `= 0` decl init shape).
@@ -3145,9 +3177,9 @@ pub unsafe extern "C" fn SetElementDivision(grid: *mut GridType, relh: Real, _in
     if (*grid).dimension == 1 {
         (*grid).numbering = NUMBER_1D;
     }
-    nx = (*grid).xcells;
-    ny = (*grid).ycells;
-    linearlimit = 0.001;
+    let nx: c_int = (*grid).xcells;
+    let ny: c_int = (*grid).ycells;
+    let linearlimit: Real = 0.001;
     // NOTE: number the cells from left to right and up to down.
     (*grid).nocells = 0;
     j = 1;
@@ -3168,9 +3200,9 @@ pub unsafe extern "C" fn SetElementDivision(grid: *mut GridType, relh: Real, _in
     // NOTE: put the linearity flags.
     i = 1;
     while i <= nx {
-        if fabs(1.0 - (*grid).xexpand[i as usize]) < linearlimit {
-            (*grid).xlinear[i as usize] = TRUE;
-        } else if fabs(1.0 + (*grid).xexpand[i as usize]) < linearlimit {
+        if fabs(1.0 - (*grid).xexpand[i as usize]) < linearlimit
+            || fabs(1.0 + (*grid).xexpand[i as usize]) < linearlimit
+        {
             (*grid).xlinear[i as usize] = TRUE;
         } else {
             (*grid).xlinear[i as usize] = FALSE;
@@ -3179,9 +3211,9 @@ pub unsafe extern "C" fn SetElementDivision(grid: *mut GridType, relh: Real, _in
     }
     i = 1;
     while i <= ny {
-        if fabs(1.0 - (*grid).yexpand[i as usize]) < linearlimit {
-            (*grid).ylinear[i as usize] = TRUE;
-        } else if fabs(1.0 + (*grid).yexpand[i as usize]) < linearlimit {
+        if fabs(1.0 - (*grid).yexpand[i as usize]) < linearlimit
+            || fabs(1.0 + (*grid).yexpand[i as usize]) < linearlimit
+        {
             (*grid).ylinear[i as usize] = TRUE;
         } else {
             (*grid).ylinear[i as usize] = FALSE;
@@ -3244,7 +3276,7 @@ pub unsafe extern "C" fn SetElementDivision(grid: *mut GridType, relh: Real, _in
         wantedelemsy = (1.0 * (*grid).totyelems as Real / relh) as c_int;
         if sumxelems > wantedelemsx {
             printf(
-                b"SetElementDivision: %d is too few elements in x-direction\n\0".as_ptr()
+                c"SetElementDivision: %d is too few elements in x-direction\n".as_ptr()
                     as *const c_char,
                 (*grid).totxelems,
             );
@@ -3252,7 +3284,7 @@ pub unsafe extern "C" fn SetElementDivision(grid: *mut GridType, relh: Real, _in
         }
         if sumyelems > wantedelemsy {
             printf(
-                b"SetElementDivision: %d is too few elements in y-direction\n\0".as_ptr()
+                c"SetElementDivision: %d is too few elements in y-direction\n".as_ptr()
                     as *const c_char,
                 (*grid).totyelems,
             );
@@ -3373,6 +3405,8 @@ pub unsafe extern "C" fn SetElementDivision(grid: *mut GridType, relh: Real, _in
 // (split for patch sizing only; scratch locals re-declared here).
 // NOTE: the `sumxelems/sumyelems += ...` tails are write-only in C as
 // well (only sumxyelems feeds `noelements`); kept for C-shape fidelity.
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 #[allow(unused_assignments)]
 unsafe fn setdiv_joint(
     grid: *mut GridType,
@@ -3564,6 +3598,8 @@ unsafe fn setdiv_joint(
     (*grid).dy0 = *dymax;
 }
 // SAFETY: density-verify pass of SetElementDivision (split for sizing).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 #[allow(unused_assignments)]
 unsafe fn setdiv_verify(
     grid: *mut GridType,
@@ -3806,7 +3842,7 @@ unsafe fn LoadElmergridOld(
     info: c_int,
 ) -> c_int {
     let mut filename: [c_char; MAXFILESIZE] = [0; MAXFILESIZE];
-    let input: *mut FILE;
+    
     // NOTE: 0-init for the &mut handoff (set in the mode arms before reads).
     let mut i: c_int = 0;
     // NOTE: 0-init for the &mut handoff (set in the mode arms before reads).
@@ -3822,14 +3858,14 @@ unsafe fn LoadElmergridOld(
     // NOTE: null-init for the &mut handoff (set before every next_* call).
     let mut cp: *mut c_char = core::ptr::null_mut();
     let mut mode: c_int;
-    let noknots: c_int;
-    let noelements: c_int;
-    let dim: c_int;
-    let axisymmetric: c_int;
+    
+    
+    
+    
     let mut elemcode: c_int;
-    let maxnodes: c_int;
-    let totelems: c_int;
-    let nogrids0: c_int;
+    
+    
+    
     // NOTE: 0-init for the &mut handoff (set in mode 2 before reads).
     let mut minmat: c_int = 0;
     // NOTE: 0-init for the &mut handoff (set in mode 2 before reads).
@@ -3838,12 +3874,12 @@ unsafe fn LoadElmergridOld(
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"grd\0".as_ptr() as *const c_char,
+        c"grd".as_ptr() as *const c_char,
     );
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    let input: *mut FILE = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadElmergrid: opening of the file '%s' wasn't successful !\n\0".as_ptr()
+            c"LoadElmergrid: opening of the file '%s' wasn't successful !\n".as_ptr()
                 as *const c_char,
             filename.as_ptr(),
         );
@@ -3851,21 +3887,21 @@ unsafe fn LoadElmergridOld(
     }
     if info != 0 {
         printf(
-            b"Loading the geometry from file '%s'.\n\0".as_ptr() as *const c_char,
+            c"Loading the geometry from file '%s'.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
     InitGrid(*grid.wrapping_offset(*nogrids as isize));
     k = *nogrids;
-    nogrids0 = *nogrids;
+    let nogrids0: c_int = *nogrids;
     mode = 0;
-    noknots = 0;
-    noelements = 0;
-    dim = 0;
-    axisymmetric = FALSE;
+    let noknots: c_int = 0;
+    let noelements: c_int = 0;
+    let dim: c_int = 0;
+    let axisymmetric: c_int = FALSE;
     elemcode = 0;
-    maxnodes = 4;
-    totelems = 0;
+    let maxnodes: c_int = 4;
+    let totelems: c_int = 0;
     scaling = 1.0;
     // NOTE: `let _ =` keeps the C-shape assignments visible for audit.
     let _ = (noknots, noelements, dim, axisymmetric, maxnodes, totelems);
@@ -3877,82 +3913,82 @@ unsafe fn LoadElmergridOld(
         if line[0] == 0x00 {
             break;
         }
-        if !strstr(line.as_ptr(), b"END\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line.as_ptr(), c"END".as_ptr() as *const c_char).is_null() {
             break;
         }
-        if !strstr(line.as_ptr(), b"RESULTS\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line.as_ptr(), c"RESULTS".as_ptr() as *const c_char).is_null() {
             break;
         }
         // NOTE: control information.
-        if !strstr(line.as_ptr(), b"VERSION\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line.as_ptr(), c"VERSION".as_ptr() as *const c_char).is_null() {
             mode = 1;
-        } else if !strstr(line.as_ptr(), b"GEOMETRY\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"GEOMETRY".as_ptr() as *const c_char).is_null() {
             mode = 2;
-        } else if !strstr(line.as_ptr(), b"MAPPINGS IN\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"MAPPINGS IN".as_ptr() as *const c_char).is_null() {
             mode = 31;
-        } else if !strstr(line.as_ptr(), b"MAPPINGS OUT\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"MAPPINGS OUT".as_ptr() as *const c_char).is_null() {
             mode = 32;
-        } else if !strstr(line.as_ptr(), b"MAPPINGS\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"MAPPINGS".as_ptr() as *const c_char).is_null() {
             mode = 3;
-        } else if !strstr(line.as_ptr(), b"NUMBERING\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"NUMBERING".as_ptr() as *const c_char).is_null() {
             mode = 4;
-        } else if !strstr(line.as_ptr(), b"MESHING\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"MESHING".as_ptr() as *const c_char).is_null() {
             mode = 5;
-        } else if !strstr(line.as_ptr(), b"ELEMENTS\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"ELEMENTS".as_ptr() as *const c_char).is_null() {
             mode = 6;
-        } else if !strstr(line.as_ptr(), b"ELEMENT NUMBER\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"ELEMENT NUMBER".as_ptr() as *const c_char).is_null() {
             mode = 29;
-        } else if !strstr(line.as_ptr(), b"NODES\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"NODES".as_ptr() as *const c_char).is_null() {
             mode = 7;
-        } else if !strstr(line.as_ptr(), b"TRIANGLE\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"TRIANGLE".as_ptr() as *const c_char).is_null() {
             mode = 8;
-        } else if !strstr(line.as_ptr(), b"SQUARE\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"SQUARE".as_ptr() as *const c_char).is_null() {
             mode = 17;
         } else if !strstr(
             line.as_ptr(),
-            b"COORDINATE RATIO\0".as_ptr() as *const c_char,
+            c"COORDINATE RATIO".as_ptr() as *const c_char,
         )
         .is_null()
         {
             mode = 10;
-        } else if !strstr(line.as_ptr(), b"MATERIALS\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"MATERIALS".as_ptr() as *const c_char).is_null() {
             mode = 11;
-        } else if !strstr(line.as_ptr(), b"LAYERED ST\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"LAYERED ST".as_ptr() as *const c_char).is_null() {
             mode = 12;
-        } else if !strstr(line.as_ptr(), b"ELEMENT RAT\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"ELEMENT RAT".as_ptr() as *const c_char).is_null() {
             mode = 13;
-        } else if !strstr(line.as_ptr(), b"ELEMENT DENS\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"ELEMENT DENS".as_ptr() as *const c_char).is_null() {
             mode = 14;
         } else if !strstr(
             line.as_ptr(),
-            b"ELEMENT MINIMUM\0".as_ptr() as *const c_char,
+            c"ELEMENT MINIMUM".as_ptr() as *const c_char,
         )
         .is_null()
         {
             mode = 27;
-        } else if !strstr(line.as_ptr(), b"BOUNDARY COND\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"BOUNDARY COND".as_ptr() as *const c_char).is_null() {
             mode = 15;
-        } else if !strstr(line.as_ptr(), b"ELEMENTTYPE\0".as_ptr() as *const c_char).is_null()
-            || !strstr(line.as_ptr(), b"ELEMENTCODE\0".as_ptr() as *const c_char).is_null()
+        } else if !strstr(line.as_ptr(), c"ELEMENTTYPE".as_ptr() as *const c_char).is_null()
+            || !strstr(line.as_ptr(), c"ELEMENTCODE".as_ptr() as *const c_char).is_null()
         {
             mode = 16;
-        } else if !strstr(line.as_ptr(), b"ROTATE\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"ROTATE".as_ptr() as *const c_char).is_null() {
             mode = 20;
-        } else if !strstr(line.as_ptr(), b"ROTRAD\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"ROTRAD".as_ptr() as *const c_char).is_null() {
             mode = 21;
-        } else if !strstr(line.as_ptr(), b"ROTBLOCK\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"ROTBLOCK".as_ptr() as *const c_char).is_null() {
             mode = 22;
-        } else if !strstr(line.as_ptr(), b"ROTIMP\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"ROTIMP".as_ptr() as *const c_char).is_null() {
             mode = 24;
-        } else if !strstr(line.as_ptr(), b"ROTCURVE\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"ROTCURVE".as_ptr() as *const c_char).is_null() {
             mode = 25;
-        } else if !strstr(line.as_ptr(), b"REDUCE ELEMENT\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"REDUCE ELEMENT".as_ptr() as *const c_char).is_null() {
             mode = 26;
-        } else if !strstr(line.as_ptr(), b"SCALING\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"SCALING".as_ptr() as *const c_char).is_null() {
             mode = 23;
-        } else if !strstr(line.as_ptr(), b"LAYERED BO\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"LAYERED BO".as_ptr() as *const c_char).is_null() {
             mode = 28;
-        } else if !strstr(line.as_ptr(), b"POLAR RADIUS\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line.as_ptr(), c"POLAR RADIUS".as_ptr() as *const c_char).is_null() {
             mode = 30;
         }
         // NOTE: returns true on the MESHING-overflow `goto end` path.
@@ -3979,7 +4015,7 @@ unsafe fn LoadElmergridOld(
     }
     if info != 0 {
         printf(
-            b"Found %d divisions for grid\n\0".as_ptr() as *const c_char,
+            c"Found %d divisions for grid\n".as_ptr() as *const c_char,
             *nogrids,
         );
     }
@@ -3992,6 +4028,8 @@ unsafe fn LoadElmergridOld(
     error
 }
 // SAFETY: one legacy-.grd mode arm (split for sizing); true = break loop.
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn loadold_mode(
     grid: *mut *mut GridType,
     nogrids: *mut c_int,
@@ -4014,7 +4052,7 @@ unsafe fn loadold_mode(
     let gk = &mut (*(*grid).wrapping_offset(*k as isize));
     if *mode == 1 {
         printf(
-            b"Loading Elmergrid file: %s\n\0".as_ptr() as *const c_char,
+            c"Loading Elmergrid file: %s\n".as_ptr() as *const c_char,
             line,
         );
         *mode = 0;
@@ -4022,50 +4060,50 @@ unsafe fn loadold_mode(
     }
     if *mode == 2 {
         gk.dimension = 2;
-        if !strstr(line, b"CARTES\0".as_ptr() as *const c_char).is_null()
-            && !strstr(line, b"1D\0".as_ptr() as *const c_char).is_null()
+        if !strstr(line, c"CARTES".as_ptr() as *const c_char).is_null()
+            && !strstr(line, c"1D".as_ptr() as *const c_char).is_null()
         {
             gk.coordsystem = COORD_CART1;
             gk.dimension = 1;
-        } else if !strstr(line, b"CARTES\0".as_ptr() as *const c_char).is_null()
-            && !strstr(line, b"2D\0".as_ptr() as *const c_char).is_null()
+        } else if !strstr(line, c"CARTES".as_ptr() as *const c_char).is_null()
+            && !strstr(line, c"2D".as_ptr() as *const c_char).is_null()
         {
             gk.coordsystem = COORD_CART2;
-        } else if !strstr(line, b"AXIS\0".as_ptr() as *const c_char).is_null()
-            && !strstr(line, b"2D\0".as_ptr() as *const c_char).is_null()
+        } else if !strstr(line, c"AXIS".as_ptr() as *const c_char).is_null()
+            && !strstr(line, c"2D".as_ptr() as *const c_char).is_null()
         {
             gk.coordsystem = COORD_AXIS;
-        } else if !strstr(line, b"POLAR\0".as_ptr() as *const c_char).is_null()
-            && !strstr(line, b"2D\0".as_ptr() as *const c_char).is_null()
+        } else if !strstr(line, c"POLAR".as_ptr() as *const c_char).is_null()
+            && !strstr(line, c"2D".as_ptr() as *const c_char).is_null()
         {
             gk.coordsystem = COORD_POLAR;
-        } else if !strstr(line, b"CARTES\0".as_ptr() as *const c_char).is_null()
-            && !strstr(line, b"3D\0".as_ptr() as *const c_char).is_null()
+        } else if !strstr(line, c"CARTES".as_ptr() as *const c_char).is_null()
+            && !strstr(line, c"3D".as_ptr() as *const c_char).is_null()
         {
             gk.coordsystem = COORD_CART3;
             gk.dimension = 3;
-        } else if !strstr(line, b"CYLINDRICAL\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(line, c"CYLINDRICAL".as_ptr() as *const c_char).is_null() {
             gk.coordsystem = COORD_CYL;
             gk.dimension = 3;
         } else {
             printf(
-                b"Unknown coordinate system: %s\n\0".as_ptr() as *const c_char,
+                c"Unknown coordinate system: %s\n".as_ptr() as *const c_char,
                 line,
             );
         }
         printf(
-            b"Defining the coordinate system (%d-DIM).\n\0".as_ptr() as *const c_char,
+            c"Defining the coordinate system (%d-DIM).\n".as_ptr() as *const c_char,
             gk.dimension,
         );
         Getline(line, input);
         if gk.dimension == 1 {
-            sscanf(line, b"%d\0".as_ptr() as *const c_char, &mut gk.xcells);
+            sscanf(line, c"%d".as_ptr() as *const c_char, &mut gk.xcells);
             gk.ycells = 1;
         }
         if gk.dimension == 2 {
             sscanf(
                 line,
-                b"%d %d\0".as_ptr() as *const c_char,
+                c"%d %d".as_ptr() as *const c_char,
                 &mut gk.xcells,
                 &mut gk.ycells,
             );
@@ -4073,7 +4111,7 @@ unsafe fn loadold_mode(
         if gk.dimension == 3 {
             sscanf(
                 line,
-                b"%d %d %d\0".as_ptr() as *const c_char,
+                c"%d %d %d".as_ptr() as *const c_char,
                 &mut gk.xcells,
                 &mut gk.ycells,
                 &mut gk.zcells,
@@ -4084,7 +4122,7 @@ unsafe fn loadold_mode(
             || gk.zcells >= MAXCELLS as c_int
         {
             printf(
-                b"LoadGrid: Too many subcells [%d %d %d] vs. %d:\n\0".as_ptr() as *const c_char,
+                c"LoadGrid: Too many subcells [%d %d %d] vs. %d:\n".as_ptr() as *const c_char,
                 gk.xcells,
                 gk.ycells,
                 gk.zcells,
@@ -4093,18 +4131,18 @@ unsafe fn loadold_mode(
         }
         if gk.dimension == 1 {
             printf(
-                b"Loading [%d] subcell intervals in 1D\n\0".as_ptr() as *const c_char,
+                c"Loading [%d] subcell intervals in 1D\n".as_ptr() as *const c_char,
                 gk.xcells,
             );
         } else if gk.dimension == 2 {
             printf(
-                b"Loading [%d %d] subcell intervals in 2D\n\0".as_ptr() as *const c_char,
+                c"Loading [%d %d] subcell intervals in 2D\n".as_ptr() as *const c_char,
                 gk.xcells,
                 gk.ycells,
             );
         } else {
             printf(
-                b"Loading [%d %d %d] subcell intervals in 3D\n\0".as_ptr() as *const c_char,
+                c"Loading [%d %d %d] subcell intervals in 3D\n".as_ptr() as *const c_char,
                 gk.xcells,
                 gk.ycells,
                 gk.zcells,
@@ -4137,7 +4175,7 @@ unsafe fn loadold_mode(
             }
             *j += 1;
         }
-        printf(b"Loading material structure\n\0".as_ptr() as *const c_char);
+        printf(c"Loading material structure\n".as_ptr() as *const c_char);
         *j = gk.ycells;
         while *j >= 1 {
             Getline(line, input);
@@ -4167,7 +4205,7 @@ unsafe fn loadold_mode(
         }
         if *minmat < 0 {
             printf(
-                b"LoadElmergrid: please use positive material indices.\n\0".as_ptr()
+                c"LoadElmergrid: please use positive material indices.\n".as_ptr()
                     as *const c_char,
             );
         }
@@ -4180,6 +4218,8 @@ unsafe fn loadold_mode(
     )
 }
 // SAFETY: legacy-.grd modes 3-29 (split for sizing); true = break loop.
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn loadold_mode2(
     grid: *mut *mut GridType,
     nogrids: *mut c_int,
@@ -4232,7 +4272,7 @@ unsafe fn loadold_mode2(
             *i += 1;
         }
         printf(
-            b"Loaded %d geometry mappings\n\0".as_ptr() as *const c_char,
+            c"Loaded %d geometry mappings\n".as_ptr() as *const c_char,
             *l,
         );
         gk.mappings += *l;
@@ -4240,10 +4280,10 @@ unsafe fn loadold_mode2(
         return false;
     }
     if *mode == 4 {
-        if !strstr(line, b"HORIZ\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"HORIZ".as_ptr() as *const c_char).is_null() {
             gk.numbering = NUMBER_XY;
         }
-        if !strstr(line, b"VERTI\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(line, c"VERTI".as_ptr() as *const c_char).is_null() {
             gk.numbering = NUMBER_YX;
         }
         *mode = 0;
@@ -4251,16 +4291,16 @@ unsafe fn loadold_mode2(
     }
     if *mode == 5 {
         if *nogrids >= MAXCASES as c_int {
-            printf(b"There are more grids than was allocated for!\n\0".as_ptr() as *const c_char);
+            printf(c"There are more grids than was allocated for!\n".as_ptr() as *const c_char);
             printf(
-                b"Ignoring meshes starting from %d\n.\0".as_ptr() as *const c_char,
+                c"Ignoring meshes starting from %d\n.".as_ptr() as *const c_char,
                 *nogrids + 1,
             );
             return true;
         }
         *nogrids += 1;
         printf(
-            b"Loading element meshing no %d\n\0".as_ptr() as *const c_char,
+            c"Loading element meshing no %d\n".as_ptr() as *const c_char,
             *nogrids,
         );
         *k = *nogrids - 1;
@@ -4271,12 +4311,12 @@ unsafe fn loadold_mode2(
         return false;
     }
     if *mode == 6 {
-        sscanf(line, b"%d\0".as_ptr() as *const c_char, &mut gk.wantedelems);
+        sscanf(line, c"%d".as_ptr() as *const c_char, &mut gk.wantedelems);
         *mode = 0;
         return false;
     }
     if *mode == 7 {
-        sscanf(line, b"%d\0".as_ptr() as *const c_char, &mut gk.nonodes);
+        sscanf(line, c"%d".as_ptr() as *const c_char, &mut gk.nonodes);
         gk.elemmidpoints = FALSE;
         if gk.nonodes == 4 {
             gk.elemorder = 1;
@@ -4309,11 +4349,8 @@ unsafe fn loadold_mode2(
         return false;
     }
     if *mode == 16 {
-        sscanf(line, b"%d\0".as_ptr() as *const c_char, &mut (*elemcode));
-        if *elemcode / 100 == 2 {
-            gk.triangles = FALSE;
-            gk.nonodes = *elemcode % 100;
-        } else if *elemcode / 100 == 4 {
+        sscanf(line, c"%d".as_ptr() as *const c_char, &mut (*elemcode));
+        if *elemcode / 100 == 2 || *elemcode / 100 == 4 {
             gk.triangles = FALSE;
             gk.nonodes = *elemcode % 100;
         } else if *elemcode / 100 == 3 {
@@ -4350,6 +4387,8 @@ unsafe fn loadold_mode2(
     loadold_mode3(grid, k, mode, scaling, cp, i, j, line, input)
 }
 // SAFETY: legacy-.grd modes 10-23 (split for sizing); always false.
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn loadold_mode3(
     grid: *mut *mut GridType,
     k: &mut c_int,
@@ -4364,12 +4403,12 @@ unsafe fn loadold_mode3(
     let gk = &mut (*(*grid).wrapping_offset(*k as isize));
     if *mode == 10 {
         if gk.dimension == 2 {
-            sscanf(line, b"%le\0".as_ptr() as *const c_char, &mut gk.xyratio);
+            sscanf(line, c"%le".as_ptr() as *const c_char, &mut gk.xyratio);
         }
         if gk.dimension == 3 {
             sscanf(
                 line,
-                b"%le %le\0".as_ptr() as *const c_char,
+                c"%le %le".as_ptr() as *const c_char,
                 &mut gk.xyratio,
                 &mut gk.xzratio,
             );
@@ -4378,7 +4417,7 @@ unsafe fn loadold_mode3(
     } else if *mode == 11 {
         sscanf(
             line,
-            b"%d %d\0".as_ptr() as *const c_char,
+            c"%d %d".as_ptr() as *const c_char,
             &mut gk.firstmaterial,
             &mut gk.lastmaterial,
         );
@@ -4389,7 +4428,7 @@ unsafe fn loadold_mode3(
             Getline(line, input);
             sscanf(
                 line,
-                b"%d %d %d\n\0".as_ptr() as *const c_char,
+                c"%d %d %d\n".as_ptr() as *const c_char,
                 &mut gk.zfirstmaterial[*i as usize],
                 &mut gk.zlastmaterial[*i as usize],
                 &mut gk.zmaterial[*i as usize],
@@ -4398,7 +4437,7 @@ unsafe fn loadold_mode3(
         }
         *mode = 0;
     } else if *mode == 13 {
-        printf(b"Loading element ratios\n\0".as_ptr() as *const c_char);
+        printf(c"Loading element ratios\n".as_ptr() as *const c_char);
         *j = 1;
         while *j <= gk.dimension {
             Getline(line, input);
@@ -4428,7 +4467,7 @@ unsafe fn loadold_mode3(
         }
         *mode = 0;
     } else if *mode == 29 {
-        printf(b"Loading element numbers\n\0".as_ptr() as *const c_char);
+        printf(c"Loading element numbers\n".as_ptr() as *const c_char);
         *j = 1;
         while *j <= gk.dimension {
             Getline(line, input);
@@ -4459,14 +4498,14 @@ unsafe fn loadold_mode3(
         gk.autoratio = 0;
         *mode = 0;
     } else if *mode == 27 {
-        printf(b"Loading minimum number of elements\n\0".as_ptr() as *const c_char);
+        printf(c"Loading minimum number of elements\n".as_ptr() as *const c_char);
         if gk.dimension == 1 {
-            sscanf(line, b"%d\0".as_ptr() as *const c_char, &mut gk.minxelems);
+            sscanf(line, c"%d".as_ptr() as *const c_char, &mut gk.minxelems);
         }
         if gk.dimension == 2 {
             sscanf(
                 line,
-                b"%d %d\0".as_ptr() as *const c_char,
+                c"%d %d".as_ptr() as *const c_char,
                 &mut gk.minxelems,
                 &mut gk.minyelems,
             );
@@ -4474,7 +4513,7 @@ unsafe fn loadold_mode3(
         if gk.dimension == 3 {
             sscanf(
                 line,
-                b"%d %d %d\0".as_ptr() as *const c_char,
+                c"%d %d %d".as_ptr() as *const c_char,
                 &mut gk.minxelems,
                 &mut gk.minyelems,
                 &mut gk.minzelems,
@@ -4482,7 +4521,7 @@ unsafe fn loadold_mode3(
         }
         *mode = 0;
     } else if *mode == 14 {
-        printf(b"Loading element densities\n\0".as_ptr() as *const c_char);
+        printf(c"Loading element densities\n".as_ptr() as *const c_char);
         *j = 1;
         while *j <= gk.dimension {
             Getline(line, input);
@@ -4514,11 +4553,11 @@ unsafe fn loadold_mode3(
     } else if *mode == 15 {
         sscanf(
             line,
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut gk.noboundaries,
         );
         printf(
-            b"Loading %d boundary conditions\n\0".as_ptr() as *const c_char,
+            c"Loading %d boundary conditions\n".as_ptr() as *const c_char,
             gk.noboundaries,
         );
         *i = 0;
@@ -4526,7 +4565,7 @@ unsafe fn loadold_mode3(
             Getline(line, input);
             sscanf(
                 line,
-                b"%d %d %d %d\0".as_ptr() as *const c_char,
+                c"%d %d %d %d".as_ptr() as *const c_char,
                 &mut gk.boundtype[*i as usize],
                 &mut gk.boundext[*i as usize],
                 &mut gk.boundint[*i as usize],
@@ -4541,14 +4580,14 @@ unsafe fn loadold_mode3(
     } else if *mode == 21 {
         sscanf(
             line,
-            b"%le\0".as_ptr() as *const c_char,
+            c"%le".as_ptr() as *const c_char,
             &mut gk.rotateradius2,
         );
         *mode = 0;
     } else if *mode == 22 {
         sscanf(
             line,
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut gk.rotateblocks,
         );
         // NOTE: `if(0)` diagnostic omitted (runtime-dead).
@@ -4556,14 +4595,14 @@ unsafe fn loadold_mode3(
     } else if *mode == 24 {
         sscanf(
             line,
-            b"%le\0".as_ptr() as *const c_char,
+            c"%le".as_ptr() as *const c_char,
             &mut gk.rotateimprove,
         );
         *mode = 0;
     } else if *mode == 30 {
         sscanf(
             line,
-            b"%le\0".as_ptr() as *const c_char,
+            c"%le".as_ptr() as *const c_char,
             &mut gk.polarradius,
         );
         *mode = 0;
@@ -4571,7 +4610,7 @@ unsafe fn loadold_mode3(
         gk.rotatecurve = TRUE;
         sscanf(
             line,
-            b"%le%le%le\0".as_ptr() as *const c_char,
+            c"%le%le%le".as_ptr() as *const c_char,
             &mut gk.curvezet,
             &mut gk.curverad,
             &mut gk.curveangle,
@@ -4580,16 +4619,16 @@ unsafe fn loadold_mode3(
     } else if *mode == 26 {
         sscanf(
             line,
-            b"%d%d\0".as_ptr() as *const c_char,
+            c"%d%d".as_ptr() as *const c_char,
             &mut gk.reduceordermatmin,
             &mut gk.reduceordermatmax,
         );
         *mode = 0;
     } else if *mode == 28 {
-        sscanf(line, b"%d\0".as_ptr() as *const c_char, &mut gk.layeredbc);
+        sscanf(line, c"%d".as_ptr() as *const c_char, &mut gk.layeredbc);
         *mode = 0;
     } else if *mode == 23 {
-        sscanf(line, b"%le\0".as_ptr() as *const c_char, &mut (*scaling));
+        sscanf(line, c"%le".as_ptr() as *const c_char, &mut (*scaling));
         *i = 0;
         while *i <= gk.xcells {
             gk.x[*i as usize] *= *scaling;
@@ -4623,7 +4662,9 @@ unsafe fn loadold_mode3(
 // its definition); hoisted as a module const for later functions.
 const MAXBODYID: c_int = 1000;
 
-// SAFETY: modern .grd reader over caller-allocated grids; C status codes.
+/// # Safety
+///
+/// modern .grd reader over caller-allocated grids; C status codes.
 #[no_mangle]
 pub unsafe extern "C" fn LoadElmergrid(
     grid: *mut *mut GridType,
@@ -4634,7 +4675,7 @@ pub unsafe extern "C" fn LoadElmergrid(
     let mut filename: [c_char; MAXFILESIZE] = [0; MAXFILESIZE];
     let mut command: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
     let mut params: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
-    let input: *mut FILE;
+    
     // NOTE: 0-init for the &mut handoff (set in the command arms before reads).
     let mut i: c_int = 0;
     // NOTE: 0-init for the &mut handoff (set in the command arms before reads).
@@ -4643,15 +4684,15 @@ pub unsafe extern "C" fn LoadElmergrid(
     let mut k: c_int;
     // NOTE: null-init for the &mut handoff (set before every next_* call).
     let mut cp: *mut c_char = core::ptr::null_mut();
-    let noknots: c_int;
-    let noelements: c_int;
-    let dim: c_int;
-    let axisymmetric: c_int;
+    
+    
+    
+    
     // NOTE: 0-init for the mode arms (ELEMENTTYPE/ELEMENTCODE may set it).
     let mut elemcode: c_int = 0;
-    let maxnodes: c_int;
-    let totelems: c_int;
-    let nogrids0: c_int;
+    
+    
+    
     // NOTE: 0-init for the mode arms (MATERIAL STRUCTURE may set them).
     let mut minmat: c_int = 0;
     // NOTE: 0-init for the mode arms (MATERIAL STRUCTURE may set it).
@@ -4661,12 +4702,12 @@ pub unsafe extern "C" fn LoadElmergrid(
     // NOTE: 0-init for the &mut handoff (set in ORIGIN arms before reads).
     let mut raid: Real = 0.0;
     // NOTE: dead C locals kept read-visible for audit (never read in C either).
-    noknots = 0;
-    noelements = 0;
-    dim = 0;
-    axisymmetric = FALSE;
-    maxnodes = 4;
-    totelems = 0;
+    let noknots: c_int = 0;
+    let noelements: c_int = 0;
+    let dim: c_int = 0;
+    let axisymmetric: c_int = FALSE;
+    let maxnodes: c_int = 4;
+    let totelems: c_int = 0;
     let _ = (
         &noknots,
         &noelements,
@@ -4678,12 +4719,12 @@ pub unsafe extern "C" fn LoadElmergrid(
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"grd\0".as_ptr() as *const c_char,
+        c"grd".as_ptr() as *const c_char,
     );
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    let input: *mut FILE = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadElmergrid: opening of the file '%s' wasn't successful !\n\0".as_ptr()
+            c"LoadElmergrid: opening of the file '%s' wasn't successful !\n".as_ptr()
                 as *const c_char,
             filename.as_ptr(),
         );
@@ -4691,46 +4732,46 @@ pub unsafe extern "C" fn LoadElmergrid(
     }
     if info != 0 {
         printf(
-            b"Loading the geometry from file '%s'.\n\0".as_ptr() as *const c_char,
+            c"Loading the geometry from file '%s'.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
     InitGrid(*grid.wrapping_offset(*nogrids as isize));
     k = *nogrids;
-    nogrids0 = *nogrids;
+    let nogrids0: c_int = *nogrids;
     iodebug = FALSE;
     matcactive = FALSE;
     loop {
         if GetCommand(command.as_mut_ptr(), params.as_mut_ptr(), input) != 0 {
             if info != 0 {
-                printf(b"Reached the end of command file\n\0".as_ptr() as *const c_char);
+                printf(c"Reached the end of command file\n".as_ptr() as *const c_char);
             }
             break;
         }
         // NOTE: control information.
-        if !strstr(command.as_ptr(), b"VERSION\0".as_ptr() as *const c_char).is_null() {
-            if !strstr(command.as_ptr(), b"080500\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(command.as_ptr(), c"VERSION".as_ptr() as *const c_char).is_null() {
+            if !strstr(command.as_ptr(), c"080500".as_ptr() as *const c_char).is_null() {
                 if info != 0 {
-                    printf(b"Loading old version of Elmergrid file.\n\0".as_ptr() as *const c_char);
+                    printf(c"Loading old version of Elmergrid file.\n".as_ptr() as *const c_char);
                 }
                 i = LoadElmergridOld(grid, nogrids, prefix, info);
                 return i;
             } else {
                 sscanf(
                     params.as_ptr(),
-                    b"%ld\0".as_ptr() as *const c_char,
+                    c"%ld".as_ptr() as *const c_char,
                     &mut code,
                 );
                 if code == 210903 {
                     if info != 0 {
                         printf(
-                            b"Loading ElmerGrid file version: %ld\n\0".as_ptr() as *const c_char,
+                            c"Loading ElmerGrid file version: %ld\n".as_ptr() as *const c_char,
                             code,
                         );
                     }
                 } else {
                     printf(
-                        b"Unknown ElmerGrid file version: %ld\n\0".as_ptr() as *const c_char,
+                        c"Unknown ElmerGrid file version: %ld\n".as_ptr() as *const c_char,
                         code,
                     );
                     return 2;
@@ -4739,23 +4780,23 @@ pub unsafe extern "C" fn LoadElmergrid(
             *nogrids += 1;
         } else if !strstr(
             command.as_ptr(),
-            b"START NEW MESH\0".as_ptr() as *const c_char,
+            c"START NEW MESH".as_ptr() as *const c_char,
         )
         .is_null()
         {
             if *nogrids >= MAXCASES as c_int {
                 printf(
-                    b"There are more grids than was allocated for!\n\0".as_ptr() as *const c_char
+                    c"There are more grids than was allocated for!\n".as_ptr() as *const c_char
                 );
                 printf(
-                    b"Ignoring meshes starting from %d\n.\0".as_ptr() as *const c_char,
+                    c"Ignoring meshes starting from %d\n.".as_ptr() as *const c_char,
                     *nogrids + 1,
                 );
                 break;
             }
             *nogrids += 1;
             printf(
-                b"\nLoading element meshing no %d\n\0".as_ptr() as *const c_char,
+                c"\nLoading element meshing no %d\n".as_ptr() as *const c_char,
                 *nogrids,
             );
             k = *nogrids - 1;
@@ -4782,7 +4823,7 @@ pub unsafe extern "C" fn LoadElmergrid(
     }
     if info != 0 {
         printf(
-            b"Found %d divisions for grid\n\0".as_ptr() as *const c_char,
+            c"Found %d divisions for grid\n".as_ptr() as *const c_char,
             *nogrids,
         );
     }
@@ -4812,10 +4853,7 @@ unsafe fn load_elemcode(grid: *mut *mut GridType, k: c_int, elemcode: &mut c_int
                 gk.nonodes = 16;
             }
         }
-    } else if *elemcode / 100 == 2 {
-        gk.triangles = FALSE;
-        gk.nonodes = *elemcode % 100;
-    } else if *elemcode / 100 == 4 {
+    } else if *elemcode / 100 == 2 || *elemcode / 100 == 4 {
         gk.triangles = FALSE;
         gk.nonodes = *elemcode % 100;
     } else if *elemcode / 100 == 3 {
@@ -4830,6 +4868,8 @@ unsafe fn load_elemcode(grid: *mut *mut GridType, k: c_int, elemcode: &mut c_int
     }
 }
 // SAFETY: one modern-.grd command arm, geometry half (split for sizing).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn load_cmd(
     grid: *mut *mut GridType,
     k: &mut c_int,
@@ -4846,39 +4886,39 @@ unsafe fn load_cmd(
     info: c_int,
 ) {
     let gk = &mut (*(*grid).wrapping_offset(*k as isize));
-    if !strstr(command, b"DEBUG IO\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(command, c"DEBUG IO".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXLINESIZE as c_int {
             *params.wrapping_offset(*i as isize) =
                 toupper(*params.wrapping_offset(*i as isize) as c_int) as c_char;
             *i += 1;
         }
-        if !strstr(params, b"FALSE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"FALSE".as_ptr() as *const c_char).is_null() {
             iodebug = FALSE;
         } else {
             iodebug = TRUE;
-            printf(b"IO debugging activated\n\0".as_ptr() as *const c_char);
+            printf(c"IO debugging activated\n".as_ptr() as *const c_char);
         }
-    } else if !strstr(command, b"MATC\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"MATC".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXLINESIZE as c_int {
             *params.wrapping_offset(*i as isize) =
                 toupper(*params.wrapping_offset(*i as isize) as c_int) as c_char;
             *i += 1;
         }
-        if !strstr(params, b"FALSE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"FALSE".as_ptr() as *const c_char).is_null() {
             matcactive = FALSE;
         } else {
             // NOTE: USE_MATC=0 arm (the #else branch in C).
             matcactive = FALSE;
             printf(
-                b"Unable to enable MATC, as it is not even compiled.\n\0".as_ptr() as *const c_char,
+                c"Unable to enable MATC, as it is not even compiled.\n".as_ptr() as *const c_char,
             );
             bigerror(
-                b"Unable to enable MATC, as it is not even compiled.\0".as_ptr() as *const c_char,
+                c"Unable to enable MATC, as it is not even compiled.".as_ptr() as *const c_char,
             );
         }
-    } else if !strstr(command, b"COORDINATE SYSTEM\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"COORDINATE SYSTEM".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXLINESIZE as c_int {
             *params.wrapping_offset(*i as isize) =
@@ -4886,45 +4926,45 @@ unsafe fn load_cmd(
             *i += 1;
         }
         gk.dimension = 2;
-        if !strstr(params, b"CARTESIAN 1D\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"CARTESIAN 1D".as_ptr() as *const c_char).is_null() {
             gk.coordsystem = COORD_CART1;
             gk.dimension = 1;
-        } else if !strstr(params, b"CARTESIAN 2D\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(params, c"CARTESIAN 2D".as_ptr() as *const c_char).is_null() {
             gk.coordsystem = COORD_CART2;
-        } else if !strstr(params, b"AXISYMMETRIC\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(params, c"AXISYMMETRIC".as_ptr() as *const c_char).is_null() {
             gk.coordsystem = COORD_AXIS;
-        } else if !strstr(params, b"POLAR\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(params, c"POLAR".as_ptr() as *const c_char).is_null() {
             gk.coordsystem = COORD_POLAR;
-        } else if !strstr(params, b"CARTESIAN 3D\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(params, c"CARTESIAN 3D".as_ptr() as *const c_char).is_null() {
             gk.coordsystem = COORD_CART3;
             gk.dimension = 3;
         } else {
             printf(
-                b"Unknown coordinate system: %s\n\0".as_ptr() as *const c_char,
+                c"Unknown coordinate system: %s\n".as_ptr() as *const c_char,
                 params,
             );
         }
         if info != 0 {
             printf(
-                b"Defining the coordinate system (%d-DIM).\n\0".as_ptr() as *const c_char,
+                c"Defining the coordinate system (%d-DIM).\n".as_ptr() as *const c_char,
                 gk.dimension,
             );
         }
-    } else if !strstr(command, b"SUBCELL DIVISIONS\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"SUBCELL DIVISIONS".as_ptr() as *const c_char).is_null() {
         if gk.dimension == 1 {
-            sscanf(params, b"%d\0".as_ptr() as *const c_char, &mut gk.xcells);
+            sscanf(params, c"%d".as_ptr() as *const c_char, &mut gk.xcells);
             gk.ycells = 1;
         } else if gk.dimension == 2 {
             sscanf(
                 params,
-                b"%d %d\0".as_ptr() as *const c_char,
+                c"%d %d".as_ptr() as *const c_char,
                 &mut gk.xcells,
                 &mut gk.ycells,
             );
         } else if gk.dimension == 3 {
             sscanf(
                 params,
-                b"%d %d %d\0".as_ptr() as *const c_char,
+                c"%d %d %d".as_ptr() as *const c_char,
                 &mut gk.xcells,
                 &mut gk.ycells,
                 &mut gk.zcells,
@@ -4935,7 +4975,7 @@ unsafe fn load_cmd(
             || gk.zcells >= MAXCELLS as c_int
         {
             printf(
-                b"LoadElmergrid: Too many subcells [%d %d %d] vs. %d:\n\0".as_ptr()
+                c"LoadElmergrid: Too many subcells [%d %d %d] vs. %d:\n".as_ptr()
                     as *const c_char,
                 gk.xcells,
                 gk.ycells,
@@ -4955,20 +4995,20 @@ unsafe fn load_cmd(
         }
     } else if !strstr(
         command,
-        b"MINIMUM ELEMENT DIVISION\0".as_ptr() as *const c_char,
+        c"MINIMUM ELEMENT DIVISION".as_ptr() as *const c_char,
     )
     .is_null()
     {
         if info != 0 {
-            printf(b"Loading minimum number of elements\n\0".as_ptr() as *const c_char);
+            printf(c"Loading minimum number of elements\n".as_ptr() as *const c_char);
         }
         if gk.dimension == 1 {
-            sscanf(params, b"%d\0".as_ptr() as *const c_char, &mut gk.minxelems);
+            sscanf(params, c"%d".as_ptr() as *const c_char, &mut gk.minxelems);
         }
         if gk.dimension == 2 {
             sscanf(
                 params,
-                b"%d %d\0".as_ptr() as *const c_char,
+                c"%d %d".as_ptr() as *const c_char,
                 &mut gk.minxelems,
                 &mut gk.minyelems,
             );
@@ -4976,16 +5016,16 @@ unsafe fn load_cmd(
         if gk.dimension == 3 {
             sscanf(
                 params,
-                b"%d %d %d\0".as_ptr() as *const c_char,
+                c"%d %d %d".as_ptr() as *const c_char,
                 &mut gk.minxelems,
                 &mut gk.minyelems,
                 &mut gk.minzelems,
             );
         }
-    } else if !strstr(command, b"SUBCELL LIMITS 1\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"SUBCELL LIMITS 1".as_ptr() as *const c_char).is_null() {
         if info != 0 {
             printf(
-                b"Loading %d subcell limits in X-direction\n\0".as_ptr() as *const c_char,
+                c"Loading %d subcell limits in X-direction\n".as_ptr() as *const c_char,
                 gk.xcells + 1,
             );
         }
@@ -4995,22 +5035,22 @@ unsafe fn load_cmd(
             gk.x[*i as usize] = next_real(&mut (*cp));
             if *i > 0 && gk.x[*i as usize] < gk.x[(*i - 1) as usize] {
                 printf(
-                    b"Subcell limits 1(%d): %12.6le %12.6le\n\0".as_ptr() as *const c_char,
+                    c"Subcell limits 1(%d): %12.6le %12.6le\n".as_ptr() as *const c_char,
                     *i,
                     gk.x[*i as usize],
                     gk.x[(*i - 1) as usize],
                 );
                 bigerror(
-                    b"Values for limits 1 should be a growing series, existing\n\0".as_ptr()
+                    c"Values for limits 1 should be a growing series, existing\n".as_ptr()
                         as *const c_char,
                 );
             }
             *i += 1;
         }
-    } else if !strstr(command, b"SUBCELL LIMITS 2\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"SUBCELL LIMITS 2".as_ptr() as *const c_char).is_null() {
         if info != 0 {
             printf(
-                b"Loading %d subcell limits in Y-direction\n\0".as_ptr() as *const c_char,
+                c"Loading %d subcell limits in Y-direction\n".as_ptr() as *const c_char,
                 gk.ycells + 1,
             );
         }
@@ -5020,22 +5060,22 @@ unsafe fn load_cmd(
             gk.y[*i as usize] = next_real(&mut (*cp));
             if *i > 0 && gk.y[*i as usize] < gk.y[(*i - 1) as usize] {
                 printf(
-                    b"Subcell limits 2(%d): %12.6le %12.6le\n\0".as_ptr() as *const c_char,
+                    c"Subcell limits 2(%d): %12.6le %12.6le\n".as_ptr() as *const c_char,
                     *i,
                     gk.y[*i as usize],
                     gk.y[(*i - 1) as usize],
                 );
                 bigerror(
-                    b"Values for limits should be a growing series, existing\n\0".as_ptr()
+                    c"Values for limits should be a growing series, existing\n".as_ptr()
                         as *const c_char,
                 );
             }
             *i += 1;
         }
-    } else if !strstr(command, b"SUBCELL LIMITS 3\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"SUBCELL LIMITS 3".as_ptr() as *const c_char).is_null() {
         if info != 0 {
             printf(
-                b"Loading %d subcell limits in Z-direction\n\0".as_ptr() as *const c_char,
+                c"Loading %d subcell limits in Z-direction\n".as_ptr() as *const c_char,
                 gk.zcells + 1,
             );
         }
@@ -5045,19 +5085,19 @@ unsafe fn load_cmd(
             gk.z[*i as usize] = next_real(&mut (*cp));
             if *i > 0 && gk.z[*i as usize] < gk.z[(*i - 1) as usize] {
                 printf(
-                    b"Subcell limits 3(%d): %12.6le %12.6le\n\0".as_ptr() as *const c_char,
+                    c"Subcell limits 3(%d): %12.6le %12.6le\n".as_ptr() as *const c_char,
                     *i,
                     gk.z[*i as usize],
                     gk.z[(*i - 1) as usize],
                 );
                 bigerror(
-                    b"Values for limits should be a growing series, existing\n\0".as_ptr()
+                    c"Values for limits should be a growing series, existing\n".as_ptr()
                         as *const c_char,
                 );
             }
             *i += 1;
         }
-    } else if !strstr(command, b"SUBCELL SIZES 1\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"SUBCELL SIZES 1".as_ptr() as *const c_char).is_null() {
         // NOTE: C prints no info line for SIZES 1 (unlike 2/3).
         *cp = params;
         *i = 1;
@@ -5067,13 +5107,13 @@ unsafe fn load_cmd(
         }
         *i = 1;
         while *i <= gk.xcells {
-            gk.x[*i as usize] = gk.x[(*i - 1) as usize] + gk.x[*i as usize];
+            gk.x[*i as usize] += gk.x[(*i - 1) as usize];
             *i += 1;
         }
-    } else if !strstr(command, b"SUBCELL SIZES 2\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"SUBCELL SIZES 2".as_ptr() as *const c_char).is_null() {
         if info != 0 {
             printf(
-                b"Loading %d subcell sizes in Y-direction\n\0".as_ptr() as *const c_char,
+                c"Loading %d subcell sizes in Y-direction\n".as_ptr() as *const c_char,
                 gk.ycells,
             );
         }
@@ -5085,13 +5125,13 @@ unsafe fn load_cmd(
         }
         *i = 1;
         while *i <= gk.ycells {
-            gk.y[*i as usize] = gk.y[(*i - 1) as usize] + gk.y[*i as usize];
+            gk.y[*i as usize] += gk.y[(*i - 1) as usize];
             *i += 1;
         }
-    } else if !strstr(command, b"SUBCELL SIZES 3\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"SUBCELL SIZES 3".as_ptr() as *const c_char).is_null() {
         if info != 0 {
             printf(
-                b"Loading %d subcell sizes in Z-direction\n\0".as_ptr() as *const c_char,
+                c"Loading %d subcell sizes in Z-direction\n".as_ptr() as *const c_char,
                 gk.zcells,
             );
         }
@@ -5103,7 +5143,7 @@ unsafe fn load_cmd(
         }
         *i = 1;
         while *i <= gk.zcells {
-            gk.z[*i as usize] = gk.z[(*i - 1) as usize] + gk.z[*i as usize];
+            gk.z[*i as usize] += gk.z[(*i - 1) as usize];
             *i += 1;
         }
     } else {
@@ -5113,6 +5153,8 @@ unsafe fn load_cmd(
     }
 }
 // SAFETY: modern-.grd command arms, materials/boundary half (split).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn load_cmd2(
     grid: *mut *mut GridType,
     k: &mut c_int,
@@ -5129,21 +5171,21 @@ unsafe fn load_cmd2(
     info: c_int,
 ) {
     let gk = &mut (*(*grid).wrapping_offset(*k as isize));
-    if !strstr(command, b"SUBCELL ORIGIN 1\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(command, c"SUBCELL ORIGIN 1".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXLINESIZE as c_int {
             *params.wrapping_offset(*i as isize) =
                 toupper(*params.wrapping_offset(*i as isize) as c_int) as c_char;
             *i += 1;
         }
-        if !strstr(params, b"CENTER\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"CENTER".as_ptr() as *const c_char).is_null() {
             *raid = 0.5 * (gk.x[0] + gk.x[gk.xcells as usize]);
-        } else if !strstr(params, b"LEFT\0".as_ptr() as *const c_char).is_null()
-            || !strstr(params, b"MIN\0".as_ptr() as *const c_char).is_null()
+        } else if !strstr(params, c"LEFT".as_ptr() as *const c_char).is_null()
+            || !strstr(params, c"MIN".as_ptr() as *const c_char).is_null()
         {
             *raid = gk.x[0];
-        } else if !strstr(params, b"RIGHT\0".as_ptr() as *const c_char).is_null()
-            || !strstr(params, b"MAX\0".as_ptr() as *const c_char).is_null()
+        } else if !strstr(params, c"RIGHT".as_ptr() as *const c_char).is_null()
+            || !strstr(params, c"MAX".as_ptr() as *const c_char).is_null()
         {
             *raid = gk.x[gk.xcells as usize];
         } else {
@@ -5155,18 +5197,18 @@ unsafe fn load_cmd2(
             gk.x[*i as usize] -= *raid;
             *i += 1;
         }
-    } else if !strstr(command, b"SUBCELL ORIGIN 2\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"SUBCELL ORIGIN 2".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXLINESIZE as c_int {
             *params.wrapping_offset(*i as isize) =
                 toupper(*params.wrapping_offset(*i as isize) as c_int) as c_char;
             *i += 1;
         }
-        if !strstr(params, b"CENTER\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"CENTER".as_ptr() as *const c_char).is_null() {
             *raid = 0.5 * (gk.y[0] + gk.y[gk.ycells as usize]);
-        } else if !strstr(params, b"LEFT\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(params, c"LEFT".as_ptr() as *const c_char).is_null() {
             *raid = gk.y[0];
-        } else if !strstr(params, b"RIGHT\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(params, c"RIGHT".as_ptr() as *const c_char).is_null() {
             *raid = gk.y[gk.ycells as usize];
         } else {
             *cp = params;
@@ -5177,18 +5219,18 @@ unsafe fn load_cmd2(
             gk.y[*i as usize] -= *raid;
             *i += 1;
         }
-    } else if !strstr(command, b"SUBCELL ORIGIN 3\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"SUBCELL ORIGIN 3".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXLINESIZE as c_int {
             *params.wrapping_offset(*i as isize) =
                 toupper(*params.wrapping_offset(*i as isize) as c_int) as c_char;
             *i += 1;
         }
-        if !strstr(params, b"CENTER\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"CENTER".as_ptr() as *const c_char).is_null() {
             *raid = 0.5 * (gk.z[0] + gk.z[gk.zcells as usize]);
-        } else if !strstr(params, b"LEFT\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(params, c"LEFT".as_ptr() as *const c_char).is_null() {
             *raid = gk.z[0];
-        } else if !strstr(params, b"RIGHT\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(params, c"RIGHT".as_ptr() as *const c_char).is_null() {
             *raid = gk.z[gk.zcells as usize];
         } else {
             *cp = params;
@@ -5199,9 +5241,9 @@ unsafe fn load_cmd2(
             gk.z[*i as usize] -= *raid;
             *i += 1;
         }
-    } else if !strstr(command, b"MATERIAL STRUCTURE\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"MATERIAL STRUCTURE".as_ptr() as *const c_char).is_null() {
         if info != 0 {
-            printf(b"Loading material structure\n\0".as_ptr() as *const c_char);
+            printf(c"Loading material structure\n".as_ptr() as *const c_char);
         }
         // NOTE: initialize the default structure with zeros.
         *j = gk.ycells;
@@ -5244,88 +5286,88 @@ unsafe fn load_cmd2(
         }
         if *minmat < 0 {
             printf(
-                b"LoadElmergrid: please use positive material indices.\n\0".as_ptr()
+                c"LoadElmergrid: please use positive material indices.\n".as_ptr()
                     as *const c_char,
             );
         }
         if *maxmat > MAXBODYID {
             printf(
-                b"LoadElmergrid: material indices larger to %d may create problems.\n\0".as_ptr()
+                c"LoadElmergrid: material indices larger to %d may create problems.\n".as_ptr()
                     as *const c_char,
                 MAXBODYID,
             );
         }
         printf(
-            b"LoadElmergrid: materials interval is [%d,%d]\n\0".as_ptr() as *const c_char,
+            c"LoadElmergrid: materials interval is [%d,%d]\n".as_ptr() as *const c_char,
             *minmat,
             *maxmat,
         );
         gk.maxmaterial = *maxmat;
-    } else if !strstr(command, b"MATERIALS INTERVAL\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"MATERIALS INTERVAL".as_ptr() as *const c_char).is_null() {
         sscanf(
             params,
-            b"%d %d\0".as_ptr() as *const c_char,
+            c"%d %d".as_ptr() as *const c_char,
             &mut gk.firstmaterial,
             &mut gk.lastmaterial,
         );
-    } else if !strstr(command, b"REVOLVE\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"REVOLVE".as_ptr() as *const c_char).is_null() {
         // NOTE: `if(0)` diagnostic omitted (runtime-dead).
-        if !strstr(command, b"REVOLVE RADIUS\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(command, c"REVOLVE RADIUS".as_ptr() as *const c_char).is_null() {
             gk.rotate = TRUE;
             sscanf(
                 params,
-                b"%le\0".as_ptr() as *const c_char,
+                c"%le".as_ptr() as *const c_char,
                 &mut gk.rotateradius2,
             );
-        } else if !strstr(command, b"REVOLVE BLOCKS\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(command, c"REVOLVE BLOCKS".as_ptr() as *const c_char).is_null() {
             gk.rotate = TRUE;
             sscanf(
                 params,
-                b"%d\0".as_ptr() as *const c_char,
+                c"%d".as_ptr() as *const c_char,
                 &mut gk.rotateblocks,
             );
-        } else if !strstr(command, b"REVOLVE IMPROVE\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(command, c"REVOLVE IMPROVE".as_ptr() as *const c_char).is_null() {
             gk.rotate = TRUE;
             sscanf(
                 params,
-                b"%le\0".as_ptr() as *const c_char,
+                c"%le".as_ptr() as *const c_char,
                 &mut gk.rotateimprove,
             );
-        } else if !strstr(command, b"REVOLVE RADIUS\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(command, c"REVOLVE RADIUS".as_ptr() as *const c_char).is_null() {
             // NOTE: unreachable (same test as the first arm); kept for C shape.
             sscanf(
                 params,
-                b"%le\0".as_ptr() as *const c_char,
+                c"%le".as_ptr() as *const c_char,
                 &mut gk.polarradius,
             );
-        } else if !strstr(command, b"REVOLVE CURVE DIRECT\0".as_ptr() as *const c_char).is_null() {
+        } else if !strstr(command, c"REVOLVE CURVE DIRECT".as_ptr() as *const c_char).is_null() {
             gk.rotatecurve = TRUE;
-            sscanf(params, b"%le\0".as_ptr() as *const c_char, &mut gk.curvezet);
-        } else if !strstr(command, b"REVOLVE CURVE RADIUS\0".as_ptr() as *const c_char).is_null() {
+            sscanf(params, c"%le".as_ptr() as *const c_char, &mut gk.curvezet);
+        } else if !strstr(command, c"REVOLVE CURVE RADIUS".as_ptr() as *const c_char).is_null() {
             gk.rotatecurve = TRUE;
-            sscanf(params, b"%le\0".as_ptr() as *const c_char, &mut gk.curverad);
-        } else if !strstr(command, b"REVOLVE CURVE ANGLE\0".as_ptr() as *const c_char).is_null() {
+            sscanf(params, c"%le".as_ptr() as *const c_char, &mut gk.curverad);
+        } else if !strstr(command, c"REVOLVE CURVE ANGLE".as_ptr() as *const c_char).is_null() {
             gk.rotatecurve = TRUE;
             sscanf(
                 params,
-                b"%le\0".as_ptr() as *const c_char,
+                c"%le".as_ptr() as *const c_char,
                 &mut gk.curveangle,
             );
         }
     } else if !strstr(
         command,
-        b"REDUCE ORDER INTERVAL\0".as_ptr() as *const c_char,
+        c"REDUCE ORDER INTERVAL".as_ptr() as *const c_char,
     )
     .is_null()
     {
         sscanf(
             params,
-            b"%d%d\0".as_ptr() as *const c_char,
+            c"%d%d".as_ptr() as *const c_char,
             &mut gk.reduceordermatmin,
             &mut gk.reduceordermatmax,
         );
-    } else if !strstr(command, b"BOUNDARY DEFINITION\0".as_ptr() as *const c_char).is_null() {
-        printf(b"Loading boundary conditions\n\0".as_ptr() as *const c_char);
+    } else if !strstr(command, c"BOUNDARY DEFINITION".as_ptr() as *const c_char).is_null() {
+        printf(c"Loading boundary conditions\n".as_ptr() as *const c_char);
         *i = 0;
         while *i < MAXBOUNDARIES as c_int {
             if *i > 0 {
@@ -5337,12 +5379,12 @@ unsafe fn load_cmd2(
                     toupper(*params.wrapping_offset(*j as isize) as c_int) as c_char;
                 *j += 1;
             }
-            if !strstr(params, b"END\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(params, c"END".as_ptr() as *const c_char).is_null() {
                 break;
             }
             sscanf(
                 params,
-                b"%d %d %d %d\0".as_ptr() as *const c_char,
+                c"%d %d %d %d".as_ptr() as *const c_char,
                 &mut gk.boundtype[*i as usize],
                 &mut gk.boundext[*i as usize],
                 &mut gk.boundint[*i as usize],
@@ -5350,7 +5392,7 @@ unsafe fn load_cmd2(
             );
             *i += 1;
         }
-        printf(b"Found %d boundaries\n\0".as_ptr() as *const c_char, *i);
+        printf(c"Found %d boundaries\n".as_ptr() as *const c_char, *i);
         gk.noboundaries = *i;
     } else {
         load_cmd3(grid, k, cp, i, j, elemcode, command, params, input, info);
@@ -5359,6 +5401,8 @@ unsafe fn load_cmd2(
 // SAFETY: modern-.grd command arms, element/mapping tail (split).
 // NOTE: the block-commented LAYERED-BOUNDARIES and EXTRUDED-STRUCTURE
 // arms are dead in C and omitted.
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn load_cmd3(
     grid: *mut *mut GridType,
     k: &mut c_int,
@@ -5373,157 +5417,153 @@ unsafe fn load_cmd3(
 ) {
     let _ = info;
     let gk = &mut (*(*grid).wrapping_offset(*k as isize));
-    if !strstr(command, b"NUMBERING\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(command, c"NUMBERING".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXLINESIZE as c_int {
             *params.wrapping_offset(*i as isize) =
                 toupper(*params.wrapping_offset(*i as isize) as c_int) as c_char;
             *i += 1;
         }
-        if !strstr(params, b"HORIZONTAL\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"HORIZONTAL".as_ptr() as *const c_char).is_null() {
             gk.numbering = NUMBER_XY;
         }
-        if !strstr(params, b"VERTICAL\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"VERTICAL".as_ptr() as *const c_char).is_null() {
             gk.numbering = NUMBER_YX;
         }
-    } else if !strstr(command, b"ELEMENT DEGREE\0".as_ptr() as *const c_char).is_null() {
-        sscanf(params, b"%d\0".as_ptr() as *const c_char, &mut gk.elemorder);
-    } else if !strstr(command, b"ELEMENT INNERNODES\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"ELEMENT DEGREE".as_ptr() as *const c_char).is_null() {
+        sscanf(params, c"%d".as_ptr() as *const c_char, &mut gk.elemorder);
+    } else if !strstr(command, c"ELEMENT INNERNODES".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXLINESIZE as c_int {
             *params.wrapping_offset(*i as isize) =
                 toupper(*params.wrapping_offset(*i as isize) as c_int) as c_char;
             *i += 1;
         }
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             gk.elemmidpoints = TRUE;
         }
-        if !strstr(params, b"FALSE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"FALSE".as_ptr() as *const c_char).is_null() {
             gk.elemmidpoints = FALSE;
         }
-    } else if !strstr(command, b"ELEMENTTYPE\0".as_ptr() as *const c_char).is_null()
-        || !strstr(command, b"ELEMENTCODE\0".as_ptr() as *const c_char).is_null()
+    } else if !strstr(command, c"ELEMENTTYPE".as_ptr() as *const c_char).is_null()
+        || !strstr(command, c"ELEMENTCODE".as_ptr() as *const c_char).is_null()
     {
-        sscanf(params, b"%d\0".as_ptr() as *const c_char, &mut (*elemcode));
+        sscanf(params, c"%d".as_ptr() as *const c_char, &mut (*elemcode));
     } else if !strstr(
         command,
-        b"TRIANGLES CRITICAL ANGLE\0".as_ptr() as *const c_char,
+        c"TRIANGLES CRITICAL ANGLE".as_ptr() as *const c_char,
     )
     .is_null()
     {
         sscanf(
             params,
-            b"%le\0".as_ptr() as *const c_char,
+            c"%le".as_ptr() as *const c_char,
             &mut gk.triangleangle,
         );
-    } else if !strstr(command, b"TRIANGLES\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"TRIANGLES".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXLINESIZE as c_int {
             *params.wrapping_offset(*i as isize) =
                 toupper(*params.wrapping_offset(*i as isize) as c_int) as c_char;
             *i += 1;
         }
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             gk.triangles = TRUE;
         }
-        if !strstr(params, b"FALSE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"FALSE".as_ptr() as *const c_char).is_null() {
             gk.triangles = FALSE;
         }
-    } else if !strstr(command, b"PLANE ELEMENTS\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"PLANE ELEMENTS".as_ptr() as *const c_char).is_null()
+        || !strstr(command, c"SURFACE ELEMENTS".as_ptr() as *const c_char).is_null()
+    {
         sscanf(
             params,
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut gk.wantedelems,
         );
-    } else if !strstr(command, b"SURFACE ELEMENTS\0".as_ptr() as *const c_char).is_null() {
-        sscanf(
-            params,
-            b"%d\0".as_ptr() as *const c_char,
-            &mut gk.wantedelems,
-        );
-    } else if !strstr(command, b"REFERENCE DENSITY\0".as_ptr() as *const c_char).is_null() {
-        sscanf(params, b"%le\0".as_ptr() as *const c_char, &mut gk.limitdx);
+    } else if !strstr(command, c"REFERENCE DENSITY".as_ptr() as *const c_char).is_null() {
+        sscanf(params, c"%le".as_ptr() as *const c_char, &mut gk.limitdx);
         gk.autoratio = 3;
-    } else if !strstr(command, b"VERIFY DENSITY\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"VERIFY DENSITY".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXLINESIZE as c_int {
             *params.wrapping_offset(*i as isize) =
                 toupper(*params.wrapping_offset(*i as isize) as c_int) as c_char;
             *i += 1;
         }
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             gk.limitdxverify = TRUE;
         }
-        if !strstr(params, b"FALSE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"FALSE".as_ptr() as *const c_char).is_null() {
             gk.limitdxverify = FALSE;
         }
-    } else if !strstr(command, b"VOLUME ELEMENTS\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"VOLUME ELEMENTS".as_ptr() as *const c_char).is_null() {
         sscanf(
             params,
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut gk.wantedelems3d,
         );
-    } else if !strstr(command, b"VOLUME NODES\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"VOLUME NODES".as_ptr() as *const c_char).is_null() {
         sscanf(
             params,
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut gk.wantednodes3d,
         );
-    } else if !strstr(command, b"COORDINATE RATIO\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"COORDINATE RATIO".as_ptr() as *const c_char).is_null() {
         if gk.dimension == 2 {
-            sscanf(params, b"%le\0".as_ptr() as *const c_char, &mut gk.xyratio);
+            sscanf(params, c"%le".as_ptr() as *const c_char, &mut gk.xyratio);
         }
         if gk.dimension == 3 {
             sscanf(
                 params,
-                b"%le %le\0".as_ptr() as *const c_char,
+                c"%le %le".as_ptr() as *const c_char,
                 &mut gk.xyratio,
                 &mut gk.xzratio,
             );
         }
-    } else if !strstr(command, b"ELEMENT RATIOS 1\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"ELEMENT RATIOS 1".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 1;
         while *i <= gk.xcells {
             gk.xexpand[*i as usize] = next_real(&mut (*cp));
             *i += 1;
         }
-    } else if !strstr(command, b"ELEMENT RATIOS 2\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"ELEMENT RATIOS 2".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 1;
         while *i <= gk.ycells {
             gk.yexpand[*i as usize] = next_real(&mut (*cp));
             *i += 1;
         }
-    } else if !strstr(command, b"ELEMENT RATIOS 3\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"ELEMENT RATIOS 3".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 1;
         while *i <= gk.zcells {
             gk.zexpand[*i as usize] = next_real(&mut (*cp));
             *i += 1;
         }
-    } else if !strstr(command, b"ELEMENT DENSITIES 1\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"ELEMENT DENSITIES 1".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 1;
         while *i <= gk.xcells {
             gk.xdens[*i as usize] = next_real(&mut (*cp));
             *i += 1;
         }
-    } else if !strstr(command, b"ELEMENT DENSITIES 2\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"ELEMENT DENSITIES 2".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 1;
         while *i <= gk.ycells {
             gk.ydens[*i as usize] = next_real(&mut (*cp));
             *i += 1;
         }
-    } else if !strstr(command, b"ELEMENT DENSITIES 3\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"ELEMENT DENSITIES 3".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 1;
         while *i <= gk.zcells {
             gk.zdens[*i as usize] = next_real(&mut (*cp));
             *i += 1;
         }
-    } else if !strstr(command, b"ELEMENT DIVISIONS 1\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"ELEMENT DIVISIONS 1".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 1;
         while *i <= gk.xcells {
@@ -5531,7 +5571,7 @@ unsafe fn load_cmd3(
             *i += 1;
         }
         gk.autoratio = 0;
-    } else if !strstr(command, b"ELEMENT DIVISIONS 2\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"ELEMENT DIVISIONS 2".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 1;
         while *i <= gk.ycells {
@@ -5539,7 +5579,7 @@ unsafe fn load_cmd3(
             *i += 1;
         }
         gk.autoratio = 0;
-    } else if !strstr(command, b"ELEMENT DIVISIONS 3\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"ELEMENT DIVISIONS 3".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 1;
         while *i <= gk.zcells {
@@ -5547,7 +5587,7 @@ unsafe fn load_cmd3(
             *i += 1;
         }
         gk.autoratio = 0;
-    } else if !strstr(command, b"GEOMETRY MAPPINGS\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"GEOMETRY MAPPINGS".as_ptr() as *const c_char).is_null() {
         if *k > 0 {
             gk.mappings = 0;
         }
@@ -5562,7 +5602,7 @@ unsafe fn load_cmd3(
             if *i > gk.mappings {
                 Getline(params, input);
             }
-            if !strstr(params, b"END\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(params, c"END".as_ptr() as *const c_char).is_null() {
                 break;
             }
             *cp = params;
@@ -5582,17 +5622,17 @@ unsafe fn load_cmd3(
             *i += 1;
         }
         printf(
-            b"Loaded %d geometry mappings\n\0".as_ptr() as *const c_char,
+            c"Loaded %d geometry mappings\n".as_ptr() as *const c_char,
             *i,
         );
         gk.mappings = *i;
-    } else if !strstr(command, b"END\0".as_ptr() as *const c_char).is_null() {
-        // NOTE: `if(0)` diagnostic omitted (runtime-dead).
     } else {
         // NOTE: `if(0)` diagnostic omitted (runtime-dead).
     }
 }
-// SAFETY: parameter-default initializer over a valid ElmergridType.
+/// # Safety
+///
+/// parameter-default initializer over a valid ElmergridType.
 #[no_mangle]
 pub unsafe extern "C" fn InitParameters(eg: *mut ElmergridType) {
     let mut i: c_int;
@@ -5706,7 +5746,9 @@ pub unsafe extern "C" fn InitParameters(eg: *mut ElmergridType) {
 const MAXINMETHODS: c_int = 21;
 const MAXOUTMETHODS: c_int = 5;
 
-// SAFETY: inline-argument parser over valid eg + argv; C status codes.
+/// # Safety
+///
+/// inline-argument parser over valid eg + argv; C status codes.
 #[no_mangle]
 pub unsafe extern "C" fn InlineParameters(
     eg: *mut ElmergridType,
@@ -5721,7 +5763,7 @@ pub unsafe extern "C" fn InlineParameters(
     let mut dim: c_int;
     let mut command: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
     dim = (*eg).dim;
-    printf(b"Elmergrid reading in-line arguments\n\0".as_ptr() as *const c_char);
+    printf(c"Elmergrid reading in-line arguments\n".as_ptr() as *const c_char);
     // NOTE: type of input file.
     if first > 3 {
         i = 0;
@@ -5781,9 +5823,9 @@ pub unsafe extern "C" fn InlineParameters(
     }
     {
         let mut badpoint: c_int;
-        let ptr1: *mut c_char;
+        
         let ptr2: *mut c_char;
-        ptr1 = strrchr((*eg).filesout[0].as_ptr(), '.' as c_int);
+        let ptr1: *mut c_char = strrchr((*eg).filesout[0].as_ptr(), '.' as c_int);
         if !ptr1.is_null() {
             badpoint = FALSE;
             ptr2 = strrchr((*eg).filesout[0].as_ptr(), '/' as c_int);
@@ -5796,7 +5838,7 @@ pub unsafe extern "C" fn InlineParameters(
         }
     }
     printf(
-        b"Output will be saved to file %s.\n\0".as_ptr() as *const c_char,
+        c"Output will be saved to file %s.\n".as_ptr() as *const c_char,
         (*eg).filesout[0].as_ptr(),
     );
     0
@@ -5813,16 +5855,16 @@ unsafe fn inline_arg(
 ) -> c_int {
     // NOTE: C `argv[arg]` shorthand used throughout.
     let a = *argv.wrapping_offset(arg as isize);
-    if strcmp(a, b"-silent\0".as_ptr() as *const c_char) == 0 {
+    if strcmp(a, c"-silent".as_ptr() as *const c_char) == 0 {
         (*eg).silent = TRUE;
         *info = FALSE;
-    } else if strcmp(a, b"-verbose\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-verbose".as_ptr() as *const c_char) == 0 {
         (*eg).silent = FALSE;
         *info = TRUE;
-    } else if strcmp(a, b"-in\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-in".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
             printf(
-                b"The secondary input file name is required as a parameter\n\0".as_ptr()
+                c"The secondary input file name is required as a parameter\n".as_ptr()
                     as *const c_char,
             );
             return 1;
@@ -5832,14 +5874,14 @@ unsafe fn inline_arg(
                 *argv.wrapping_offset((arg + 1) as isize),
             );
             printf(
-                b"A secondary input file %s will be loaded.\n\0".as_ptr() as *const c_char,
+                c"A secondary input file %s will be loaded.\n".as_ptr() as *const c_char,
                 (*eg).filesin[(*eg).nofilesin as usize].as_ptr(),
             );
             (*eg).nofilesin += 1;
         }
-    } else if strcmp(a, b"-out\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-out".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
-            printf(b"The output name is required as a parameter\n\0".as_ptr() as *const c_char);
+            printf(c"The output name is required as a parameter\n".as_ptr() as *const c_char);
             return 2;
         } else {
             strcpy(
@@ -5848,45 +5890,45 @@ unsafe fn inline_arg(
             );
             (*eg).filerenamed = TRUE;
         }
-    } else if strcmp(a, b"-bin\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-bin".as_ptr() as *const c_char) == 0 {
         (*eg).binary = 1;
-    } else if strcmp(a, b"-sbin\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-sbin".as_ptr() as *const c_char) == 0 {
         (*eg).binary = 2;
-    } else if strcmp(a, b"-decimals\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-decimals".as_ptr() as *const c_char) == 0 {
         (*eg).decimals = atoi(*argv.wrapping_offset((arg + 1) as isize));
-    } else if strcmp(a, b"-triangles\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-triangles".as_ptr() as *const c_char) == 0 {
         (*eg).triangles = TRUE;
-        printf(b"The rectangles will be split to triangles.\n\0".as_ptr() as *const c_char);
+        printf(c"The rectangles will be split to triangles.\n".as_ptr() as *const c_char);
         if arg + 1 < argc
             && strcmp(
                 *argv.wrapping_offset((arg + 1) as isize),
-                b"-\0".as_ptr() as *const c_char,
+                c"-".as_ptr() as *const c_char,
             ) != 0
         {
             (*eg).triangleangle = atof(*argv.wrapping_offset((arg + 1) as isize));
         }
-    } else if strcmp(a, b"-merge\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-merge".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
-            printf(b"Give a parameter for critical distance.\n\0".as_ptr() as *const c_char);
+            printf(c"Give a parameter for critical distance.\n".as_ptr() as *const c_char);
             return 3;
         } else {
             (*eg).merge = TRUE;
             (*eg).cmerge = atof(*argv.wrapping_offset((arg + 1) as isize));
         }
-    } else if strcmp(a, b"-relh\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-relh".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
             printf(
-                b"Give a relative mesh density related to the specifications\n\0".as_ptr()
+                c"Give a relative mesh density related to the specifications\n".as_ptr()
                     as *const c_char,
             );
             return 3;
         } else {
             (*eg).relh = atof(*argv.wrapping_offset((arg + 1) as isize));
         }
-    } else if strcmp(a, b"-order\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-order".as_ptr() as *const c_char) == 0 {
         if arg + *dim >= argc {
             printf(
-                b"Give %d parameters for the order vector.\n\0".as_ptr() as *const c_char,
+                c"Give %d parameters for the order vector.\n".as_ptr() as *const c_char,
                 *dim,
             );
             return 4;
@@ -5898,39 +5940,39 @@ unsafe fn inline_arg(
                 (*eg).corder[2] = atof(*argv.wrapping_offset((arg + 3) as isize));
             }
         }
-    } else if strcmp(a, b"-parttol\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-parttol".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
             printf(
-                b"Give a tolerance for geometric partition algorithms\n\0".as_ptr()
+                c"Give a tolerance for geometric partition algorithms\n".as_ptr()
                     as *const c_char,
             );
             return 3;
         } else {
             (*eg).parttol = atof(*argv.wrapping_offset((arg + 1) as isize));
         }
-    } else if strcmp(a, b"-autoorder\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-autoorder".as_ptr() as *const c_char) == 0 {
         (*eg).order = 2;
-    } else if strcmp(a, b"-halo\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-halo".as_ptr() as *const c_char) == 0 {
         (*eg).parthalo[1] = TRUE;
-    } else if strcmp(a, b"-halobc\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-halobc".as_ptr() as *const c_char) == 0 {
         (*eg).parthalo[2] = TRUE;
-    } else if strcmp(a, b"-halodb\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-halodb".as_ptr() as *const c_char) == 0 {
         (*eg).parthalo[1] = TRUE;
         (*eg).parthalo[2] = TRUE;
-    } else if strcmp(a, b"-haloz\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-haloz".as_ptr() as *const c_char) == 0
+        || strcmp(a, c"-halor".as_ptr() as *const c_char) == 0
+    {
         (*eg).parthalo[3] = TRUE;
-    } else if strcmp(a, b"-halor\0".as_ptr() as *const c_char) == 0 {
-        (*eg).parthalo[3] = TRUE;
-    } else if strcmp(a, b"-halogreedy\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-halogreedy".as_ptr() as *const c_char) == 0 {
         (*eg).parthalo[4] = TRUE;
-    } else if strcmp(a, b"-metisorder\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-metisorder".as_ptr() as *const c_char) == 0 {
         (*eg).order = 3;
-    } else if strcmp(a, b"-centralize\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-centralize".as_ptr() as *const c_char) == 0 {
         (*eg).center = TRUE;
-    } else if strcmp(a, b"-scale\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-scale".as_ptr() as *const c_char) == 0 {
         if arg + *dim >= argc {
             printf(
-                b"Give %d parameters for the scaling.\n\0".as_ptr() as *const c_char,
+                c"Give %d parameters for the scaling.\n".as_ptr() as *const c_char,
                 *dim,
             );
             return 5;
@@ -5942,10 +5984,10 @@ unsafe fn inline_arg(
                 (*eg).cscale[2] = atof(*argv.wrapping_offset((arg + 3) as isize));
             }
         }
-    } else if strcmp(a, b"-translate\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-translate".as_ptr() as *const c_char) == 0 {
         if arg + *dim >= argc {
             printf(
-                b"Give %d parameters for the translate vector.\n\0".as_ptr() as *const c_char,
+                c"Give %d parameters for the translate vector.\n".as_ptr() as *const c_char,
                 *dim,
             );
             return 6;
@@ -5957,21 +5999,21 @@ unsafe fn inline_arg(
                 (*eg).ctranslate[2] = atof(*argv.wrapping_offset((arg + 3) as isize));
             }
         }
-    } else if strcmp(a, b"-saveinterval\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-saveinterval".as_ptr() as *const c_char) == 0 {
         if arg + *dim >= argc {
-            printf(b"Give min, max and step for the interval.\n\0".as_ptr() as *const c_char);
+            printf(c"Give min, max and step for the interval.\n".as_ptr() as *const c_char);
             return 7;
         } else {
             (*eg).saveinterval[0] = atoi(*argv.wrapping_offset((arg + 1) as isize));
             (*eg).saveinterval[1] = atoi(*argv.wrapping_offset((arg + 2) as isize));
             (*eg).saveinterval[2] = atoi(*argv.wrapping_offset((arg + 3) as isize));
         }
-    } else if strcmp(a, b"-rotate\0".as_ptr() as *const c_char) == 0
-        || strcmp(a, b"-rotate\0".as_ptr() as *const c_char) == 0
+    } else if strcmp(a, c"-rotate".as_ptr() as *const c_char) == 0
+        || strcmp(a, c"-rotate".as_ptr() as *const c_char) == 0
     {
         // NOTE: C tests "-rotate" twice (mirror of the original chain).
         if arg + *dim >= argc {
-            printf(b"Give three parameters for the rotation angles.\n\0".as_ptr() as *const c_char);
+            printf(c"Give three parameters for the rotation angles.\n".as_ptr() as *const c_char);
             return 8;
         } else {
             (*eg).rotate = TRUE;
@@ -5994,10 +6036,10 @@ unsafe fn inline_arg2(
     i: &mut c_int,
 ) -> c_int {
     let a = *argv.wrapping_offset(arg as isize);
-    if strcmp(a, b"-clone\0".as_ptr() as *const c_char) == 0 {
+    if strcmp(a, c"-clone".as_ptr() as *const c_char) == 0 {
         if arg + *dim >= argc {
             printf(
-                b"Give the number of clones in each %d directions.\n\0".as_ptr() as *const c_char,
+                c"Give the number of clones in each %d directions.\n".as_ptr() as *const c_char,
                 *dim,
             );
             return 9;
@@ -6008,10 +6050,10 @@ unsafe fn inline_arg2(
                 (*eg).clone[2] = atoi(*argv.wrapping_offset((arg + 3) as isize));
             }
         }
-    } else if strcmp(a, b"-clonesize\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-clonesize".as_ptr() as *const c_char) == 0 {
         if arg + *dim >= argc {
             printf(
-                b"Give the clone size in each %d directions.\n\0".as_ptr() as *const c_char,
+                c"Give the clone size in each %d directions.\n".as_ptr() as *const c_char,
                 *dim,
             );
             return 10;
@@ -6022,12 +6064,12 @@ unsafe fn inline_arg2(
                 (*eg).clonesize[2] = atof(*argv.wrapping_offset((arg + 3) as isize));
             }
         }
-    } else if strcmp(a, b"-cloneinds\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-cloneinds".as_ptr() as *const c_char) == 0 {
         (*eg).cloneinds = TRUE;
-    } else if strcmp(a, b"-mirror\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-mirror".as_ptr() as *const c_char) == 0 {
         if arg + *dim >= argc {
             printf(
-                b"Give the symmetry of the coordinate directions, eg. 1 1 0\n\0".as_ptr()
+                c"Give the symmetry of the coordinate directions, eg. 1 1 0\n".as_ptr()
                     as *const c_char,
             );
         } else {
@@ -6037,92 +6079,92 @@ unsafe fn inline_arg2(
                 (*eg).mirror[2] = atoi(*argv.wrapping_offset((arg + 3) as isize));
             }
         }
-    } else if strcmp(a, b"-mirrorbc\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-mirrorbc".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
-            printf(b"Give the number of symmetry BC.\n\0".as_ptr() as *const c_char);
+            printf(c"Give the number of symmetry BC.\n".as_ptr() as *const c_char);
             return 11;
         } else {
             (*eg).mirrorbc = atoi(*argv.wrapping_offset((arg + 1) as isize));
         }
-    } else if strcmp(a, b"-unite\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-unite".as_ptr() as *const c_char) == 0 {
         (*eg).unitemeshes = TRUE;
-        printf(b"The meshes will be united.\n\0".as_ptr() as *const c_char);
-    } else if strcmp(a, b"-unitenooverlap\0".as_ptr() as *const c_char) == 0 {
+        printf(c"The meshes will be united.\n".as_ptr() as *const c_char);
+    } else if strcmp(a, c"-unitenooverlap".as_ptr() as *const c_char) == 0 {
         (*eg).unitemeshes = TRUE;
         (*eg).unitenooverlap = TRUE;
         printf(
-            b"The meshes will be united without overlap in BCs or bodies.\n\0".as_ptr()
+            c"The meshes will be united without overlap in BCs or bodies.\n".as_ptr()
                 as *const c_char,
         );
-    } else if strcmp(a, b"-nonames\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-nonames".as_ptr() as *const c_char) == 0 {
         (*eg).usenames = FALSE;
-        printf(b"Names will be omitted even if they would exist\n\0".as_ptr() as *const c_char);
-    } else if strcmp(a, b"-multidim\0".as_ptr() as *const c_char) == 0 {
+        printf(c"Names will be omitted even if they would exist\n".as_ptr() as *const c_char);
+    } else if strcmp(a, c"-multidim".as_ptr() as *const c_char) == 0 {
         (*eg).multidim = TRUE;
-        printf(b"Lower dimensional entities may be bulk too!\n\0".as_ptr() as *const c_char);
-    } else if strcmp(a, b"-removelowdim\0".as_ptr() as *const c_char) == 0 {
+        printf(c"Lower dimensional entities may be bulk too!\n".as_ptr() as *const c_char);
+    } else if strcmp(a, c"-removelowdim".as_ptr() as *const c_char) == 0 {
         (*eg).removelowdim = TRUE;
-        printf(b"Lower dimensional boundaries will be removed\n\0".as_ptr() as *const c_char);
-    } else if strcmp(a, b"-removeintbcs\0".as_ptr() as *const c_char) == 0 {
+        printf(c"Lower dimensional boundaries will be removed\n".as_ptr() as *const c_char);
+    } else if strcmp(a, c"-removeintbcs".as_ptr() as *const c_char) == 0 {
         (*eg).removeintbcs = TRUE;
-        printf(b"Lower dimensional boundaries will be removed\n\0".as_ptr() as *const c_char);
-    } else if strcmp(a, b"-removeunused\0".as_ptr() as *const c_char) == 0 {
+        printf(c"Lower dimensional boundaries will be removed\n".as_ptr() as *const c_char);
+    } else if strcmp(a, c"-removeunused".as_ptr() as *const c_char) == 0 {
         (*eg).removeunused = TRUE;
         printf(
-            b"Nodes that do not appear in any element will be removed\n\0".as_ptr()
+            c"Nodes that do not appear in any element will be removed\n".as_ptr()
                 as *const c_char,
         );
-    } else if strcmp(a, b"-autoclean\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-autoclean".as_ptr() as *const c_char) == 0 {
         (*eg).removelowdim = TRUE;
         (*eg).bulkorder = TRUE;
         (*eg).boundorder = TRUE;
         (*eg).removeunused = TRUE;
-        printf(b"Lower dimensional boundaries will be removed\n\0".as_ptr() as *const c_char);
-        printf(b"Materials and boundaries will be renumbered\n\0".as_ptr() as *const c_char);
+        printf(c"Lower dimensional boundaries will be removed\n".as_ptr() as *const c_char);
+        printf(c"Materials and boundaries will be renumbered\n".as_ptr() as *const c_char);
         printf(
-            b"Nodes that do not appear in any element will be removed\n\0".as_ptr()
+            c"Nodes that do not appear in any element will be removed\n".as_ptr()
                 as *const c_char,
         );
-    } else if strcmp(a, b"-polar\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-polar".as_ptr() as *const c_char) == 0 {
         (*eg).polar = TRUE;
-        printf(b"Making transformation to polar coordinates.\n\0".as_ptr() as *const c_char);
+        printf(c"Making transformation to polar coordinates.\n".as_ptr() as *const c_char);
         if arg + 1 >= argc {
             printf(
-                b"The preferred radius is required as a parameter\n\0".as_ptr() as *const c_char,
+                c"The preferred radius is required as a parameter\n".as_ptr() as *const c_char,
             );
             (*eg).polarradius = 1.0;
         } else {
             // NOTE: C uses atoi (not atof) for the radius here.
             (*eg).polarradius = atoi(*argv.wrapping_offset((arg + 1) as isize)) as Real;
         }
-    } else if strcmp(a, b"-cylinder\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-cylinder".as_ptr() as *const c_char) == 0 {
         (*eg).cylinder = TRUE;
         printf(
-            b"Making transformation from cylindrical to cartesian coordinates.\n\0".as_ptr()
+            c"Making transformation from cylindrical to cartesian coordinates.\n".as_ptr()
                 as *const c_char,
         );
-    } else if strcmp(a, b"-reduce\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-reduce".as_ptr() as *const c_char) == 0 {
         if arg + 2 >= argc {
-            printf(b"Give two material for the interval.\n\0".as_ptr() as *const c_char);
+            printf(c"Give two material for the interval.\n".as_ptr() as *const c_char);
             return 12;
         } else {
             (*eg).reduce = TRUE;
             (*eg).reducemat1 = atoi(*argv.wrapping_offset((arg + 1) as isize));
             (*eg).reducemat2 = atoi(*argv.wrapping_offset((arg + 2) as isize));
         }
-    } else if strcmp(a, b"-increase\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-increase".as_ptr() as *const c_char) == 0 {
         (*eg).increase = TRUE;
-    } else if strcmp(a, b"-bulkorder\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-bulkorder".as_ptr() as *const c_char) == 0 {
         (*eg).bulkorder = TRUE;
-    } else if strcmp(a, b"-boundorder\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-boundorder".as_ptr() as *const c_char) == 0 {
         (*eg).boundorder = TRUE;
-    } else if strcmp(a, b"-partition\0".as_ptr() as *const c_char) == 0
-        || strcmp(a, b"-partcell\0".as_ptr() as *const c_char) == 0
-        || strcmp(a, b"-partcyl\0".as_ptr() as *const c_char) == 0
+    } else if strcmp(a, c"-partition".as_ptr() as *const c_char) == 0
+        || strcmp(a, c"-partcell".as_ptr() as *const c_char) == 0
+        || strcmp(a, c"-partcyl".as_ptr() as *const c_char) == 0
     {
         if arg + *dim >= argc {
             printf(
-                b"The number of partitions in %d dims is required as parameters.\n\0".as_ptr()
+                c"The number of partitions in %d dims is required as parameters.\n".as_ptr()
                     as *const c_char,
                 *dim,
             );
@@ -6144,28 +6186,28 @@ unsafe fn inline_arg2(
                 *i += 1;
             }
             (*eg).partopt = -1;
-            if strcmp(a, b"-partition\0".as_ptr() as *const c_char) == 0 {
+            if strcmp(a, c"-partition".as_ptr() as *const c_char) == 0 {
                 if arg + 4 < argc
                     && *(*argv.wrapping_offset((arg + 4) as isize)).wrapping_offset(0)
                         != '-' as c_char
                 {
                     (*eg).partopt = atoi(*argv.wrapping_offset((arg + 4) as isize));
                 }
-            } else if strcmp(a, b"-partcell\0".as_ptr() as *const c_char) == 0 {
+            } else if strcmp(a, c"-partcell".as_ptr() as *const c_char) == 0 {
                 (*eg).partopt = 2;
-            } else if strcmp(a, b"-partcyl\0".as_ptr() as *const c_char) == 0 {
+            } else if strcmp(a, c"-partcyl".as_ptr() as *const c_char) == 0 {
                 (*eg).partopt = 3;
             }
             printf(
-                b"The mesh will be partitioned geometrically to %d partitions.\n\0".as_ptr()
+                c"The mesh will be partitioned geometrically to %d partitions.\n".as_ptr()
                     as *const c_char,
                 (*eg).partitions,
             );
         }
-    } else if strcmp(a, b"-partorder\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-partorder".as_ptr() as *const c_char) == 0 {
         if arg + *dim >= argc {
             printf(
-                b"Give %d parameters for the order vector.\n\0".as_ptr() as *const c_char,
+                c"Give %d parameters for the order vector.\n".as_ptr() as *const c_char,
                 *dim,
             );
             return 14;
@@ -6177,49 +6219,49 @@ unsafe fn inline_arg2(
                 (*eg).partcorder[2] = atof(*argv.wrapping_offset((arg + 3) as isize));
             }
         }
-    } else if strcmp(a, b"-partoptim\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-partoptim".as_ptr() as *const c_char) == 0 {
         (*eg).partoptim = TRUE;
         printf(
-            b"Aggressive optimization will be applied to node sharing.\n\0".as_ptr()
+            c"Aggressive optimization will be applied to node sharing.\n".as_ptr()
                 as *const c_char,
         );
-    } else if strcmp(a, b"-partnobcoptim\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-partnobcoptim".as_ptr() as *const c_char) == 0 {
         (*eg).partbcoptim = FALSE;
         printf(
-            b"Aggressive optimization will not be applied to parent element sharing.\n\0".as_ptr()
+            c"Aggressive optimization will not be applied to parent element sharing.\n".as_ptr()
                 as *const c_char,
         );
-    } else if strcmp(a, b"-partbw\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-partbw".as_ptr() as *const c_char) == 0 {
         (*eg).partbw = TRUE;
-        printf(b"Bandwidth will be optimized for partitions.\n\0".as_ptr() as *const c_char);
-    } else if strcmp(a, b"-parthypre\0".as_ptr() as *const c_char) == 0 {
+        printf(c"Bandwidth will be optimized for partitions.\n".as_ptr() as *const c_char);
+    } else if strcmp(a, c"-parthypre".as_ptr() as *const c_char) == 0 {
         (*eg).parthypre = TRUE;
-        printf(b"Numbering of partitions will be made continuous.\n\0".as_ptr() as *const c_char);
-    } else if strcmp(a, b"-partdual\0".as_ptr() as *const c_char) == 0 {
+        printf(c"Numbering of partitions will be made continuous.\n".as_ptr() as *const c_char);
+    } else if strcmp(a, c"-partdual".as_ptr() as *const c_char) == 0 {
         (*eg).partdual = TRUE;
-        printf(b"Using dual (elemental) graph in partitioning.\n\0".as_ptr() as *const c_char);
-    } else if strcmp(a, b"-metis\0".as_ptr() as *const c_char) == 0
-        || strcmp(a, b"-metisrec\0".as_ptr() as *const c_char) == 0
-        || strcmp(a, b"-metiskway\0".as_ptr() as *const c_char) == 0
+        printf(c"Using dual (elemental) graph in partitioning.\n".as_ptr() as *const c_char);
+    } else if strcmp(a, c"-metis".as_ptr() as *const c_char) == 0
+        || strcmp(a, c"-metisrec".as_ptr() as *const c_char) == 0
+        || strcmp(a, c"-metiskway".as_ptr() as *const c_char) == 0
     {
         // NOTE: `#if USE_METIS` — live here (pairs build the METIS binary).
         if arg + 1 >= argc {
             printf(
-                b"The number of partitions is required as a parameter\n\0".as_ptr()
+                c"The number of partitions is required as a parameter\n".as_ptr()
                     as *const c_char,
             );
             return 15;
         } else {
             (*eg).metis = atoi(*argv.wrapping_offset((arg + 1) as isize));
             printf(
-                b"The mesh will be partitioned with Metis to %d partitions.\n\0".as_ptr()
+                c"The mesh will be partitioned with Metis to %d partitions.\n".as_ptr()
                     as *const c_char,
                 (*eg).metis,
             );
             (*eg).partopt = 0;
-            if strcmp(a, b"-metisrec\0".as_ptr() as *const c_char) == 0 {
+            if strcmp(a, c"-metisrec".as_ptr() as *const c_char) == 0 {
                 (*eg).partopt = 2;
-            } else if strcmp(a, b"-metiskway\0".as_ptr() as *const c_char) == 0 {
+            } else if strcmp(a, c"-metiskway".as_ptr() as *const c_char) == 0 {
                 (*eg).partopt = 3;
             } else if arg + 2 < argc
                 && *(*argv.wrapping_offset((arg + 2) as isize)).wrapping_offset(0) != '-' as c_char
@@ -6242,122 +6284,122 @@ unsafe fn inline_arg3(
     i: &mut c_int,
 ) -> c_int {
     let a = *argv.wrapping_offset(arg as isize);
-    if strcmp(a, b"-metisseed\0".as_ptr() as *const c_char) == 0 {
+    if strcmp(a, c"-metisseed".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
             printf(
-                b"The random number seed is required as parameter for -metisseed!\n\0".as_ptr()
+                c"The random number seed is required as parameter for -metisseed!\n".as_ptr()
                     as *const c_char,
             );
             return 15;
         } else {
             (*eg).metis_seed = atoi(*argv.wrapping_offset((arg + 1) as isize));
             printf(
-                b"Seed for Metis partitioning routines: %d\n\0".as_ptr() as *const c_char,
+                c"Seed for Metis partitioning routines: %d\n".as_ptr() as *const c_char,
                 (*eg).metis_seed,
             );
         }
-    } else if strcmp(a, b"-metisncuts\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-metisncuts".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
             printf(
-                b"The number of parameters is required as parameter for -metisncuts!\n\0".as_ptr()
+                c"The number of parameters is required as parameter for -metisncuts!\n".as_ptr()
                     as *const c_char,
             );
             return 15;
         } else {
             (*eg).metis_ncuts = atoi(*argv.wrapping_offset((arg + 1) as isize));
             printf(
-                b"Number of competing partitions to generate : %d\n\0".as_ptr() as *const c_char,
+                c"Number of competing partitions to generate : %d\n".as_ptr() as *const c_char,
                 (*eg).metis_ncuts,
             );
         }
-    } else if strcmp(a, b"-partjoin\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-partjoin".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
             printf(
-                b"The number of partitions is required as a parameter!\n\0".as_ptr()
+                c"The number of partitions is required as a parameter!\n".as_ptr()
                     as *const c_char,
             );
             return 15;
         } else {
             (*eg).partjoin = atoi(*argv.wrapping_offset((arg + 1) as isize));
             printf(
-                b"The results will joined using %d partitions.\n\0".as_ptr() as *const c_char,
+                c"The results will joined using %d partitions.\n".as_ptr() as *const c_char,
                 (*eg).partjoin,
             );
         }
-    } else if strcmp(a, b"-partconnect\0".as_ptr() as *const c_char) == 0
-        || strcmp(a, b"-partzbc\0".as_ptr() as *const c_char) == 0
+    } else if strcmp(a, c"-partconnect".as_ptr() as *const c_char) == 0
+        || strcmp(a, c"-partzbc".as_ptr() as *const c_char) == 0
     {
         if arg + 1 >= argc {
             printf(
-                b"The number of 1D partitions is required as a parameter!\n\0".as_ptr()
+                c"The number of 1D partitions is required as a parameter!\n".as_ptr()
                     as *const c_char,
             );
             return 15;
         } else {
             (*eg).partbcz = atoi(*argv.wrapping_offset((arg + 1) as isize));
             printf(
-                b"The connected BCs will be partitioned to %d partitions in Z.\n\0".as_ptr()
+                c"The connected BCs will be partitioned to %d partitions in Z.\n".as_ptr()
                     as *const c_char,
                 (*eg).partbcz,
             );
         }
-    } else if strcmp(a, b"-partrbc\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-partrbc".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
             printf(
-                b"The number of 1D partitions is required as a parameter!\n\0".as_ptr()
+                c"The number of 1D partitions is required as a parameter!\n".as_ptr()
                     as *const c_char,
             );
             return 15;
         } else {
             (*eg).partbcr = atoi(*argv.wrapping_offset((arg + 1) as isize));
             printf(
-                b"The connected BCs will be partitioned to %d partitions in R.\n\0".as_ptr()
+                c"The connected BCs will be partitioned to %d partitions in R.\n".as_ptr()
                     as *const c_char,
                 (*eg).partbcr,
             );
         }
-    } else if strcmp(a, b"-partlayers\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-partlayers".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
             printf(
-                b"The number of layers to be extended is required as a parameter\n\0".as_ptr()
+                c"The number of layers to be extended is required as a parameter\n".as_ptr()
                     as *const c_char,
             );
             return 15;
         } else {
             (*eg).partbclayers = atoi(*argv.wrapping_offset((arg + 1) as isize));
             printf(
-                b"The boundary partitioning will be extended by %d layers.\n\0".as_ptr()
+                c"The boundary partitioning will be extended by %d layers.\n".as_ptr()
                     as *const c_char,
                 (*eg).partbclayers,
             );
         }
-    } else if strcmp(a, b"-metiscontig\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-metiscontig".as_ptr() as *const c_char) == 0 {
         (*eg).metis_contig = TRUE;
-    } else if strcmp(a, b"-metisvol\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-metisvol".as_ptr() as *const c_char) == 0 {
         (*eg).metis_volcut = TRUE;
-    } else if strcmp(a, b"-metisminconn\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-metisminconn".as_ptr() as *const c_char) == 0 {
         (*eg).metis_minconn = TRUE;
-    } else if strcmp(a, b"-metisconnect\0".as_ptr() as *const c_char) == 0
-        || strcmp(a, b"-metisbc\0".as_ptr() as *const c_char) == 0
+    } else if strcmp(a, c"-metisconnect".as_ptr() as *const c_char) == 0
+        || strcmp(a, c"-metisbc".as_ptr() as *const c_char) == 0
     {
         if arg + 1 >= argc {
             printf(
-                b"The number of Metis partitions is required as a parameter\n\0".as_ptr()
+                c"The number of Metis partitions is required as a parameter\n".as_ptr()
                     as *const c_char,
             );
             return 15;
         } else {
             (*eg).partbcmetis = atoi(*argv.wrapping_offset((arg + 1) as isize));
             printf(
-                b"The connected BCs will be partitioned to %d partitions by Metis.\n\0".as_ptr()
+                c"The connected BCs will be partitioned to %d partitions by Metis.\n".as_ptr()
                     as *const c_char,
                 (*eg).partbcmetis,
             );
         }
-    } else if strcmp(a, b"-periodic\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-periodic".as_ptr() as *const c_char) == 0 {
         if arg + *dim >= argc {
             printf(
-                b"Give the periodic coordinate directions (e.g. 1 1 0)\n\0".as_ptr()
+                c"Give the periodic coordinate directions (e.g. 1 1 0)\n".as_ptr()
                     as *const c_char,
             );
             return 16;
@@ -6368,18 +6410,18 @@ unsafe fn inline_arg3(
                 (*eg).periodicdim[2] = atoi(*argv.wrapping_offset((arg + 3) as isize));
             }
         }
-    } else if strcmp(a, b"-discont\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-discont".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
-            printf(b"Give the discontinuous boundary conditions.\n\0".as_ptr() as *const c_char);
+            printf(c"Give the discontinuous boundary conditions.\n".as_ptr() as *const c_char);
             return 17;
         } else {
             (*eg).discontbounds[(*eg).discont as usize] =
                 atoi(*argv.wrapping_offset((arg + 1) as isize));
             (*eg).discont += 1;
         }
-    } else if strcmp(a, b"-connect\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-connect".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
-            printf(b"Give the connected boundary conditions.\n\0".as_ptr() as *const c_char);
+            printf(c"Give the connected boundary conditions.\n".as_ptr() as *const c_char);
             return 10;
         } else {
             (*eg).connectboundsnosets += 1;
@@ -6387,7 +6429,7 @@ unsafe fn inline_arg3(
             while *i < argc
                 && strncmp(
                     *argv.wrapping_offset(*i as isize),
-                    b"-\0".as_ptr() as *const c_char,
+                    c"-".as_ptr() as *const c_char,
                     1,
                 ) != 0
             {
@@ -6398,17 +6440,17 @@ unsafe fn inline_arg3(
                 *i += 1;
             }
         }
-    } else if strcmp(a, b"-connectall\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-connectall".as_ptr() as *const c_char) == 0 {
         (*eg).connectboundsnosets += 1;
         (*eg).connectbounds[(*eg).connect as usize] = -1;
         (*eg).connectboundsset[(*eg).connect as usize] = (*eg).connectboundsnosets;
         (*eg).connect += 1;
-    } else if strcmp(a, b"-connectint\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-connectint".as_ptr() as *const c_char) == 0 {
         (*eg).connectboundsnosets += 1;
         (*eg).connectbounds[(*eg).connect as usize] = -2;
         (*eg).connectboundsset[(*eg).connect as usize] = (*eg).connectboundsnosets;
         (*eg).connect += 1;
-    } else if strcmp(a, b"-connectfree\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-connectfree".as_ptr() as *const c_char) == 0 {
         (*eg).connectboundsnosets += 1;
         (*eg).connectbounds[(*eg).connect as usize] = -3;
         (*eg).connectboundsset[(*eg).connect as usize] = (*eg).connectboundsnosets;
@@ -6430,7 +6472,7 @@ unsafe fn inline_arg4(
     i: &mut c_int,
 ) -> c_int {
     let a = *argv.wrapping_offset(arg as isize);
-    if strcmp(a, b"-boundbound\0".as_ptr() as *const c_char) == 0 {
+    if strcmp(a, c"-boundbound".as_ptr() as *const c_char) == 0 {
         *i = arg + 1;
         while *i <= arg + 3 && *i < argc {
             (*eg).boundbound[(3 * (*eg).boundbounds + *i - (1 + arg)) as usize] =
@@ -6440,7 +6482,7 @@ unsafe fn inline_arg4(
             }
             *i += 1;
         }
-    } else if strcmp(a, b"-bulkbound\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-bulkbound".as_ptr() as *const c_char) == 0 {
         *i = arg + 1;
         while *i <= arg + 3 && *i < argc {
             (*eg).bulkbound[(3 * (*eg).bulkbounds + *i - (1 + arg)) as usize] =
@@ -6450,12 +6492,12 @@ unsafe fn inline_arg4(
             }
             *i += 1;
         }
-    } else if strcmp(a, b"-boundtype\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-boundtype".as_ptr() as *const c_char) == 0 {
         *i = arg + 1;
         while *i < argc
             && strncmp(
                 *argv.wrapping_offset(*i as isize),
-                b"-\0".as_ptr() as *const c_char,
+                c"-".as_ptr() as *const c_char,
                 1,
             ) != 0
         {
@@ -6464,12 +6506,12 @@ unsafe fn inline_arg4(
             *i += 1;
         }
         (*eg).sidemappings += 1;
-    } else if strcmp(a, b"-bulktype\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-bulktype".as_ptr() as *const c_char) == 0 {
         *i = arg + 1;
         while *i < argc
             && strncmp(
                 *argv.wrapping_offset(*i as isize),
-                b"-\0".as_ptr() as *const c_char,
+                c"-".as_ptr() as *const c_char,
                 1,
             ) != 0
         {
@@ -6478,10 +6520,10 @@ unsafe fn inline_arg4(
             *i += 1;
         }
         (*eg).bulkmappings += 1;
-    } else if strcmp(a, b"-coordinatemap\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-coordinatemap".as_ptr() as *const c_char) == 0 {
         if arg + 3 >= argc {
             printf(
-                b"Give three parameters for the index permutation\n\0".as_ptr() as *const c_char,
+                c"Give three parameters for the index permutation\n".as_ptr() as *const c_char,
             );
             return 18;
         } else {
@@ -6492,16 +6534,16 @@ unsafe fn inline_arg4(
                 *i += 1;
             }
         }
-    } else if strcmp(a, b"-layer\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-layer".as_ptr() as *const c_char) == 0 {
         if arg + 4 >= argc {
             printf(
-                b"Give four parameters for the layer: boundary, elements, thickness, ratio.\n\0"
+                c"Give four parameters for the layer: boundary, elements, thickness, ratio.\n"
                     .as_ptr() as *const c_char,
             );
             return 18;
         } else if (*eg).layers == MAXBOUNDARIES as c_int {
             printf(
-                b"There can only be %d layers, sorry.\n\0".as_ptr() as *const c_char,
+                c"There can only be %d layers, sorry.\n".as_ptr() as *const c_char,
                 MAXBOUNDARIES as c_int,
             );
             return 19;
@@ -6517,22 +6559,22 @@ unsafe fn inline_arg4(
             (*eg).layerparents[(*eg).layers as usize] = 0;
             (*eg).layers += 1;
         }
-    } else if strcmp(a, b"-layermove\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-layermove".as_ptr() as *const c_char) == 0 {
         if arg + 1 >= argc {
-            printf(b"Give maximum number of Jacobi filters.\n\0".as_ptr() as *const c_char);
+            printf(c"Give maximum number of Jacobi filters.\n".as_ptr() as *const c_char);
             return 20;
         } else {
             (*eg).layermove = atoi(*argv.wrapping_offset((arg + 1) as isize));
         }
-    } else if strcmp(a, b"-divlayer\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-divlayer".as_ptr() as *const c_char) == 0 {
         // NOTE: very dirty trick — the -layer variables are used with
         // negative indexing here.
         if arg + 4 >= argc {
-            printf(b"Give four parameters for the layer: boundary, elements, relative thickness, ratio.\n\0".as_ptr() as *const c_char);
+            printf(c"Give four parameters for the layer: boundary, elements, relative thickness, ratio.\n".as_ptr() as *const c_char);
             return 21;
         } else if abs((*eg).layers) == MAXBOUNDARIES as c_int {
             printf(
-                b"There can only be %d layers, sorry.\n\0".as_ptr() as *const c_char,
+                c"There can only be %d layers, sorry.\n".as_ptr() as *const c_char,
                 MAXBOUNDARIES as c_int,
             );
             return 22;
@@ -6548,31 +6590,31 @@ unsafe fn inline_arg4(
             (*eg).layerparents[abs((*eg).layers) as usize] = 0;
             (*eg).layers -= 1;
         }
-    } else if strcmp(a, b"-3d\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-3d".as_ptr() as *const c_char) == 0 {
         (*eg).dim = 3;
         *dim = 3;
-    } else if strcmp(a, b"-2d\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-2d".as_ptr() as *const c_char) == 0 {
         (*eg).dim = 2;
         *dim = 2;
-    } else if strcmp(a, b"-1d\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-1d".as_ptr() as *const c_char) == 0 {
         (*eg).dim = 1;
         *dim = 1;
-    } else if strcmp(a, b"-isoparam\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-isoparam".as_ptr() as *const c_char) == 0 {
         (*eg).isoparam = TRUE;
-    } else if strcmp(a, b"-nobound\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-nobound".as_ptr() as *const c_char) == 0 {
         (*eg).saveboundaries = FALSE;
-    } else if strcmp(a, b"-vtuone\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-vtuone".as_ptr() as *const c_char) == 0 {
         (*eg).vtuone = TRUE;
-    } else if strcmp(a, b"-nosave\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-nosave".as_ptr() as *const c_char) == 0 {
         (*eg).nosave = TRUE;
-    } else if strcmp(a, b"-nooverwrite\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-nooverwrite".as_ptr() as *const c_char) == 0 {
         (*eg).nooverwrite = TRUE;
-    } else if strcmp(a, b"-timer\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-timer".as_ptr() as *const c_char) == 0 {
         (*eg).timeron = TRUE;
-    } else if strcmp(a, b"-infofile\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-infofile".as_ptr() as *const c_char) == 0 {
         (*eg).timeron = TRUE;
         if arg + 1 >= argc {
-            printf(b"The output name is required as a parameter\n\0".as_ptr() as *const c_char);
+            printf(c"The output name is required as a parameter\n".as_ptr() as *const c_char);
             return 2;
         } else {
             strcpy(
@@ -6580,20 +6622,20 @@ unsafe fn inline_arg4(
                 *argv.wrapping_offset((arg + 1) as isize),
             );
         }
-    } else if strcmp(a, b"-bcoffset\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-bcoffset".as_ptr() as *const c_char) == 0 {
         // NOTE: not actively used (see C comment).
         (*eg).bcoffset = atoi(*argv.wrapping_offset((arg + 1) as isize));
-    } else if strcmp(a, b"-noelements\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-noelements".as_ptr() as *const c_char) == 0 {
         (*eg).elements3d = atoi(*argv.wrapping_offset((arg + 1) as isize));
-    } else if strcmp(a, b"-nonodes\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-nonodes".as_ptr() as *const c_char) == 0 {
         (*eg).nodes3d = atoi(*argv.wrapping_offset((arg + 1) as isize));
-    } else if strcmp(a, b"-sidefind\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-sidefind".as_ptr() as *const c_char) == 0 {
         (*eg).findsides = 0;
         *i = arg + 1;
         while *i < argc
             && strncmp(
                 *argv.wrapping_offset(*i as isize),
-                b"-\0".as_ptr() as *const c_char,
+                c"-".as_ptr() as *const c_char,
                 1,
             ) != 0
         {
@@ -6601,13 +6643,13 @@ unsafe fn inline_arg4(
             (*eg).findsides += 1;
             *i += 1;
         }
-    } else if strcmp(a, b"-findbound\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-findbound".as_ptr() as *const c_char) == 0 {
         (*eg).findsides = 0;
         *i = arg + 1;
         while *i + 1 < argc
             && strncmp(
                 *argv.wrapping_offset(*i as isize),
-                b"-\0".as_ptr() as *const c_char,
+                c"-".as_ptr() as *const c_char,
                 1,
             ) != 0
         {
@@ -6616,16 +6658,18 @@ unsafe fn inline_arg4(
             (*eg).findsides += 1;
             *i += 2;
         }
-    } else if strcmp(a, b"-\0".as_ptr() as *const c_char) == 0 {
+    } else if strcmp(a, c"-".as_ptr() as *const c_char) == 0 {
         printf(
-            b"Unknown in-line argument: %s\n\0".as_ptr() as *const c_char,
+            c"Unknown in-line argument: %s\n".as_ptr() as *const c_char,
             a,
         );
-        bigerror(b"Cannot deal with argument, aborting!\0".as_ptr() as *const c_char);
+        bigerror(c"Cannot deal with argument, aborting!".as_ptr() as *const c_char);
     }
     0
 }
-// SAFETY: command-file reader over valid eg + grid; C status codes.
+/// # Safety
+///
+/// command-file reader over valid eg + grid; C status codes.
 #[no_mangle]
 pub unsafe extern "C" fn LoadCommands(
     prefix: *mut c_char,
@@ -6648,32 +6692,32 @@ pub unsafe extern "C" fn LoadCommands(
     iodebug = FALSE;
     if mode == 0 {
         input = fopen(
-            b"ELMERGRID_STARTINFO\0".as_ptr() as *const c_char,
-            b"r\0".as_ptr() as *const c_char,
+            c"ELMERGRID_STARTINFO".as_ptr() as *const c_char,
+            c"r".as_ptr() as *const c_char,
         );
         if !input.is_null() {
             iostat = fscanf(
                 input,
-                b"%s\0".as_ptr() as *const c_char,
+                c"%s".as_ptr() as *const c_char,
                 filename.as_mut_ptr(),
             );
             let _ = iostat;
             fclose(input);
             printf(
-                b"Using the file %s defined in ELMERGRID_STARTINFO\n\0".as_ptr() as *const c_char,
+                c"Using the file %s defined in ELMERGRID_STARTINFO\n".as_ptr() as *const c_char,
                 filename.as_ptr(),
             );
-            input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+            input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
             if input.is_null() {
                 printf(
-                    b"LoadCommands: opening of the file '%s' wasn't successful !\n\0".as_ptr()
+                    c"LoadCommands: opening of the file '%s' wasn't successful !\n".as_ptr()
                         as *const c_char,
                     filename.as_ptr(),
                 );
                 return 1;
             } else {
                 printf(
-                    b"Loading ElmerGrid commands from file '%s'.\n\0".as_ptr() as *const c_char,
+                    c"Loading ElmerGrid commands from file '%s'.\n".as_ptr() as *const c_char,
                     filename.as_ptr(),
                 );
             }
@@ -6684,12 +6728,12 @@ pub unsafe extern "C" fn LoadCommands(
         AddExtension(
             prefix,
             filename.as_mut_ptr(),
-            b"eg\0".as_ptr() as *const c_char,
+            c"eg".as_ptr() as *const c_char,
         );
-        input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if input.is_null() {
             printf(
-                b"LoadCommands: opening of the file '%s' wasn't successful !\n\0".as_ptr()
+                c"LoadCommands: opening of the file '%s' wasn't successful !\n".as_ptr()
                     as *const c_char,
                 filename.as_ptr(),
             );
@@ -6697,7 +6741,7 @@ pub unsafe extern "C" fn LoadCommands(
         }
         if info != 0 {
             printf(
-                b"Loading ElmerGrid commands from file '%s'.\n\0".as_ptr() as *const c_char,
+                c"Loading ElmerGrid commands from file '%s'.\n".as_ptr() as *const c_char,
                 filename.as_ptr(),
             );
         }
@@ -6705,12 +6749,12 @@ pub unsafe extern "C" fn LoadCommands(
         AddExtension(
             prefix,
             filename.as_mut_ptr(),
-            b"grd\0".as_ptr() as *const c_char,
+            c"grd".as_ptr() as *const c_char,
         );
-        input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+        input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
         if input.is_null() {
             printf(
-                b"LoadCommands: opening of the file '%s' wasn't successful !\n\0".as_ptr()
+                c"LoadCommands: opening of the file '%s' wasn't successful !\n".as_ptr()
                     as *const c_char,
                 filename.as_ptr(),
             );
@@ -6718,35 +6762,35 @@ pub unsafe extern "C" fn LoadCommands(
         }
         if info != 0 {
             printf(
-                b"\nLoading ElmerGrid commands from file '%s'.\n\0".as_ptr() as *const c_char,
+                c"\nLoading ElmerGrid commands from file '%s'.\n".as_ptr() as *const c_char,
                 filename.as_ptr(),
             );
         }
     }
     loop {
         if GetCommand(command.as_mut_ptr(), params.as_mut_ptr(), input) != 0 {
-            printf(b"Reached the end of command file\n\0".as_ptr() as *const c_char);
+            printf(c"Reached the end of command file\n".as_ptr() as *const c_char);
             break;
         }
         // NOTE: with command-file modes the file info also comes from
         // the command file.
         if mode <= 1 {
-            if !strstr(command.as_ptr(), b"INPUT FILE\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(command.as_ptr(), c"INPUT FILE".as_ptr() as *const c_char).is_null() {
                 sscanf(
                     params.as_ptr(),
-                    b"%s\0".as_ptr() as *const c_char,
+                    c"%s".as_ptr() as *const c_char,
                     (*eg).filesin[0].as_mut_ptr(),
                 );
-            } else if !strstr(command.as_ptr(), b"OUTPUT FILE\0".as_ptr() as *const c_char)
+            } else if !strstr(command.as_ptr(), c"OUTPUT FILE".as_ptr() as *const c_char)
                 .is_null()
             {
                 sscanf(
                     params.as_ptr(),
-                    b"%s\0".as_ptr() as *const c_char,
+                    c"%s".as_ptr() as *const c_char,
                     (*eg).filesout[0].as_mut_ptr(),
                 );
                 (*eg).filerenamed = TRUE;
-            } else if !strstr(command.as_ptr(), b"INPUT MODE\0".as_ptr() as *const c_char).is_null()
+            } else if !strstr(command.as_ptr(), c"INPUT MODE".as_ptr() as *const c_char).is_null()
             {
                 j = 0;
                 while j < MAXLINESIZE as c_int {
@@ -6764,11 +6808,11 @@ pub unsafe extern "C" fn LoadCommands(
                 if i > MAXINMETHODS {
                     sscanf(
                         params.as_ptr(),
-                        b"%d\0".as_ptr() as *const c_char,
+                        c"%d".as_ptr() as *const c_char,
                         &mut (*eg).inmethod,
                     );
                 }
-            } else if !strstr(command.as_ptr(), b"OUTPUT MODE\0".as_ptr() as *const c_char)
+            } else if !strstr(command.as_ptr(), c"OUTPUT MODE".as_ptr() as *const c_char)
                 .is_null()
             {
                 j = 0;
@@ -6788,7 +6832,7 @@ pub unsafe extern "C" fn LoadCommands(
                 if i > MAXOUTMETHODS {
                     sscanf(
                         params.as_ptr(),
-                        b"%d\0".as_ptr() as *const c_char,
+                        c"%d".as_ptr() as *const c_char,
                         &mut (*eg).outmethod,
                     );
                 }
@@ -6806,11 +6850,13 @@ pub unsafe extern "C" fn LoadCommands(
             input,
         );
     }
-    printf(b"Read commands from a file\n\0".as_ptr() as *const c_char);
+    printf(c"Read commands from a file\n".as_ptr() as *const c_char);
     fclose(input);
     0
 }
 // SAFETY: command-file arms, mesh-operation half (split for sizing).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn load_ccmd(
     eg: *mut ElmergridType,
     grid: *mut GridType,
@@ -6821,154 +6867,154 @@ unsafe fn load_ccmd(
     params: *mut c_char,
     input: *mut FILE,
 ) {
-    if !strstr(command, b"DECIMALS\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(command, c"DECIMALS".as_ptr() as *const c_char).is_null() {
         sscanf(
             params,
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut (*eg).decimals,
         );
-    } else if !strstr(command, b"BOUNDARY OFFSET\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"BOUNDARY OFFSET".as_ptr() as *const c_char).is_null() {
         sscanf(
             params,
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut (*eg).bcoffset,
         );
     } else if !strstr(
         command,
-        b"TRIANGLES CRITICAL ANGLE\0".as_ptr() as *const c_char,
+        c"TRIANGLES CRITICAL ANGLE".as_ptr() as *const c_char,
     )
     .is_null()
     {
         sscanf(
             params,
-            b"%le\0".as_ptr() as *const c_char,
+            c"%le".as_ptr() as *const c_char,
             &mut (*eg).triangleangle,
         );
-    } else if !strstr(command, b"TRIANGLES\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"TRIANGLES".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).triangles = TRUE;
         }
-    } else if !strstr(command, b"MERGE NODES\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"MERGE NODES".as_ptr() as *const c_char).is_null() {
         (*eg).merge = TRUE;
         sscanf(
             params,
-            b"%le\0".as_ptr() as *const c_char,
+            c"%le".as_ptr() as *const c_char,
             &mut (*eg).cmerge,
         );
-    } else if !strstr(command, b"UNITE\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"UNITE".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).unitemeshes = TRUE;
         }
-    } else if !strstr(command, b"UNITENOOVERLAP\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"UNITENOOVERLAP".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).unitemeshes = TRUE;
             (*eg).unitenooverlap = TRUE;
         }
-    } else if !strstr(command, b"ORDER NODES\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"ORDER NODES".as_ptr() as *const c_char).is_null() {
         (*eg).order = TRUE;
         if (*eg).dim == 1 {
             sscanf(
                 params,
-                b"%le\0".as_ptr() as *const c_char,
+                c"%le".as_ptr() as *const c_char,
                 &mut (*eg).corder[0],
             );
         } else if (*eg).dim == 2 {
             sscanf(
                 params,
-                b"%le%le\0".as_ptr() as *const c_char,
+                c"%le%le".as_ptr() as *const c_char,
                 &mut (*eg).corder[0],
                 &mut (*eg).corder[1],
             );
         } else if (*eg).dim == 3 {
             sscanf(
                 params,
-                b"%le%le%le\0".as_ptr() as *const c_char,
+                c"%le%le%le".as_ptr() as *const c_char,
                 &mut (*eg).corder[0],
                 &mut (*eg).corder[1],
                 &mut (*eg).corder[2],
             );
         }
-    } else if !strstr(command, b"SCALE\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"SCALE".as_ptr() as *const c_char).is_null() {
         (*eg).scale = TRUE;
         if (*eg).dim == 1 {
             sscanf(
                 params,
-                b"%le\0".as_ptr() as *const c_char,
+                c"%le".as_ptr() as *const c_char,
                 &mut (*eg).cscale[0],
             );
         } else if (*eg).dim == 2 {
             sscanf(
                 params,
-                b"%le%le\0".as_ptr() as *const c_char,
+                c"%le%le".as_ptr() as *const c_char,
                 &mut (*eg).cscale[0],
                 &mut (*eg).cscale[1],
             );
         } else if (*eg).dim == 3 {
             sscanf(
                 params,
-                b"%le%le%le\0".as_ptr() as *const c_char,
+                c"%le%le%le".as_ptr() as *const c_char,
                 &mut (*eg).cscale[0],
                 &mut (*eg).cscale[1],
                 &mut (*eg).cscale[2],
             );
         }
-    } else if !strstr(command, b"CENTRALIZE\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"CENTRALIZE".as_ptr() as *const c_char).is_null() {
         (*eg).center = TRUE;
-    } else if !strstr(command, b"TRANSLATE\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"TRANSLATE".as_ptr() as *const c_char).is_null() {
         (*eg).translate = TRUE;
         if (*eg).dim == 1 {
             sscanf(
                 params,
-                b"%le\0".as_ptr() as *const c_char,
+                c"%le".as_ptr() as *const c_char,
                 &mut (*eg).ctranslate[0],
             );
         } else if (*eg).dim == 2 {
             sscanf(
                 params,
-                b"%le%le\0".as_ptr() as *const c_char,
+                c"%le%le".as_ptr() as *const c_char,
                 &mut (*eg).ctranslate[0],
                 &mut (*eg).ctranslate[1],
             );
         } else if (*eg).dim == 3 {
             sscanf(
                 params,
-                b"%le%le%le\0".as_ptr() as *const c_char,
+                c"%le%le%le".as_ptr() as *const c_char,
                 &mut (*eg).ctranslate[0],
                 &mut (*eg).ctranslate[1],
                 &mut (*eg).ctranslate[2],
             );
         }
-    } else if !strstr(command, b"ROTATE MESH\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"ROTATE MESH".as_ptr() as *const c_char).is_null() {
         (*eg).rotate = TRUE;
         sscanf(
             params,
-            b"%le%le%le\0".as_ptr() as *const c_char,
+            c"%le%le%le".as_ptr() as *const c_char,
             &mut (*eg).crotate[0],
             &mut (*eg).crotate[1],
             &mut (*eg).crotate[2],
         );
-    } else if !strstr(command, b"CLONE\0".as_ptr() as *const c_char).is_null() {
-        if !strstr(command, b"CLONE SIZE\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"CLONE".as_ptr() as *const c_char).is_null() {
+        if !strstr(command, c"CLONE SIZE".as_ptr() as *const c_char).is_null() {
             if (*eg).dim == 1 {
                 sscanf(
                     params,
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut (*eg).clonesize[0],
                 );
             } else if (*eg).dim == 2 {
                 sscanf(
                     params,
-                    b"%le%le\0".as_ptr() as *const c_char,
+                    c"%le%le".as_ptr() as *const c_char,
                     &mut (*eg).clonesize[0],
                     &mut (*eg).clonesize[1],
                 );
             } else if (*eg).dim == 3 {
                 sscanf(
                     params,
-                    b"%le%le%le\0".as_ptr() as *const c_char,
+                    c"%le%le%le".as_ptr() as *const c_char,
                     &mut (*eg).clonesize[0],
                     &mut (*eg).clonesize[1],
                     &mut (*eg).clonesize[2],
@@ -6977,97 +7023,97 @@ unsafe fn load_ccmd(
         } else if (*eg).dim == 1 {
             sscanf(
                 params,
-                b"%d\0".as_ptr() as *const c_char,
+                c"%d".as_ptr() as *const c_char,
                 &mut (*eg).clone[0],
             );
         } else if (*eg).dim == 2 {
             sscanf(
                 params,
-                b"%d%d\0".as_ptr() as *const c_char,
+                c"%d%d".as_ptr() as *const c_char,
                 &mut (*eg).clone[0],
                 &mut (*eg).clone[1],
             );
         } else if (*eg).dim == 3 {
             sscanf(
                 params,
-                b"%d%d%d\0".as_ptr() as *const c_char,
+                c"%d%d%d".as_ptr() as *const c_char,
                 &mut (*eg).clone[0],
                 &mut (*eg).clone[1],
                 &mut (*eg).clone[2],
             );
         }
-    } else if !strstr(command, b"MERGE\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"MERGE".as_ptr() as *const c_char).is_null() {
         (*eg).merge = TRUE;
         sscanf(
             params,
-            b"%le\0".as_ptr() as *const c_char,
+            c"%le".as_ptr() as *const c_char,
             &mut (*eg).cmerge,
         );
-    } else if !strstr(command, b"MIRROR\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"MIRROR".as_ptr() as *const c_char).is_null() {
         if (*eg).dim == 1 {
             sscanf(
                 params,
-                b"%d\0".as_ptr() as *const c_char,
+                c"%d".as_ptr() as *const c_char,
                 &mut (*eg).mirror[0],
             );
         } else if (*eg).dim == 2 {
             sscanf(
                 params,
-                b"%d%d\0".as_ptr() as *const c_char,
+                c"%d%d".as_ptr() as *const c_char,
                 &mut (*eg).mirror[0],
                 &mut (*eg).mirror[1],
             );
         } else if (*eg).dim == 3 {
             sscanf(
                 params,
-                b"%d%d%d\0".as_ptr() as *const c_char,
+                c"%d%d%d".as_ptr() as *const c_char,
                 &mut (*eg).mirror[0],
                 &mut (*eg).mirror[1],
                 &mut (*eg).mirror[2],
             );
         }
-    } else if !strstr(command, b"POLAR RADIUS\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"POLAR RADIUS".as_ptr() as *const c_char).is_null() {
         (*eg).polar = TRUE;
         sscanf(
             params,
-            b"%le\0".as_ptr() as *const c_char,
+            c"%le".as_ptr() as *const c_char,
             &mut (*eg).polarradius,
         );
-    } else if !strstr(command, b"CYLINDER\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"CYLINDER".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).cylinder = TRUE;
         }
-    } else if !strstr(command, b"REDUCE DEGREE\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"REDUCE DEGREE".as_ptr() as *const c_char).is_null() {
         (*eg).reduce = TRUE;
         sscanf(
             params,
-            b"%d%d\0".as_ptr() as *const c_char,
+            c"%d%d".as_ptr() as *const c_char,
             &mut (*eg).reducemat1,
             &mut (*eg).reducemat2,
         );
-    } else if !strstr(command, b"INCREASE DEGREE\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"INCREASE DEGREE".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).increase = TRUE;
         }
-    } else if !strstr(command, b"METIS OPTION\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"METIS OPTION".as_ptr() as *const c_char).is_null() {
         // NOTE: `#if USE_METIS` — live here (pairs build the METIS binary).
         sscanf(
             params,
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut (*eg).partopt,
         );
-    } else if !strstr(command, b"METIS\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"METIS".as_ptr() as *const c_char).is_null() {
         // NOTE: `#if USE_METIS` — live here.
-        sscanf(params, b"%d\0".as_ptr() as *const c_char, &mut (*eg).metis);
-    } else if !strstr(command, b"METISKWAY\0".as_ptr() as *const c_char).is_null() {
+        sscanf(params, c"%d".as_ptr() as *const c_char, &mut (*eg).metis);
+    } else if !strstr(command, c"METISKWAY".as_ptr() as *const c_char).is_null() {
         // NOTE: `#if USE_METIS` — live here.
-        sscanf(params, b"%d\0".as_ptr() as *const c_char, &mut (*eg).metis);
+        sscanf(params, c"%d".as_ptr() as *const c_char, &mut (*eg).metis);
         (*eg).partopt = 3;
-    } else if !strstr(command, b"METISREC\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"METISREC".as_ptr() as *const c_char).is_null() {
         // NOTE: `#if USE_METIS` — live here.
-        sscanf(params, b"%d\0".as_ptr() as *const c_char, &mut (*eg).metis);
+        sscanf(params, c"%d".as_ptr() as *const c_char, &mut (*eg).metis);
         (*eg).partopt = 2;
     } else {
         load_ccmd2(eg, grid, cp, i, j, command, params, input);
@@ -7084,6 +7130,8 @@ unsafe fn upper(params: *mut c_char, j: &mut c_int) {
     }
 }
 // SAFETY: command-file arms, partition/mapping/extrude tail (split).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn load_ccmd2(
     eg: *mut ElmergridType,
     grid: *mut GridType,
@@ -7094,23 +7142,23 @@ unsafe fn load_ccmd2(
     params: *mut c_char,
     input: *mut FILE,
 ) {
-    if !strstr(command, b"PARTITION DUAL\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(command, c"PARTITION DUAL".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).partdual = TRUE;
         }
-    } else if !strstr(command, b"PARTJOIN\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"PARTJOIN".as_ptr() as *const c_char).is_null() {
         sscanf(
             params,
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut (*eg).partjoin,
         );
-    } else if !strstr(command, b"PARTITION ORDER\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"PARTITION ORDER".as_ptr() as *const c_char).is_null() {
         (*eg).partorder = 1;
         if (*eg).dim == 2 {
             sscanf(
                 params,
-                b"%le%le\0".as_ptr() as *const c_char,
+                c"%le%le".as_ptr() as *const c_char,
                 &mut (*eg).partcorder[0],
                 &mut (*eg).partcorder[1],
             );
@@ -7118,20 +7166,20 @@ unsafe fn load_ccmd2(
         if (*eg).dim == 3 {
             sscanf(
                 params,
-                b"%le%le%le\0".as_ptr() as *const c_char,
+                c"%le%le%le".as_ptr() as *const c_char,
                 &mut (*eg).partcorder[0],
                 &mut (*eg).partcorder[1],
                 &mut (*eg).partcorder[2],
             );
         }
-    } else if !strstr(command, b"PARTITION\0".as_ptr() as *const c_char).is_null()
-        || !strstr(command, b"PARTCYL\0".as_ptr() as *const c_char).is_null()
-        || !strstr(command, b"PARTCELL\0".as_ptr() as *const c_char).is_null()
+    } else if !strstr(command, c"PARTITION".as_ptr() as *const c_char).is_null()
+        || !strstr(command, c"PARTCYL".as_ptr() as *const c_char).is_null()
+        || !strstr(command, c"PARTCELL".as_ptr() as *const c_char).is_null()
     {
         if (*eg).dim == 2 {
             sscanf(
                 params,
-                b"%d%d\0".as_ptr() as *const c_char,
+                c"%d%d".as_ptr() as *const c_char,
                 &mut (*eg).partdim[0],
                 &mut (*eg).partdim[1],
             );
@@ -7139,7 +7187,7 @@ unsafe fn load_ccmd2(
         if (*eg).dim == 3 {
             sscanf(
                 params,
-                b"%d%d%d\0".as_ptr() as *const c_char,
+                c"%d%d%d".as_ptr() as *const c_char,
                 &mut (*eg).partdim[0],
                 &mut (*eg).partdim[1],
                 &mut (*eg).partdim[2],
@@ -7154,18 +7202,18 @@ unsafe fn load_ccmd2(
             (*eg).partitions *= (*eg).partdim[*i as usize];
             *i += 1;
         }
-        if !strstr(command, b"PARTCYL\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(command, c"PARTCYL".as_ptr() as *const c_char).is_null() {
             (*eg).partopt = 3;
         }
         // NOTE: C tests "PARTCCELL" (double C); mirrored exactly.
-        if !strstr(command, b"PARTCCELL\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(command, c"PARTCCELL".as_ptr() as *const c_char).is_null() {
             (*eg).partopt = 2;
         }
-    } else if !strstr(command, b"PERIODIC\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"PERIODIC".as_ptr() as *const c_char).is_null() {
         if (*eg).dim == 2 {
             sscanf(
                 params,
-                b"%d%d\0".as_ptr() as *const c_char,
+                c"%d%d".as_ptr() as *const c_char,
                 &mut (*eg).periodicdim[0],
                 &mut (*eg).periodicdim[1],
             );
@@ -7173,40 +7221,40 @@ unsafe fn load_ccmd2(
         if (*eg).dim == 3 {
             sscanf(
                 params,
-                b"%d%d%d\0".as_ptr() as *const c_char,
+                c"%d%d%d".as_ptr() as *const c_char,
                 &mut (*eg).periodicdim[0],
                 &mut (*eg).periodicdim[1],
                 &mut (*eg).periodicdim[2],
             );
         }
-    } else if !strstr(command, b"HALO\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"HALO".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).parthalo[1] = TRUE;
         }
-    } else if !strstr(command, b"BOUNDARY HALO\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"BOUNDARY HALO".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).parthalo[2] = TRUE;
         }
-    } else if !strstr(command, b"EXTRUDED HALO\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"EXTRUDED HALO".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).parthalo[3] = TRUE;
         }
-    } else if !strstr(command, b"GREEDY HALO\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"GREEDY HALO".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).parthalo[4] = TRUE;
         }
-    } else if !strstr(command, b"PARTBW\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"PARTBW".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).partbw = TRUE;
         }
-    } else if !strstr(command, b"PARTHYPRE\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"PARTHYPRE".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).parthypre = TRUE;
         }
     } else {
@@ -7214,6 +7262,8 @@ unsafe fn load_ccmd2(
     }
 }
 // SAFETY: command-file arms, mappings half (split for sizing).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn load_ccmd3(
     eg: *mut ElmergridType,
     grid: *mut GridType,
@@ -7226,7 +7276,7 @@ unsafe fn load_ccmd3(
 ) {
     if !strstr(
         command,
-        b"BOUNDARY TYPE MAPPINGS\0".as_ptr() as *const c_char,
+        c"BOUNDARY TYPE MAPPINGS".as_ptr() as *const c_char,
     )
     .is_null()
     {
@@ -7236,13 +7286,13 @@ unsafe fn load_ccmd3(
                 Getline(params, input);
             }
             upper(params, j);
-            if !strstr(params, b"END\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(params, c"END".as_ptr() as *const c_char).is_null() {
                 break;
             }
             *cp = params;
             sscanf(
                 params,
-                b"%d%d%d\0".as_ptr() as *const c_char,
+                c"%d%d%d".as_ptr() as *const c_char,
                 &mut (*eg).sidemap[(3 * *i) as usize],
                 &mut (*eg).sidemap[(3 * *i + 1) as usize],
                 &mut (*eg).sidemap[(3 * *i + 2) as usize],
@@ -7250,24 +7300,24 @@ unsafe fn load_ccmd3(
             *i += 1;
         }
         printf(
-            b"Found %d boundary type mappings\n\0".as_ptr() as *const c_char,
+            c"Found %d boundary type mappings\n".as_ptr() as *const c_char,
             *i,
         );
         (*eg).sidemappings = *i;
-    } else if !strstr(command, b"BULK TYPE MAPPINGS\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"BULK TYPE MAPPINGS".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXMAPPINGS as c_int {
             if *i > 0 {
                 Getline(params, input);
             }
             upper(params, j);
-            if !strstr(params, b"END\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(params, c"END".as_ptr() as *const c_char).is_null() {
                 break;
             }
             *cp = params;
             sscanf(
                 params,
-                b"%d%d%d\0".as_ptr() as *const c_char,
+                c"%d%d%d".as_ptr() as *const c_char,
                 &mut (*eg).bulkmap[(3 * *i) as usize],
                 &mut (*eg).bulkmap[(3 * *i + 1) as usize],
                 &mut (*eg).bulkmap[(3 * *i + 2) as usize],
@@ -7275,33 +7325,33 @@ unsafe fn load_ccmd3(
             *i += 1;
         }
         printf(
-            b"Found %d bulk type mappings\n\0".as_ptr() as *const c_char,
+            c"Found %d bulk type mappings\n".as_ptr() as *const c_char,
             *i,
         );
         (*eg).bulkmappings = *i;
-    } else if !strstr(command, b"COORDINATE MAPPING\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"COORDINATE MAPPING".as_ptr() as *const c_char).is_null() {
         sscanf(
             params,
-            b"%d%d%d\0".as_ptr() as *const c_char,
+            c"%d%d%d".as_ptr() as *const c_char,
             &mut (*eg).coordinatemap[0],
             &mut (*eg).coordinatemap[1],
             &mut (*eg).coordinatemap[2],
         );
-    } else if !strstr(command, b"BOUNDARY BOUNDARY\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"BOUNDARY BOUNDARY".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXBOUNDARIES as c_int {
             if *i > 0 {
                 Getline(params, input);
             }
             upper(params, j);
-            if !strstr(params, b"END\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(params, c"END".as_ptr() as *const c_char).is_null() {
                 break;
             }
             *cp = params;
             // NOTE: C reads into [3i+2],[3i],[3i+1] order; mirrored exactly.
             sscanf(
                 params,
-                b"%d%d%d\0".as_ptr() as *const c_char,
+                c"%d%d%d".as_ptr() as *const c_char,
                 &mut (*eg).boundbound[(3 * *i + 2) as usize],
                 &mut (*eg).boundbound[(3 * *i) as usize],
                 &mut (*eg).boundbound[(3 * *i + 1) as usize],
@@ -7309,25 +7359,25 @@ unsafe fn load_ccmd3(
             *i += 1;
         }
         printf(
-            b"Found %d boundary boundary definitions\n\0".as_ptr() as *const c_char,
+            c"Found %d boundary boundary definitions\n".as_ptr() as *const c_char,
             *i,
         );
         (*eg).boundbounds = *i;
-    } else if !strstr(command, b"MATERIAL BOUNDARY\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"MATERIAL BOUNDARY".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXBOUNDARIES as c_int {
             if *i > 0 {
                 Getline(params, input);
             }
             upper(params, j);
-            if !strstr(params, b"END\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(params, c"END".as_ptr() as *const c_char).is_null() {
                 break;
             }
             *cp = params;
             // NOTE: C reads into [3i+2],[3i],[3i+1] order; mirrored exactly.
             sscanf(
                 params,
-                b"%d%d%d\0".as_ptr() as *const c_char,
+                c"%d%d%d".as_ptr() as *const c_char,
                 &mut (*eg).bulkbound[(3 * *i + 2) as usize],
                 &mut (*eg).bulkbound[(3 * *i) as usize],
                 &mut (*eg).bulkbound[(3 * *i + 1) as usize],
@@ -7335,21 +7385,21 @@ unsafe fn load_ccmd3(
             *i += 1;
         }
         printf(
-            b"Found %d material boundary definitions\n\0".as_ptr() as *const c_char,
+            c"Found %d material boundary definitions\n".as_ptr() as *const c_char,
             *i,
         );
         (*eg).bulkbounds = *i;
-    } else if !strstr(command, b"RENUMBER BOUNDARY\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"RENUMBER BOUNDARY".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXBOUNDARIES as c_int {
             upper(params, j);
-            if !strstr(params, b"END\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(params, c"END".as_ptr() as *const c_char).is_null() {
                 break;
             }
             *cp = params;
             sscanf(
                 params,
-                b"%d%d%d\0".as_ptr() as *const c_char,
+                c"%d%d%d".as_ptr() as *const c_char,
                 &mut (*eg).sidemap[(3 * *i) as usize],
                 &mut (*eg).sidemap[(3 * *i + 1) as usize],
                 &mut (*eg).sidemap[(3 * *i + 2) as usize],
@@ -7357,21 +7407,21 @@ unsafe fn load_ccmd3(
             *i += 1;
         }
         printf(
-            b"Found %d boundary mappings\n\0".as_ptr() as *const c_char,
+            c"Found %d boundary mappings\n".as_ptr() as *const c_char,
             *i,
         );
         (*eg).sidemappings = *i;
-    } else if !strstr(command, b"RENUMBER MATERIAL\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"RENUMBER MATERIAL".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXBOUNDARIES as c_int {
             upper(params, j);
-            if !strstr(params, b"END\0".as_ptr() as *const c_char).is_null() {
+            if !strstr(params, c"END".as_ptr() as *const c_char).is_null() {
                 break;
             }
             *cp = params;
             sscanf(
                 params,
-                b"%d%d%d\0".as_ptr() as *const c_char,
+                c"%d%d%d".as_ptr() as *const c_char,
                 &mut (*eg).bulkmap[(3 * *i) as usize],
                 &mut (*eg).bulkmap[(3 * *i + 1) as usize],
                 &mut (*eg).bulkmap[(3 * *i + 2) as usize],
@@ -7379,7 +7429,7 @@ unsafe fn load_ccmd3(
             *i += 1;
         }
         printf(
-            b"Found %d material mappings\n\0".as_ptr() as *const c_char,
+            c"Found %d material mappings\n".as_ptr() as *const c_char,
             *i,
         );
         (*eg).bulkmappings = *i;
@@ -7388,6 +7438,8 @@ unsafe fn load_ccmd3(
     }
 }
 // SAFETY: command-file arms, layer/extrude tail (split for sizing).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn load_ccmd4(
     eg: *mut ElmergridType,
     grid: *mut GridType,
@@ -7398,22 +7450,22 @@ unsafe fn load_ccmd4(
     params: *mut c_char,
     input: *mut FILE,
 ) {
-    if !strstr(command, b"BOUNDARY LAYER\0".as_ptr() as *const c_char).is_null() {
-        if !strstr(command, b"BOUNDARY LAYER MOVE\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(command, c"BOUNDARY LAYER".as_ptr() as *const c_char).is_null() {
+        if !strstr(command, c"BOUNDARY LAYER MOVE".as_ptr() as *const c_char).is_null() {
             sscanf(
                 params,
-                b"%d\0".as_ptr() as *const c_char,
+                c"%d".as_ptr() as *const c_char,
                 &mut (*eg).layermove,
             );
         } else if !strstr(
             command,
-            b"BOUNDARY LAYER EPSILON\0".as_ptr() as *const c_char,
+            c"BOUNDARY LAYER EPSILON".as_ptr() as *const c_char,
         )
         .is_null()
         {
             sscanf(
                 params,
-                b"%le\0".as_ptr() as *const c_char,
+                c"%le".as_ptr() as *const c_char,
                 &mut (*eg).layereps,
             );
         } else {
@@ -7424,8 +7476,8 @@ unsafe fn load_ccmd4(
                 }
                 upper(params, j);
                 *cp = params;
-                if !strstr(params, b"END\0".as_ptr() as *const c_char).is_null()
-                    || !strstr(params, b"End\0".as_ptr() as *const c_char).is_null()
+                if !strstr(params, c"END".as_ptr() as *const c_char).is_null()
+                    || !strstr(params, c"End".as_ptr() as *const c_char).is_null()
                 {
                     break;
                 }
@@ -7437,83 +7489,85 @@ unsafe fn load_ccmd4(
                 *i += 1;
             }
             printf(
-                b"Found %d boundary layers\n\0".as_ptr() as *const c_char,
+                c"Found %d boundary layers\n".as_ptr() as *const c_char,
                 *i,
             );
             (*eg).layers = *i;
         }
     } else if !strstr(
         command,
-        b"REMOVE LOWER DIMENSIONAL BOUNDARIES\0".as_ptr() as *const c_char,
+        c"REMOVE LOWER DIMENSIONAL BOUNDARIES".as_ptr() as *const c_char,
     )
     .is_null()
     {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).removelowdim = TRUE;
         }
     } else if !strstr(
         command,
-        b"REMOVE INTERNAL BOUNDARIES\0".as_ptr() as *const c_char,
+        c"REMOVE INTERNAL BOUNDARIES".as_ptr() as *const c_char,
     )
     .is_null()
     {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).removeintbcs = TRUE;
         }
-    } else if !strstr(command, b"REMOVE UNUSED NODES\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"REMOVE UNUSED NODES".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).removeunused = TRUE;
         }
-    } else if !strstr(command, b"NO MESH NAMES\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"NO MESH NAMES".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).usenames = FALSE;
         }
-    } else if !strstr(command, b"REORDER MATERIAL\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"REORDER MATERIAL".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).bulkorder = TRUE;
         }
-    } else if !strstr(command, b"REORDER BOUNDARY\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"REORDER BOUNDARY".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).boundorder = TRUE;
         }
-    } else if !strstr(command, b"DIMENSION\0".as_ptr() as *const c_char).is_null() {
-        sscanf(params, b"%d\0".as_ptr() as *const c_char, &mut (*eg).dim);
-    } else if !strstr(command, b"ISOPARAMETRIC\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"DIMENSION".as_ptr() as *const c_char).is_null() {
+        sscanf(params, c"%d".as_ptr() as *const c_char, &mut (*eg).dim);
+    } else if !strstr(command, c"ISOPARAMETRIC".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).isoparam = TRUE;
         }
-    } else if !strstr(command, b"NO BOUNDARY\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"NO BOUNDARY".as_ptr() as *const c_char).is_null() {
         upper(params, j);
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*eg).saveboundaries = FALSE;
         }
-    } else if !strstr(command, b"LAYERED BOUNDARIES\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"LAYERED BOUNDARIES".as_ptr() as *const c_char).is_null() {
         *i = 0;
         while *i < MAXLINESIZE as c_int {
             *params.wrapping_offset(*i as isize) =
                 toupper(*params.wrapping_offset(*i as isize) as c_int) as c_char;
             *i += 1;
         }
-        if !strstr(params, b"TRUE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"TRUE".as_ptr() as *const c_char).is_null() {
             (*grid).layeredbc = 1;
         }
-        if !strstr(params, b"FALSE\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(params, c"FALSE".as_ptr() as *const c_char).is_null() {
             (*grid).layeredbc = 0;
         }
-    } else if !strstr(command, b"EXTRUDED\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"EXTRUDED".as_ptr() as *const c_char).is_null() {
         (*grid).dimension = 3;
         load_extruded(eg, grid, cp, i, j, command, params, input);
     }
 }
 
 // SAFETY: EXTRUDED sub-arms of LoadCommands (split for sizing).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn load_extruded(
     _eg: *mut ElmergridType,
     grid: *mut GridType,
@@ -7524,39 +7578,39 @@ unsafe fn load_extruded(
     params: *mut c_char,
     input: *mut FILE,
 ) {
-    if !strstr(command, b"EXTRUDED DIVISIONS\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(command, c"EXTRUDED DIVISIONS".as_ptr() as *const c_char).is_null() {
         sscanf(
             params,
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut (*grid).zcells,
         );
     }
-    if !strstr(command, b"EXTRUDED BC OFFSET\0".as_ptr() as *const c_char).is_null() {
+    if !strstr(command, c"EXTRUDED BC OFFSET".as_ptr() as *const c_char).is_null() {
         sscanf(
             params,
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut (*grid).layerbcoffset,
         );
-    } else if !strstr(command, b"EXTRUDED LIMITS\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"EXTRUDED LIMITS".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 0;
         while *i <= (*grid).zcells {
             (*grid).z[*i as usize] = next_real(&mut (*cp));
             if *i > 0 && (*grid).z[*i as usize] < (*grid).z[(*i - 1) as usize] {
                 printf(
-                    b"Extruded limits %d: %12.6le %12.6le\n\0".as_ptr() as *const c_char,
+                    c"Extruded limits %d: %12.6le %12.6le\n".as_ptr() as *const c_char,
                     *i,
                     (*grid).z[*i as usize],
                     (*grid).z[(*i - 1) as usize],
                 );
                 bigerror(
-                    b"Values for limits should be a growing series, existing\n\0".as_ptr()
+                    c"Values for limits should be a growing series, existing\n".as_ptr()
                         as *const c_char,
                 );
             }
             *i += 1;
         }
-    } else if !strstr(command, b"EXTRUDED SIZES\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"EXTRUDED SIZES".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 1;
         while *i <= (*grid).zcells {
@@ -7565,10 +7619,10 @@ unsafe fn load_extruded(
         }
         *i = 1;
         while *i <= (*grid).zcells {
-            (*grid).z[*i as usize] = (*grid).z[(*i - 1) as usize] + (*grid).z[*i as usize];
+            (*grid).z[*i as usize] += (*grid).z[(*i - 1) as usize];
             *i += 1;
         }
-    } else if !strstr(command, b"EXTRUDED ELEMENTS\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"EXTRUDED ELEMENTS".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 1;
         while *i <= (*grid).zcells {
@@ -7576,21 +7630,21 @@ unsafe fn load_extruded(
             *i += 1;
         }
         (*grid).autoratio = FALSE;
-    } else if !strstr(command, b"EXTRUDED RATIOS\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"EXTRUDED RATIOS".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 1;
         while *i <= (*grid).zcells {
             (*grid).zexpand[*i as usize] = next_real(&mut (*cp));
             *i += 1;
         }
-    } else if !strstr(command, b"EXTRUDED DENSITIES\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"EXTRUDED DENSITIES".as_ptr() as *const c_char).is_null() {
         *cp = params;
         *i = 1;
         while *i <= (*grid).zcells {
             (*grid).zdens[*i as usize] = next_real(&mut (*cp));
             *i += 1;
         }
-    } else if !strstr(command, b"EXTRUDED STRUCTURE\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"EXTRUDED STRUCTURE".as_ptr() as *const c_char).is_null() {
         *i = 1;
         while *i <= (*grid).zcells {
             if *i > 1 {
@@ -7598,7 +7652,7 @@ unsafe fn load_extruded(
             }
             sscanf(
                 params,
-                b"%d %d %d\n\0".as_ptr() as *const c_char,
+                c"%d %d %d\n".as_ptr() as *const c_char,
                 &mut (*grid).zfirstmaterial[*i as usize],
                 &mut (*grid).zlastmaterial[*i as usize],
                 &mut (*grid).zmaterial[*i as usize],
@@ -7607,18 +7661,18 @@ unsafe fn load_extruded(
         }
     } else if !strstr(
         command,
-        b"EXTRUDED MAX MATERIAL\0".as_ptr() as *const c_char,
+        c"EXTRUDED MAX MATERIAL".as_ptr() as *const c_char,
     )
     .is_null()
     {
         sscanf(
             params,
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut (*grid).maxmaterial,
         );
     } else if !strstr(
         command,
-        b"EXTRUDED MATERIAL MAPPINGS\0".as_ptr() as *const c_char,
+        c"EXTRUDED MATERIAL MAPPINGS".as_ptr() as *const c_char,
     )
     .is_null()
     {
@@ -7639,10 +7693,10 @@ unsafe fn load_extruded(
             *i += 1;
         }
         (*grid).zmaterialmapexists = TRUE;
-    } else if !strstr(command, b"EXTRUDED HELICITY\0".as_ptr() as *const c_char).is_null() {
+    } else if !strstr(command, c"EXTRUDED HELICITY".as_ptr() as *const c_char).is_null() {
         sscanf(
             params,
-            b"%le\0".as_ptr() as *const c_char,
+            c"%le".as_ptr() as *const c_char,
             &mut (*grid).zhelicity,
         );
         (*grid).zhelicityexists = TRUE;
@@ -7694,9 +7748,7 @@ unsafe fn FindParentSide(
             elemsides = elemtype / 100;
             if elemsides == 8 {
                 elemsides = 6;
-            } else if elemsides == 7 {
-                elemsides = 5;
-            } else if elemsides == 6 {
+            } else if elemsides == 7 || elemsides == 6 {
                 elemsides = 5;
             } else if elemsides == 5 {
                 elemsides = 4;
@@ -7709,7 +7761,7 @@ unsafe fn FindParentSide(
                     while side < elemsides {
                         if debug != 0 {
                             printf(
-                                b"elem = %d %d %d %d\n\0".as_ptr() as *const c_char,
+                                c"elem = %d %d %d %d\n".as_ptr() as *const c_char,
                                 elemind,
                                 elemsides,
                                 normal,
@@ -7739,7 +7791,7 @@ unsafe fn FindParentSide(
                         while j < sidenodes {
                             if debug != 0 {
                                 printf(
-                                    b"sidenode: %d %d %d\n\0".as_ptr() as *const c_char,
+                                    c"sidenode: %d %d %d\n".as_ptr() as *const c_char,
                                     j,
                                     *sideind.wrapping_offset(j as isize),
                                     sideind2[j as usize],
@@ -7829,44 +7881,44 @@ unsafe fn FindParentSide(
             }
             if hit == 0 {
                 printf(
-                    b"FindParentSide: cannot locate BC element in parent %d: %d\n\0".as_ptr()
+                    c"FindParentSide: cannot locate BC element in parent %d: %d\n".as_ptr()
                         as *const c_char,
                     parent,
                     elemind,
                 );
                 printf(
-                    b"BC elem %d of type %d with corner indexes: \0".as_ptr() as *const c_char,
+                    c"BC elem %d of type %d with corner indexes: ".as_ptr() as *const c_char,
                     sideelem,
                     sideelemtype,
                 );
                 i = 0;
                 while i < sideelemtype / 100 {
                     printf(
-                        b" %d \0".as_ptr() as *const c_char,
+                        c" %d ".as_ptr() as *const c_char,
                         *sideind.wrapping_offset(i as isize),
                     );
                     i += 1;
                 }
-                printf(b"\n\0".as_ptr() as *const c_char);
+                printf(c"\n".as_ptr() as *const c_char);
                 printf(
-                    b"Bulk elem %d of type %d with corner indexes: \0".as_ptr() as *const c_char,
+                    c"Bulk elem %d of type %d with corner indexes: ".as_ptr() as *const c_char,
                     elemind,
                     elemtype,
                 );
                 j = elemtype / 100;
-                if j >= 5 && j <= 7 {
-                    j = j - 1;
+                if (5..=7).contains(&j) {
+                    j -= 1;
                 }
                 i = 0;
                 while i < j {
                     printf(
-                        b" %d \0".as_ptr() as *const c_char,
+                        c" %d ".as_ptr() as *const c_char,
                         *(*(*data).topology.wrapping_offset(elemind as isize))
                             .wrapping_offset(i as isize),
                     );
                     i += 1;
                 }
-                printf(b"\n\0".as_ptr() as *const c_char);
+                printf(c"\n".as_ptr() as *const c_char);
             }
         }
         parent += 1;
@@ -7880,11 +7932,11 @@ unsafe fn FindParentSide(
 // SAFETY: single line reader; 1 = EOF (the `upper` arg is unused in C too).
 unsafe fn Getnamerow(line: *mut c_char, io: *mut FILE, _upper: c_int) -> c_int {
     // NOTE: assigned before every read (C uninit decl shape).
-    let isend: c_int;
+    
     // NOTE: read for the NULL check below.
-    let charend: *mut c_char;
-    charend = fgets(line, MAXLINESIZE as c_int, io);
-    isend = (charend.is_null()) as c_int;
+    
+    let charend: *mut c_char = fgets(line, MAXLINESIZE as c_int, io);
+    let isend: c_int = (charend.is_null()) as c_int;
     if isend != 0 {
         1
     } else {
@@ -7892,7 +7944,9 @@ unsafe fn Getnamerow(line: *mut c_char, io: *mut FILE, _upper: c_int) -> c_int {
     }
 }
 
-// SAFETY: ElmerSolver-format mesh reader; C status codes.
+/// # Safety
+///
+/// ElmerSolver-format mesh reader; C status codes.
 #[no_mangle]
 pub unsafe extern "C" fn LoadElmerInput(
     data: *mut FemType,
@@ -7959,7 +8013,7 @@ pub unsafe extern "C" fn LoadElmerInput(
     let mut invelemperm: *mut c_int = core::ptr::null_mut();
     // NOTE: 0-init for the &mut handoff (set in load_elements before reads).
     let mut iostat: c_int = 0;
-    let noelements0: c_int;
+    
     let mut input: *mut FILE;
     let mut line: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
     let mut line2: [c_char; MAXLINESIZE] = [0; MAXLINESIZE];
@@ -7971,19 +8025,19 @@ pub unsafe extern "C" fn LoadElmerInput(
     let mut ptr2: *mut c_char = core::ptr::null_mut();
     sprintf(
         directoryname.as_mut_ptr(),
-        b"%s\0".as_ptr() as *const c_char,
+        c"%s".as_ptr() as *const c_char,
         prefix,
     );
     cdstat = chdir(directoryname.as_ptr());
     if info != 0 {
         if cdstat != 0 {
             printf(
-                b"Loading mesh in ElmerSolver format from root directory.\n\0".as_ptr()
+                c"Loading mesh in ElmerSolver format from root directory.\n".as_ptr()
                     as *const c_char,
             );
         } else {
             printf(
-                b"Loading mesh in ElmerSolver format from directory %s.\n\0".as_ptr()
+                c"Loading mesh in ElmerSolver format from directory %s.\n".as_ptr()
                     as *const c_char,
                 directoryname.as_ptr(),
             );
@@ -7992,20 +8046,20 @@ pub unsafe extern "C" fn LoadElmerInput(
     InitializeKnots(data);
     sprintf(
         filename.as_mut_ptr(),
-        b"%s\0".as_ptr() as *const c_char,
-        b"mesh.header\0".as_ptr() as *const c_char,
+        c"%s".as_ptr() as *const c_char,
+        c"mesh.header".as_ptr() as *const c_char,
     );
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         printf(
-            b"LoadElmerInput: The opening of the header-file %s failed!\n\0".as_ptr()
+            c"LoadElmerInput: The opening of the header-file %s failed!\n".as_ptr()
                 as *const c_char,
             filename.as_ptr(),
         );
         return 1;
     } else {
         printf(
-            b"Loading header from %s\n\0".as_ptr() as *const c_char,
+            c"Loading header from %s\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
@@ -8013,7 +8067,7 @@ pub unsafe extern "C" fn LoadElmerInput(
     ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, input);
     sscanf(
         line.as_ptr(),
-        b"%d %d %d\0".as_ptr() as *const c_char,
+        c"%d %d %d".as_ptr() as *const c_char,
         &mut noknots,
         &mut noelements,
         &mut nosides,
@@ -8021,7 +8075,7 @@ pub unsafe extern "C" fn LoadElmerInput(
     ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, input);
     sscanf(
         line.as_ptr(),
-        b"%d\0".as_ptr() as *const c_char,
+        c"%d".as_ptr() as *const c_char,
         &mut tottypes,
     );
     maxelemtype = 0;
@@ -8031,7 +8085,7 @@ pub unsafe extern "C" fn LoadElmerInput(
         ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, input);
         sscanf(
             line.as_ptr(),
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut dummyint,
         );
         // NOTE: C `MAX` macro (egdef.h:97); both arms pure.
@@ -8045,22 +8099,22 @@ pub unsafe extern "C" fn LoadElmerInput(
         i += 1;
     }
     printf(
-        b"Maximum elementtype index is: %d\n\0".as_ptr() as *const c_char,
+        c"Maximum elementtype index is: %d\n".as_ptr() as *const c_char,
         maxelemtype,
     );
     printf(
-        b"Maximum number of nodes in element is: %d\n\0".as_ptr() as *const c_char,
+        c"Maximum number of nodes in element is: %d\n".as_ptr() as *const c_char,
         maxnodes,
     );
     fclose(input);
     (*data).dim = GetElementDimension(maxelemtype);
     (*data).maxnodes = maxnodes;
     (*data).noknots = noknots;
-    noelements0 = noelements;
+    let noelements0: c_int = noelements;
     (*data).noelements = noelements0;
     if info != 0 {
         printf(
-            b"Allocating for %d knots and %d elements.\n\0".as_ptr() as *const c_char,
+            c"Allocating for %d knots and %d elements.\n".as_ptr() as *const c_char,
             noknots,
             noelements,
         );
@@ -8068,22 +8122,22 @@ pub unsafe extern "C" fn LoadElmerInput(
     AllocateKnots(data);
     sprintf(
         filename.as_mut_ptr(),
-        b"%s\0".as_ptr() as *const c_char,
-        b"mesh.nodes\0".as_ptr() as *const c_char,
+        c"%s".as_ptr() as *const c_char,
+        c"mesh.nodes".as_ptr() as *const c_char,
     );
-    input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if input.is_null() {
         if info != 0 {
             printf(
-                b"LoadElmerInput: The opening of the nodes-file %s failed!\n\0".as_ptr()
+                c"LoadElmerInput: The opening of the nodes-file %s failed!\n".as_ptr()
                     as *const c_char,
                 filename.as_ptr(),
             );
         }
-        bigerror(b"Cannot continue without nodes file!\n\0".as_ptr() as *const c_char);
+        bigerror(c"Cannot continue without nodes file!\n".as_ptr() as *const c_char);
     } else {
         printf(
-            b"Loading %d Elmer nodes from %s\n\0".as_ptr() as *const c_char,
+            c"Loading %d Elmer nodes from %s\n".as_ptr() as *const c_char,
             noknots,
             filename.as_ptr(),
         );
@@ -8094,7 +8148,7 @@ pub unsafe extern "C" fn LoadElmerInput(
         ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, input);
         sscanf(
             line.as_ptr(),
-            b"%d %d %le %le %le\0".as_ptr() as *const c_char,
+            c"%d %d %le %le %le".as_ptr() as *const c_char,
             &mut j,
             &mut dummyint,
             &mut (*(*data).x.wrapping_offset(i as isize)),
@@ -8103,7 +8157,7 @@ pub unsafe extern "C" fn LoadElmerInput(
         );
         if j != i && activeperm == 0 {
             printf(
-                b"LoadElmerInput: The node number (%d) at node %d is not compact, creating permutation\n\0".as_ptr()
+                c"LoadElmerInput: The node number (%d) at node %d is not compact, creating permutation\n".as_ptr()
                     as *const c_char,
                 j,
                 i,
@@ -8217,11 +8271,11 @@ pub unsafe extern "C" fn LoadElmerInput(
         free_ivector(elemperm, 1, noelements0);
     }
     if cdstat == 0 {
-        cdstat = chdir(b"..\0".as_ptr() as *const c_char);
+        cdstat = chdir(c"..".as_ptr() as *const c_char);
     }
     let _ = cdstat;
     if info != 0 {
-        printf(b"Elmer mesh loaded successfully\n\0".as_ptr() as *const c_char);
+        printf(c"Elmer mesh loaded successfully\n".as_ptr() as *const c_char);
     }
     0
 }
@@ -8259,7 +8313,7 @@ unsafe fn load_nodes_perm(
         }
         if info != 0 {
             printf(
-                b"LoadElmerInput: Node index range is: [%d %d]\n\0".as_ptr() as *const c_char,
+                c"LoadElmerInput: Node index range is: [%d %d]\n".as_ptr() as *const c_char,
                 mini,
                 maxi,
             );
@@ -8275,7 +8329,7 @@ unsafe fn load_nodes_perm(
             j = *nodeperm.wrapping_offset(i as isize);
             if *(*invperm).wrapping_offset(j as isize) > 0 {
                 printf(
-                    b"LoadElmerInput: Node %d is redundant which may be problematic!\n\0".as_ptr()
+                    c"LoadElmerInput: Node %d is redundant which may be problematic!\n".as_ptr()
                         as *const c_char,
                     j,
                 );
@@ -8291,6 +8345,8 @@ unsafe fn load_nodes_perm(
     (mini, maxi)
 }
 // SAFETY: bulk-element reader + inverse element permutation (split).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn load_elements(
     data: *mut FemType,
     activeelemperm: &mut c_int,
@@ -8320,30 +8376,30 @@ unsafe fn load_elements(
     *activeelemperm = FALSE;
     sprintf(
         filename.as_mut_ptr(),
-        b"%s\0".as_ptr() as *const c_char,
-        b"mesh.elements\0".as_ptr() as *const c_char,
+        c"%s".as_ptr() as *const c_char,
+        c"mesh.elements".as_ptr() as *const c_char,
     );
-    *input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    *input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if (*input).is_null() {
         printf(
-            b"LoadElmerInput: The opening of the element-file %s failed!\n\0".as_ptr()
+            c"LoadElmerInput: The opening of the element-file %s failed!\n".as_ptr()
                 as *const c_char,
             filename.as_ptr(),
         );
-        bigerror(b"Cannot continue without element file!\n\0".as_ptr() as *const c_char);
+        bigerror(c"Cannot continue without element file!\n".as_ptr() as *const c_char);
     } else if info != 0 {
         printf(
-            b"Loading %d bulk elements from %s\n\0".as_ptr() as *const c_char,
+            c"Loading %d bulk elements from %s\n".as_ptr() as *const c_char,
             *noelements,
             filename.as_ptr(),
         );
     }
     *i = 1;
     while *i <= *noelements {
-        *iostat = fscanf(*input, b"%d\0".as_ptr() as *const c_char, &mut (*j));
+        *iostat = fscanf(*input, c"%d".as_ptr() as *const c_char, &mut (*j));
         if *iostat <= 0 {
             printf(
-                b"LoadElmerInput: Failed reading element line %d, reducing size of element table to %d!\n\0".as_ptr()
+                c"LoadElmerInput: Failed reading element line %d, reducing size of element table to %d!\n".as_ptr()
                     as *const c_char,
                 *i,
                 *i - 1,
@@ -8354,7 +8410,7 @@ unsafe fn load_elements(
         }
         if *i != *j && *activeelemperm == 0 {
             printf(
-                b"LoadElmerInput: The element numbering (%d) at element %d is not compact, creating permutation\n\0".as_ptr()
+                c"LoadElmerInput: The element numbering (%d) at element %d is not compact, creating permutation\n".as_ptr()
                     as *const c_char,
                 *j,
                 *i,
@@ -8372,48 +8428,48 @@ unsafe fn load_elements(
         }
         *iostat = fscanf(
             *input,
-            b"%d %d\0".as_ptr() as *const c_char,
+            c"%d %d".as_ptr() as *const c_char,
             &mut (*(*data).material.wrapping_offset(*i as isize)),
             &mut (*elementtype),
         );
         if *iostat < 2 {
             printf(
-                b"LoadElmerInput: Failed reading definitions for bulk element %d\n\0".as_ptr()
+                c"LoadElmerInput: Failed reading definitions for bulk element %d\n".as_ptr()
                     as *const c_char,
                 *j,
             );
-            bigerror(b"Cannot continue without this data!\n\0".as_ptr() as *const c_char);
+            bigerror(c"Cannot continue without this data!\n".as_ptr() as *const c_char);
         }
         if *elementtype > maxelemtype {
             printf(
-                b"Invalid bulk elementtype: %d\n\0".as_ptr() as *const c_char,
+                c"Invalid bulk elementtype: %d\n".as_ptr() as *const c_char,
                 *elementtype,
             );
-            bigerror(b"Cannot continue with invalid elements\0".as_ptr() as *const c_char);
+            bigerror(c"Cannot continue with invalid elements".as_ptr() as *const c_char);
         }
         *(*data).elementtypes.wrapping_offset(*i as isize) = *elementtype;
         *nonodes = *elementtype % 100;
         if *nonodes > maxnodes {
             printf(
-                b"Number of nodes %d in element %d is greater than allocated maximum %d\n\0"
+                c"Number of nodes %d in element %d is greater than allocated maximum %d\n"
                     .as_ptr() as *const c_char,
                 *nonodes,
                 *j,
                 maxnodes,
             );
-            bigerror(b"Cannot continue with invalid elements\0".as_ptr() as *const c_char);
+            bigerror(c"Cannot continue with invalid elements".as_ptr() as *const c_char);
         }
         *k = 0;
         while *k < *nonodes {
-            *iostat = fscanf(*input, b"%d\0".as_ptr() as *const c_char, &mut (*l));
+            *iostat = fscanf(*input, c"%d".as_ptr() as *const c_char, &mut (*l));
             if *l < mini || *l > maxi {
                 printf(
-                    b"Node %d in element %d is out of range: %d\n\0".as_ptr() as *const c_char,
+                    c"Node %d in element %d is out of range: %d\n".as_ptr() as *const c_char,
                     *k + 1,
                     *j,
                     *l,
                 );
-                bigerror(b"Cannot continue with this node numbering\0".as_ptr() as *const c_char);
+                bigerror(c"Cannot continue with this node numbering".as_ptr() as *const c_char);
             }
             if activeperm != 0 {
                 *(*(*data).topology.wrapping_offset(*i as isize)).wrapping_offset(*k as isize) =
@@ -8446,7 +8502,7 @@ unsafe fn load_elements(
         }
         if info != 0 {
             printf(
-                b"LoadElmerInput: Element index range is: [%d %d]\n\0".as_ptr() as *const c_char,
+                c"LoadElmerInput: Element index range is: [%d %d]\n".as_ptr() as *const c_char,
                 *minelem,
                 *maxelem,
             );
@@ -8462,7 +8518,7 @@ unsafe fn load_elements(
             *j = *(*elemperm).wrapping_offset(*i as isize);
             if *(*invelemperm).wrapping_offset(*j as isize) > 0 {
                 printf(
-                    b"LoadElmerInput: Element %d is redundant which may be problematic!\n\0"
+                    c"LoadElmerInput: Element %d is redundant which may be problematic!\n"
                         .as_ptr() as *const c_char,
                     *j,
                 );
@@ -8478,6 +8534,8 @@ unsafe fn load_elements(
 }
 // SAFETY: boundary-element reader + parent resolution (split for sizing).
 // Returns 1 on a missing boundary file (the caller maps it to C's `return(4)`).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn load_boundary(
     data: *mut FemType,
     bound: *mut BoundaryType,
@@ -8518,20 +8576,20 @@ unsafe fn load_boundary(
     *bctopocreated = FALSE;
     sprintf(
         filename.as_mut_ptr(),
-        b"%s\0".as_ptr() as *const c_char,
-        b"mesh.boundary\0".as_ptr() as *const c_char,
+        c"%s".as_ptr() as *const c_char,
+        c"mesh.boundary".as_ptr() as *const c_char,
     );
-    *input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    *input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if (*input).is_null() {
         printf(
-            b"LoadElmerInput: The opening of the boundary-file %s failed!\n\0".as_ptr()
+            c"LoadElmerInput: The opening of the boundary-file %s failed!\n".as_ptr()
                 as *const c_char,
             filename.as_ptr(),
         );
         return 1;
     } else if info != 0 {
         printf(
-            b"Loading %d boundary elements from %s\n\0".as_ptr() as *const c_char,
+            c"Loading %d boundary elements from %s\n".as_ptr() as *const c_char,
             *nosides,
             filename.as_ptr(),
         );
@@ -8543,10 +8601,10 @@ unsafe fn load_boundary(
     *i = 0;
     *k = 1;
     while *k <= *nosides {
-        *iostat = fscanf(*input, b"%d\0".as_ptr() as *const c_char, &mut (*dummyint));
+        *iostat = fscanf(*input, c"%d".as_ptr() as *const c_char, &mut (*dummyint));
         if *iostat < 1 {
             printf(
-                b"LoadElmerInput: Failed reading boundary element line %d, reducing size of element table to %d!\n\0".as_ptr()
+                c"LoadElmerInput: Failed reading boundary element line %d, reducing size of element table to %d!\n".as_ptr()
                     as *const c_char,
                 *k,
                 *i,
@@ -8558,7 +8616,7 @@ unsafe fn load_boundary(
         *i += 1;
         *iostat = fscanf(
             *input,
-            b"%d %d %d %d\0".as_ptr() as *const c_char,
+            c"%d %d %d %d".as_ptr() as *const c_char,
             &mut (*(*bound).types.wrapping_offset(*i as isize)),
             &mut (*p1),
             &mut (*p2),
@@ -8566,27 +8624,27 @@ unsafe fn load_boundary(
         );
         if *iostat < 4 {
             printf(
-                b"LoadElmerInput: Failed reading definitions for boundary element %d\n\0".as_ptr()
+                c"LoadElmerInput: Failed reading definitions for boundary element %d\n".as_ptr()
                     as *const c_char,
                 *k,
             );
-            bigerror(b"Cannot continue without this data!\n\0".as_ptr() as *const c_char);
+            bigerror(c"Cannot continue without this data!\n".as_ptr() as *const c_char);
         }
         if *p1 > 0 && (*p1 < minelem || *p1 > maxelem) {
             printf(
-                b"Parent in boundary element %d out of range: %d\n\0".as_ptr() as *const c_char,
+                c"Parent in boundary element %d out of range: %d\n".as_ptr() as *const c_char,
                 *k,
                 *p1,
             );
-            bigerror(b"Cannot continue with bad parents\0".as_ptr() as *const c_char);
+            bigerror(c"Cannot continue with bad parents".as_ptr() as *const c_char);
         }
         if *p2 > 0 && (*p2 < minelem || *p2 > maxelem) {
             printf(
-                b"Parent in boundary element %d out of range: %d\n\0".as_ptr() as *const c_char,
+                c"Parent in boundary element %d out of range: %d\n".as_ptr() as *const c_char,
                 *k,
                 *p2,
             );
-            bigerror(b"Cannot continue with bad parents\0".as_ptr() as *const c_char);
+            bigerror(c"Cannot continue with bad parents".as_ptr() as *const c_char);
         }
         if activeelemperm != 0 {
             if *p1 > 0 {
@@ -8598,25 +8656,25 @@ unsafe fn load_boundary(
         }
         if *elementtype > maxelemtype {
             printf(
-                b"Invalid boundary elementtype: %d\n\0".as_ptr() as *const c_char,
+                c"Invalid boundary elementtype: %d\n".as_ptr() as *const c_char,
                 *elementtype,
             );
-            bigerror(b"Cannot continue with invalid elements\0".as_ptr() as *const c_char);
+            bigerror(c"Cannot continue with invalid elements".as_ptr() as *const c_char);
         }
         *nonodes = *elementtype % 100;
         if *nonodes > maxnodes {
             printf(
-                b"Number of nodes %d in side element %d is greater than allocated maximum %d\n\0"
+                c"Number of nodes %d in side element %d is greater than allocated maximum %d\n"
                     .as_ptr() as *const c_char,
                 *nonodes,
                 *dummyint,
                 maxnodes,
             );
-            bigerror(b"Cannot continue with invalid elements\0".as_ptr() as *const c_char);
+            bigerror(c"Cannot continue with invalid elements".as_ptr() as *const c_char);
         }
         *j = 0;
         while *j < *nonodes {
-            *iostat = fscanf(*input, b"%d\0".as_ptr() as *const c_char, &mut (*l));
+            *iostat = fscanf(*input, c"%d".as_ptr() as *const c_char, &mut (*l));
             if activeperm != 0 {
                 sideind[*j as usize] = *invperm.wrapping_offset(*l as isize);
             } else {
@@ -8657,7 +8715,7 @@ unsafe fn load_boundary(
             }
             *(*bound).elementtypes.wrapping_offset(*i as isize) = *elementtype;
             printf(
-                b"elementtype = %d %d %d\n\0".as_ptr() as *const c_char,
+                c"elementtype = %d %d %d\n".as_ptr() as *const c_char,
                 *i,
                 *elementtype,
                 sideind[0],
@@ -8668,13 +8726,13 @@ unsafe fn load_boundary(
     }
     if *falseparents != 0 {
         printf(
-            b"There seems to be %d false parents in the mesh\n\0".as_ptr() as *const c_char,
+            c"There seems to be %d false parents in the mesh\n".as_ptr() as *const c_char,
             *falseparents,
         );
     }
     if *noparents != 0 {
         printf(
-            b"There seems to be %d bc elements without parents in the mesh\n\0".as_ptr()
+            c"There seems to be %d bc elements without parents in the mesh\n".as_ptr()
                 as *const c_char,
             *noparents,
         );
@@ -8684,6 +8742,8 @@ unsafe fn load_boundary(
     0
 }
 // SAFETY: mesh.names reader (split for sizing); C `goto namesend` is break.
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn load_names(
     data: *mut FemType,
     nonames: c_int,
@@ -8704,22 +8764,22 @@ unsafe fn load_names(
     let mut nameproblem: c_int;
     sprintf(
         filename.as_mut_ptr(),
-        b"%s\0".as_ptr() as *const c_char,
-        b"mesh.names\0".as_ptr() as *const c_char,
+        c"%s".as_ptr() as *const c_char,
+        c"mesh.names".as_ptr() as *const c_char,
     );
-    *input = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    *input = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if !(*input).is_null() {
         isbody = TRUE;
         nameproblem = FALSE;
         if nonames != 0 {
             printf(
-                b"Ignoring > mesh.names < because it was explicitly requested!\n\0".as_ptr()
+                c"Ignoring > mesh.names < because it was explicitly requested!\n".as_ptr()
                     as *const c_char,
             );
         } else {
             if info != 0 {
                 printf(
-                    b"Loading names for mesh parts from file %s\n\0".as_ptr() as *const c_char,
+                    c"Loading names for mesh parts from file %s\n".as_ptr() as *const c_char,
                     filename.as_ptr(),
                 );
             }
@@ -8730,23 +8790,23 @@ unsafe fn load_names(
                 }
                 if !strstr(
                     line.as_ptr(),
-                    b"names for boundaries\0".as_ptr() as *const c_char,
+                    c"names for boundaries".as_ptr() as *const c_char,
                 )
                 .is_null()
                 {
                     if info != 0 {
-                        printf(b"Reading names for mesh boundaries\n\0".as_ptr() as *const c_char);
+                        printf(c"Reading names for mesh boundaries\n".as_ptr() as *const c_char);
                     }
                     isbody = FALSE;
                     continue;
                 } else if !strstr(
                     line.as_ptr(),
-                    b"names for bodies\0".as_ptr() as *const c_char,
+                    c"names for bodies".as_ptr() as *const c_char,
                 )
                 .is_null()
                 {
                     if info != 0 {
-                        printf(b"Reading names for mesh bodies\n\0".as_ptr() as *const c_char);
+                        printf(c"Reading names for mesh bodies\n".as_ptr() as *const c_char);
                     }
                     isbody = TRUE;
                     continue;
@@ -8796,7 +8856,7 @@ unsafe fn load_names(
                     if *j < 0 || *j >= MAXBODIES as c_int {
                         if nameproblem == 0 {
                             printf(
-                                b"Cannot treat names for bodies beyond %d\n\0".as_ptr()
+                                c"Cannot treat names for bodies beyond %d\n".as_ptr()
                                     as *const c_char,
                                 *j,
                             );
@@ -8813,7 +8873,7 @@ unsafe fn load_names(
                 } else if *j < 0 || *j >= MAXBCS as c_int {
                     if nameproblem == 0 {
                         printf(
-                            b"Cannot treat names for boundaries beyond %d\n\0".as_ptr()
+                            c"Cannot treat names for boundaries beyond %d\n".as_ptr()
                                 as *const c_char,
                             *j,
                         );
@@ -8833,18 +8893,20 @@ unsafe fn load_names(
             (*data).boundarynamesexist = FALSE;
             (*data).bodynamesexist = FALSE;
             printf(
-                b"Number of indexes beyond range: %d\n\0".as_ptr() as *const c_char,
+                c"Number of indexes beyond range: %d\n".as_ptr() as *const c_char,
                 nameproblem,
             );
             smallerror(
-                b"Omitting use of names because some indexes are beyond range, code some more...\0"
+                c"Omitting use of names because some indexes are beyond range, code some more..."
                     .as_ptr() as *const c_char,
             );
         }
         // NOTE: C never fcloses mesh.names; mirrored (leak preserved).
     }
 }
-// SAFETY: ElmerSolver-format mesh writer; C status codes.
+/// # Safety
+///
+/// ElmerSolver-format mesh writer; C status codes.
 #[no_mangle]
 pub unsafe extern "C" fn SaveElmerInput(
     data: *mut FemType,
@@ -8855,7 +8917,7 @@ pub unsafe extern "C" fn SaveElmerInput(
     nooverwrite: c_int,
     info: c_int,
 ) -> c_int {
-    let noknots: c_int;
+    
     let mut noelements: c_int;
     // NOTE: 0-init for the &mut handoff (set in save_bulk before reads).
     let mut material: c_int = 0;
@@ -8902,7 +8964,7 @@ pub unsafe extern "C" fn SaveElmerInput(
     let mut coords: [c_double; 3] = [0.0; 3];
     let mut scoords: [c_float; 3] = [0.0; 3];
     if (*data).created == 0 {
-        printf(b"You tried to save points that were never created.\n\0".as_ptr() as *const c_char);
+        printf(c"You tried to save points that were never created.\n".as_ptr() as *const c_char);
         return 1;
     }
     singleprec = FALSE;
@@ -8910,7 +8972,7 @@ pub unsafe extern "C" fn SaveElmerInput(
         singleprec = TRUE;
     }
     noelements = (*data).noelements;
-    noknots = (*data).noknots;
+    let noknots: c_int = (*data).noknots;
     sumsides = 0;
     i = 0;
     while i <= MAXELEMENTTYPE {
@@ -8931,12 +8993,12 @@ pub unsafe extern "C" fn SaveElmerInput(
     }
     sprintf(
         directoryname.as_mut_ptr(),
-        b"%s\0".as_ptr() as *const c_char,
+        c"%s".as_ptr() as *const c_char,
         prefix,
     );
     if info != 0 {
         printf(
-            b"Saving mesh in ElmerSolver format to directory %s.\n\0".as_ptr() as *const c_char,
+            c"Saving mesh in ElmerSolver format to directory %s.\n".as_ptr() as *const c_char,
             directoryname.as_ptr(),
         );
     }
@@ -8945,7 +9007,7 @@ pub unsafe extern "C" fn SaveElmerInput(
         // NOTE: non-MINGW arm live on Linux (egnative.c:5529-5533).
         fail = mkdir(directoryname.as_ptr(), 0o750);
         if fail != 0 {
-            printf(b"Could not create a result directory!\n\0".as_ptr() as *const c_char);
+            printf(c"Could not create a result directory!\n".as_ptr() as *const c_char);
             return 1;
         } else {
             // NOTE: C stores into write-only `cdstat`; the value is dropped.
@@ -8953,16 +9015,16 @@ pub unsafe extern "C" fn SaveElmerInput(
         }
     } else {
         if info != 0 {
-            printf(b"Reusing an existing directory\n\0".as_ptr() as *const c_char);
+            printf(c"Reusing an existing directory\n".as_ptr() as *const c_char);
         }
         if nooverwrite != 0 {
             out = fopen(
-                b"mesh.header\0".as_ptr() as *const c_char,
-                b"r\0".as_ptr() as *const c_char,
+                c"mesh.header".as_ptr() as *const c_char,
+                c"r".as_ptr() as *const c_char,
             );
             if !out.is_null() {
                 printf(
-                    b"Mesh seems to already exist, writing is cancelled!\n\0".as_ptr()
+                    c"Mesh seems to already exist, writing is cancelled!\n".as_ptr()
                         as *const c_char,
                 );
                 return 1;
@@ -8974,34 +9036,34 @@ pub unsafe extern "C" fn SaveElmerInput(
         if singleprec != 0 {
             sprintf(
                 filename.as_mut_ptr(),
-                b"%s\0".as_ptr() as *const c_char,
-                b"mesh.nodes.sbin\0".as_ptr() as *const c_char,
+                c"%s".as_ptr() as *const c_char,
+                c"mesh.nodes.sbin".as_ptr() as *const c_char,
             );
         } else {
             sprintf(
                 filename.as_mut_ptr(),
-                b"%s\0".as_ptr() as *const c_char,
-                b"mesh.nodes.bin\0".as_ptr() as *const c_char,
+                c"%s".as_ptr() as *const c_char,
+                c"mesh.nodes.bin".as_ptr() as *const c_char,
             );
         }
-        out = fopen(filename.as_ptr(), b"wb\0".as_ptr() as *const c_char);
+        out = fopen(filename.as_ptr(), c"wb".as_ptr() as *const c_char);
     } else {
         sprintf(
             filename.as_mut_ptr(),
-            b"%s\0".as_ptr() as *const c_char,
-            b"mesh.nodes\0".as_ptr() as *const c_char,
+            c"%s".as_ptr() as *const c_char,
+            c"mesh.nodes".as_ptr() as *const c_char,
         );
-        out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+        out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     }
     if info != 0 {
         printf(
-            b"Saving %d coordinates to %s.\n\0".as_ptr() as *const c_char,
+            c"Saving %d coordinates to %s.\n".as_ptr() as *const c_char,
             noknots,
             filename.as_ptr(),
         );
     }
     if out.is_null() {
-        printf(b"opening of file was not successful\n\0".as_ptr() as *const c_char);
+        printf(c"opening of file was not successful\n".as_ptr() as *const c_char);
         return 2;
     }
     if binary != 0 {
@@ -9041,7 +9103,7 @@ pub unsafe extern "C" fn SaveElmerInput(
     } else {
         sprintf(
             outstyle.as_mut_ptr(),
-            b"%%d %%d %%.%dg %%.%dg %%.%dg\n\0".as_ptr() as *const c_char,
+            c"%%d %%d %%.%dg %%.%dg %%.%dg\n".as_ptr() as *const c_char,
             decimals,
             decimals,
             decimals,
@@ -9112,6 +9174,8 @@ pub unsafe extern "C" fn SaveElmerInput(
     )
 }
 // SAFETY: bulk + boundary element writer (split for sizing).
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn save_bulk(
     data: *mut FemType,
     bound: *mut BoundaryType,
@@ -9142,27 +9206,27 @@ unsafe fn save_bulk(
     if binary != 0 {
         sprintf(
             filename.as_mut_ptr(),
-            b"%s\0".as_ptr() as *const c_char,
-            b"mesh.elements.bin\0".as_ptr() as *const c_char,
+            c"%s".as_ptr() as *const c_char,
+            c"mesh.elements.bin".as_ptr() as *const c_char,
         );
-        *out = fopen(filename.as_ptr(), b"wb\0".as_ptr() as *const c_char);
+        *out = fopen(filename.as_ptr(), c"wb".as_ptr() as *const c_char);
     } else {
         sprintf(
             filename.as_mut_ptr(),
-            b"%s\0".as_ptr() as *const c_char,
-            b"mesh.elements\0".as_ptr() as *const c_char,
+            c"%s".as_ptr() as *const c_char,
+            c"mesh.elements".as_ptr() as *const c_char,
         );
-        *out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+        *out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     }
     if info != 0 {
         printf(
-            b"Saving %d element topologies to %s.\n\0".as_ptr() as *const c_char,
+            c"Saving %d element topologies to %s.\n".as_ptr() as *const c_char,
             *noelements,
             filename.as_ptr(),
         );
     }
     if (*out).is_null() {
-        printf(b"opening of file was not successful\n\0".as_ptr() as *const c_char);
+        printf(c"opening of file was not successful\n".as_ptr() as *const c_char);
         return 3;
     }
     *i = 1;
@@ -9210,7 +9274,7 @@ unsafe fn save_bulk(
         } else {
             fprintf(
                 *out,
-                b"%d %d %d\0".as_ptr() as *const c_char,
+                c"%d %d %d".as_ptr() as *const c_char,
                 *i,
                 *material,
                 *elemtype,
@@ -9219,12 +9283,12 @@ unsafe fn save_bulk(
             while *j < *nodesd2 {
                 fprintf(
                     *out,
-                    b" %d\0".as_ptr() as *const c_char,
+                    c" %d".as_ptr() as *const c_char,
                     *(*(*data).topology.wrapping_offset(*i as isize)).wrapping_offset(*j as isize),
                 );
                 *j += 1;
             }
-            fprintf(*out, b"\n\0".as_ptr() as *const c_char);
+            fprintf(*out, c"\n".as_ptr() as *const c_char);
         }
         *i += 1;
     }
@@ -9233,26 +9297,26 @@ unsafe fn save_bulk(
     if binary != 0 {
         sprintf(
             filename.as_mut_ptr(),
-            b"%s\0".as_ptr() as *const c_char,
-            b"mesh.boundary.bin\0".as_ptr() as *const c_char,
+            c"%s".as_ptr() as *const c_char,
+            c"mesh.boundary.bin".as_ptr() as *const c_char,
         );
-        *out = fopen(filename.as_ptr(), b"wb\0".as_ptr() as *const c_char);
+        *out = fopen(filename.as_ptr(), c"wb".as_ptr() as *const c_char);
     } else {
         sprintf(
             filename.as_mut_ptr(),
-            b"%s\0".as_ptr() as *const c_char,
-            b"mesh.boundary\0".as_ptr() as *const c_char,
+            c"%s".as_ptr() as *const c_char,
+            c"mesh.boundary".as_ptr() as *const c_char,
         );
-        *out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+        *out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     }
     if info != 0 {
         printf(
-            b"Saving boundary elements to %s.\n\0".as_ptr() as *const c_char,
+            c"Saving boundary elements to %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
     if (*out).is_null() {
-        printf(b"opening of file was not successful\n\0".as_ptr() as *const c_char);
+        printf(c"opening of file was not successful\n".as_ptr() as *const c_char);
         return 4;
     }
     *sumsides = 0;
@@ -9345,7 +9409,7 @@ unsafe fn save_bulk(
             } else {
                 fprintf(
                     *out,
-                    b"%d %d %d %d %d\0".as_ptr() as *const c_char,
+                    c"%d %d %d %d %d".as_ptr() as *const c_char,
                     *sumsides,
                     *(*bound.wrapping_offset(*j as isize))
                         .types
@@ -9360,10 +9424,10 @@ unsafe fn save_bulk(
                 );
                 *l = 0;
                 while *l < *nodesd1 {
-                    fprintf(*out, b" %d\0".as_ptr() as *const c_char, ind[*l as usize]);
+                    fprintf(*out, c" %d".as_ptr() as *const c_char, ind[*l as usize]);
                     *l += 1;
                 }
-                fprintf(*out, b"\n\0".as_ptr() as *const c_char);
+                fprintf(*out, c"\n".as_ptr() as *const c_char);
             }
             *i += 1;
         }
@@ -9372,6 +9436,8 @@ unsafe fn save_bulk(
     0
 }
 // SAFETY: header + names + nodeperm writer (split for sizing); C codes.
+// Sizing-split helper threading the C function's locals 1:1; grouping params would obscure the transcription.
+#[allow(clippy::too_many_arguments)]
 unsafe fn save_header_names(
     data: *mut FemType,
     bound: *mut BoundaryType,
@@ -9427,34 +9493,34 @@ unsafe fn save_header_names(
     }
     sprintf(
         filename.as_mut_ptr(),
-        b"%s\0".as_ptr() as *const c_char,
-        b"mesh.header\0".as_ptr() as *const c_char,
+        c"%s".as_ptr() as *const c_char,
+        c"mesh.header".as_ptr() as *const c_char,
     );
-    *out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    *out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     if info != 0 {
         printf(
-            b"Saving header info to %s.\n\0".as_ptr() as *const c_char,
+            c"Saving header info to %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
     if (*out).is_null() {
-        printf(b"opening of file was not successful\n\0".as_ptr() as *const c_char);
+        printf(c"opening of file was not successful\n".as_ptr() as *const c_char);
         return 4;
     }
     fprintf(
         *out,
-        b"%-6d %-6d %-6d\n\0".as_ptr() as *const c_char,
+        c"%-6d %-6d %-6d\n".as_ptr() as *const c_char,
         noknots,
         noelements,
         sumsides,
     );
-    fprintf(*out, b"%-6d\n\0".as_ptr() as *const c_char, *tottypes);
+    fprintf(*out, c"%-6d\n".as_ptr() as *const c_char, *tottypes);
     *i = 0;
     while *i <= MAXELEMENTTYPE {
         if alltypes[*i as usize] != 0 {
             fprintf(
                 *out,
-                b"%-6d %-6d\n\0".as_ptr() as *const c_char,
+                c"%-6d %-6d\n".as_ptr() as *const c_char,
                 *i,
                 bulktypes[*i as usize] + sidetypes[*i as usize],
             );
@@ -9465,24 +9531,24 @@ unsafe fn save_header_names(
     if (*data).boundarynamesexist != 0 || (*data).bodynamesexist != 0 {
         sprintf(
             filename.as_mut_ptr(),
-            b"%s\0".as_ptr() as *const c_char,
-            b"mesh.names\0".as_ptr() as *const c_char,
+            c"%s".as_ptr() as *const c_char,
+            c"mesh.names".as_ptr() as *const c_char,
         );
-        *out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+        *out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
         if info != 0 {
             printf(
-                b"Saving names info to %s.\n\0".as_ptr() as *const c_char,
+                c"Saving names info to %s.\n".as_ptr() as *const c_char,
                 filename.as_ptr(),
             );
         }
         if (*out).is_null() {
-            printf(b"opening of file was not successful\n\0".as_ptr() as *const c_char);
+            printf(c"opening of file was not successful\n".as_ptr() as *const c_char);
             return 5;
         }
         if (*data).bodynamesexist != 0 {
             fprintf(
                 *out,
-                b"! ----- names for bodies -----\n\0".as_ptr() as *const c_char,
+                c"! ----- names for bodies -----\n".as_ptr() as *const c_char,
             );
             *i = 1;
             while *i < MAXBODIES as c_int {
@@ -9490,12 +9556,12 @@ unsafe fn save_header_names(
                     if !(*data).bodyname[*i as usize].is_null() {
                         fprintf(
                             *out,
-                            b"$ %s = %d\n\0".as_ptr() as *const c_char,
+                            c"$ %s = %d\n".as_ptr() as *const c_char,
                             (*data).bodyname[*i as usize],
                             *i,
                         );
                     } else {
-                        fprintf(*out, b"$ body%d = %d\n\0".as_ptr() as *const c_char, *i, *i);
+                        fprintf(*out, c"$ body%d = %d\n".as_ptr() as *const c_char, *i, *i);
                     }
                 }
                 *i += 1;
@@ -9504,7 +9570,7 @@ unsafe fn save_header_names(
         if (*data).boundarynamesexist != 0 {
             fprintf(
                 *out,
-                b"! ----- names for boundaries -----\n\0".as_ptr() as *const c_char,
+                c"! ----- names for boundaries -----\n".as_ptr() as *const c_char,
             );
             *i = 1;
             while *i < MAXBCS as c_int {
@@ -9513,28 +9579,28 @@ unsafe fn save_header_names(
                     if !(*data).boundaryname[*i as usize].is_null() {
                         fprintf(
                             *out,
-                            b"$ %s = %d\n\0".as_ptr() as *const c_char,
+                            c"$ %s = %d\n".as_ptr() as *const c_char,
                             (*data).boundaryname[*i as usize],
                             *i,
                         );
                     } else if *bcdim == 2 {
                         fprintf(
                             *out,
-                            b"$ surf_bc%d = %d\n\0".as_ptr() as *const c_char,
+                            c"$ surf_bc%d = %d\n".as_ptr() as *const c_char,
                             *i,
                             *i,
                         );
                     } else if *bcdim == 1 {
                         fprintf(
                             *out,
-                            b"$ line_bc%d = %d\n\0".as_ptr() as *const c_char,
+                            c"$ line_bc%d = %d\n".as_ptr() as *const c_char,
                             *i,
                             *i,
                         );
                     } else if *bcdim == 0 {
                         fprintf(
                             *out,
-                            b"$ node_bc%d = %d\n\0".as_ptr() as *const c_char,
+                            c"$ node_bc%d = %d\n".as_ptr() as *const c_char,
                             *i,
                             *i,
                         );
@@ -9546,41 +9612,41 @@ unsafe fn save_header_names(
         fclose(*out);
         sprintf(
             filename.as_mut_ptr(),
-            b"%s\0".as_ptr() as *const c_char,
-            b"entities.sif\0".as_ptr() as *const c_char,
+            c"%s".as_ptr() as *const c_char,
+            c"entities.sif".as_ptr() as *const c_char,
         );
-        *out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+        *out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
         if info != 0 {
             printf(
-                b"Saving entities info to %s.\n\0".as_ptr() as *const c_char,
+                c"Saving entities info to %s.\n".as_ptr() as *const c_char,
                 filename.as_ptr(),
             );
         }
         if (*out).is_null() {
-            printf(b"opening of file was not successful\n\0".as_ptr() as *const c_char);
+            printf(c"opening of file was not successful\n".as_ptr() as *const c_char);
             return 5;
         }
         if (*data).bodynamesexist != 0 {
             fprintf(
                 *out,
-                b"!------ Skeleton for body section -----\n\0".as_ptr() as *const c_char,
+                c"!------ Skeleton for body section -----\n".as_ptr() as *const c_char,
             );
             *j = 0;
             *i = 1;
             while *i < MAXBODIES as c_int {
                 if usedbody[*i as usize] != 0 {
-                    *j = *j + 1;
-                    fprintf(*out, b"Body %d\n\0".as_ptr() as *const c_char, *j);
+                    *j += 1;
+                    fprintf(*out, c"Body %d\n".as_ptr() as *const c_char, *j);
                     if !(*data).bodyname[*i as usize].is_null() {
                         fprintf(
                             *out,
-                            b"  Name = %s\n\0".as_ptr() as *const c_char,
+                            c"  Name = %s\n".as_ptr() as *const c_char,
                             (*data).bodyname[*i as usize],
                         );
                     } else {
-                        fprintf(*out, b"  Name = body%d\n\0".as_ptr() as *const c_char, *i);
+                        fprintf(*out, c"  Name = body%d\n".as_ptr() as *const c_char, *i);
                     }
-                    fprintf(*out, b"End\n\n\0".as_ptr() as *const c_char);
+                    fprintf(*out, c"End\n\n".as_ptr() as *const c_char);
                 }
                 *i += 1;
             }
@@ -9588,28 +9654,28 @@ unsafe fn save_header_names(
         if (*data).boundarynamesexist != 0 {
             fprintf(
                 *out,
-                b"!------ Skeleton for boundary section -----\n\0".as_ptr() as *const c_char,
+                c"!------ Skeleton for boundary section -----\n".as_ptr() as *const c_char,
             );
             *j = 0;
             *i = 1;
             while *i < MAXBCS as c_int {
                 if usedbc[*i as usize] != 0 {
-                    *j = *j + 1;
+                    *j += 1;
                     fprintf(
                         *out,
-                        b"Boundary Condition %d\n\0".as_ptr() as *const c_char,
+                        c"Boundary Condition %d\n".as_ptr() as *const c_char,
                         *j,
                     );
                     if !(*data).boundaryname[*i as usize].is_null() {
                         fprintf(
                             *out,
-                            b"  Name = %s\n\0".as_ptr() as *const c_char,
+                            c"  Name = %s\n".as_ptr() as *const c_char,
                             (*data).boundaryname[*i as usize],
                         );
                     } else {
-                        fprintf(*out, b"  Name = bc%d\n\0".as_ptr() as *const c_char, *i);
+                        fprintf(*out, c"  Name = bc%d\n".as_ptr() as *const c_char, *i);
                     }
-                    fprintf(*out, b"End\n\n\0".as_ptr() as *const c_char);
+                    fprintf(*out, c"End\n\n".as_ptr() as *const c_char);
                 }
                 *i += 1;
             }
@@ -9619,25 +9685,25 @@ unsafe fn save_header_names(
     if (*data).nodepermexist != 0 {
         sprintf(
             filename.as_mut_ptr(),
-            b"%s\0".as_ptr() as *const c_char,
-            b"mesh.nodeperm\0".as_ptr() as *const c_char,
+            c"%s".as_ptr() as *const c_char,
+            c"mesh.nodeperm".as_ptr() as *const c_char,
         );
-        *out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+        *out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
         if info != 0 {
             printf(
-                b"Saving initial node permutation to %s.\n\0".as_ptr() as *const c_char,
+                c"Saving initial node permutation to %s.\n".as_ptr() as *const c_char,
                 filename.as_ptr(),
             );
         }
         if (*out).is_null() {
-            printf(b"opening of file was not successful\n\0".as_ptr() as *const c_char);
+            printf(c"opening of file was not successful\n".as_ptr() as *const c_char);
             return 3;
         }
         *i = 1;
         while *i <= noknots {
             fprintf(
                 *out,
-                b"%d %d\n\0".as_ptr() as *const c_char,
+                c"%d %d\n".as_ptr() as *const c_char,
                 *i,
                 *(*data).nodeperm.wrapping_offset(*i as isize),
             );
@@ -9646,10 +9712,12 @@ unsafe fn save_header_names(
         // NOTE: C never fcloses mesh.nodeperm; mirrored (leak preserved).
     }
     // NOTE: C assigns the chdir result to write-only `cdstat`; dropped here.
-    let _ = chdir(b"..\0".as_ptr() as *const c_char);
+    let _ = chdir(c"..".as_ptr() as *const c_char);
     0
 }
-// SAFETY: structured-mesh driver over valid grid/data/boundaries.
+/// # Safety
+///
+/// structured-mesh driver over valid grid/data/boundaries.
 #[no_mangle]
 pub unsafe extern "C" fn CreateElmerGridMesh(
     grid: *mut GridType,
@@ -9659,7 +9727,7 @@ pub unsafe extern "C" fn CreateElmerGridMesh(
     info: c_int,
 ) -> c_int {
     let mut j: c_int;
-    let cell: *mut CellType;
+    
     j = 0;
     while j < MAXBOUNDARIES as c_int {
         (*boundaries.wrapping_offset(j as isize)).created = FALSE;
@@ -9667,7 +9735,7 @@ pub unsafe extern "C" fn CreateElmerGridMesh(
         j += 1;
     }
     SetElementDivision(grid, relh, info);
-    cell = malloc((((*grid).nocells + 1) as usize) * size_of::<CellType>()) as *mut CellType;
+    let cell: *mut CellType = malloc((((*grid).nocells + 1) as usize) * size_of::<CellType>()) as *mut CellType;
     SetCellData(grid, cell, info);
     if (*grid).dimension == 1 {
         SetCellKnots1D(grid, cell, info);

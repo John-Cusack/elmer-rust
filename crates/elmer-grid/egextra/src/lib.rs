@@ -62,7 +62,9 @@ extern "C" {
 // write-only in this unit (never read back). Kept for shape fidelity.
 static mut ioptr: *mut c_char = core::ptr::null_mut();
 
-// SAFETY: file export; cell rows address valid cells (C contract).
+/// # Safety
+///
+/// file export; cell rows address valid cells (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn SaveCellInfo(
     grid: *mut GridType,
@@ -72,31 +74,31 @@ pub unsafe extern "C" fn SaveCellInfo(
 ) -> c_int {
     let mut filename: [c_char; MAXFILESIZE] = [0; MAXFILESIZE];
     let mut i: c_int;
-    let out: *mut FILE;
+    
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"cell\0".as_ptr() as *const c_char,
+        c"cell".as_ptr() as *const c_char,
     );
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    let out: *mut FILE = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     fprintf(
         out,
-        b"%-6s %-6s %-6s %-6s %-6s %-6s %-6s %-6s %-6s\n\0".as_ptr() as *const c_char,
-        b"1st\0".as_ptr() as *const c_char,
-        b"2nd\0".as_ptr() as *const c_char,
-        b"last\0".as_ptr() as *const c_char,
-        b"level\0".as_ptr() as *const c_char,
-        b"center\0".as_ptr() as *const c_char,
-        b"mat\0".as_ptr() as *const c_char,
-        b"xlin\0".as_ptr() as *const c_char,
-        b"ylin\0".as_ptr() as *const c_char,
-        b"num\0".as_ptr() as *const c_char,
+        c"%-6s %-6s %-6s %-6s %-6s %-6s %-6s %-6s %-6s\n".as_ptr() as *const c_char,
+        c"1st".as_ptr() as *const c_char,
+        c"2nd".as_ptr() as *const c_char,
+        c"last".as_ptr() as *const c_char,
+        c"level".as_ptr() as *const c_char,
+        c"center".as_ptr() as *const c_char,
+        c"mat".as_ptr() as *const c_char,
+        c"xlin".as_ptr() as *const c_char,
+        c"ylin".as_ptr() as *const c_char,
+        c"num".as_ptr() as *const c_char,
     );
     i = 1;
     while i <= (*grid).nocells {
         fprintf(
             out,
-            b"%-6d %-6d %-6d %-6d %-6d %-6d %-6d %-6d %-6d\n\0".as_ptr() as *const c_char,
+            c"%-6d %-6d %-6d %-6d %-6d %-6d %-6d %-6d %-6d\n".as_ptr() as *const c_char,
             (*cell.wrapping_offset(i as isize)).left1st,
             (*cell.wrapping_offset(i as isize)).left2nd,
             (*cell.wrapping_offset(i as isize)).leftlast,
@@ -112,14 +114,16 @@ pub unsafe extern "C" fn SaveCellInfo(
     fclose(out);
     if info != 0 {
         printf(
-            b"The cell information was saved to file %s.\n\0".as_ptr() as *const c_char,
+            c"The cell information was saved to file %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
     0
 }
 
-// SAFETY: file export; sideind entries index valid knots (C contract).
+/// # Safety
+///
+/// file export; sideind entries index valid knots (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn SaveBoundary(
     data: *mut FemType,
@@ -134,10 +138,10 @@ pub unsafe extern "C" fn SaveBoundary(
     // overwrites before any read, so the value is unobservable (same
     // rationale as egexport's elemtype).
     let mut sideelemtype: c_int = 0;
-    let out: *mut FILE;
+    
     if (*bound).created == 0 {
         printf(
-            b"SaveBoundary: You tried to save a nonexistent boundary.\n\0".as_ptr()
+            c"SaveBoundary: You tried to save a nonexistent boundary.\n".as_ptr()
                 as *const c_char,
         );
         return 1;
@@ -148,9 +152,9 @@ pub unsafe extern "C" fn SaveBoundary(
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"bound\0".as_ptr() as *const c_char,
+        c"bound".as_ptr() as *const c_char,
     );
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    let out: *mut FILE = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     i = 1;
     while i <= (*bound).nosides {
         GetElementSide(
@@ -163,7 +167,7 @@ pub unsafe extern "C" fn SaveBoundary(
         );
         fprintf(
             out,
-            b"%-12.4le %-12.4le %-12.4le %-12.4le\n\0".as_ptr() as *const c_char,
+            c"%-12.4le %-12.4le %-12.4le %-12.4le\n".as_ptr() as *const c_char,
             *(*data).x.wrapping_offset(sideind[0] as isize),
             *(*data).x.wrapping_offset(sideind[1] as isize),
             *(*data).y.wrapping_offset(sideind[0] as isize),
@@ -174,15 +178,17 @@ pub unsafe extern "C" fn SaveBoundary(
     fclose(out);
     if info != 0 {
         printf(
-            b"Boundary information was saved to file %s.\n\0".as_ptr() as *const c_char,
+            c"Boundary information was saved to file %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
     0
 }
 
-// SAFETY: chain walk over valid sides (C contract); `goto restart/jump/
-// theend` become structured loops with a found-flag.
+/// # Safety
+///
+/// chain walk over valid sides (C contract); `goto restart/jump/
+/// theend` become structured loops with a found-flag.
 #[no_mangle]
 pub unsafe extern "C" fn CreateBoundaryChain(
     data: *mut FemType,
@@ -198,7 +204,7 @@ pub unsafe extern "C" fn CreateBoundaryChain(
     if (*bound).created == FALSE {
         if info != 0 {
             printf(
-                b"CreateBoundaryChain: boundary not created!\n\0".as_ptr() as *const c_char,
+                c"CreateBoundaryChain: boundary not created!\n".as_ptr() as *const c_char,
             );
         }
         return 1;
@@ -206,7 +212,7 @@ pub unsafe extern "C" fn CreateBoundaryChain(
     if (*bound).nosides < 2 {
         if info != 0 {
             printf(
-                b"CreateBoundaryChain: there must be at least 2 sides!\n\0".as_ptr()
+                c"CreateBoundaryChain: there must be at least 2 sides!\n".as_ptr()
                     as *const c_char,
             );
         }
@@ -243,7 +249,7 @@ pub unsafe extern "C" fn CreateBoundaryChain(
             indsecond = sideind[0];
         } else {
             printf(
-                b"CreateBoundaryChain: Impossible case!\n\0".as_ptr() as *const c_char,
+                c"CreateBoundaryChain: Impossible case!\n".as_ptr() as *const c_char,
             );
             indfirst = sideind[0];
             indsecond = sideind[1];
@@ -320,14 +326,14 @@ pub unsafe extern "C" fn CreateBoundaryChain(
         if setchain == FALSE {
             if size != (*bound).nosides {
                 printf(
-                    b"CreateBoundaryChain: the boundary is not continuous (%d vs. %d)\n\0"
+                    c"CreateBoundaryChain: the boundary is not continuous (%d vs. %d)\n"
                         .as_ptr() as *const c_char,
                     size,
                     (*bound).nosides,
                 );
             } else {
                 printf(
-                    b"CreateBoundaryChain: the boundary is continuous with %d nodes.\n\0"
+                    c"CreateBoundaryChain: the boundary is continuous with %d nodes.\n"
                         .as_ptr() as *const c_char,
                     size + 1,
                 );
@@ -343,7 +349,9 @@ pub unsafe extern "C" fn CreateBoundaryChain(
     }
     0
 }
-// SAFETY: file exports; chain/dof indexes address valid entries (C contract).
+/// # Safety
+///
+/// file exports; chain/dof indexes address valid entries (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn SaveBoundariesChain(
     data: *mut FemType,
@@ -368,18 +376,18 @@ pub unsafe extern "C" fn SaveBoundariesChain(
             }
             sprintf(
                 filename.as_mut_ptr(),
-                b"%s%d%s\0".as_ptr() as *const c_char,
+                c"%s%d%s".as_ptr() as *const c_char,
                 prefix,
                 j,
-                b".side\0".as_ptr() as *const c_char,
+                c".side".as_ptr() as *const c_char,
             );
-            out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+            out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
             i = 0;
             while i <= length {
                 ind = *(*bound.wrapping_offset(j as isize)).chain.wrapping_offset(i as isize);
                 fprintf(
                     out,
-                    b"%-10.4le %-10.4le %-6d \0".as_ptr() as *const c_char,
+                    c"%-10.4le %-10.4le %-6d ".as_ptr() as *const c_char,
                     *(*data).x.wrapping_offset(ind as isize),
                     *(*data).y.wrapping_offset(ind as isize),
                     ind,
@@ -389,48 +397,48 @@ pub unsafe extern "C" fn SaveBoundariesChain(
                     if (*data).edofs[k as usize] == 1 {
                         fprintf(
                             out,
-                            b"%-10.4le  \0".as_ptr() as *const c_char,
+                            c"%-10.4le  ".as_ptr() as *const c_char,
                             *(*data).dofs[k as usize].wrapping_offset(ind as isize),
                         );
                     }
                     if (*data).edofs[k as usize] == 2 {
                         fprintf(
                             out,
-                            b"%-10.4le  %-10.4le  \0".as_ptr() as *const c_char,
+                            c"%-10.4le  %-10.4le  ".as_ptr() as *const c_char,
                             *(*data).dofs[k as usize].wrapping_offset((2 * ind - 1) as isize),
                             *(*data).dofs[k as usize].wrapping_offset((2 * ind) as isize),
                         );
                     }
                     k += 1;
                 }
-                fprintf(out, b"\n\0".as_ptr() as *const c_char);
+                fprintf(out, c"\n".as_ptr() as *const c_char);
                 i += 1;
             }
             fclose(out);
             sprintf(
                 filename2.as_mut_ptr(),
-                b"%s%d%s\0".as_ptr() as *const c_char,
+                c"%s%d%s".as_ptr() as *const c_char,
                 prefix,
                 j,
-                b".sidetxt\0".as_ptr() as *const c_char,
+                c".sidetxt".as_ptr() as *const c_char,
             );
-            out = fopen(filename2.as_ptr(), b"w\0".as_ptr() as *const c_char);
+            out = fopen(filename2.as_ptr(), c"w".as_ptr() as *const c_char);
             fprintf(
                 out,
-                b"Degrees of freedom in file %s are as follows:\n\0".as_ptr() as *const c_char,
+                c"Degrees of freedom in file %s are as follows:\n".as_ptr() as *const c_char,
                 filename.as_ptr(),
             );
             if (*bound).coordsystem == COORD_CART2 {
-                fprintf(out, b"col1: X coordinate\n\0".as_ptr() as *const c_char);
-                fprintf(out, b"col2: Y coordinate\n\0".as_ptr() as *const c_char);
+                fprintf(out, c"col1: X coordinate\n".as_ptr() as *const c_char);
+                fprintf(out, c"col2: Y coordinate\n".as_ptr() as *const c_char);
             } else if (*bound).coordsystem == COORD_AXIS {
-                fprintf(out, b"col1: R coordinate\n\0".as_ptr() as *const c_char);
-                fprintf(out, b"col2: Z coordinate\n\0".as_ptr() as *const c_char);
+                fprintf(out, c"col1: R coordinate\n".as_ptr() as *const c_char);
+                fprintf(out, c"col2: Z coordinate\n".as_ptr() as *const c_char);
             } else if (*bound).coordsystem == COORD_POLAR {
-                fprintf(out, b"col1: R coordinate\n\0".as_ptr() as *const c_char);
-                fprintf(out, b"col2: F coordinate\n\0".as_ptr() as *const c_char);
+                fprintf(out, c"col1: R coordinate\n".as_ptr() as *const c_char);
+                fprintf(out, c"col2: F coordinate\n".as_ptr() as *const c_char);
             }
-            fprintf(out, b"col3: node indices\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"col3: node indices\n".as_ptr() as *const c_char);
             col = 3;
             k = 0;
             while k < MAXDOFS as c_int {
@@ -438,7 +446,7 @@ pub unsafe extern "C" fn SaveBoundariesChain(
                     col += 1;
                     fprintf(
                         out,
-                        b"col%d: %s\n\0".as_ptr() as *const c_char,
+                        c"col%d: %s\n".as_ptr() as *const c_char,
                         col,
                         (*data).dofname[k as usize].as_ptr(),
                     );
@@ -447,14 +455,14 @@ pub unsafe extern "C" fn SaveBoundariesChain(
                     col += 1;
                     fprintf(
                         out,
-                        b"col%d: %s1\n\0".as_ptr() as *const c_char,
+                        c"col%d: %s1\n".as_ptr() as *const c_char,
                         col,
                         (*data).dofname[k as usize].as_ptr(),
                     );
                     col += 1;
                     fprintf(
                         out,
-                        b"col%d: %s2\n\0".as_ptr() as *const c_char,
+                        c"col%d: %s2\n".as_ptr() as *const c_char,
                         col,
                         (*data).dofname[k as usize].as_ptr(),
                     );
@@ -464,7 +472,7 @@ pub unsafe extern "C" fn SaveBoundariesChain(
             fclose(out);
             if info != 0 {
                 printf(
-                    b"Boundary info was saved to files %s and %s.\n\0".as_ptr() as *const c_char,
+                    c"Boundary info was saved to files %s and %s.\n".as_ptr() as *const c_char,
                     filename.as_ptr(),
                     filename2.as_ptr(),
                 );
@@ -475,7 +483,9 @@ pub unsafe extern "C" fn SaveBoundariesChain(
     0
 }
 
-// SAFETY: file export; GetSideInfo/side indexes address valid cells (C contract).
+/// # Safety
+///
+/// file export; GetSideInfo/side indexes address valid cells (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn SaveBoundaryForm(
     data: *mut FemType,
@@ -490,10 +500,10 @@ pub unsafe extern "C" fn SaveBoundaryForm(
     // NOTE: &mut-handoff init (see SaveBoundary note above).
     let mut sideelemtype: c_int = 0;
     let mut no: c_int;
-    let out: *mut FILE;
+    
     if (*data).created == FALSE {
         printf(
-            b"SaveBoundaryForm: structure FemType not created\n\0".as_ptr() as *const c_char,
+            c"SaveBoundaryForm: structure FemType not created\n".as_ptr() as *const c_char,
         );
         return 1;
     }
@@ -503,9 +513,9 @@ pub unsafe extern "C" fn SaveBoundaryForm(
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"boundary\0".as_ptr() as *const c_char,
+        c"boundary".as_ptr() as *const c_char,
     );
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    let out: *mut FILE = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     no = 1;
     while no <= (*data).nocells {
         side = 0;
@@ -534,7 +544,7 @@ pub unsafe extern "C" fn SaveBoundaryForm(
                     );
                     fprintf(
                         out,
-                        b"%-12.4le %-12.4le %-12.4le %-12.4le\n\0".as_ptr() as *const c_char,
+                        c"%-12.4le %-12.4le %-12.4le %-12.4le\n".as_ptr() as *const c_char,
                         *(*data).x.wrapping_offset(sideind[0] as isize),
                         *(*data).x.wrapping_offset(sideind[1] as isize),
                         *(*data).y.wrapping_offset(sideind[0] as isize),
@@ -552,7 +562,7 @@ pub unsafe extern "C" fn SaveBoundaryForm(
     fclose(out);
     if info != 0 {
         printf(
-            b"%d boundaries between materials were saved to file %s.\n\0".as_ptr()
+            c"%d boundaries between materials were saved to file %s.\n".as_ptr()
                 as *const c_char,
             sideknots,
             filename.as_ptr(),
@@ -561,7 +571,9 @@ pub unsafe extern "C" fn SaveBoundaryForm(
     0
 }
 
-// SAFETY: file export; knot indexes address valid nodes (C contract).
+/// # Safety
+///
+/// file export; knot indexes address valid nodes (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn SaveBoundaryLine(
     data: *mut FemType,
@@ -573,10 +585,10 @@ pub unsafe extern "C" fn SaveBoundaryLine(
     let mut filename: [c_char; MAXFILESIZE] = [0; MAXFILESIZE];
     let (mut k, mut no, mut points): (c_int, c_int, c_int);
     let (mut c, mut c1, eps): (Real, Real, Real);
-    let out: *mut FILE;
+    
     if (*data).created == FALSE {
         printf(
-            b"SaveBoundaryLine: structure FemType not created\n\0".as_ptr() as *const c_char,
+            c"SaveBoundaryLine: structure FemType not created\n".as_ptr() as *const c_char,
         );
         return 1;
     }
@@ -585,9 +597,9 @@ pub unsafe extern "C" fn SaveBoundaryLine(
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"line\0".as_ptr() as *const c_char,
+        c"line".as_ptr() as *const c_char,
     );
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    let out: *mut FILE = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     c1 = *(*data).x.wrapping_offset(1);
     no = 1;
     while no <= (*data).noknots {
@@ -612,14 +624,14 @@ pub unsafe extern "C" fn SaveBoundaryLine(
             if direction > 0 {
                 fprintf(
                     out,
-                    b"%-12.7le %-12.7le \0".as_ptr() as *const c_char,
+                    c"%-12.7le %-12.7le ".as_ptr() as *const c_char,
                     c,
                     *(*data).y.wrapping_offset(no as isize),
                 );
             } else {
                 fprintf(
                     out,
-                    b"%-12.7le %-12.7le \0".as_ptr() as *const c_char,
+                    c"%-12.7le %-12.7le ".as_ptr() as *const c_char,
                     *(*data).x.wrapping_offset(no as isize),
                     c,
                 );
@@ -629,28 +641,28 @@ pub unsafe extern "C" fn SaveBoundaryLine(
                 if (*data).edofs[k as usize] == 1 {
                     fprintf(
                         out,
-                        b"%-12.7le \0".as_ptr() as *const c_char,
+                        c"%-12.7le ".as_ptr() as *const c_char,
                         *(*data).dofs[k as usize].wrapping_offset(no as isize),
                     );
                 }
                 if (*data).edofs[k as usize] == 2 {
                     fprintf(
                         out,
-                        b"%-12.7le %-12.7le \0".as_ptr() as *const c_char,
+                        c"%-12.7le %-12.7le ".as_ptr() as *const c_char,
                         *(*data).dofs[k as usize].wrapping_offset((2 * no - 1) as isize),
                         *(*data).dofs[k as usize].wrapping_offset((2 * no) as isize),
                     );
                 }
                 k += 1;
             }
-            fprintf(out, b"\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"\n".as_ptr() as *const c_char);
             points += 1;
         }
         no += 1;
     }
     if info != 0 {
         printf(
-            b"Line (c=%.3lg) with %d nodes was saved to file %s.\n\0".as_ptr() as *const c_char,
+            c"Line (c=%.3lg) with %d nodes was saved to file %s.\n".as_ptr() as *const c_char,
             c1,
             points,
             filename.as_ptr(),
@@ -660,7 +672,9 @@ pub unsafe extern "C" fn SaveBoundaryLine(
     0
 }
 
-// SAFETY: file export; side indexes address valid cells (C contract).
+/// # Safety
+///
+/// file export; side indexes address valid cells (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn SaveSubcellForm(
     data: *mut FemType,
@@ -675,21 +689,21 @@ pub unsafe extern "C" fn SaveSubcellForm(
     let (mut no, mut nosidenodes): (c_int, c_int);
     // NOTE: &mut-handoff init (see SaveBoundary note above).
     let mut sideelemtype: c_int = 0;
-    let out: *mut FILE;
+    
     sideknots = 0;
     // NOTE: C stores more = FALSE here; dropped (GetSideInfo dominates).
     if (*data).created == FALSE {
         printf(
-            b"SaveSubcellForm: structure FemType not created\n\0".as_ptr() as *const c_char,
+            c"SaveSubcellForm: structure FemType not created\n".as_ptr() as *const c_char,
         );
         return 1;
     }
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"subcell\0".as_ptr() as *const c_char,
+        c"subcell".as_ptr() as *const c_char,
     );
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    let out: *mut FILE = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     no = 1;
     while no <= (*data).nocells {
         side = 0;
@@ -719,7 +733,7 @@ pub unsafe extern "C" fn SaveSubcellForm(
                     while i < nosidenodes {
                         fprintf(
                             out,
-                            b"%-12.4le %-12.4le %-8d\n\0".as_ptr() as *const c_char,
+                            c"%-12.4le %-12.4le %-8d\n".as_ptr() as *const c_char,
                             *(*data).x.wrapping_offset(sideind[i as usize] as isize),
                             *(*data).y.wrapping_offset(sideind[i as usize] as isize),
                             sideind[i as usize],
@@ -738,20 +752,22 @@ pub unsafe extern "C" fn SaveSubcellForm(
     fclose(out);
     if info != 0 {
         printf(
-            b"There are %d sideknots in the elements.\n\0".as_ptr() as *const c_char,
+            c"There are %d sideknots in the elements.\n".as_ptr() as *const c_char,
             sideknots,
         );
     }
     if info != 0 {
         printf(
-            b"The positions of the sideknots were saved in file %s.\n\0".as_ptr() as *const c_char,
+            c"The positions of the sideknots were saved in file %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
     0
 }
 
-// SAFETY: read-only inspection over valid elements (C contract).
+/// # Safety
+///
+/// read-only inspection over valid elements (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn InspectElement(data: *mut FemType, idx: c_int) -> c_int {
     let (elemtype, nonodes, mut i, mut j, mut k): (c_int, c_int, c_int, c_int, c_int);
@@ -761,7 +777,7 @@ pub unsafe extern "C" fn InspectElement(data: *mut FemType, idx: c_int) -> c_int
     let (mut ii, mut jj, mut mini, mut minj, mut kk): (c_int, c_int, c_int, c_int, c_int);
     elemtype = *(*data).elementtypes.wrapping_offset(idx as isize);
     printf(
-        b"Inspecting element %d of type %d\n\0".as_ptr() as *const c_char,
+        c"Inspecting element %d of type %d\n".as_ptr() as *const c_char,
         idx,
         elemtype,
     );
@@ -801,7 +817,7 @@ pub unsafe extern "C" fn InspectElement(data: *mut FemType, idx: c_int) -> c_int
             i += 1;
         }
         printf(
-            b"k=%d mini=%d minj=%d ds=%.3le\n\0".as_ptr() as *const c_char,
+            c"k=%d mini=%d minj=%d ds=%.3le\n".as_ptr() as *const c_char,
             k + 1,
             mini + 1,
             minj + 1,
@@ -811,8 +827,10 @@ pub unsafe extern "C" fn InspectElement(data: *mut FemType, idx: c_int) -> c_int
     }
     0
 }
-// SAFETY: file import; fscanf consumes input exactly as C (return codes
-// ignored there too — hence _iostat); `goto end` becomes break.
+/// # Safety
+///
+/// file import; fscanf consumes input exactly as C (return codes
+/// ignored there too — hence _iostat); `goto end` becomes break.
 #[no_mangle]
 pub unsafe extern "C" fn LoadSolutionElmer(
     data: *mut FemType,
@@ -836,23 +854,23 @@ pub unsafe extern "C" fn LoadSolutionElmer(
     // NOTE: assigned by fscanf, never read (input consumption is the effect).
     let mut _iostat: c_int = 0;
     let mut _r: Real = 0.0;
-    let inn: *mut FILE;
+    
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"ep\0".as_ptr() as *const c_char,
+        c"ep".as_ptr() as *const c_char,
     );
-    inn = fopen(filename.as_ptr(), b"r\0".as_ptr() as *const c_char);
+    let inn: *mut FILE = fopen(filename.as_ptr(), c"r".as_ptr() as *const c_char);
     if inn.is_null() {
         printf(
-            b"LoadSolutionElmer: The opening of the Elmer-file %s wasn't successful!\n\0"
+            c"LoadSolutionElmer: The opening of the Elmer-file %s wasn't successful!\n"
                 .as_ptr() as *const c_char,
             filename.as_ptr(),
         );
         return 1;
     } else {
         printf(
-            b"Loading Elmer data from %s\n\0".as_ptr() as *const c_char,
+            c"Loading Elmer data from %s\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
@@ -861,7 +879,7 @@ pub unsafe extern "C" fn LoadSolutionElmer(
     ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, inn);
     sscanf(
         line.as_ptr(),
-        b"%d %d %d %d\0".as_ptr() as *const c_char,
+        c"%d %d %d %d".as_ptr() as *const c_char,
         &mut noknots,
         &mut noelements,
         &mut novctrs,
@@ -874,7 +892,7 @@ pub unsafe extern "C" fn LoadSolutionElmer(
     (*data).timesteps = timesteps;
     if timesteps > 1 {
         printf(
-            b"LoadSolutionElmer: The subroutine may crash with %d timesteps\n\0".as_ptr()
+            c"LoadSolutionElmer: The subroutine may crash with %d timesteps\n".as_ptr()
                 as *const c_char,
             timesteps,
         );
@@ -884,7 +902,7 @@ pub unsafe extern "C" fn LoadSolutionElmer(
     }
     if info != 0 {
         printf(
-            b"Allocating for %d knots and %d elements.\n\0".as_ptr() as *const c_char,
+            c"Allocating for %d knots and %d elements.\n".as_ptr() as *const c_char,
             noknots,
             noelements,
         );
@@ -896,14 +914,14 @@ pub unsafe extern "C" fn LoadSolutionElmer(
         }
         i = 1;
         while i <= novctrs {
-            sprintf(text.as_mut_ptr(), b"var%d\0".as_ptr() as *const c_char, i);
+            sprintf(text.as_mut_ptr(), c"var%d".as_ptr() as *const c_char, i);
             CreateVariable(data, i, timesteps, 0.0, text.as_ptr(), FALSE);
             i += 1;
         }
     }
     if info != 0 {
         printf(
-            b"Reading %d coordinates.\n\0".as_ptr() as *const c_char,
+            c"Reading %d coordinates.\n".as_ptr() as *const c_char,
             noknots,
         );
     }
@@ -912,7 +930,7 @@ pub unsafe extern "C" fn LoadSolutionElmer(
         ioptr = fgets(line.as_mut_ptr(), MAXLINESIZE as c_int, inn);
         sscanf(
             line.as_ptr(),
-            b"%le %le %le\0".as_ptr() as *const c_char,
+            c"%le %le %le".as_ptr() as *const c_char,
             &mut *(*data).x.wrapping_offset(i as isize),
             &mut *(*data).y.wrapping_offset(i as isize),
             &mut *(*data).z.wrapping_offset(i as isize),
@@ -921,7 +939,7 @@ pub unsafe extern "C" fn LoadSolutionElmer(
     }
     if info != 0 {
         printf(
-            b"Reading %d element topologies.\n\0".as_ptr() as *const c_char,
+            c"Reading %d element topologies.\n".as_ptr() as *const c_char,
             noelements,
         );
     }
@@ -931,24 +949,24 @@ pub unsafe extern "C" fn LoadSolutionElmer(
     while i <= noelements {
         _iostat = fscanf(
             inn,
-            b"%s\0".as_ptr() as *const c_char,
+            c"%s".as_ptr() as *const c_char,
             text.as_mut_ptr(),
         );
-        if !strstr(text.as_ptr(), b"#group\0".as_ptr() as *const c_char).is_null() {
+        if !strstr(text.as_ptr(), c"#group".as_ptr() as *const c_char).is_null() {
             grp += 1;
-            printf(b"Starting a new element group\n\0".as_ptr() as *const c_char);
-            _iostat = fscanf(inn, b"%s\0".as_ptr() as *const c_char, text.as_mut_ptr());
-            _iostat = fscanf(inn, b"%s\0".as_ptr() as *const c_char, text.as_mut_ptr());
+            printf(c"Starting a new element group\n".as_ptr() as *const c_char);
+            _iostat = fscanf(inn, c"%s".as_ptr() as *const c_char, text.as_mut_ptr());
+            _iostat = fscanf(inn, c"%s".as_ptr() as *const c_char, text.as_mut_ptr());
             open = TRUE;
         }
-        if !strstr(text.as_ptr(), b"#end\0".as_ptr() as *const c_char).is_null() {
-            printf(b"Ending an element group\n\0".as_ptr() as *const c_char);
-            _iostat = fscanf(inn, b"%s\0".as_ptr() as *const c_char, text.as_mut_ptr());
+        if !strstr(text.as_ptr(), c"#end".as_ptr() as *const c_char).is_null() {
+            printf(c"Ending an element group\n".as_ptr() as *const c_char);
+            _iostat = fscanf(inn, c"%s".as_ptr() as *const c_char, text.as_mut_ptr());
             open = FALSE;
         }
         _iostat = fscanf(
             inn,
-            b"%d\0".as_ptr() as *const c_char,
+            c"%d".as_ptr() as *const c_char,
             &mut *(*data).elementtypes.wrapping_offset(i as isize),
         );
         *(*data).material.wrapping_offset(i as isize) = grp;
@@ -956,7 +974,7 @@ pub unsafe extern "C" fn LoadSolutionElmer(
         while j < *(*data).elementtypes.wrapping_offset(i as isize) % 100 {
             _iostat = fscanf(
                 inn,
-                b"%d\0".as_ptr() as *const c_char,
+                c"%d".as_ptr() as *const c_char,
                 &mut *(*(*data).topology.wrapping_offset(i as isize)).wrapping_offset(j as isize),
             );
             *(*(*data).topology.wrapping_offset(i as isize)).wrapping_offset(j as isize) += 1;
@@ -966,13 +984,13 @@ pub unsafe extern "C" fn LoadSolutionElmer(
     }
     if open != 0 {
         loop {
-            _iostat = fscanf(inn, b"%s\0".as_ptr() as *const c_char, text.as_mut_ptr());
-            if !strstr(text.as_ptr(), b"#end\0".as_ptr() as *const c_char).is_null() {
+            _iostat = fscanf(inn, c"%s".as_ptr() as *const c_char, text.as_mut_ptr());
+            if !strstr(text.as_ptr(), c"#end".as_ptr() as *const c_char).is_null() {
                 break;
             }
         }
-        _iostat = fscanf(inn, b"%s\0".as_ptr() as *const c_char, text.as_mut_ptr());
-        printf(b"Ending an element group\n\0".as_ptr() as *const c_char);
+        _iostat = fscanf(inn, c"%s".as_ptr() as *const c_char, text.as_mut_ptr());
+        printf(c"Ending an element group\n".as_ptr() as *const c_char);
         // NOTE: C stores open = FALSE here, but `open` is never read after
         // this point; dropped for warning-freedom.
     }
@@ -981,7 +999,7 @@ pub unsafe extern "C" fn LoadSolutionElmer(
     }
     if info != 0 {
         printf(
-            b"Reading %d degrees of freedom for %d knots.\n\0".as_ptr() as *const c_char,
+            c"Reading %d degrees of freedom for %d knots.\n".as_ptr() as *const c_char,
             novctrs,
             noknots,
         );
@@ -993,7 +1011,7 @@ pub unsafe extern "C" fn LoadSolutionElmer(
             while j <= novctrs {
                 _iostat = fscanf(
                     inn,
-                    b"%le\0".as_ptr() as *const c_char,
+                    c"%le".as_ptr() as *const c_char,
                     &mut *(*data).dofs[j as usize].wrapping_offset(i as isize),
                 );
                 j += 1;
@@ -1003,24 +1021,24 @@ pub unsafe extern "C" fn LoadSolutionElmer(
     } else {
         k = 0;
         while k < timesteps {
-            _iostat = fscanf(inn, b"%s\0".as_ptr() as *const c_char, text.as_mut_ptr());
+            _iostat = fscanf(inn, c"%s".as_ptr() as *const c_char, text.as_mut_ptr());
             // NOTE: `goto end` (exits the k loop with the stream positioned).
             if _iostat < 0 {
                 break;
             }
             _iostat = fscanf(
                 inn,
-                b"%d\0".as_ptr() as *const c_char,
+                c"%d".as_ptr() as *const c_char,
                 &mut i,
             );
             _iostat = fscanf(
                 inn,
-                b"%d\0".as_ptr() as *const c_char,
+                c"%d".as_ptr() as *const c_char,
                 &mut j,
             );
             _iostat = fscanf(
                 inn,
-                b"%le\0".as_ptr() as *const c_char,
+                c"%le".as_ptr() as *const c_char,
                 &mut _r,
             );
             // NOTE: `if(0)` diagnostic omitted (runtime-dead).
@@ -1030,7 +1048,7 @@ pub unsafe extern "C" fn LoadSolutionElmer(
                 while j <= novctrs {
                     _iostat = fscanf(
                         inn,
-                        b"%le\0".as_ptr() as *const c_char,
+                        c"%le".as_ptr() as *const c_char,
                         &mut *(*data).dofs[j as usize]
                             .wrapping_offset((k * noknots + i) as isize),
                     );
@@ -1047,7 +1065,9 @@ pub unsafe extern "C" fn LoadSolutionElmer(
     0
 }
 
-// SAFETY: file export; material/bc indexes mirror C's unguarded writes.
+/// # Safety
+///
+/// file export; material/bc indexes mirror C's unguarded writes.
 #[no_mangle]
 pub unsafe extern "C" fn SaveSolutionElmer(
     data: *mut FemType,
@@ -1082,10 +1102,10 @@ pub unsafe extern "C" fn SaveSolutionElmer(
     // NOTE: assigned by the partition branch before any read; the null init
     // C implies (indeterminate) is dropped for warning-freedom.
     let rpart: *mut Real;
-    let out: *mut FILE;
+    
     if (*data).created == 0 {
         printf(
-            b"SaveSolutionElmer: You tried to save points that were never created.\n\0"
+            c"SaveSolutionElmer: You tried to save points that were never created.\n"
                 .as_ptr() as *const c_char,
         );
         return 1;
@@ -1103,7 +1123,7 @@ pub unsafe extern "C" fn SaveSolutionElmer(
             l,
             1,
             0.0,
-            b"Partition\0".as_ptr() as *const c_char,
+            c"Partition".as_ptr() as *const c_char,
             FALSE,
         );
         rpart = (*data).dofs[l as usize];
@@ -1116,7 +1136,7 @@ pub unsafe extern "C" fn SaveSolutionElmer(
     }
     if (*data).variables == 0 {
         printf(
-            b"SaveSolutionElmer: there are no dofs to save!\n\0".as_ptr() as *const c_char,
+            c"SaveSolutionElmer: there are no dofs to save!\n".as_ptr() as *const c_char,
         );
         return 2;
     }
@@ -1158,24 +1178,24 @@ pub unsafe extern "C" fn SaveSolutionElmer(
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"ep\0".as_ptr() as *const c_char,
+        c"ep".as_ptr() as *const c_char,
     );
     if info != 0 {
         printf(
-            b"Saving ElmerPost data to %s.\n\0".as_ptr() as *const c_char,
+            c"Saving ElmerPost data to %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    let out: *mut FILE = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     if out.is_null() {
         printf(
-            b"opening of file was not successful\n\0".as_ptr() as *const c_char,
+            c"opening of file was not successful\n".as_ptr() as *const c_char,
         );
         return 3;
     }
     fprintf(
         out,
-        b"%d %d %d %d\0".as_ptr() as *const c_char,
+        c"%d %d %d %d".as_ptr() as *const c_char,
         noknots,
         noelements,
         novctrs,
@@ -1186,28 +1206,28 @@ pub unsafe extern "C" fn SaveSolutionElmer(
         if (*data).edofs[i as usize] == 1 {
             fprintf(
                 out,
-                b" scalar: %s\0".as_ptr() as *const c_char,
+                c" scalar: %s".as_ptr() as *const c_char,
                 (*data).dofname[i as usize].as_ptr(),
             );
         } else if (*data).edofs[i as usize] > 1 {
             fprintf(
                 out,
-                b" vector: %s\0".as_ptr() as *const c_char,
+                c" vector: %s".as_ptr() as *const c_char,
                 (*data).dofname[i as usize].as_ptr(),
             );
         }
         i += 1;
     }
-    fprintf(out, b"\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"\n".as_ptr() as *const c_char);
     if info != 0 {
         printf(
-            b"Saving %d node coordinates.\n\0".as_ptr() as *const c_char,
+            c"Saving %d node coordinates.\n".as_ptr() as *const c_char,
             noknots,
         );
     }
     sprintf(
         outstyle.as_mut_ptr(),
-        b"%%.%dg %%.%dg %%.%dg\n\0".as_ptr() as *const c_char,
+        c"%%.%dg %%.%dg %%.%dg\n".as_ptr() as *const c_char,
         decimals,
         decimals,
         decimals,
@@ -1223,7 +1243,7 @@ pub unsafe extern "C" fn SaveSolutionElmer(
         );
         i += 1;
     }
-    printf(b"Saving %d bulk element topologies.\n\0".as_ptr() as *const c_char, bulkelems);
+    printf(c"Saving %d bulk element topologies.\n".as_ptr() as *const c_char, bulkelems);
     i = 1;
     while i <= bulkelems {
         elemtype = *(*data).elementtypes.wrapping_offset(i as isize);
@@ -1231,36 +1251,36 @@ pub unsafe extern "C" fn SaveSolutionElmer(
         if (*data).bodynamesexist != 0 {
             fprintf(
                 out,
-                b"body_%d_%s %d \0".as_ptr() as *const c_char,
+                c"body_%d_%s %d ".as_ptr() as *const c_char,
                 material,
                 (*data).bodyname[material as usize],
                 elemtype,
             );
         } else if elemtype / 100 > 4 {
-            fprintf(out, b"vol%d %d \0".as_ptr() as *const c_char, material, elemtype);
+            fprintf(out, c"vol%d %d ".as_ptr() as *const c_char, material, elemtype);
         } else if elemtype / 100 > 2 {
-            fprintf(out, b"surf%d %d \0".as_ptr() as *const c_char, material, elemtype);
+            fprintf(out, c"surf%d %d ".as_ptr() as *const c_char, material, elemtype);
         } else if elemtype / 100 > 1 {
-            fprintf(out, b"line%d %d \0".as_ptr() as *const c_char, material, elemtype);
+            fprintf(out, c"line%d %d ".as_ptr() as *const c_char, material, elemtype);
         } else {
-            fprintf(out, b"pnt%d %d \0".as_ptr() as *const c_char, material, elemtype);
+            fprintf(out, c"pnt%d %d ".as_ptr() as *const c_char, material, elemtype);
         }
         nodesd2 = *(*data).elementtypes.wrapping_offset(i as isize) % 100;
         j = 0;
         while j < nodesd2 {
             fprintf(
                 out,
-                b"%d \0".as_ptr() as *const c_char,
+                c"%d ".as_ptr() as *const c_char,
                 *(*(*data).topology.wrapping_offset(i as isize)).wrapping_offset(j as isize) - 1,
             );
             j += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
         i += 1;
     }
     if nobound != 0 {
         printf(
-            b"Saving %d side element topologies.\n\0".as_ptr() as *const c_char,
+            c"Saving %d side element topologies.\n".as_ptr() as *const c_char,
             sideelems,
         );
         j = 0;
@@ -1283,7 +1303,7 @@ pub unsafe extern "C" fn SaveSolutionElmer(
                 if (*data).boundarynamesexist != 0 {
                     fprintf(
                         out,
-                        b"bc_%d_%s %d \0".as_ptr() as *const c_char,
+                        c"bc_%d_%s %d ".as_ptr() as *const c_char,
                         boundtype,
                         (*data).boundaryname[boundtype as usize],
                         sideelemtype,
@@ -1291,34 +1311,34 @@ pub unsafe extern "C" fn SaveSolutionElmer(
                 } else if sideelemtype / 100 > 2 {
                     fprintf(
                         out,
-                        b"bcside%d %d \0".as_ptr() as *const c_char,
+                        c"bcside%d %d ".as_ptr() as *const c_char,
                         boundtype,
                         sideelemtype,
                     );
                 } else if sideelemtype / 100 > 1 {
                     fprintf(
                         out,
-                        b"bcline%d %d \0".as_ptr() as *const c_char,
+                        c"bcline%d %d ".as_ptr() as *const c_char,
                         boundtype,
                         sideelemtype,
                     );
                 } else {
-                    fprintf(out, b"bcpnt%d %d \0".as_ptr() as *const c_char, boundtype, sideelemtype);
+                    fprintf(out, c"bcpnt%d %d ".as_ptr() as *const c_char, boundtype, sideelemtype);
                 }
                 nodesd1 = sideelemtype % 100;
                 k = 0;
                 while k < nodesd1 {
-                    fprintf(out, b"%d \0".as_ptr() as *const c_char, ind[k as usize] - 1);
+                    fprintf(out, c"%d ".as_ptr() as *const c_char, ind[k as usize] - 1);
                     k += 1;
                 }
-                fprintf(out, b"\n\0".as_ptr() as *const c_char);
+                fprintf(out, c"\n".as_ptr() as *const c_char);
                 i += 1;
             }
             j += 1;
         }
     }
     printf(
-        b"Saving %d degrees of freedom for each knot.\n\0".as_ptr() as *const c_char,
+        c"Saving %d degrees of freedom for each knot.\n".as_ptr() as *const c_char,
         novctrs,
     );
     k = 0;
@@ -1330,7 +1350,7 @@ pub unsafe extern "C" fn SaveSolutionElmer(
                 if (*data).edofs[j as usize] == 1 {
                     fprintf(
                         out,
-                        b"%.6lg \0".as_ptr() as *const c_char,
+                        c"%.6lg ".as_ptr() as *const c_char,
                         *(*data).dofs[j as usize]
                             .wrapping_offset((k * noknots + i) as isize),
                     );
@@ -1338,7 +1358,7 @@ pub unsafe extern "C" fn SaveSolutionElmer(
                 if (*data).edofs[j as usize] == 2 {
                     fprintf(
                         out,
-                        b"%.6lg %.6lg 0.0 \0".as_ptr() as *const c_char,
+                        c"%.6lg %.6lg 0.0 ".as_ptr() as *const c_char,
                         *(*data).dofs[j as usize]
                             .wrapping_offset((2 * (k * noknots + i) - 1) as isize),
                         *(*data).dofs[j as usize]
@@ -1348,7 +1368,7 @@ pub unsafe extern "C" fn SaveSolutionElmer(
                 if (*data).edofs[j as usize] == 3 {
                     fprintf(
                         out,
-                        b"%.6lg %.6lg %.6lg \0".as_ptr() as *const c_char,
+                        c"%.6lg %.6lg %.6lg ".as_ptr() as *const c_char,
                         *(*data).dofs[j as usize]
                             .wrapping_offset((3 * (k * noknots + i) - 2) as isize),
                         *(*data).dofs[j as usize]
@@ -1359,7 +1379,7 @@ pub unsafe extern "C" fn SaveSolutionElmer(
                 }
                 j += 1;
             }
-            fprintf(out, b"\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"\n".as_ptr() as *const c_char);
             i += 1;
         }
         k += 1;
@@ -1367,7 +1387,9 @@ pub unsafe extern "C" fn SaveSolutionElmer(
     fclose(out);
     0
 }
-// SAFETY: trivial file export over valid structs (C contract).
+/// # Safety
+///
+/// trivial file export over valid structs (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn SaveSizeInfo(
     data: *mut FemType,
@@ -1377,10 +1399,10 @@ pub unsafe extern "C" fn SaveSizeInfo(
 ) -> c_int {
     let mut filename: [c_char; MAXFILESIZE] = [0; MAXFILESIZE];
     let (mut nosides, mut j): (c_int, c_int);
-    let out: *mut FILE;
+    
     if (*data).created == 0 {
         printf(
-            b"You tried to save points that were never created.\n\0".as_ptr() as *const c_char,
+            c"You tried to save points that were never created.\n".as_ptr() as *const c_char,
         );
         return 1;
     }
@@ -1397,24 +1419,26 @@ pub unsafe extern "C" fn SaveSizeInfo(
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"size\0".as_ptr() as *const c_char,
+        c"size".as_ptr() as *const c_char,
     );
     if info != 0 {
         printf(
-            b"Saving size info into file %s.\n\0".as_ptr() as *const c_char,
+            c"Saving size info into file %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
-    fprintf(out, b"%d\n\0".as_ptr() as *const c_char, (*data).noknots);
-    fprintf(out, b"%d\n\0".as_ptr() as *const c_char, (*data).noelements);
-    fprintf(out, b"%d\n\0".as_ptr() as *const c_char, nosides);
-    fprintf(out, b"%d\n\0".as_ptr() as *const c_char, (*data).nopartitions);
+    let out: *mut FILE = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
+    fprintf(out, c"%d\n".as_ptr() as *const c_char, (*data).noknots);
+    fprintf(out, c"%d\n".as_ptr() as *const c_char, (*data).noelements);
+    fprintf(out, c"%d\n".as_ptr() as *const c_char, nosides);
+    fprintf(out, c"%d\n".as_ptr() as *const c_char, (*data).nopartitions);
     fclose(out);
     0
 }
 
-// SAFETY: read-only mesh walk; Ivector ranges address valid nodes.
+/// # Safety
+///
+/// read-only mesh walk; Ivector ranges address valid nodes.
 #[no_mangle]
 pub unsafe extern "C" fn MeshPieces(
     data: *mut FemType,
@@ -1424,7 +1448,7 @@ pub unsafe extern "C" fn MeshPieces(
 ) -> c_int {
     let (mut i, mut j, mut k, n): (c_int, c_int, c_int, c_int);
     let (mut min_index, mut max_index, mut no_pieces, mut no_corners): (c_int, c_int, c_int, c_int);
-    let mesh_piece: *mut c_int;
+    
     // NOTE: C initializes PiecePerm to NULL; the store is never read (the
     // free runs only after the Ivector assignment), so it is dropped.
     let piece_perm: *mut c_int;
@@ -1434,15 +1458,15 @@ pub unsafe extern "C" fn MeshPieces(
     let mut ready: c_int;
     if nomeshes > 1 {
         printf(
-            b"Calculate Mesh Pieces in mesh[%d] of [%d] meshes:\n\0".as_ptr() as *const c_char,
+            c"Calculate Mesh Pieces in mesh[%d] of [%d] meshes:\n".as_ptr() as *const c_char,
             nomesh,
             nomeshes,
         );
     } else {
-        printf(b"Calculate Mesh Pieces in mesh:\n\0".as_ptr() as *const c_char);
+        printf(c"Calculate Mesh Pieces in mesh:\n".as_ptr() as *const c_char);
     }
     n = (*data).noknots;
-    mesh_piece = ivector(1, n);
+    let mesh_piece: *mut c_int = ivector(1, n);
     i = 1;
     while i <= n {
         *mesh_piece.wrapping_offset(i as isize) = 0;
@@ -1472,11 +1496,11 @@ pub unsafe extern "C" fn MeshPieces(
     }
     if n > j {
         printf(
-            b"Number of non-body (hanging) nodes in mesh is %d\n\0".as_ptr() as *const c_char,
+            c"Number of non-body (hanging) nodes in mesh is %d\n".as_ptr() as *const c_char,
             n - j,
         );
         printf(
-            b"Consider running ElmerGrid with -autoclean command\n\0".as_ptr() as *const c_char,
+            c"Consider running ElmerGrid with -autoclean command\n".as_ptr() as *const c_char,
         );
     }
     ready = FALSE;
@@ -1551,25 +1575,27 @@ pub unsafe extern "C" fn MeshPieces(
     }
     if no_pieces == 1 {
         printf(
-            b"There is a single piece in the mesh, so the mesh is conforming.\n\0".as_ptr()
+            c"There is a single piece in the mesh, so the mesh is conforming.\n".as_ptr()
                 as *const c_char,
         );
     } else {
         printf(
-            b"Number of separate pieces in mesh is %d\n\0".as_ptr() as *const c_char,
+            c"Number of separate pieces in mesh is %d\n".as_ptr() as *const c_char,
             no_pieces,
         );
         printf(
-            b"The mesh is non-conforming. If not expecting a non-conforming\n\0".as_ptr()
+            c"The mesh is non-conforming. If not expecting a non-conforming\n".as_ptr()
                 as *const c_char,
         );
-        printf(b"mesh, then refer to the Elmer User Forum for help.\n\0".as_ptr() as *const c_char);
+        printf(c"mesh, then refer to the Elmer User Forum for help.\n".as_ptr() as *const c_char);
     }
     free_ivector(mesh_piece, 1, n);
     0
 }
-// SAFETY: mesh export with chdir round-trip; material/bc indexes mirror
-// C's unguarded writes (see SaveFidapOutput note in egexport).
+/// # Safety
+///
+/// mesh export with chdir round-trip; material/bc indexes mirror
+/// C's unguarded writes (see SaveFidapOutput note in egexport).
 #[no_mangle]
 pub unsafe extern "C" fn SaveElmerInputFemBem(
     data: *mut FemType,
@@ -1602,18 +1628,18 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
     let mut out: *mut FILE;
     if (*data).created == 0 {
         printf(
-            b"You tried to save points that were never created.\n\0".as_ptr() as *const c_char,
+            c"You tried to save points that were never created.\n".as_ptr() as *const c_char,
         );
         return 1;
     }
     if (*data).nodeconnectexist != 0 {
         smallerror(
-            b"Connectivity data is not saved in the FEM/BEM version\0".as_ptr() as *const c_char,
+            c"Connectivity data is not saved in the FEM/BEM version".as_ptr() as *const c_char,
         );
     }
     if (*data).nopartitions > 1 {
         smallerror(
-            b"Partitioning data is not saved in the FEM/BEM version\0".as_ptr() as *const c_char,
+            c"Partitioning data is not saved in the FEM/BEM version".as_ptr() as *const c_char,
         );
     }
     noelements = (*data).noelements;
@@ -1628,12 +1654,12 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
     }
     sprintf(
         directoryname.as_mut_ptr(),
-        b"%s\0".as_ptr() as *const c_char,
+        c"%s".as_ptr() as *const c_char,
         prefix,
     );
     if info != 0 {
         printf(
-            b"Saving mesh in ElmerSolver format to directory %s.\n\0".as_ptr() as *const c_char,
+            c"Saving mesh in ElmerSolver format to directory %s.\n".as_ptr() as *const c_char,
             directoryname.as_ptr(),
         );
     }
@@ -1644,7 +1670,7 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
         fail = mkdir(directoryname.as_ptr(), 0o750);
         if fail != 0 {
             printf(
-                b"Could not create a result directory!\n\0".as_ptr() as *const c_char,
+                c"Could not create a result directory!\n".as_ptr() as *const c_char,
             );
             return 1;
         } else {
@@ -1654,26 +1680,26 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
             chdir(directoryname.as_ptr());
         }
     } else {
-        printf(b"Reusing an existing directory\n\0".as_ptr() as *const c_char);
+        printf(c"Reusing an existing directory\n".as_ptr() as *const c_char);
     }
-    sprintf(filename.as_mut_ptr(), b"%s\0".as_ptr() as *const c_char, b"mesh.nodes\0".as_ptr() as *const c_char);
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    sprintf(filename.as_mut_ptr(), c"%s".as_ptr() as *const c_char, c"mesh.nodes".as_ptr() as *const c_char);
+    out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     if info != 0 {
         printf(
-            b"Saving %d coordinates to %s.\n\0".as_ptr() as *const c_char,
+            c"Saving %d coordinates to %s.\n".as_ptr() as *const c_char,
             noknots,
             filename.as_ptr(),
         );
     }
     if out.is_null() {
         printf(
-            b"opening of file was not successful\n\0".as_ptr() as *const c_char,
+            c"opening of file was not successful\n".as_ptr() as *const c_char,
         );
         return 2;
     }
     sprintf(
         outstyle.as_mut_ptr(),
-        b"%%d %%d %%.%dg %%.%dg %%.%dg\n\0".as_ptr() as *const c_char,
+        c"%%d %%d %%.%dg %%.%dg %%.%dg\n".as_ptr() as *const c_char,
         decimals,
         decimals,
         decimals,
@@ -1692,11 +1718,11 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
         i += 1;
     }
     fclose(out);
-    sprintf(filename.as_mut_ptr(), b"%s\0".as_ptr() as *const c_char, b"mesh.elements\0".as_ptr() as *const c_char);
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    sprintf(filename.as_mut_ptr(), c"%s".as_ptr() as *const c_char, c"mesh.elements".as_ptr() as *const c_char);
+    out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     if out.is_null() {
         printf(
-            b"opening of file was not successful\n\0".as_ptr() as *const c_char,
+            c"opening of file was not successful\n".as_ptr() as *const c_char,
         );
         return 3;
     }
@@ -1749,7 +1775,7 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
         material = *bodyperm.as_mut_ptr().wrapping_offset(material as isize);
         fprintf(
             out,
-            b"%d %d %d\0".as_ptr() as *const c_char,
+            c"%d %d %d".as_ptr() as *const c_char,
             i,
             material,
             elemtype,
@@ -1760,27 +1786,27 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
         while j < nodesd2 {
             fprintf(
                 out,
-                b" %d\0".as_ptr() as *const c_char,
+                c" %d".as_ptr() as *const c_char,
                 *(*(*data).topology.wrapping_offset(i as isize)).wrapping_offset(j as isize),
             );
             j += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
         i += 1;
     }
     fclose(out);
     if info != 0 {
         printf(
-            b"Saving %d (of %d) body elements to mesh.boundary\n\0".as_ptr() as *const c_char,
+            c"Saving %d (of %d) body elements to mesh.boundary\n".as_ptr() as *const c_char,
             nobulkelements,
             noelements,
         );
     }
-    sprintf(filename.as_mut_ptr(), b"%s\0".as_ptr() as *const c_char, b"mesh.boundary\0".as_ptr() as *const c_char);
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    sprintf(filename.as_mut_ptr(), c"%s".as_ptr() as *const c_char, c"mesh.boundary".as_ptr() as *const c_char);
+    out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     if out.is_null() {
         printf(
-            b"opening of file was not successful\n\0".as_ptr() as *const c_char,
+            c"opening of file was not successful\n".as_ptr() as *const c_char,
         );
         return 4;
     }
@@ -1844,7 +1870,7 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
             material = *bcperm.as_mut_ptr().wrapping_offset(material as isize);
             fprintf(
                 out,
-                b"%d %d %d %d %d\0".as_ptr() as *const c_char,
+                c"%d %d %d %d %d".as_ptr() as *const c_char,
                 sumsides,
                 material,
                 *(*bound.wrapping_offset(j as isize)).parent.wrapping_offset(i as isize),
@@ -1855,10 +1881,10 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
             nodesd1 = sideelemtype % 100;
             l = 0;
             while l < nodesd1 {
-                fprintf(out, b" %d\0".as_ptr() as *const c_char, ind[l as usize]);
+                fprintf(out, c" %d".as_ptr() as *const c_char, ind[l as usize]);
                 l += 1;
             }
-            fprintf(out, b"\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"\n".as_ptr() as *const c_char);
             i += 1;
         }
         j += 1;
@@ -1877,7 +1903,7 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
         bctype = abs(*bodyperm.as_mut_ptr().wrapping_offset(material as isize)) + newtype;
         fprintf(
             out,
-            b"%d %d 0 0 %d\0".as_ptr() as *const c_char,
+            c"%d %d 0 0 %d".as_ptr() as *const c_char,
             sumsides,
             bctype,
             elemtype,
@@ -1888,18 +1914,18 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
         while l < nodesd1 {
             fprintf(
                 out,
-                b" %d\0".as_ptr() as *const c_char,
+                c" %d".as_ptr() as *const c_char,
                 *(*(*data).topology.wrapping_offset(i as isize)).wrapping_offset(l as isize),
             );
             l += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
         i += 1;
     }
     fclose(out);
     if info != 0 {
         printf(
-            b"Saving %d boundary elements to mesh.boundary\n\0".as_ptr() as *const c_char,
+            c"Saving %d boundary elements to mesh.boundary\n".as_ptr() as *const c_char,
             sumsides,
         );
     }
@@ -1911,35 +1937,35 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
         }
         i += 1;
     }
-    sprintf(filename.as_mut_ptr(), b"%s\0".as_ptr() as *const c_char, b"mesh.header\0".as_ptr() as *const c_char);
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    sprintf(filename.as_mut_ptr(), c"%s".as_ptr() as *const c_char, c"mesh.header".as_ptr() as *const c_char);
+    out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     if info != 0 {
         printf(
-            b"Saving header info with %d elementtypes to %s.\n\0".as_ptr() as *const c_char,
+            c"Saving header info with %d elementtypes to %s.\n".as_ptr() as *const c_char,
             tottypes,
             filename.as_ptr(),
         );
     }
     if out.is_null() {
         printf(
-            b"opening of file was not successful\n\0".as_ptr() as *const c_char,
+            c"opening of file was not successful\n".as_ptr() as *const c_char,
         );
         return 4;
     }
     fprintf(
         out,
-        b"%-6d %-6d %-6d\n\0".as_ptr() as *const c_char,
+        c"%-6d %-6d %-6d\n".as_ptr() as *const c_char,
         noknots,
         nobulkelements,
         sumsides,
     );
-    fprintf(out, b"%-6d\n\0".as_ptr() as *const c_char, tottypes);
+    fprintf(out, c"%-6d\n".as_ptr() as *const c_char, tottypes);
     i = 0;
     while i <= MAXELEMENTTYPE {
         if bulktypes[i as usize] != 0 || sidetypes[i as usize] != 0 {
             fprintf(
                 out,
-                b"%-6d %-6d\n\0".as_ptr() as *const c_char,
+                c"%-6d %-6d\n".as_ptr() as *const c_char,
                 i,
                 bulktypes[i as usize] + sidetypes[i as usize],
             );
@@ -1949,32 +1975,32 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
     fclose(out);
     if info != 0 {
         printf(
-            b"Body and boundary numbers were permutated\n\0".as_ptr() as *const c_char,
+            c"Body and boundary numbers were permutated\n".as_ptr() as *const c_char,
         );
     }
     if (*data).boundarynamesexist != 0 || (*data).bodynamesexist != 0 {
-        sprintf(filename.as_mut_ptr(), b"%s\0".as_ptr() as *const c_char, b"mesh.names\0".as_ptr() as *const c_char);
-        out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+        sprintf(filename.as_mut_ptr(), c"%s".as_ptr() as *const c_char, c"mesh.names".as_ptr() as *const c_char);
+        out = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
         if info != 0 {
             printf(
-                b"Saving names info to %s.\n\0".as_ptr() as *const c_char,
+                c"Saving names info to %s.\n".as_ptr() as *const c_char,
                 filename.as_ptr(),
             );
         }
         if out.is_null() {
             printf(
-                b"opening of file was not successful\n\0".as_ptr() as *const c_char,
+                c"opening of file was not successful\n".as_ptr() as *const c_char,
             );
             return 5;
         }
         if (*data).bodynamesexist != 0 {
-            fprintf(out, b"! ----- names for bodies -----\n\0".as_ptr() as *const c_char);
+            fprintf(out, c"! ----- names for bodies -----\n".as_ptr() as *const c_char);
             i = 1;
             while i < MAXBODIES as c_int {
                 if bodyperm[i as usize] > 0 {
                     fprintf(
                         out,
-                        b"$ %s = %d\n\0".as_ptr() as *const c_char,
+                        c"$ %s = %d\n".as_ptr() as *const c_char,
                         (*data).bodyname[i as usize],
                         bodyperm[i as usize],
                     );
@@ -1985,14 +2011,14 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
         if (*data).boundarynamesexist != 0 {
             fprintf(
                 out,
-                b"! ----- names for boundaries -----\n\0".as_ptr() as *const c_char,
+                c"! ----- names for boundaries -----\n".as_ptr() as *const c_char,
             );
             i = 1;
             while i < MAXBCS as c_int {
                 if bcperm[i as usize] != 0 {
                     fprintf(
                         out,
-                        b"$ %s = %d\n\0".as_ptr() as *const c_char,
+                        c"$ %s = %d\n".as_ptr() as *const c_char,
                         (*data).boundaryname[i as usize],
                         bcperm[i as usize],
                     );
@@ -2004,7 +2030,7 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
                 if bodyperm[i as usize] < 0 {
                     fprintf(
                         out,
-                        b"$ %s = %d\n\0".as_ptr() as *const c_char,
+                        c"$ %s = %d\n".as_ptr() as *const c_char,
                         (*data).bodyname[i as usize],
                         abs(bodyperm[i as usize]) + newtype,
                     );
@@ -2014,12 +2040,14 @@ pub unsafe extern "C" fn SaveElmerInputFemBem(
         }
         fclose(out);
     }
-    cdstat = chdir(b"..\0".as_ptr() as *const c_char);
+    cdstat = chdir(c"..".as_ptr() as *const c_char);
     // NOTE: C ignores the final chdir status; same here.
     let _ = cdstat;
     0
 }
-// SAFETY: pure index arithmetic over [first..=last] (C contract).
+/// # Safety
+///
+/// pure index arithmetic over [first..=last] (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn InspectVector(
     vector: *mut Real,
@@ -2049,7 +2077,9 @@ pub unsafe extern "C" fn InspectVector(
     }
 }
 
-// SAFETY: pure scan over [first..last] (C contract).
+/// # Safety
+///
+/// pure scan over [first..last] (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn Steepest(vector: *mut Real, first: c_int, last: c_int) -> c_int {
     let mut i: c_int;
@@ -2069,7 +2099,9 @@ pub unsafe extern "C" fn Steepest(vector: *mut Real, first: c_int, last: c_int) 
     steep
 }
 
-// SAFETY: pure reduction over [first..=last] (C contract).
+/// # Safety
+///
+/// pure reduction over [first..=last] (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn MeanVector(vector: *mut Real, first: c_int, last: c_int) -> Real {
     let mut sum: Real = 0.0;
@@ -2082,7 +2114,9 @@ pub unsafe extern "C" fn MeanVector(vector: *mut Real, first: c_int, last: c_int
     sum / (last - first + 1) as Real
 }
 
-// SAFETY: as above with fabs.
+/// # Safety
+///
+/// as above with fabs.
 #[no_mangle]
 pub unsafe extern "C" fn AbsMeanVector(vector: *mut Real, first: c_int, last: c_int) -> Real {
     let mut sum: Real = 0.0;
@@ -2095,7 +2129,9 @@ pub unsafe extern "C" fn AbsMeanVector(vector: *mut Real, first: c_int, last: c_
     sum / (last - first + 1) as Real
 }
 
-// SAFETY: pure reduction over [first..=last] (C contract).
+/// # Safety
+///
+/// pure reduction over [first..=last] (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn DifferVector(
     vector1: *mut Real,
@@ -2123,7 +2159,9 @@ pub unsafe extern "C" fn DifferVector(
     sum / n as Real
 }
 
-// SAFETY: resampling write over vector2[0..=n2] (C contract: sized).
+/// # Safety
+///
+/// resampling write over vector2[0..=n2] (C contract: sized).
 #[no_mangle]
 pub unsafe extern "C" fn ReformVector(
     vector1: *mut Real,
@@ -2145,7 +2183,9 @@ pub unsafe extern "C" fn ReformVector(
     *vector2.wrapping_offset(n2 as isize) = *vector1.wrapping_offset(n1 as isize);
 }
 
-// SAFETY: in-place linear rescale over [first..=last] (C contract).
+/// # Safety
+///
+/// in-place linear rescale over [first..=last] (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn AdjustVector(
     max: Real,
@@ -2177,7 +2217,9 @@ pub unsafe extern "C" fn AdjustVector(
     }
 }
 
-// SAFETY: file import; fscanf return codes ignored as in C (_iostat).
+/// # Safety
+///
+/// file import; fscanf return codes ignored as in C (_iostat).
 #[no_mangle]
 pub unsafe extern "C" fn ReadRealVector(
     vector: *mut Real,
@@ -2186,12 +2228,12 @@ pub unsafe extern "C" fn ReadRealVector(
     filename: *mut c_char,
 ) -> c_int {
     let (mut i, mut _iostat): (c_int, c_int);
-    let inn: *mut FILE;
+    
     let mut num: Real = 0.0;
-    inn = fopen(filename, b"r\0".as_ptr() as *const c_char);
+    let inn: *mut FILE = fopen(filename, c"r".as_ptr() as *const c_char);
     if inn.is_null() {
         printf(
-            b"The opening of the real vector file '%s' wasn't successful !\n\0".as_ptr()
+            c"The opening of the real vector file '%s' wasn't successful !\n".as_ptr()
                 as *const c_char,
             filename,
         );
@@ -2201,7 +2243,7 @@ pub unsafe extern "C" fn ReadRealVector(
     while i <= last {
         _iostat = fscanf(
             inn,
-            b"%le\n\0".as_ptr() as *const c_char,
+            c"%le\n".as_ptr() as *const c_char,
             &mut num,
         );
         *vector.wrapping_offset(i as isize) = num;
@@ -2211,7 +2253,9 @@ pub unsafe extern "C" fn ReadRealVector(
     0
 }
 
-// SAFETY: file export over [first..=last] (C contract).
+/// # Safety
+///
+/// file export over [first..=last] (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn SaveRealVector(
     vector: *mut Real,
@@ -2220,18 +2264,20 @@ pub unsafe extern "C" fn SaveRealVector(
     filename: *mut c_char,
 ) {
     let mut i: c_int;
-    let out: *mut FILE;
-    out = fopen(filename, b"w\0".as_ptr() as *const c_char);
+    
+    let out: *mut FILE = fopen(filename, c"w".as_ptr() as *const c_char);
     i = first;
     while i <= last {
-        fprintf(out, b"%.6le\0".as_ptr() as *const c_char, *vector.wrapping_offset(i as isize));
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"%.6le".as_ptr() as *const c_char, *vector.wrapping_offset(i as isize));
+        fprintf(out, c"\n".as_ptr() as *const c_char);
         i += 1;
     }
     fclose(out);
 }
 
-// SAFETY: file import; fscanf return codes ignored as in C (_iostat).
+/// # Safety
+///
+/// file import; fscanf return codes ignored as in C (_iostat).
 #[no_mangle]
 pub unsafe extern "C" fn ReadIntegerVector(
     vector: *mut c_int,
@@ -2240,12 +2286,12 @@ pub unsafe extern "C" fn ReadIntegerVector(
     filename: *mut c_char,
 ) -> c_int {
     let (mut i, mut _iostat): (c_int, c_int);
-    let inn: *mut FILE;
+    
     let mut num: c_int = 0;
-    inn = fopen(filename, b"r\0".as_ptr() as *const c_char);
+    let inn: *mut FILE = fopen(filename, c"r".as_ptr() as *const c_char);
     if inn.is_null() {
         printf(
-            b"The opening of the int vector file '%s' wasn't successful !\n\0".as_ptr()
+            c"The opening of the int vector file '%s' wasn't successful !\n".as_ptr()
                 as *const c_char,
             filename,
         );
@@ -2255,7 +2301,7 @@ pub unsafe extern "C" fn ReadIntegerVector(
     while i <= last {
         _iostat = fscanf(
             inn,
-            b"%d\n\0".as_ptr() as *const c_char,
+            c"%d\n".as_ptr() as *const c_char,
             &mut num,
         );
         *vector.wrapping_offset(i as isize) = num;
@@ -2265,7 +2311,9 @@ pub unsafe extern "C" fn ReadIntegerVector(
     0
 }
 
-// SAFETY: file export over [first..=last] (C contract).
+/// # Safety
+///
+/// file export over [first..=last] (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn SaveIntegerVector(
     vector: *mut c_int,
@@ -2274,18 +2322,20 @@ pub unsafe extern "C" fn SaveIntegerVector(
     filename: *mut c_char,
 ) {
     let mut i: c_int;
-    let out: *mut FILE;
-    out = fopen(filename, b"w\0".as_ptr() as *const c_char);
+    
+    let out: *mut FILE = fopen(filename, c"w".as_ptr() as *const c_char);
     i = first;
     while i <= last {
-        fprintf(out, b"%d\0".as_ptr() as *const c_char, *vector.wrapping_offset(i as isize));
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"%d".as_ptr() as *const c_char, *vector.wrapping_offset(i as isize));
+        fprintf(out, c"\n".as_ptr() as *const c_char);
         i += 1;
     }
     fclose(out);
 }
 
-// SAFETY: file import over the matrix range; fscanf codes ignored (_iostat).
+/// # Safety
+///
+/// file import over the matrix range; fscanf codes ignored (_iostat).
 #[no_mangle]
 pub unsafe extern "C" fn ReadRealMatrix(
     matrix: *mut *mut Real,
@@ -2296,12 +2346,12 @@ pub unsafe extern "C" fn ReadRealMatrix(
     filename: *mut c_char,
 ) -> c_int {
     let (mut i, mut j, mut _iostat): (c_int, c_int, c_int);
-    let inn: *mut FILE;
+    
     let mut num: Real = 0.0;
-    inn = fopen(filename, b"r\0".as_ptr() as *const c_char);
+    let inn: *mut FILE = fopen(filename, c"r".as_ptr() as *const c_char);
     if inn.is_null() {
         printf(
-            b"The opening of the real matrix file '%s' wasn't successful!\n\0".as_ptr()
+            c"The opening of the real matrix file '%s' wasn't successful!\n".as_ptr()
                 as *const c_char,
             filename,
         );
@@ -2313,7 +2363,7 @@ pub unsafe extern "C" fn ReadRealMatrix(
         while i <= col_last {
             _iostat = fscanf(
                 inn,
-                b"%le\n\0".as_ptr() as *const c_char,
+                c"%le\n".as_ptr() as *const c_char,
                 &mut num,
             );
             *(*matrix.wrapping_offset(j as isize)).wrapping_offset(i as isize) = num;
@@ -2325,7 +2375,9 @@ pub unsafe extern "C" fn ReadRealMatrix(
     0
 }
 
-// SAFETY: file export over the matrix range (C contract).
+/// # Safety
+///
+/// file export over the matrix range (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn SaveRealMatrix(
     matrix: *mut *mut Real,
@@ -2336,28 +2388,30 @@ pub unsafe extern "C" fn SaveRealMatrix(
     filename: *mut c_char,
 ) {
     let (mut i, mut j): (c_int, c_int);
-    let out: *mut FILE;
-    out = fopen(filename, b"w\0".as_ptr() as *const c_char);
+    
+    let out: *mut FILE = fopen(filename, c"w".as_ptr() as *const c_char);
     j = row_first;
     while j <= row_last {
         i = col_first;
         while i <= col_last {
             fprintf(
                 out,
-                b"%-14.6lg\0".as_ptr() as *const c_char,
+                c"%-14.6lg".as_ptr() as *const c_char,
                 *(*matrix.wrapping_offset(j as isize)).wrapping_offset(i as isize),
             );
-            fprintf(out, b"\t\0".as_ptr() as *const c_char);
+            fprintf(out, c"\t".as_ptr() as *const c_char);
             i += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
         j += 1;
     }
     fclose(out);
 }
 
-// SAFETY: file import over the matrix range; fscanf codes ignored (_iostat).
-// NOTE: C returns FALSE(0)/TRUE(1) here (unlike the vector readers above).
+/// # Safety
+///
+/// file import over the matrix range; fscanf codes ignored (_iostat).
+/// NOTE: C returns FALSE(0)/TRUE(1) here (unlike the vector readers above).
 #[no_mangle]
 pub unsafe extern "C" fn ReadIntegerMatrix(
     matrix: *mut *mut c_int,
@@ -2368,12 +2422,12 @@ pub unsafe extern "C" fn ReadIntegerMatrix(
     filename: *mut c_char,
 ) -> c_int {
     let (mut i, mut j, mut _iostat): (c_int, c_int, c_int);
-    let inn: *mut FILE;
+    
     let mut num: c_int = 0;
-    inn = fopen(filename, b"r\0".as_ptr() as *const c_char);
+    let inn: *mut FILE = fopen(filename, c"r".as_ptr() as *const c_char);
     if inn.is_null() {
         printf(
-            b"The opening of the int matrix file '%s' wasn't successful!\n\0".as_ptr()
+            c"The opening of the int matrix file '%s' wasn't successful!\n".as_ptr()
                 as *const c_char,
             filename,
         );
@@ -2385,7 +2439,7 @@ pub unsafe extern "C" fn ReadIntegerMatrix(
         while i <= col_last {
             _iostat = fscanf(
                 inn,
-                b"%d\n\0".as_ptr() as *const c_char,
+                c"%d\n".as_ptr() as *const c_char,
                 &mut num,
             );
             *(*matrix.wrapping_offset(j as isize)).wrapping_offset(i as isize) = num;
@@ -2397,7 +2451,9 @@ pub unsafe extern "C" fn ReadIntegerMatrix(
     TRUE
 }
 
-// SAFETY: file export over the matrix range (C contract).
+/// # Safety
+///
+/// file export over the matrix range (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn SaveIntegerMatrix(
     matrix: *mut *mut c_int,
@@ -2408,27 +2464,29 @@ pub unsafe extern "C" fn SaveIntegerMatrix(
     filename: *mut c_char,
 ) {
     let (mut i, mut j): (c_int, c_int);
-    let out: *mut FILE;
-    out = fopen(filename, b"w\0".as_ptr() as *const c_char);
+    
+    let out: *mut FILE = fopen(filename, c"w".as_ptr() as *const c_char);
     j = row_first;
     while j <= row_last {
         i = col_first;
         while i <= col_last {
             fprintf(
                 out,
-                b"%-8d\0".as_ptr() as *const c_char,
+                c"%-8d".as_ptr() as *const c_char,
                 *(*matrix.wrapping_offset(j as isize)).wrapping_offset(i as isize),
             );
-            fprintf(out, b"\t\0".as_ptr() as *const c_char);
+            fprintf(out, c"\t".as_ptr() as *const c_char);
             i += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
         j += 1;
     }
     fclose(out);
 }
 
-// SAFETY: file export over the matrix range (C contract).
+/// # Safety
+///
+/// file export over the matrix range (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn SaveNonZeros(
     matrix: *mut *mut Real,
@@ -2439,9 +2497,9 @@ pub unsafe extern "C" fn SaveNonZeros(
     filename: *mut c_char,
 ) {
     let (mut i, mut j): (c_int, c_int);
-    let out: *mut FILE;
+    
     let nearzero: Real = 1.0e-20;
-    out = fopen(filename, b"w\0".as_ptr() as *const c_char);
+    let out: *mut FILE = fopen(filename, c"w".as_ptr() as *const c_char);
     j = row_first;
     while j <= row_last {
         i = col_first;
@@ -2450,7 +2508,7 @@ pub unsafe extern "C" fn SaveNonZeros(
             {
                 fprintf(
                     out,
-                    b"%d\t %d\t %-12.6le\n\0".as_ptr() as *const c_char,
+                    c"%d\t %d\t %-12.6le\n".as_ptr() as *const c_char,
                     j,
                     i,
                     *(*matrix.wrapping_offset(j as isize)).wrapping_offset(i as isize),
@@ -2463,29 +2521,33 @@ pub unsafe extern "C" fn SaveNonZeros(
     fclose(out);
 }
 
-// SAFETY: file echo; LINELENGTH buffer is function-local (C contract).
+/// # Safety
+///
+/// file echo; LINELENGTH buffer is function-local (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn EchoFile(filename: *mut c_char) -> c_int {
-    let inn: *mut FILE;
+    
     let mut line: [c_char; 100] = [0; 100];
-    inn = fopen(filename, b"r\0".as_ptr() as *const c_char);
+    let inn: *mut FILE = fopen(filename, c"r".as_ptr() as *const c_char);
     if inn.is_null() {
         printf(
-            b"Could not open file '%s'.\n\0".as_ptr() as *const c_char,
+            c"Could not open file '%s'.\n".as_ptr() as *const c_char,
             filename,
         );
         return 1;
     }
     while !fgets(line.as_mut_ptr(), 100, inn).is_null() {
-        printf(b"%s\0".as_ptr() as *const c_char, line.as_ptr());
+        printf(c"%s".as_ptr() as *const c_char, line.as_ptr());
     }
     fclose(inn);
     0
 }
 
-// SAFETY: point duplication over valid parents (C contract); the C leak of
-// `order` (never freed on any path) is preserved — freeing would change
-// allocator traffic, not behavior, and the corpus pins current behavior.
+/// # Safety
+///
+/// point duplication over valid parents (C contract); the C leak of
+/// `order` (never freed on any path) is preserved — freeing would change
+/// allocator traffic, not behavior, and the corpus pins current behavior.
 #[no_mangle]
 pub unsafe extern "C" fn SetDiscontinuousPoints(
     data: *mut FemType,
@@ -2494,15 +2556,15 @@ pub unsafe extern "C" fn SetDiscontinuousPoints(
 ) -> c_int {
     let (mut i, mut ind, mut corner): (c_int, c_int, c_int);
     let (mut parent, mut new): (c_int, c_int);
-    let newsuccess: c_int;
-    let order: *mut c_int;
+    
+    
     if (*point).nopoints == FALSE {
         printf(
-            b"SetDiscontinuousPoint: No points exists!\n\0".as_ptr() as *const c_char,
+            c"SetDiscontinuousPoint: No points exists!\n".as_ptr() as *const c_char,
         );
         return 0;
     }
-    order = ivector(1, (*data).noknots);
+    let order: *mut c_int = ivector(1, (*data).noknots);
     i = 1;
     while i <= (*data).noknots {
         *order.wrapping_offset(i as isize) = i;
@@ -2523,6 +2585,6 @@ pub unsafe extern "C" fn SetDiscontinuousPoints(
     if new == 0 {
         return 0;
     }
-    newsuccess = CreateNewNodes(data, order, material, new);
+    let newsuccess: c_int = CreateNewNodes(data, order, material, new);
     newsuccess
 }

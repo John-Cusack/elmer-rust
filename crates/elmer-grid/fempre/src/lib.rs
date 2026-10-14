@@ -481,10 +481,12 @@ extern "C" {
     fn bigerror(error_text: *const c_char);
 }
 
-// SAFETY: program entry (replaces fempre.c.o wholesale, so this crate owns
-// the `main` symbol). Single-threaded utility; `goto`s become loops.
-// NOTE: C-dead locals `l`/`showmem` are dropped (declared/assigned, never
-// read in the C source either).
+/// # Safety
+///
+/// program entry (replaces fempre.c.o wholesale, so this crate owns
+/// the `main` symbol). Single-threaded utility; `goto`s become loops.
+/// NOTE: C-dead locals `l`/`showmem` are dropped (declared/assigned, never
+/// read in the C source either).
 #[export_name = "main"]
 pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_int {
     let (mut i, mut j, mut k);
@@ -509,26 +511,26 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
     let mut boundaries: [*mut BoundaryType; MAXCASES] = [core::ptr::null_mut(); MAXCASES];
     let mut eg: ElmergridType = core::mem::zeroed();
     printf(
-        b"==================================================================\n\0"
+        c"==================================================================\n"
             .as_ptr() as *const c_char,
     );
     printf(
-        b"ElmerGrid mesh conversion and manipulation utility, Welcome!\n\0".as_ptr()
+        c"ElmerGrid mesh conversion and manipulation utility, Welcome!\n".as_ptr()
             as *const c_char,
     );
     // NOTE: ELMER_FEM_VERSION + ELMER_FEM_BRANCH both defined in config.h.
     printf(
-        b"Version: %s-%s (Rev: %s, Compiled: %s)\n\0".as_ptr() as *const c_char,
+        c"Version: %s-%s (Rev: %s, Compiled: %s)\n".as_ptr() as *const c_char,
         ELMER_FEM_VERSION_STR.as_ptr() as *const c_char,
         ELMER_FEM_BRANCH_STR.as_ptr() as *const c_char,
         ELMER_FEM_REVISION_STR.as_ptr() as *const c_char,
         ELMER_FEM_COMPILATIONDATE_STR.as_ptr() as *const c_char,
     );
     printf(
-        b"This program is free software licensed under GPL\n\0".as_ptr() as *const c_char,
+        c"This program is free software licensed under GPL\n".as_ptr() as *const c_char,
     );
     printf(
-        b"==================================================================\n\0"
+        c"==================================================================\n"
             .as_ptr() as *const c_char,
     );
     InitParameters(&mut eg);
@@ -557,13 +559,13 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
     }
     if eg.outmethod == 0 || eg.inmethod == 0 {
         printf(
-            b"Please define the input and output formats\n\0".as_ptr() as *const c_char,
+            c"Please define the input and output formats\n".as_ptr() as *const c_char,
         );
     }
-    if eg.inmethod != 1 {
-        if eg.outmethod == 1 || eg.outmethod == 8 || eg.outmethod == 9 || eg.outmethod == 10 {
+    if eg.inmethod != 1
+        && (eg.outmethod == 1 || eg.outmethod == 8 || eg.outmethod == 9 || eg.outmethod == 10) {
             printf(
-                b"input of type %d can't create output of type %d\n\0".as_ptr() as *const c_char,
+                c"input of type %d can't create output of type %d\n".as_ptr() as *const c_char,
                 eg.inmethod,
                 eg.outmethod,
             );
@@ -575,30 +577,28 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
             }
             Goodbye();
         }
-    }
     if eg.timeron != 0 {
         timer_activate(eg.infofile.as_ptr());
     }
-    printf(b"\nElmergrid loading data:\n\0".as_ptr() as *const c_char);
-    printf(b"-----------------------\n\0".as_ptr() as *const c_char);
+    printf(c"\nElmergrid loading data:\n".as_ptr() as *const c_char);
+    printf(c"-----------------------\n".as_ptr() as *const c_char);
     dim = eg.dim;
     nofile = 0;
     nomeshes = 0;
     nogrids = 0;
     inmethod = eg.inmethod;
     outmethod = eg.outmethod;
-    if eg.nooverwrite != 0 && eg.filerenamed == 0 {
-        if eg.partitions == 1 || eg.metis == 1 {
-            if inmethod == outmethod {
+    if eg.nooverwrite != 0
+        && eg.filerenamed == 0
+        && (eg.partitions == 1 || eg.metis == 1)
+        && inmethod == outmethod {
                 printf(
-                    b"Nothing to do, one partition, same input/output format and no overwriting allowed!\n\0"
+                    c"Nothing to do, one partition, same input/output format and no overwriting allowed!\n"
                         .as_ptr() as *const c_char,
                 );
                 // NOTE: C `return(0)` after Goodbye() is dead (exit(0)
                 // inside); omitted to avoid unreachable-code warnings.
                 Goodbye();
-            }
-        }
     }
     // NOTE: `goto read_another_file` becomes loop-continue.
     loop {
@@ -626,7 +626,7 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
                         info,
                     );
                     printf(
-                        b"Because file %s didn't exist, it was created for you.\n\0".as_ptr()
+                        c"Because file %s didn't exist, it was created for you.\n".as_ptr()
                             as *const c_char,
                         eg.filesin[nofile as usize].as_ptr(),
                     );
@@ -914,7 +914,7 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
             15 => {
                 if info != 0 {
                     printf(
-                        b"Partitioned solution is fused on-the-fly therefore no other operations may be performed.\n\0"
+                        c"Partitioned solution is fused on-the-fly therefore no other operations may be performed.\n"
                             .as_ptr() as *const c_char,
                     );
                 }
@@ -930,7 +930,7 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
                 );
                 if info != 0 {
                     printf(
-                        b"Finishing with the fusion of partitioned Elmer solutions\n\0".as_ptr()
+                        c"Finishing with the fusion of partitioned Elmer solutions\n".as_ptr()
                             as *const c_char,
                     );
                 }
@@ -1069,7 +1069,7 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
         nofile += 1;
         if nofile < eg.nofilesin {
             printf(
-                b"\nElmergrid loading data from another file:\n\0".as_ptr() as *const c_char,
+                c"\nElmergrid loading data from another file:\n".as_ptr() as *const c_char,
             );
         } else {
             break;
@@ -1078,10 +1078,10 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
     // NOTE: `goto redoelements` becomes loop-continue via the redo flag.
     'manip: loop {
         printf(
-            b"\nElmergrid creating and manipulating meshes:\n\0".as_ptr() as *const c_char,
+            c"\nElmergrid creating and manipulating meshes:\n".as_ptr() as *const c_char,
         );
         printf(
-            b"-------------------------------------------\n\0".as_ptr() as *const c_char,
+            c"-------------------------------------------\n".as_ptr() as *const c_char,
         );
         timer_show();
         if nogrids > nomeshes && outmethod != 1 {
@@ -1318,7 +1318,7 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
                             free(cell[k as usize] as *mut c_void);
                             if info != 0 {
                                 printf(
-                                    b"Iteration %d of elements number targeting %d in 2D\n\0"
+                                    c"Iteration %d of elements number targeting %d in 2D\n"
                                         .as_ptr() as *const c_char,
                                     elementsredone,
                                     (*grids.wrapping_offset(k as isize)).wantedelems,
@@ -1443,7 +1443,7 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
             while k < nomeshes {
                 sprintf(
                     eg.filesout[k as usize].as_mut_ptr(),
-                    b"%s%d\0".as_ptr() as *const c_char,
+                    c"%s%d".as_ptr() as *const c_char,
                     prefix.as_ptr(),
                     k + 1,
                 );
@@ -1589,7 +1589,7 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
             let mut tmpcoord: [*mut Real; 3] = [core::ptr::null_mut(); 3];
             if info != 0 {
                 printf(
-                    b"Mapping coordinates with [%d %d %d]\n\0".as_ptr() as *const c_char,
+                    c"Mapping coordinates with [%d %d %d]\n".as_ptr() as *const c_char,
                     eg.coordinatemap[0],
                     eg.coordinatemap[1],
                     eg.coordinatemap[2],
@@ -1611,36 +1611,35 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
         }
         k = 0;
         while k < nomeshes {
-            let partoptim: c_int;
-            let partbcoptim: c_int;
+            
+            
             let mut partopt: c_int;
             let mut partdual: c_int;
             if eg.metis == 1 {
                 if info != 0 {
                     printf(
-                        b"One Metis partition requested, enforcing serial mode\n\0".as_ptr()
+                        c"One Metis partition requested, enforcing serial mode\n".as_ptr()
                             as *const c_char,
                     );
                 }
                 eg.metis = 0;
             }
-            if eg.partitions == 1 {
-                if eg.connect == 0 {
+            if eg.partitions == 1
+                && eg.connect == 0 {
                     if info != 0 {
                         printf(
-                            b"One geometric partition requested, enforcing serial mode\n\0"
+                            c"One geometric partition requested, enforcing serial mode\n"
                                 .as_ptr() as *const c_char,
                         );
                     }
                     eg.partitions = 0;
                 }
-            }
-            partoptim = eg.partoptim;
-            partbcoptim = eg.partbcoptim;
+            let partoptim: c_int = eg.partoptim;
+            let partbcoptim: c_int = eg.partbcoptim;
             partdual = eg.partdual;
             if eg.partitions != 0 || eg.metis != 0 {
-                printf(b"\nElmergrid partitioning meshes:\n\0".as_ptr() as *const c_char);
-                printf(b"------------------------------\n\0".as_ptr() as *const c_char);
+                printf(c"\nElmergrid partitioning meshes:\n".as_ptr() as *const c_char);
+                printf(c"------------------------------\n".as_ptr() as *const c_char);
                 timer_show();
                 partopt = eg.partopt;
                 i = 1;
@@ -1712,23 +1711,23 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
                 // NOTE: USE_METIS=1 (exe config); the C #else arm (no-metis
                 // builds) is compiled out exactly as in C.
                 if eg.metis != 0 {
-                    if partopt < 0 || partopt > 4 {
+                    if !(0..=4).contains(&partopt) {
                         printf(
-                            b"Metis optional parameter should be in range [0,4], not %d\n\0"
+                            c"Metis optional parameter should be in range [0,4], not %d\n"
                                 .as_ptr() as *const c_char,
                             partopt,
                         );
                         bigerror(
-                            b"Cannot perform partitioning\0".as_ptr() as *const c_char,
+                            c"Cannot perform partitioning".as_ptr() as *const c_char,
                         );
                     }
                     if partopt <= 1 && eg.connect != 0 {
                         printf(
-                            b"Elemental Metis partition cannot deal with constraints!\n\0"
+                            c"Elemental Metis partition cannot deal with constraints!\n"
                                 .as_ptr() as *const c_char,
                         );
                         printf(
-                            b"Using Metis algorithms based on the dual graph\n\0".as_ptr()
+                            c"Using Metis algorithms based on the dual graph\n".as_ptr()
                                 as *const c_char,
                         );
                         partopt = 2;
@@ -1789,7 +1788,7 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
                 }
                 if info != 0 {
                     printf(
-                        b"Partitioning routines finished!\n\0".as_ptr() as *const c_char,
+                        c"Partitioning routines finished!\n".as_ptr() as *const c_char,
                     );
                 }
             }
@@ -1799,7 +1798,7 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
         if eg.timeron != 0 {
             if info != 0 {
                 printf(
-                    b"Saving size info for timing purposes\n\0".as_ptr() as *const c_char,
+                    c"Saving size info for timing purposes\n".as_ptr() as *const c_char,
                 );
             }
             k = 0;
@@ -1841,10 +1840,10 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
             Goodbye();
         }
         printf(
-            b"\nElmergrid saving data with method %d:\n\0".as_ptr() as *const c_char,
+            c"\nElmergrid saving data with method %d:\n".as_ptr() as *const c_char,
             outmethod,
         );
-        printf(b"-------------------------------------\n\0".as_ptr() as *const c_char);
+        printf(c"-------------------------------------\n".as_ptr() as *const c_char);
         match outmethod {
             1 => {
                 SaveElmergrid(grids, nogrids, eg.filesout[0].as_mut_ptr(), info);
@@ -1901,7 +1900,7 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
                             1,
                             1,
                             0.0,
-                            b"Number\0".as_ptr() as *const c_char,
+                            c"Number".as_ptr() as *const c_char,
                             FALSE,
                         );
                         i = 1;
@@ -1994,7 +1993,7 @@ pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_i
                         {
                             sprintf(
                                 prefix.as_mut_ptr(),
-                                b"%s%d\0".as_ptr() as *const c_char,
+                                c"%s%d".as_ptr() as *const c_char,
                                 eg.filesout[k as usize].as_ptr(),
                                 i + 1,
                             );

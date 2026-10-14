@@ -21,23 +21,27 @@ use std::mem::size_of;
 
 // ---- Numerical Recipes 1-based allocators -------------------------------
 
-// SAFETY: mirrors C: malloc then hand back a pointer biased by (-nl+1);
-// only wrapping_offset (no in-bounds claim) is used for the bias.
+/// # Safety
+///
+/// mirrors C: malloc then hand back a pointer biased by (-nl+1);
+/// only wrapping_offset (no in-bounds claim) is used for the bias.
 #[no_mangle]
 pub unsafe extern "C" fn vector(nl: c_int, nh: c_int) -> *mut c_float {
     let v = malloc(((nh - nl + 1 + 1) as size_t) * size_of::<c_float>()) as *mut c_float;
     if v.is_null() {
-        nrerror(b"allocation failure in vector()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure in vector()".as_ptr() as *const c_char);
     }
     v.wrapping_offset(1 - nl as isize)
 }
 
-// SAFETY: same bias pattern; C prints + exit(1) when nh < nl.
+/// # Safety
+///
+/// same bias pattern; C prints + exit(1) when nh < nl.
 #[no_mangle]
 pub unsafe extern "C" fn ivector(nl: c_int, nh: c_int) -> *mut c_int {
     if nh < nl {
         printf(
-            b"Allocation impossible in ivector: %d %d\n\0".as_ptr() as *const c_char,
+            c"Allocation impossible in ivector: %d %d\n".as_ptr() as *const c_char,
             nl,
             nh,
         );
@@ -45,37 +49,43 @@ pub unsafe extern "C" fn ivector(nl: c_int, nh: c_int) -> *mut c_int {
     }
     let v = malloc(((nh - nl + 1 + 1) as size_t) * size_of::<c_int>()) as *mut c_int;
     if v.is_null() {
-        nrerror(b"allocation failure in ivector()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure in ivector()".as_ptr() as *const c_char);
     }
     v.wrapping_offset(1 - nl as isize)
 }
 
-// SAFETY: bias pattern as above.
+/// # Safety
+///
+/// bias pattern as above.
 #[no_mangle]
 pub unsafe extern "C" fn cvector(nl: c_int, nh: c_int) -> *mut c_char {
     let v = malloc(((nh - nl + 1 + 1) as size_t) * size_of::<c_char>()) as *mut c_char;
     if v.is_null() {
-        nrerror(b"allocation failure in cvector()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure in cvector()".as_ptr() as *const c_char);
     }
     v.wrapping_offset(1 - nl as isize)
 }
 
-// SAFETY: bias pattern as above.
+/// # Safety
+///
+/// bias pattern as above.
 #[no_mangle]
 pub unsafe extern "C" fn lvector(nl: c_int, nh: c_int) -> *mut c_ulong {
     let v = malloc(((nh - nl + 1 + 1) as size_t) * size_of::<c_ulong>()) as *mut c_ulong;
     if v.is_null() {
-        nrerror(b"allocation failure in lvector()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure in lvector()".as_ptr() as *const c_char);
     }
     v.wrapping_offset(1 - nl as isize)
 }
 
-// SAFETY: bias pattern + nh<nl guard as in C.
+/// # Safety
+///
+/// bias pattern + nh<nl guard as in C.
 #[no_mangle]
 pub unsafe extern "C" fn dvector(nl: c_int, nh: c_int) -> *mut c_double {
     if nh < nl {
         printf(
-            b"Allocation impossible in dvector: %d %d\n\0".as_ptr() as *const c_char,
+            c"Allocation impossible in dvector: %d %d\n".as_ptr() as *const c_char,
             nl,
             nh,
         );
@@ -83,13 +93,15 @@ pub unsafe extern "C" fn dvector(nl: c_int, nh: c_int) -> *mut c_double {
     }
     let v = malloc(((nh - nl + 1 + 1) as size_t) * size_of::<c_double>()) as *mut c_double;
     if v.is_null() {
-        nrerror(b"allocation failure in dvector()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure in dvector()".as_ptr() as *const c_char);
     }
     v.wrapping_offset(1 - nl as isize)
 }
 
-// SAFETY: row-pointer block biased by (-nrl+1), data block biased by
-// (-ncl+1); row i points at previous row + ncol, exactly as C.
+/// # Safety
+///
+/// row-pointer block biased by (-nrl+1), data block biased by
+/// (-ncl+1); row i points at previous row + ncol, exactly as C.
 #[no_mangle]
 pub unsafe extern "C" fn matrix(
     nrl: c_int,
@@ -101,13 +113,13 @@ pub unsafe extern "C" fn matrix(
     let ncol = nch - ncl + 1;
     let m = malloc(((nrow + 1) as size_t) * size_of::<*mut c_float>()) as *mut *mut c_float;
     if m.is_null() {
-        nrerror(b"allocation failure 1 in matrix()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure 1 in matrix()".as_ptr() as *const c_char);
     }
     let m = m.wrapping_add(1).wrapping_offset(-(nrl as isize));
     let row =
         malloc(((nrow * ncol + 1) as size_t) * size_of::<c_float>()) as *mut c_float;
     if row.is_null() {
-        nrerror(b"allocation failure 2 in matrix()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure 2 in matrix()".as_ptr() as *const c_char);
     }
     *m.wrapping_offset(nrl as isize) = row.wrapping_add(1).wrapping_offset(-(ncl as isize));
     let mut i = nrl + 1;
@@ -118,7 +130,9 @@ pub unsafe extern "C" fn matrix(
     m
 }
 
-// SAFETY: double twin of matrix(), with the C range guard.
+/// # Safety
+///
+/// double twin of matrix(), with the C range guard.
 #[no_mangle]
 pub unsafe extern "C" fn dmatrix(
     nrl: c_int,
@@ -128,7 +142,7 @@ pub unsafe extern "C" fn dmatrix(
 ) -> *mut *mut c_double {
     if nrh < nrl || nch < ncl {
         printf(
-            b"Allocation impossible in dmatrix: %d %d %d %d\n\0".as_ptr() as *const c_char,
+            c"Allocation impossible in dmatrix: %d %d %d %d\n".as_ptr() as *const c_char,
             nrl, nrh, ncl, nch,
         );
         exit(1);
@@ -137,13 +151,13 @@ pub unsafe extern "C" fn dmatrix(
     let ncol = nch - ncl + 1;
     let m = malloc(((nrow + 1) as size_t) * size_of::<*mut c_double>()) as *mut *mut c_double;
     if m.is_null() {
-        nrerror(b"allocation failure 1 in dmatrix()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure 1 in dmatrix()".as_ptr() as *const c_char);
     }
     let m = m.wrapping_add(1).wrapping_offset(-(nrl as isize));
     let row =
         malloc(((nrow * ncol + 1) as size_t) * size_of::<c_double>()) as *mut c_double;
     if row.is_null() {
-        nrerror(b"allocation failure 2 in dmatrix()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure 2 in dmatrix()".as_ptr() as *const c_char);
     }
     *m.wrapping_offset(nrl as isize) = row.wrapping_add(1).wrapping_offset(-(ncl as isize));
     let mut i = nrl + 1;
@@ -154,7 +168,9 @@ pub unsafe extern "C" fn dmatrix(
     m
 }
 
-// SAFETY: int twin of matrix(), with the C range guard.
+/// # Safety
+///
+/// int twin of matrix(), with the C range guard.
 #[no_mangle]
 pub unsafe extern "C" fn imatrix(
     nrl: c_int,
@@ -164,7 +180,7 @@ pub unsafe extern "C" fn imatrix(
 ) -> *mut *mut c_int {
     if nrh < nrl || nch < ncl {
         printf(
-            b"Allocation impossible in imatrix: %d %d %d %d\n\0".as_ptr() as *const c_char,
+            c"Allocation impossible in imatrix: %d %d %d %d\n".as_ptr() as *const c_char,
             nrl, nrh, ncl, nch,
         );
         exit(1);
@@ -173,12 +189,12 @@ pub unsafe extern "C" fn imatrix(
     let ncol = nch - ncl + 1;
     let m = malloc(((nrow + 1) as size_t) * size_of::<*mut c_int>()) as *mut *mut c_int;
     if m.is_null() {
-        nrerror(b"allocation failure 1 in imatrix()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure 1 in imatrix()".as_ptr() as *const c_char);
     }
     let m = m.wrapping_add(1).wrapping_offset(-(nrl as isize));
     let row = malloc(((nrow * ncol + 1) as size_t) * size_of::<c_int>()) as *mut c_int;
     if row.is_null() {
-        nrerror(b"allocation failure 2 in imatrix()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure 2 in imatrix()".as_ptr() as *const c_char);
     }
     *m.wrapping_offset(nrl as isize) = row.wrapping_add(1).wrapping_offset(-(ncl as isize));
     let mut i = nrl + 1;
@@ -189,7 +205,9 @@ pub unsafe extern "C" fn imatrix(
     m
 }
 
-// SAFETY: row-pointer block only (no data); m[j] = a[i]+ncol aliases C.
+/// # Safety
+///
+/// row-pointer block only (no data); m[j] = a[i]+ncol aliases C.
 #[no_mangle]
 pub unsafe extern "C" fn submatrix(
     a: *mut *mut c_float,
@@ -204,7 +222,7 @@ pub unsafe extern "C" fn submatrix(
     let ncol = _oldcl - newcl;
     let m = malloc(((nrow + 1) as size_t) * size_of::<*mut c_float>()) as *mut *mut c_float;
     if m.is_null() {
-        nrerror(b"allocation failure in submatrix()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure in submatrix()".as_ptr() as *const c_char);
     }
     let m = m.wrapping_add(1).wrapping_offset(-(newrl as isize));
     let mut i = oldrl;
@@ -218,7 +236,9 @@ pub unsafe extern "C" fn submatrix(
     m
 }
 
-// SAFETY: three-level 1-based tensor, pointer setup order as C.
+/// # Safety
+///
+/// three-level 1-based tensor, pointer setup order as C.
 #[no_mangle]
 pub unsafe extern "C" fn f3tensor(
     nrl: c_int,
@@ -234,19 +254,19 @@ pub unsafe extern "C" fn f3tensor(
     let t = malloc(((nrow + 1) as size_t) * size_of::<*mut *mut c_double>())
         as *mut *mut *mut c_double;
     if t.is_null() {
-        nrerror(b"allocation failure 1 in f3tensor()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure 1 in f3tensor()".as_ptr() as *const c_char);
     }
     let t = t.wrapping_add(1).wrapping_offset(-(nrl as isize));
     let t_nrl = malloc(((nrow * ncol + 1) as size_t) * size_of::<*mut c_double>())
         as *mut *mut c_double;
     if t_nrl.is_null() {
-        nrerror(b"allocation failure 2 in f3tensor()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure 2 in f3tensor()".as_ptr() as *const c_char);
     }
     *t.wrapping_offset(nrl as isize) = t_nrl.wrapping_add(1).wrapping_offset(-(ncl as isize));
     let t_data = malloc(((nrow * ncol * ndep + 1) as size_t) * size_of::<c_double>())
         as *mut c_double;
     if t_data.is_null() {
-        nrerror(b"allocation failure 3 in f3tensor()\0".as_ptr() as *const c_char);
+        nrerror(c"allocation failure 3 in f3tensor()".as_ptr() as *const c_char);
     }
     *(*t.wrapping_offset(nrl as isize)).wrapping_offset(ncl as isize) =
         t_data.wrapping_add(1).wrapping_offset(-(ndl as isize));
@@ -277,37 +297,49 @@ pub unsafe extern "C" fn f3tensor(
 
 // ---- Deallocation (un-bias exactly as C frees) --------------------------
 
-// SAFETY: free of the original malloc pointer (v+nl-1).
+/// # Safety
+///
+/// free of the original malloc pointer (v+nl-1).
 #[no_mangle]
 pub unsafe extern "C" fn free_vector(v: *mut c_float, nl: c_int, _nh: c_int) {
     free(v.wrapping_offset(nl as isize - 1) as *mut c_void);
 }
 
-// SAFETY: as above.
+/// # Safety
+///
+/// as above.
 #[no_mangle]
 pub unsafe extern "C" fn free_ivector(v: *mut c_int, nl: c_int, _nh: c_int) {
     free(v.wrapping_offset(nl as isize - 1) as *mut c_void);
 }
 
-// SAFETY: as above.
+/// # Safety
+///
+/// as above.
 #[no_mangle]
 pub unsafe extern "C" fn free_cvector(v: *mut c_char, nl: c_int, _nh: c_int) {
     free(v.wrapping_offset(nl as isize - 1) as *mut c_void);
 }
 
-// SAFETY: as above.
+/// # Safety
+///
+/// as above.
 #[no_mangle]
 pub unsafe extern "C" fn free_lvector(v: *mut c_ulong, nl: c_int, _nh: c_int) {
     free(v.wrapping_offset(nl as isize - 1) as *mut c_void);
 }
 
-// SAFETY: as above.
+/// # Safety
+///
+/// as above.
 #[no_mangle]
 pub unsafe extern "C" fn free_dvector(v: *mut c_double, nl: c_int, _nh: c_int) {
     free(v.wrapping_offset(nl as isize - 1) as *mut c_void);
 }
 
-// SAFETY: data block then row-pointer block, un-biased as C.
+/// # Safety
+///
+/// data block then row-pointer block, un-biased as C.
 #[no_mangle]
 pub unsafe extern "C" fn free_matrix(
     m: *mut *mut c_float,
@@ -322,7 +354,9 @@ pub unsafe extern "C" fn free_matrix(
     free(m.wrapping_offset(nrl as isize - 1) as *mut c_void);
 }
 
-// SAFETY: as above.
+/// # Safety
+///
+/// as above.
 #[no_mangle]
 pub unsafe extern "C" fn free_dmatrix(
     m: *mut *mut c_double,
@@ -337,7 +371,9 @@ pub unsafe extern "C" fn free_dmatrix(
     free(m.wrapping_offset(nrl as isize - 1) as *mut c_void);
 }
 
-// SAFETY: as above.
+/// # Safety
+///
+/// as above.
 #[no_mangle]
 pub unsafe extern "C" fn free_imatrix(
     m: *mut *mut c_int,
@@ -352,7 +388,9 @@ pub unsafe extern "C" fn free_imatrix(
     free(m.wrapping_offset(nrl as isize - 1) as *mut c_void);
 }
 
-// SAFETY: row-pointer block only (data owned by parent).
+/// # Safety
+///
+/// row-pointer block only (data owned by parent).
 #[no_mangle]
 pub unsafe extern "C" fn free_submatrix(
     b: *mut *mut c_float,
@@ -364,7 +402,9 @@ pub unsafe extern "C" fn free_submatrix(
     free(b.wrapping_offset(nrl as isize - 1) as *mut c_void);
 }
 
-// SAFETY: data, row block, top block, un-biased as C.
+/// # Safety
+///
+/// data, row block, top block, un-biased as C.
 #[no_mangle]
 pub unsafe extern "C" fn free_f3tensor(
     t: *mut *mut *mut c_double,
@@ -392,14 +432,18 @@ static mut timer_dt: Real = 0.0;
 static mut timer_active: c_int = FALSE;
 static mut timer_filename: [c_char; 600] = [0; 600];
 
-// SAFETY: C-equivalent global reset.
+/// # Safety
+///
+/// C-equivalent global reset.
 #[no_mangle]
 pub unsafe extern "C" fn timer_init() {
     timer_active = FALSE;
 }
 
-// SAFETY: mirrors C: wall clock, AddExtension(prefix, timer_filename,
-// "time"), two printf lines, stamp both globals.
+/// # Safety
+///
+/// mirrors C: wall clock, AddExtension(prefix, timer_filename,
+/// "time"), two printf lines, stamp both globals.
 #[no_mangle]
 pub unsafe extern "C" fn timer_activate(prefix: *const c_char) {
     let time = clock() as Real / CLOCKS_PER_SEC as Real;
@@ -407,14 +451,14 @@ pub unsafe extern "C" fn timer_activate(prefix: *const c_char) {
     AddExtension(
         prefix,
         timer_filename.as_mut_ptr(),
-        b"time\0".as_ptr() as *const c_char,
+        c"time".as_ptr() as *const c_char,
     );
     printf(
-        b"Activating timer (s): %.2f\n\0".as_ptr() as *const c_char,
+        c"Activating timer (s): %.2f\n".as_ptr() as *const c_char,
         time,
     );
     printf(
-        b"Saving timer info to file %s\n\0".as_ptr() as *const c_char,
+        c"Saving timer info to file %s\n".as_ptr() as *const c_char,
         timer_filename.as_ptr(),
     );
     timer_dt = time;
@@ -425,6 +469,12 @@ pub unsafe extern "C" fn timer_activate(prefix: *const c_char) {
 // fopen "w" first visit else "a"; timings formatted as C.
 static mut timer_visited: c_int = 0;
 
+/// # Safety
+///
+/// Single-threaded timer readout (C contract): touches the `timer_*` module
+/// globals (including `timer_visited`) exactly as the C caller sequence
+/// `timer_activate` -> `timer_show` does; concurrent calls would race the
+/// same globals C races.
 #[no_mangle]
 pub unsafe extern "C" fn timer_show() {
     if timer_active == 0 {
@@ -432,7 +482,7 @@ pub unsafe extern "C" fn timer_show() {
     }
     let time = clock() as Real / CLOCKS_PER_SEC as Real;
     printf(
-        b"Elapsed time (s): %.2f %.2f\n\0".as_ptr() as *const c_char,
+        c"Elapsed time (s): %.2f %.2f\n".as_ptr() as *const c_char,
         time - timer_t0,
         time - timer_dt,
     );
@@ -440,17 +490,17 @@ pub unsafe extern "C" fn timer_show() {
     let out = if timer_visited == 1 {
         fopen(
             timer_filename.as_ptr(),
-            b"w\0".as_ptr() as *const c_char,
+            c"w".as_ptr() as *const c_char,
         )
     } else {
         fopen(
             timer_filename.as_ptr(),
-            b"a\0".as_ptr() as *const c_char,
+            c"a".as_ptr() as *const c_char,
         )
     };
     fprintf(
         out,
-        b"%3d %12.4le %12.4le\n\0".as_ptr() as *const c_char,
+        c"%3d %12.4le %12.4le\n".as_ptr() as *const c_char,
         timer_visited,
         time - timer_t0,
         time - timer_dt,
@@ -461,53 +511,61 @@ pub unsafe extern "C" fn timer_show() {
 
 // ---- Diagnostics ----------------------------------------------------------
 
-// SAFETY: three stderr lines then exit(1), as C.
+/// # Safety
+///
+/// three stderr lines then exit(1), as C.
 #[no_mangle]
 pub unsafe extern "C" fn nrerror(error_text: *const c_char) {
     fprintf(
         stderr,
-        b"run-time error...\n\0".as_ptr() as *const c_char,
+        c"run-time error...\n".as_ptr() as *const c_char,
     );
-    fprintf(stderr, b"%s\n\0".as_ptr() as *const c_char, error_text);
+    fprintf(stderr, c"%s\n".as_ptr() as *const c_char, error_text);
     fprintf(
         stderr,
-        b"...now exiting to system...\n\0".as_ptr() as *const c_char,
+        c"...now exiting to system...\n".as_ptr() as *const c_char,
     );
     exit(1);
 }
 
-// SAFETY: as C.
+/// # Safety
+///
+/// as C.
 #[no_mangle]
 pub unsafe extern "C" fn bigerror(error_text: *const c_char) {
     fprintf(
         stderr,
-        b"***** ERROR: We cannot continue with this! *****\n\0".as_ptr() as *const c_char,
+        c"***** ERROR: We cannot continue with this! *****\n".as_ptr() as *const c_char,
     );
-    fprintf(stderr, b"***** %s\n\0".as_ptr() as *const c_char, error_text);
+    fprintf(stderr, c"***** %s\n".as_ptr() as *const c_char, error_text);
     fprintf(
         stderr,
-        b"***** ...now exiting to system!\n\0".as_ptr() as *const c_char,
+        c"***** ...now exiting to system!\n".as_ptr() as *const c_char,
     );
     exit(1);
 }
 
-// SAFETY: as C.
+/// # Safety
+///
+/// as C.
 #[no_mangle]
 pub unsafe extern "C" fn smallerror(error_text: *const c_char) {
     fprintf(
         stderr,
-        b"***** WARNING: This should not happen but we try to continue! *****\n\0"
+        c"***** WARNING: This should not happen but we try to continue! *****\n"
             .as_ptr() as *const c_char,
     );
-    fprintf(stderr, b"***** %s\n\0".as_ptr() as *const c_char, error_text);
+    fprintf(stderr, c"***** %s\n".as_ptr() as *const c_char, error_text);
 }
 
 // ---- File / string / numeric helpers ---------------------------------------
 
-// SAFETY: fopen/fclose probe exactly as C.
+/// # Safety
+///
+/// fopen/fclose probe exactly as C.
 #[no_mangle]
 pub unsafe extern "C" fn FileExists(filename: *mut c_char) -> c_int {
-    let inn = fopen(filename, b"r\0".as_ptr() as *const c_char);
+    let inn = fopen(filename, c"r".as_ptr() as *const c_char);
     if inn.is_null() {
         FALSE
     } else {
@@ -516,7 +574,9 @@ pub unsafe extern "C" fn FileExists(filename: *mut c_char) -> c_int {
     }
 }
 
-// SAFETY: plain in-bounds scan over [first..=last], as C.
+/// # Safety
+///
+/// plain in-bounds scan over [first..=last], as C.
 #[no_mangle]
 pub unsafe extern "C" fn Minimum(vector: *mut Real, first: c_int, last: c_int) -> Real {
     let mut min = *vector.wrapping_offset(first as isize);
@@ -531,7 +591,9 @@ pub unsafe extern "C" fn Minimum(vector: *mut Real, first: c_int, last: c_int) -
     min
 }
 
-// SAFETY: as C, including the (mini=i) assignment-in-condition shape.
+/// # Safety
+///
+/// as C, including the (mini=i) assignment-in-condition shape.
 #[no_mangle]
 pub unsafe extern "C" fn Minimi(vector: *mut Real, first: c_int, last: c_int) -> c_int {
     let mut mini = first;
@@ -547,7 +609,9 @@ pub unsafe extern "C" fn Minimi(vector: *mut Real, first: c_int, last: c_int) ->
     mini
 }
 
-// SAFETY: as C.
+/// # Safety
+///
+/// as C.
 #[no_mangle]
 pub unsafe extern "C" fn Maximum(vector: *mut Real, first: c_int, last: c_int) -> Real {
     let mut max = *vector.wrapping_offset(first as isize);
@@ -562,7 +626,9 @@ pub unsafe extern "C" fn Maximum(vector: *mut Real, first: c_int, last: c_int) -
     max
 }
 
-// SAFETY: as C, including maxi=-1 init and (maxi=i) shape.
+/// # Safety
+///
+/// as C, including maxi=-1 init and (maxi=i) shape.
 #[no_mangle]
 pub unsafe extern "C" fn Maximi(vector: *mut Real, first: c_int, last: c_int) -> c_int {
     let mut maxi: c_int = -1;
@@ -578,8 +644,10 @@ pub unsafe extern "C" fn Maximi(vector: *mut Real, first: c_int, last: c_int) ->
     maxi
 }
 
-// SAFETY: caller guarantees fname2 has room (C contract); mutates via
-// strcpy/strrchr/strcat exactly as C, including the dot-after-slash guard.
+/// # Safety
+///
+/// caller guarantees fname2 has room (C contract); mutates via
+/// strcpy/strrchr/strcat exactly as C, including the dot-after-slash guard.
 #[no_mangle]
 pub unsafe extern "C" fn AddExtension(
     fname1: *const c_char,
@@ -598,12 +666,14 @@ pub unsafe extern "C" fn AddExtension(
             *ptr1 = 0;
         }
     }
-    strcat(fname2, b".\0".as_ptr() as *const c_char);
+    strcat(fname2, c".".as_ptr() as *const c_char);
     strcat(fname2, newext);
 }
 
-// SAFETY: copies at most 15 chars per token into args[cnt] (cnt < maxcnt
-// per loop guard); reads bounded by embedded NULs / separator, as C.
+/// # Safety
+///
+/// copies at most 15 chars per token into args[cnt] (cnt < maxcnt
+/// per loop guard); reads bounded by embedded NULs / separator, as C.
 #[no_mangle]
 pub unsafe extern "C" fn StringToStrings(
     buf: *const c_char,
@@ -654,8 +724,10 @@ pub unsafe extern "C" fn StringToStrings(
     cnt
 }
 
-// SAFETY: mutates buf at separators (C contract: buf is writable);
-// dest holds maxcnt entries per loop guard.
+/// # Safety
+///
+/// mutates buf at separators (C contract: buf is writable);
+/// dest holds maxcnt entries per loop guard.
 #[no_mangle]
 pub unsafe extern "C" fn StringToReal(
     buf: *const c_char,
@@ -685,7 +757,9 @@ pub unsafe extern "C" fn StringToReal(
     cnt
 }
 
-// SAFETY: as StringToReal with atoi.
+/// # Safety
+///
+/// as StringToReal with atoi.
 #[no_mangle]
 pub unsafe extern "C" fn StringToInteger(
     buf: *const c_char,
@@ -716,8 +790,10 @@ pub unsafe extern "C" fn StringToInteger(
     cnt
 }
 
-// SAFETY: as StringToInteger, stopping before a zero value (C: the zero
-// is NOT stored, matching `break` before dest[cnt++]=ival).
+/// # Safety
+///
+/// as StringToInteger, stopping before a zero value (C: the zero
+/// is NOT stored, matching `break` before dest[cnt++]=ival).
 #[no_mangle]
 pub unsafe extern "C" fn StringToIntegerNoZero(
     buf: *const c_char,
@@ -751,7 +827,9 @@ pub unsafe extern "C" fn StringToIntegerNoZero(
     cnt
 }
 
-// SAFETY: strtol advances *start, as C.
+/// # Safety
+///
+/// strtol advances *start, as C.
 #[no_mangle]
 pub unsafe extern "C" fn next_int(start: *mut *mut c_char) -> c_int {
     let mut end: *mut c_char = core::ptr::null_mut();
@@ -760,7 +838,9 @@ pub unsafe extern "C" fn next_int(start: *mut *mut c_char) -> c_int {
     i
 }
 
-// SAFETY: reads n chars at *start (C contract: valid); NUL bounded.
+/// # Safety
+///
+/// reads n chars at *start (C contract: valid); NUL bounded.
 #[no_mangle]
 pub unsafe extern "C" fn next_int_n(start: *mut *mut c_char, n: c_int) -> c_int {
     let end = (*start).wrapping_offset(n as isize);
@@ -772,7 +852,9 @@ pub unsafe extern "C" fn next_int_n(start: *mut *mut c_char, n: c_int) -> c_int 
     i
 }
 
-// SAFETY: strtod advances *start, as C.
+/// # Safety
+///
+/// strtod advances *start, as C.
 #[no_mangle]
 pub unsafe extern "C" fn next_real(start: *mut *mut c_char) -> Real {
     let mut end: *mut c_char = core::ptr::null_mut();
@@ -781,8 +863,10 @@ pub unsafe extern "C" fn next_real(start: *mut *mut c_char) -> Real {
     r
 }
 
-// SAFETY: 1-based heapsort; Key/Ord valid for 1..=N (C contract).
-// Ord[i]=i init loop runs 1..=N exactly as C.
+/// # Safety
+///
+/// 1-based heapsort; Key/Ord valid for 1..=N (C contract).
+/// Ord[i]=i init loop runs 1..=N exactly as C.
 #[no_mangle]
 pub unsafe extern "C" fn SortIndex(N: c_int, Key: *mut c_double, Ord: *mut c_int) {
     let mut current_key: c_double;

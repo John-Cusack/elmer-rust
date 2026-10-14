@@ -1,1 +1,0 @@
-/home/john/firstmate/data/rs-elmer-lane-grid-io/elmer-rust/target/debug/libegnative.a: /home/john/firstmate/data/rs-elmer-lane-grid-io/elmer-rust/crates/elmer-grid/egnative/src/lib.rs /home/john/firstmate/data/rs-elmer-lane-grid-io/elmer-rust/crates/elmer-grid/prelude/src/lib.rs

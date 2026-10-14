@@ -24,7 +24,9 @@ extern "C" {
     fn GetElementDimension(elementtype: c_int) -> c_int;
 }
 
-// SAFETY: file export; filename buffer is caller-sized (C contract).
+/// # Safety
+///
+/// file export; filename buffer is caller-sized (C contract).
 #[no_mangle]
 pub unsafe extern "C" fn SaveAbaqusInput(
     data: *mut FemType,
@@ -34,13 +36,13 @@ pub unsafe extern "C" fn SaveAbaqusInput(
     let mut filename: [c_char; MAXFILESIZE] = [0; MAXFILESIZE];
     let (mut i, mut j);
     let (noknots, noelements, nonodes);
-    let out: *mut FILE;
+    
     noknots = (*data).noknots;
     noelements = (*data).noelements;
     nonodes = (*data).maxnodes;
     if nonodes != 4 && nonodes != 8 {
         printf(
-            b"SaveAbaqusInput: not designed for %d-node elements\n\0".as_ptr() as *const c_char,
+            c"SaveAbaqusInput: not designed for %d-node elements\n".as_ptr() as *const c_char,
             nonodes,
         );
         return 1;
@@ -48,100 +50,102 @@ pub unsafe extern "C" fn SaveAbaqusInput(
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"inp\0".as_ptr() as *const c_char,
+        c"inp".as_ptr() as *const c_char,
     );
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    let out: *mut FILE = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     if info != 0 {
         printf(
-            b"Saving ABAQUS data to %s.\n\0".as_ptr() as *const c_char,
+            c"Saving ABAQUS data to %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
-    fprintf(out, b"*HEADING\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"*HEADING\n".as_ptr() as *const c_char);
     fprintf(
         out,
-        b"Abaqus input file created by ElmerGrid\n\0".as_ptr() as *const c_char,
+        c"Abaqus input file created by ElmerGrid\n".as_ptr() as *const c_char,
     );
-    fprintf(out, b"*NODE, SYSTEM=\0".as_ptr() as *const c_char);
+    fprintf(out, c"*NODE, SYSTEM=".as_ptr() as *const c_char);
     if (*data).coordsystem == COORD_CART2 {
-        fprintf(out, b"R\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"R\n".as_ptr() as *const c_char);
     } else if (*data).coordsystem == COORD_AXIS {
-        fprintf(out, b"C\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"C\n".as_ptr() as *const c_char);
     } else if (*data).coordsystem == COORD_POLAR {
-        fprintf(out, b"P\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"P\n".as_ptr() as *const c_char);
     }
     i = 1;
     while i <= noknots {
         fprintf(
             out,
-            b"%8d, %12.4le, %12.4le, 0.0\n\0".as_ptr() as *const c_char,
+            c"%8d, %12.4le, %12.4le, 0.0\n".as_ptr() as *const c_char,
             i,
             *(*data).x.wrapping_offset(i as isize),
             *(*data).y.wrapping_offset(i as isize),
         );
         i += 1;
     }
-    fprintf(out, b"*ELEMENT,TYPE=\0".as_ptr() as *const c_char);
+    fprintf(out, c"*ELEMENT,TYPE=".as_ptr() as *const c_char);
     if nonodes == 4 {
-        fprintf(out, b"DC2D4 \0".as_ptr() as *const c_char);
+        fprintf(out, c"DC2D4 ".as_ptr() as *const c_char);
     } else if nonodes == 8 {
-        fprintf(out, b"DC2D8 \0".as_ptr() as *const c_char);
+        fprintf(out, c"DC2D8 ".as_ptr() as *const c_char);
     } else {
         printf(
-            b"SaveAbaqusInput: Not defined for %d-node elements\n\0".as_ptr() as *const c_char,
+            c"SaveAbaqusInput: Not defined for %d-node elements\n".as_ptr() as *const c_char,
             nonodes,
         );
     }
-    fprintf(out, b",ELSET=SETTI1\n\0".as_ptr() as *const c_char);
+    fprintf(out, c",ELSET=SETTI1\n".as_ptr() as *const c_char);
     i = 1;
     while i <= noelements {
-        fprintf(out, b"%8d, \0".as_ptr() as *const c_char, i);
+        fprintf(out, c"%8d, ".as_ptr() as *const c_char, i);
         j = 1;
         while j < nonodes {
             fprintf(
                 out,
-                b"%6d, \0".as_ptr() as *const c_char,
+                c"%6d, ".as_ptr() as *const c_char,
                 *(*(*data).topology.wrapping_offset(i as isize)).wrapping_offset((j - 1) as isize),
             );
             j += 1;
         }
         fprintf(
             out,
-            b"%6d\n\0".as_ptr() as *const c_char,
+            c"%6d\n".as_ptr() as *const c_char,
             *(*(*data).topology.wrapping_offset(i as isize)).wrapping_offset((nonodes - 1) as isize),
         );
         i += 1;
     }
     fprintf(
         out,
-        b"*SOLID SECTION, ELSET=SETTI1, MATERIAL=MAT1\n\0".as_ptr() as *const c_char,
+        c"*SOLID SECTION, ELSET=SETTI1, MATERIAL=MAT1\n".as_ptr() as *const c_char,
     );
-    fprintf(out, b"*MATERIAL, NAME=MAT1\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"*CONDUCTIVITY\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"1.0\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"*RESTART, WRITE, FREQUENCY=1\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"*FILE FORMAT, ASCII\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"*STEP\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"*HEAT TRANSFER, STEADY STATE\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"*END STEP\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"*MATERIAL, NAME=MAT1\n".as_ptr() as *const c_char);
+    fprintf(out, c"*CONDUCTIVITY\n".as_ptr() as *const c_char);
+    fprintf(out, c"1.0\n".as_ptr() as *const c_char);
+    fprintf(out, c"*RESTART, WRITE, FREQUENCY=1\n".as_ptr() as *const c_char);
+    fprintf(out, c"*FILE FORMAT, ASCII\n".as_ptr() as *const c_char);
+    fprintf(out, c"*STEP\n".as_ptr() as *const c_char);
+    fprintf(out, c"*HEAT TRANSFER, STEADY STATE\n".as_ptr() as *const c_char);
+    fprintf(out, c"*END STEP\n".as_ptr() as *const c_char);
     fclose(out);
     if info != 0 {
         printf(
-            b"Wrote the mesh in ABAQUS restart format.\n\0".as_ptr() as *const c_char,
+            c"Wrote the mesh in ABAQUS restart format.\n".as_ptr() as *const c_char,
         );
     }
     0
 }
 
-// SAFETY: fixed-form triple for the C variadic tail. The toolchain's stable
-// VaList exposes no argument reader, so a C-variadic *definition* cannot
-// consume its tail; instead this defines the full reachable shape. Exact
-// because: (a) the body clamps vctrs to <= 3 before any read, so only the
-// first three vector slots are ever observable; (b) the sole tree call site
-// (fempre.c) passes vctrs = 1 with one pointer, and the vctrs = 1 path reads
-// only dofs[1]; (c) unread trailing fixed params are never touched. A future
-// caller passing > 3 vectors behaves identically: C's va_arg would read only
-// post-clamp slots too.
+/// # Safety
+///
+/// fixed-form triple for the C variadic tail. The toolchain's stable
+/// VaList exposes no argument reader, so a C-variadic *definition* cannot
+/// consume its tail; instead this defines the full reachable shape. Exact
+/// because: (a) the body clamps vctrs to <= 3 before any read, so only the
+/// first three vector slots are ever observable; (b) the sole tree call site
+/// (fempre.c) passes vctrs = 1 with one pointer, and the vctrs = 1 path reads
+/// only dofs[1]; (c) unread trailing fixed params are never touched. A future
+/// caller passing > 3 vectors behaves identically: C's va_arg would read only
+/// post-clamp slots too.
 #[no_mangle]
 pub unsafe extern "C" fn SaveFidapOutput(
     data: *mut FemType,
@@ -158,22 +162,22 @@ pub unsafe extern "C" fn SaveFidapOutput(
     let mut elemcodes: [c_int; 51] = [0; 51];
     let mut mat: [c_int; 51] = [0; 51];
     let mut dofs: [*mut Real; MAXDOFS] = [core::ptr::null_mut(); MAXDOFS];
-    let out: *mut FILE;
+    
     if (*data).created == 0 {
         printf(
-            b"You tried to save points that were never created.\n\0".as_ptr() as *const c_char,
+            c"You tried to save points that were never created.\n".as_ptr() as *const c_char,
         );
         return 1;
     }
     printf(
-        b"Saving results in FIDAP neutral format.\n\0".as_ptr() as *const c_char,
+        c"Saving results in FIDAP neutral format.\n".as_ptr() as *const c_char,
     );
     noknots = (*data).noknots;
     noelements = (*data).noelements;
     dim = (*data).dim;
     if vctrs > 3 {
         printf(
-            b"SaveSolutionFidap: Maximum of 3 d.o.f.\n\0".as_ptr() as *const c_char,
+            c"SaveSolutionFidap: Maximum of 3 d.o.f.\n".as_ptr() as *const c_char,
         );
         vctrs = 3;
     }
@@ -212,28 +216,28 @@ pub unsafe extern "C" fn SaveFidapOutput(
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"fidap\0".as_ptr() as *const c_char,
+        c"fidap".as_ptr() as *const c_char,
     );
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
-    fprintf(out, b"** FIDAP NEUTRAL FILE\n\0".as_ptr() as *const c_char);
+    let out: *mut FILE = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
+    fprintf(out, c"** FIDAP NEUTRAL FILE\n".as_ptr() as *const c_char);
     fprintf(
         out,
-        b"Fidap input file created by ElmerGrid\n\0".as_ptr() as *const c_char,
+        c"Fidap input file created by ElmerGrid\n".as_ptr() as *const c_char,
     );
-    fprintf(out, b"VERSION %7.2f\n\0".as_ptr() as *const c_char, 7.52);
-    fprintf(out, b" 1 Dec 96    12:00:00\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"VERSION %7.2f\n".as_ptr() as *const c_char, 7.52);
+    fprintf(out, c" 1 Dec 96    12:00:00\n".as_ptr() as *const c_char);
     fprintf(
         out,
-        b"%15s%15s%15s%15s%15s\n\0".as_ptr() as *const c_char,
-        b"NO. OF NODES\0".as_ptr() as *const c_char,
-        b"NO. ELEMENTS\0".as_ptr() as *const c_char,
-        b"NO. ELT GROUPS\0".as_ptr() as *const c_char,
-        b"NDFCD\0".as_ptr() as *const c_char,
-        b"NDFVL\0".as_ptr() as *const c_char,
+        c"%15s%15s%15s%15s%15s\n".as_ptr() as *const c_char,
+        c"NO. OF NODES".as_ptr() as *const c_char,
+        c"NO. ELEMENTS".as_ptr() as *const c_char,
+        c"NO. ELT GROUPS".as_ptr() as *const c_char,
+        c"NDFCD".as_ptr() as *const c_char,
+        c"NDFVL".as_ptr() as *const c_char,
     );
     fprintf(
         out,
-        b"%15d%15d%15d%15d%15d\n\0".as_ptr() as *const c_char,
+        c"%15d%15d%15d%15d%15d\n".as_ptr() as *const c_char,
         noknots,
         noelements,
         nogroup,
@@ -242,36 +246,36 @@ pub unsafe extern "C" fn SaveFidapOutput(
     );
     fprintf(
         out,
-        b"%15s%15s%15s%15s\n\0".as_ptr() as *const c_char,
-        b"STEADY/TRANS\0".as_ptr() as *const c_char,
-        b"TURB. FLAG\0".as_ptr() as *const c_char,
-        b"FREE SURF FLAG\0".as_ptr() as *const c_char,
-        b"COMPR. FLAG\0".as_ptr() as *const c_char,
+        c"%15s%15s%15s%15s\n".as_ptr() as *const c_char,
+        c"STEADY/TRANS".as_ptr() as *const c_char,
+        c"TURB. FLAG".as_ptr() as *const c_char,
+        c"FREE SURF FLAG".as_ptr() as *const c_char,
+        c"COMPR. FLAG".as_ptr() as *const c_char,
     );
-    fprintf(out, b"%15d%15d%15d%15d\n\0".as_ptr() as *const c_char, 0, 0, 0, 0);
-    fprintf(out, b"%s\n\0".as_ptr() as *const c_char, b"TEMPERATURE/SPECIES FLAGS\0".as_ptr() as *const c_char);
-    fprintf(out, b"%s\n\0".as_ptr() as *const c_char, b" 3 0 0 0 0 0 0 0 0 0 0 0 0 0 0\0".as_ptr() as *const c_char);
+    fprintf(out, c"%15d%15d%15d%15d\n".as_ptr() as *const c_char, 0, 0, 0, 0);
+    fprintf(out, c"%s\n".as_ptr() as *const c_char, c"TEMPERATURE/SPECIES FLAGS".as_ptr() as *const c_char);
+    fprintf(out, c"%s\n".as_ptr() as *const c_char, c" 3 0 0 0 0 0 0 0 0 0 0 0 0 0 0".as_ptr() as *const c_char);
     fprintf(
         out,
-        b"%s\n\0".as_ptr() as *const c_char,
-        b"PRESSURE FLAGS - IDCTS, IPENY MPDF\0".as_ptr() as *const c_char,
+        c"%s\n".as_ptr() as *const c_char,
+        c"PRESSURE FLAGS - IDCTS, IPENY MPDF".as_ptr() as *const c_char,
     );
-    fprintf(out, b"%10d%10d%10d\n\0".as_ptr() as *const c_char, 0, 0, 1);
-    fprintf(out, b"NODAL COORDINATES\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"%10d%10d%10d\n".as_ptr() as *const c_char, 0, 0, 1);
+    fprintf(out, c"NODAL COORDINATES\n".as_ptr() as *const c_char);
     i = 1;
     while i <= noknots {
         fprintf(
             out,
-            b"%10d%20.10e%20.10e\n\0".as_ptr() as *const c_char,
+            c"%10d%20.10e%20.10e\n".as_ptr() as *const c_char,
             i,
             *(*data).y.wrapping_offset(i as isize),
             *(*data).x.wrapping_offset(i as isize),
         );
         i += 1;
     }
-    fprintf(out, b"BOUNDARY CONDITIONS\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"%10d%10d%10d%20.10e\n\0".as_ptr() as *const c_char, 0, 0, 5, 0.0);
-    fprintf(out, b"ELEMENT GROUPS\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"BOUNDARY CONDITIONS\n".as_ptr() as *const c_char);
+    fprintf(out, c"%10d%10d%10d%20.10e\n".as_ptr() as *const c_char, 0, 0, 5, 0.0);
+    fprintf(out, c"ELEMENT GROUPS\n".as_ptr() as *const c_char);
     nogroup = 0;
     no = 1;
     while no <= MAT_MAXNUMBER {
@@ -281,7 +285,7 @@ pub unsafe extern "C" fn SaveFidapOutput(
             cellelem = mat[no as usize];
             fprintf(
                 out,
-                b"GROUP:    %5d ELEMENTS:%10d NODES:   %10d GEOMETRY:%5d TYPE:%4d\n\0".as_ptr()
+                c"GROUP:    %5d ELEMENTS:%10d NODES:   %10d GEOMETRY:%5d TYPE:%4d\n".as_ptr()
                     as *const c_char,
                 nogroup,
                 cellelem,
@@ -291,25 +295,25 @@ pub unsafe extern "C" fn SaveFidapOutput(
             );
             fprintf(
                 out,
-                b"ENTITY NAME:   %s%d\n\0".as_ptr() as *const c_char,
-                b"material\0".as_ptr() as *const c_char,
+                c"ENTITY NAME:   %s%d\n".as_ptr() as *const c_char,
+                c"material".as_ptr() as *const c_char,
                 nogroup,
             );
             j = 1;
             while j <= noelements {
                 if *(*data).material.wrapping_offset(j as isize) == no {
-                    fprintf(out, b"%8d\n\0".as_ptr() as *const c_char, j);
+                    fprintf(out, c"%8d\n".as_ptr() as *const c_char, j);
                     i = 0;
                     while i < nonodes {
                         fprintf(
                             out,
-                            b"%8d\0".as_ptr() as *const c_char,
+                            c"%8d".as_ptr() as *const c_char,
                             *(*(*data).topology.wrapping_offset(j as isize))
                                 .wrapping_offset(i as isize),
                         );
                         i += 1;
                     }
-                    fprintf(out, b"\n\0".as_ptr() as *const c_char);
+                    fprintf(out, c"\n".as_ptr() as *const c_char);
                 }
                 j += 1;
             }
@@ -318,45 +322,45 @@ pub unsafe extern "C" fn SaveFidapOutput(
     }
     fprintf(
         out,
-        b"TIMESTEP: %5d TIME:     %15.7le INCRMNT: %15.7le\n\0".as_ptr() as *const c_char,
+        c"TIMESTEP: %5d TIME:     %15.7le INCRMNT: %15.7le\n".as_ptr() as *const c_char,
         1,
         1.0,
         1.0,
     );
-    fprintf(out, b"VELOCITY\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"VELOCITY\n".as_ptr() as *const c_char);
     if vctrs < 2 {
         i = 1;
         while i <= 2 * noknots {
-            fprintf(out, b"%16.9e\0".as_ptr() as *const c_char, 0.0);
+            fprintf(out, c"%16.9e".as_ptr() as *const c_char, 0.0);
             if i % 5 == 0 {
-                fprintf(out, b"\n\0".as_ptr() as *const c_char);
+                fprintf(out, c"\n".as_ptr() as *const c_char);
             }
             i += 1;
         }
     } else {
         i = 1;
         while i <= 2 * noknots {
-            fprintf(out, b"%16.9e\0".as_ptr() as *const c_char, *dofs[1].wrapping_offset(i as isize));
+            fprintf(out, c"%16.9e".as_ptr() as *const c_char, *dofs[1].wrapping_offset(i as isize));
             if (2 * i - 1) % 5 == 0 {
-                fprintf(out, b"\n\0".as_ptr() as *const c_char);
+                fprintf(out, c"\n".as_ptr() as *const c_char);
             }
-            fprintf(out, b"%16.9e\0".as_ptr() as *const c_char, *dofs[2].wrapping_offset(i as isize));
+            fprintf(out, c"%16.9e".as_ptr() as *const c_char, *dofs[2].wrapping_offset(i as isize));
             if (2 * i) % 5 == 0 {
-                fprintf(out, b"\n\0".as_ptr() as *const c_char);
+                fprintf(out, c"\n".as_ptr() as *const c_char);
             }
             i += 1;
         }
     }
     if (2 * noknots) % 5 != 0 {
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
     }
-    fprintf(out, b"TEMPERATURE\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"TEMPERATURE\n".as_ptr() as *const c_char);
     if vctrs == 2 {
         i = 1;
         while i <= noknots {
-            fprintf(out, b"%16.9e\0".as_ptr() as *const c_char, 0.0);
+            fprintf(out, c"%16.9e".as_ptr() as *const c_char, 0.0);
             if i % 5 == 0 {
-                fprintf(out, b"\n\0".as_ptr() as *const c_char);
+                fprintf(out, c"\n".as_ptr() as *const c_char);
             }
             i += 1;
         }
@@ -365,23 +369,23 @@ pub unsafe extern "C" fn SaveFidapOutput(
         while i <= noknots {
             fprintf(
                 out,
-                b"%16.9e\0".as_ptr() as *const c_char,
+                c"%16.9e".as_ptr() as *const c_char,
                 *dofs[vctrs as usize].wrapping_offset(i as isize),
             );
             if i % 5 == 0 {
-                fprintf(out, b"\n\0".as_ptr() as *const c_char);
+                fprintf(out, c"\n".as_ptr() as *const c_char);
             }
             i += 1;
         }
     }
     if noknots % 5 != 0 {
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
     }
-    fprintf(out, b"ENDOFTIMESTEP\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"ENDOFTIMESTEP\n".as_ptr() as *const c_char);
     fclose(out);
     if info != 0 {
         printf(
-            b"Results were saved in FIDAP neutral format to file %s.\n\0".as_ptr() as *const c_char,
+            c"Results were saved in FIDAP neutral format to file %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
@@ -412,7 +416,7 @@ unsafe fn ElmerToGmshType(elmertype: c_int) -> c_int {
         310 => gmshtype = 21,
         _ => {
             printf(
-                b"Elmer element %d does not have an Gmsh counterpart!\n\0".as_ptr()
+                c"Elmer element %d does not have an Gmsh counterpart!\n".as_ptr()
                     as *const c_char,
                 elmertype,
             );
@@ -467,7 +471,9 @@ unsafe fn ElmerToGmshIndx(elemtype: c_int, topology: *mut c_int) {
     }
 }
 
-// SAFETY: file export; runtime-built outstyle goes through C sprintf/fprintf.
+/// # Safety
+///
+/// file export; runtime-built outstyle goes through C sprintf/fprintf.
 #[no_mangle]
 pub unsafe extern "C" fn SaveMeshGmsh(
     data: *mut FemType,
@@ -498,10 +504,10 @@ pub unsafe extern "C" fn SaveMeshGmsh(
     let mut boundtype: c_int;
     let mut nodesd2: c_int;
     let mut elemind: c_int;
-    let out: *mut FILE;
+    
     if (*data).created == 0 {
         printf(
-            b"SaveMeshGmsh: You tried to save points that were never created.\n\0".as_ptr()
+            c"SaveMeshGmsh: You tried to save points that were never created.\n".as_ptr()
                 as *const c_char,
         );
         return 1;
@@ -526,24 +532,24 @@ pub unsafe extern "C" fn SaveMeshGmsh(
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"msh\0".as_ptr() as *const c_char,
+        c"msh".as_ptr() as *const c_char,
     );
     if info != 0 {
         printf(
-            b"Saving Gmsh mesh to %s.\n\0".as_ptr() as *const c_char,
+            c"Saving Gmsh mesh to %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    let out: *mut FILE = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     if out.is_null() {
         printf(
-            b"opening of file was not successful\n\0".as_ptr() as *const c_char,
+            c"opening of file was not successful\n".as_ptr() as *const c_char,
         );
         return 3;
     }
-    fprintf(out, b"$MeshFormat\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"2.2 0 %ld\n\0".as_ptr() as *const c_char, 8 as c_long);
-    fprintf(out, b"$EndMeshFormat\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"$MeshFormat\n".as_ptr() as *const c_char);
+    fprintf(out, c"2.2 0 %ld\n".as_ptr() as *const c_char, 8 as c_long);
+    fprintf(out, c"$EndMeshFormat\n".as_ptr() as *const c_char);
     if (*data).bodynamesexist != 0 || (*data).boundarynamesexist != 0 {
         i = 0;
         while i < MAXBODIES as c_int {
@@ -555,7 +561,7 @@ pub unsafe extern "C" fn SaveMeshGmsh(
             usedbc[i as usize] = 0;
             i += 1;
         }
-        fprintf(out, b"$PhysicalNames\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"$PhysicalNames\n".as_ptr() as *const c_char);
         nonames = 0;
         if (*data).boundarynamesexist != 0 {
             j = 0;
@@ -616,14 +622,14 @@ pub unsafe extern "C" fn SaveMeshGmsh(
                 i += 1;
             }
         }
-        fprintf(out, b"%d\n\0".as_ptr() as *const c_char, nonames);
+        fprintf(out, c"%d\n".as_ptr() as *const c_char, nonames);
         if (*data).boundarynamesexist != 0 {
             i = 1;
             while i < MAXBCS as c_int {
                 if !(*data).boundaryname[i as usize].is_null() && usedbc[i as usize] != 0 {
                     fprintf(
                         out,
-                        b"%d %d \"%s\"\n\0".as_ptr() as *const c_char,
+                        c"%d %d \"%s\"\n".as_ptr() as *const c_char,
                         usedbc[i as usize],
                         i,
                         (*data).boundaryname[i as usize],
@@ -638,7 +644,7 @@ pub unsafe extern "C" fn SaveMeshGmsh(
                 if !(*data).bodyname[i as usize].is_null() && usedbody[i as usize] != 0 {
                     fprintf(
                         out,
-                        b"%d %d \"%s\"\n\0".as_ptr() as *const c_char,
+                        c"%d %d \"%s\"\n".as_ptr() as *const c_char,
                         usedbody[i as usize],
                         i,
                         (*data).bodyname[i as usize],
@@ -647,20 +653,20 @@ pub unsafe extern "C" fn SaveMeshGmsh(
                 i += 1;
             }
         }
-        fprintf(out, b"$EndPhysicalNames\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"$EndPhysicalNames\n".as_ptr() as *const c_char);
     }
     if info != 0 {
         printf(
-            b"Saving %d node coordinates.\n\0".as_ptr() as *const c_char,
+            c"Saving %d node coordinates.\n".as_ptr() as *const c_char,
             noknots,
         );
     }
-    fprintf(out, b"$Nodes\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"%d\n\0".as_ptr() as *const c_char, noknots);
+    fprintf(out, c"$Nodes\n".as_ptr() as *const c_char);
+    fprintf(out, c"%d\n".as_ptr() as *const c_char, noknots);
     if (*data).dim == 1 {
         sprintf(
             outstyle.as_mut_ptr(),
-            b"%%d %%.%dg 0 0\n\0".as_ptr() as *const c_char,
+            c"%%d %%.%dg 0 0\n".as_ptr() as *const c_char,
             decimals,
         );
         i = 1;
@@ -676,7 +682,7 @@ pub unsafe extern "C" fn SaveMeshGmsh(
     } else if (*data).dim == 2 {
         sprintf(
             outstyle.as_mut_ptr(),
-            b"%%d %%.%dg %%.%dg 0\n\0".as_ptr() as *const c_char,
+            c"%%d %%.%dg %%.%dg 0\n".as_ptr() as *const c_char,
             decimals,
             decimals,
         );
@@ -694,7 +700,7 @@ pub unsafe extern "C" fn SaveMeshGmsh(
     } else if (*data).dim == 3 {
         sprintf(
             outstyle.as_mut_ptr(),
-            b"%%d %%.%dg %%.%dg %%.%dg\n\0".as_ptr() as *const c_char,
+            c"%%d %%.%dg %%.%dg %%.%dg\n".as_ptr() as *const c_char,
             decimals,
             decimals,
             decimals,
@@ -712,26 +718,25 @@ pub unsafe extern "C" fn SaveMeshGmsh(
             i += 1;
         }
     }
-    fprintf(out, b"$EndNodes\n\0".as_ptr() as *const c_char);
-    printf(b"Saving %d element topologies.\n\0".as_ptr() as *const c_char, bulkelems);
-    fprintf(out, b"$Elements\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"%d\n\0".as_ptr() as *const c_char, bulkelems + sideelems);
+    fprintf(out, c"$EndNodes\n".as_ptr() as *const c_char);
+    printf(c"Saving %d element topologies.\n".as_ptr() as *const c_char, bulkelems);
+    fprintf(out, c"$Elements\n".as_ptr() as *const c_char);
+    fprintf(out, c"%d\n".as_ptr() as *const c_char, bulkelems + sideelems);
     i = 1;
     while i <= bulkelems {
         elemtype = *(*data).elementtypes.wrapping_offset(i as isize);
         material = *(*data).material.wrapping_offset(i as isize);
         gmshtype = ElmerToGmshType(elemtype);
         physent = 0;
-        if (*data).bodynamesexist != 0 && material < MAXBODIES as c_int {
-            if !(*data).bodyname[material as usize].is_null()
+        if (*data).bodynamesexist != 0 && material < MAXBODIES as c_int
+            && !(*data).bodyname[material as usize].is_null()
                 && usedbody[material as usize] != 0
             {
                 physent = material;
             }
-        }
         fprintf(
             out,
-            b"%d %d %d %d %d\0".as_ptr() as *const c_char,
+            c"%d %d %d %d %d".as_ptr() as *const c_char,
             i,
             gmshtype,
             2,
@@ -748,10 +753,10 @@ pub unsafe extern "C" fn SaveMeshGmsh(
         ElmerToGmshIndx(elemtype, ind.as_mut_ptr());
         j = 0;
         while j < nodesd2 {
-            fprintf(out, b" %d\0".as_ptr() as *const c_char, ind[j as usize]);
+            fprintf(out, c" %d".as_ptr() as *const c_char, ind[j as usize]);
             j += 1;
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
         i += 1;
     }
     elemind = bulkelems;
@@ -775,16 +780,15 @@ pub unsafe extern "C" fn SaveMeshGmsh(
                 gmshtype = ElmerToGmshType(elemtype);
                 elemind += 1;
                 physent = 0;
-                if (*data).boundarynamesexist != 0 && boundtype < MAXBCS as c_int {
-                    if !(*data).boundaryname[boundtype as usize].is_null()
+                if (*data).boundarynamesexist != 0 && boundtype < MAXBCS as c_int
+                    && !(*data).boundaryname[boundtype as usize].is_null()
                         && usedbc[boundtype as usize] != 0
                     {
                         physent = boundtype;
                     }
-                }
                 fprintf(
                     out,
-                    b"%d %d %d %d %d\0".as_ptr() as *const c_char,
+                    c"%d %d %d %d %d".as_ptr() as *const c_char,
                     elemind,
                     gmshtype,
                     2,
@@ -795,20 +799,20 @@ pub unsafe extern "C" fn SaveMeshGmsh(
                 ElmerToGmshIndx(elemtype, ind.as_mut_ptr());
                 k = 0;
                 while k < nodesd2 {
-                    fprintf(out, b" %d\0".as_ptr() as *const c_char, ind[k as usize]);
+                    fprintf(out, c" %d".as_ptr() as *const c_char, ind[k as usize]);
                     k += 1;
                 }
-                fprintf(out, b"\n\0".as_ptr() as *const c_char);
+                fprintf(out, c"\n".as_ptr() as *const c_char);
                 i += 1;
             }
             j += 1;
         }
     }
-    fprintf(out, b"$EndElements\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"$EndElements\n".as_ptr() as *const c_char);
     // NOTE: the `#if 0` dof-dump block is omitted exactly as the C
     // preprocessor does (it references undeclared locals).
     fclose(out);
-    printf(b"SaveMeshGmsh: All done\n\0".as_ptr() as *const c_char);
+    printf(c"SaveMeshGmsh: All done\n".as_ptr() as *const c_char);
     0
 }
 // SAFETY: pure mapping table; the case-101 fallthrough (1, then 202's 3) is
@@ -843,7 +847,7 @@ unsafe fn ElmerToVtkType(elmertype: c_int) -> c_int {
         827 => vtktype = 29,
         _ => {
             printf(
-                b"Elmer element %d does not have an Vtk counterpart!\n\0".as_ptr()
+                c"Elmer element %d does not have an Vtk counterpart!\n".as_ptr()
                     as *const c_char,
                 elmertype,
             );
@@ -893,7 +897,9 @@ unsafe fn ElmerToVtkIndx(elemtype: c_int, topology: *mut c_int) {
     }
 }
 
-// SAFETY: file export; `if(0)` test scaffolding omitted (runtime-dead).
+/// # Safety
+///
+/// file export; `if(0)` test scaffolding omitted (runtime-dead).
 #[no_mangle]
 pub unsafe extern "C" fn SaveMeshVtu(
     data: *mut FemType,
@@ -915,7 +921,7 @@ pub unsafe extern "C" fn SaveMeshVtu(
     let mut idoffset: c_int;
     let (di, mut maxbody, mut minbc);
     let (little_end, prec_bits, mut elemoffset);
-    let out: *mut FILE;
+    
     if dummyzero != 0 {
         di = 0;
     } else {
@@ -923,7 +929,7 @@ pub unsafe extern "C" fn SaveMeshVtu(
     }
     if (*data).created == 0 {
         printf(
-            b"SaveMeshVtk: You tried to save points that were never created.\n\0".as_ptr()
+            c"SaveMeshVtk: You tried to save points that were never created.\n".as_ptr()
                 as *const c_char,
         );
         return 1;
@@ -948,18 +954,18 @@ pub unsafe extern "C" fn SaveMeshVtu(
     AddExtension(
         prefix,
         filename.as_mut_ptr(),
-        b"vtu\0".as_ptr() as *const c_char,
+        c"vtu".as_ptr() as *const c_char,
     );
     if info != 0 {
         printf(
-            b"Saving VTU mesh to %s.\n\0".as_ptr() as *const c_char,
+            c"Saving VTU mesh to %s.\n".as_ptr() as *const c_char,
             filename.as_ptr(),
         );
     }
-    out = fopen(filename.as_ptr(), b"w\0".as_ptr() as *const c_char);
+    let out: *mut FILE = fopen(filename.as_ptr(), c"w".as_ptr() as *const c_char);
     if out.is_null() {
         printf(
-            b"opening of file was not successful\n\0".as_ptr() as *const c_char,
+            c"opening of file was not successful\n".as_ptr() as *const c_char,
         );
         return 3;
     }
@@ -1000,7 +1006,7 @@ pub unsafe extern "C" fn SaveMeshVtu(
             }
         }
         printf(
-            b"Setting offset for boundaries: %d\n\0".as_ptr() as *const c_char,
+            c"Setting offset for boundaries: %d\n".as_ptr() as *const c_char,
             idoffset,
         );
     }
@@ -1008,71 +1014,71 @@ pub unsafe extern "C" fn SaveMeshVtu(
     prec_bits = 64;
     if info != 0 {
         printf(
-            b"Saving Elmer mesh in ascii VTU format\n\0".as_ptr() as *const c_char,
+            c"Saving Elmer mesh in ascii VTU format\n".as_ptr() as *const c_char,
         );
     }
-    fprintf(out, b"<?xml version=\"1.0\"?>\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"<?xml version=\"1.0\"?>\n".as_ptr() as *const c_char);
     if little_end != 0 {
         fprintf(
             out,
-            b"<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n\0"
+            c"<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n"
                 .as_ptr() as *const c_char,
         );
     } else {
         fprintf(
             out,
-            b"<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"BigEndian\">\n\0"
+            c"<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"BigEndian\">\n"
                 .as_ptr() as *const c_char,
         );
     }
-    fprintf(out, b"  <UnstructuredGrid>\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"  <UnstructuredGrid>\n".as_ptr() as *const c_char);
     fprintf(
         out,
-        b"    <Piece NumberOfPoints=\"%d\"  NumberOfCells=\"%d\">\n\0".as_ptr() as *const c_char,
+        c"    <Piece NumberOfPoints=\"%d\"  NumberOfCells=\"%d\">\n".as_ptr() as *const c_char,
         noknots + dummyzero,
         noelements,
     );
-    fprintf(out, b"      <PointData>\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"      <PointData>\n".as_ptr() as *const c_char);
     fprintf(
         out,
-        b"        <DataArray type=\"Int32\" Name=\"NodeNumber\" NumberOfComponents=\"1\" format=\"ascii\">\n\0"
+        c"        <DataArray type=\"Int32\" Name=\"NodeNumber\" NumberOfComponents=\"1\" format=\"ascii\">\n"
             .as_ptr() as *const c_char,
     );
     if dummyzero != 0 {
-        fprintf(out, b"%d \0".as_ptr() as *const c_char, 0);
+        fprintf(out, c"%d ".as_ptr() as *const c_char, 0);
     }
     i = 1;
     while i <= noknots {
-        fprintf(out, b"%d \0".as_ptr() as *const c_char, i);
+        fprintf(out, c"%d ".as_ptr() as *const c_char, i);
         i += 1;
     }
-    fprintf(out, b"\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"        </DataArray>\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"      </PointData>\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"\n".as_ptr() as *const c_char);
+    fprintf(out, c"        </DataArray>\n".as_ptr() as *const c_char);
+    fprintf(out, c"      </PointData>\n".as_ptr() as *const c_char);
     printf(
-        b"Saving cell data (Element numbers and Geometry Ids).\n\0".as_ptr() as *const c_char,
+        c"Saving cell data (Element numbers and Geometry Ids).\n".as_ptr() as *const c_char,
     );
-    fprintf(out, b"      <CellData>\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"      <CellData>\n".as_ptr() as *const c_char);
     fprintf(
         out,
-        b"        <DataArray type=\"Int32\" Name=\"ElementNumber\" NumberOfComponents=\"1\" format=\"ascii\">\n\0"
+        c"        <DataArray type=\"Int32\" Name=\"ElementNumber\" NumberOfComponents=\"1\" format=\"ascii\">\n"
             .as_ptr() as *const c_char,
     );
     i = 1;
     while i <= noelements {
-        fprintf(out, b"%d \0".as_ptr() as *const c_char, i);
+        fprintf(out, c"%d ".as_ptr() as *const c_char, i);
         i += 1;
     }
-    fprintf(out, b"\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"        </DataArray>\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"\n".as_ptr() as *const c_char);
+    fprintf(out, c"        </DataArray>\n".as_ptr() as *const c_char);
     fprintf(
         out,
-        b"        <DataArray type=\"Int32\" Name=\"GeometryIds\" NumberOfComponents=\"1\" format=\"ascii\">\n\0"
+        c"        <DataArray type=\"Int32\" Name=\"GeometryIds\" NumberOfComponents=\"1\" format=\"ascii\">\n"
             .as_ptr() as *const c_char,
     );
     i = 1;
     while i <= bulkelems {
-        fprintf(out, b"%d \0".as_ptr() as *const c_char, *(*data).material.wrapping_offset(i as isize));
+        fprintf(out, c"%d ".as_ptr() as *const c_char, *(*data).material.wrapping_offset(i as isize));
         i += 1;
     }
     if nobound != 0 {
@@ -1086,25 +1092,25 @@ pub unsafe extern "C" fn SaveMeshVtu(
             while i <= (*bound.wrapping_offset(j as isize)).nosides {
                 boundtype =
                     *(*bound.wrapping_offset(j as isize)).types.wrapping_offset(i as isize);
-                fprintf(out, b"%d \0".as_ptr() as *const c_char, idoffset + boundtype);
+                fprintf(out, c"%d ".as_ptr() as *const c_char, idoffset + boundtype);
                 i += 1;
             }
             j += 1;
         }
     }
-    fprintf(out, b"\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"        </DataArray>\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"\n".as_ptr() as *const c_char);
+    fprintf(out, c"        </DataArray>\n".as_ptr() as *const c_char);
     if (*data).partitionexist != 0 {
         fprintf(
             out,
-            b"        <DataArray type=\"Int32\" Name=\"Partition\" NumberOfComponents=\"1\" format=\"ascii\">\n\0"
+            c"        <DataArray type=\"Int32\" Name=\"Partition\" NumberOfComponents=\"1\" format=\"ascii\">\n"
                 .as_ptr() as *const c_char,
         );
         i = 1;
         while i <= bulkelems {
             fprintf(
                 out,
-                b"%d \0".as_ptr() as *const c_char,
+                c"%d ".as_ptr() as *const c_char,
                 *(*data).elempart.wrapping_offset(i as isize),
             );
             i += 1;
@@ -1122,44 +1128,44 @@ pub unsafe extern "C" fn SaveMeshVtu(
                     if k != 0 {
                         fprintf(
                             out,
-                            b"%d \0".as_ptr() as *const c_char,
+                            c"%d ".as_ptr() as *const c_char,
                             *(*data).elempart.wrapping_offset(k as isize),
                         );
                     } else {
-                        fprintf(out, b"%d \0".as_ptr() as *const c_char, 0);
+                        fprintf(out, c"%d ".as_ptr() as *const c_char, 0);
                     }
                     i += 1;
                 }
                 j += 1;
             }
         }
-        fprintf(out, b"\n\0".as_ptr() as *const c_char);
-        fprintf(out, b"        </DataArray>\n\0".as_ptr() as *const c_char);
+        fprintf(out, c"\n".as_ptr() as *const c_char);
+        fprintf(out, c"        </DataArray>\n".as_ptr() as *const c_char);
     }
-    fprintf(out, b"      </CellData>\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"      </CellData>\n".as_ptr() as *const c_char);
     if info != 0 {
         printf(
-            b"Saving %d nodal coordinates\n\0".as_ptr() as *const c_char,
+            c"Saving %d nodal coordinates\n".as_ptr() as *const c_char,
             noknots,
         );
     }
-    fprintf(out, b"      <Points>\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"      <Points>\n".as_ptr() as *const c_char);
     fprintf(
         out,
-        b"        <DataArray type=\"Float%d\" Name=\"ElementNumber\" NumberOfComponents=\"3\" format=\"ascii\">\n\0"
+        c"        <DataArray type=\"Float%d\" Name=\"ElementNumber\" NumberOfComponents=\"3\" format=\"ascii\">\n"
             .as_ptr() as *const c_char,
         prec_bits,
     );
     if dummyzero != 0 {
         if info != 0 {
             printf(
-                b"Creating dummy duplicate for first index to allow numbering from one\n\0"
+                c"Creating dummy duplicate for first index to allow numbering from one\n"
                     .as_ptr() as *const c_char,
             );
         }
         fprintf(
             out,
-            b"%12.6le %12.6le %12.6le \0".as_ptr() as *const c_char,
+            c"%12.6le %12.6le %12.6le ".as_ptr() as *const c_char,
             *(*data).x.wrapping_offset(1),
             *(*data).y.wrapping_offset(1),
             *(*data).z.wrapping_offset(1),
@@ -1169,21 +1175,21 @@ pub unsafe extern "C" fn SaveMeshVtu(
     while i <= noknots {
         fprintf(
             out,
-            b"%12.6le %12.6le %12.6le \0".as_ptr() as *const c_char,
+            c"%12.6le %12.6le %12.6le ".as_ptr() as *const c_char,
             *(*data).x.wrapping_offset(i as isize),
             *(*data).y.wrapping_offset(i as isize),
             *(*data).z.wrapping_offset(i as isize),
         );
         i += 1;
     }
-    fprintf(out, b"\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"        </DataArray>\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"      </Points>\n\0".as_ptr() as *const c_char);
-    printf(b"Saving %d element topologies.\n\0".as_ptr() as *const c_char, noelements);
-    fprintf(out, b"      <Cells>\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"\n".as_ptr() as *const c_char);
+    fprintf(out, c"        </DataArray>\n".as_ptr() as *const c_char);
+    fprintf(out, c"      </Points>\n".as_ptr() as *const c_char);
+    printf(c"Saving %d element topologies.\n".as_ptr() as *const c_char, noelements);
+    fprintf(out, c"      <Cells>\n".as_ptr() as *const c_char);
     fprintf(
         out,
-        b"        <DataArray type=\"Int32\" Name=\"connectivity\" NumberOfComponents=\"1\" format=\"ascii\">\n\0"
+        c"        <DataArray type=\"Int32\" Name=\"connectivity\" NumberOfComponents=\"1\" format=\"ascii\">\n"
             .as_ptr() as *const c_char,
     );
     i = 1;
@@ -1198,7 +1204,7 @@ pub unsafe extern "C" fn SaveMeshVtu(
         ElmerToVtkIndx(elemtype, ind.as_mut_ptr());
         j = 0;
         while j < elemtype % 100 {
-            fprintf(out, b"%d \0".as_ptr() as *const c_char, ind[j as usize] - di);
+            fprintf(out, c"%d ".as_ptr() as *const c_char, ind[j as usize] - di);
             j += 1;
         }
         i += 1;
@@ -1221,7 +1227,7 @@ pub unsafe extern "C" fn SaveMeshVtu(
                 );
                 k = 0;
                 while k < elemtype % 100 {
-                    fprintf(out, b"%d \0".as_ptr() as *const c_char, ind[k as usize] - di);
+                    fprintf(out, c"%d ".as_ptr() as *const c_char, ind[k as usize] - di);
                     k += 1;
                 }
                 i += 1;
@@ -1229,11 +1235,11 @@ pub unsafe extern "C" fn SaveMeshVtu(
             j += 1;
         }
     }
-    fprintf(out, b"\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"        </DataArray>\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"\n".as_ptr() as *const c_char);
+    fprintf(out, c"        </DataArray>\n".as_ptr() as *const c_char);
     fprintf(
         out,
-        b"        <DataArray type=\"Int32\" Name=\"offsets\" NumberOfComponents=\"1\" format=\"ascii\">\n\0"
+        c"        <DataArray type=\"Int32\" Name=\"offsets\" NumberOfComponents=\"1\" format=\"ascii\">\n"
             .as_ptr() as *const c_char,
     );
     elemoffset = 0;
@@ -1241,7 +1247,7 @@ pub unsafe extern "C" fn SaveMeshVtu(
     while i <= bulkelems {
         elemtype = *(*data).elementtypes.wrapping_offset(i as isize);
         elemoffset += elemtype % 100;
-        fprintf(out, b"%d \0".as_ptr() as *const c_char, elemoffset);
+        fprintf(out, c"%d ".as_ptr() as *const c_char, elemoffset);
         i += 1;
     }
     if nobound != 0 {
@@ -1261,24 +1267,24 @@ pub unsafe extern "C" fn SaveMeshVtu(
                     &mut elemtype as *mut c_int,
                 );
                 elemoffset += elemtype % 100;
-                fprintf(out, b"%d \0".as_ptr() as *const c_char, elemoffset);
+                fprintf(out, c"%d ".as_ptr() as *const c_char, elemoffset);
                 i += 1;
             }
             j += 1;
         }
     }
-    fprintf(out, b"\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"        </DataArray>\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"\n".as_ptr() as *const c_char);
+    fprintf(out, c"        </DataArray>\n".as_ptr() as *const c_char);
     fprintf(
         out,
-        b"        <DataArray type=\"Int32\" Name=\"types\" NumberOfComponents=\"1\" format=\"ascii\">\n\0"
+        c"        <DataArray type=\"Int32\" Name=\"types\" NumberOfComponents=\"1\" format=\"ascii\">\n"
             .as_ptr() as *const c_char,
     );
     i = 1;
     while i <= bulkelems {
         elemtype = *(*data).elementtypes.wrapping_offset(i as isize);
         vtktype = ElmerToVtkType(elemtype);
-        fprintf(out, b"%d \0".as_ptr() as *const c_char, vtktype);
+        fprintf(out, c"%d ".as_ptr() as *const c_char, vtktype);
         i += 1;
     }
     if nobound != 0 {
@@ -1298,22 +1304,22 @@ pub unsafe extern "C" fn SaveMeshVtu(
                     &mut elemtype as *mut c_int,
                 );
                 vtktype = ElmerToVtkType(elemtype);
-                fprintf(out, b"%d \0".as_ptr() as *const c_char, vtktype);
+                fprintf(out, c"%d ".as_ptr() as *const c_char, vtktype);
                 i += 1;
             }
             j += 1;
         }
     }
-    fprintf(out, b"\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"        </DataArray>\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"      </Cells>\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"    </Piece>\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"  </UnstructuredGrid>\n\0".as_ptr() as *const c_char);
-    fprintf(out, b"</VTKFile>\n\0".as_ptr() as *const c_char);
+    fprintf(out, c"\n".as_ptr() as *const c_char);
+    fprintf(out, c"        </DataArray>\n".as_ptr() as *const c_char);
+    fprintf(out, c"      </Cells>\n".as_ptr() as *const c_char);
+    fprintf(out, c"    </Piece>\n".as_ptr() as *const c_char);
+    fprintf(out, c"  </UnstructuredGrid>\n".as_ptr() as *const c_char);
+    fprintf(out, c"</VTKFile>\n".as_ptr() as *const c_char);
     fclose(out);
     if info != 0 {
         printf(
-            b"Saving of Elmer mesh to VTK format finished\n\0".as_ptr() as *const c_char,
+            c"Saving of Elmer mesh to VTK format finished\n".as_ptr() as *const c_char,
         );
     }
     0
