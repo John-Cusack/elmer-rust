@@ -74,7 +74,7 @@ Batch-2 (8 units) machine grades, rows in `lane/store.db` run `fem-a-batch1`:
 - `c:fem/src/view3d/TriangleUtil.c`: K=3, probe `3`, wall 183 s (same fix).
 
 Batch-2: **8/8 green**. Lane total machine-green: **18/18 portable
-non-facade units** (10 batch-1 + 8 batch-2). Combined splice gate running.
+non-facade units** (10 batch-1 + 8 batch-2). Combined splice gate green (see below).
 
 ## Refined merge gate (panel corrections 1–3)
 
