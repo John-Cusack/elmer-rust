@@ -10,7 +10,13 @@ per `data/elmer-lanes/ccache.env` (ADR-045).
 ## Backstop (pristine)
 
 `ctest --output-on-failure -L quick` (the oracle invocation: 482 tests).
-Log: `lane/ctest_backstop.log`. Result: TBD.
+Log: `lane/ctest_backstop.log`. Result: **479/482, failures exactly
+K=3** (`ConstantBCTemperature`, `ProfileBCTemperature`,
+`ProfileBCTemperatureRobin`) — campaign baseline reproduced.
+Failure set: `lane/backstop_failures.txt`.
+Parallel-validation: `ctest -L quick -j16` on the pristine tree gives the
+identical failure set (`lane/ctest_j16.log`) in ~7 min; all per-unit
+suites use `-j16` on this evidence.
 
 ## Batch-1 units (11)
 
@@ -28,5 +34,11 @@ Log: `lane/ctest_backstop.log`. Result: TBD.
 | fortran:fem/src/MeshUtils.F90 | meshutils | (none — facade) | n/a |
 | fortran:fem/src/SolverUtils.F90 | solverutils | (none — facade) | n/a |
 
-Machine grades (splice + rebuild + quick suite + matc probe + nm scan):
-TBD per `lane/grade_<crate>.log`, rows in `lane/store.db` run `fem-a-batch1`.
+Machine grades (splice + rebuild + quick suite + matc probe + nm scan),
+rows in `lane/store.db` run `fem-a-batch1`:
+- `c:fem/src/view3d/LUDecomp.c`: suite failures == K=3
+  (`lane/suite_ludecomp.log`, `fails_ludecomp.txt`), matc probe `3`
+  (`probe_ludecomp.txt`), wall 198 s. Remaining batch-1 units grading.
+- Held-out: no held-out workloads are frozen for the Elmer package
+  (`heldout_workloads.json` is empty), so no HeldoutDivergence row is
+  recorded — never a vacuous pass.
