@@ -45,10 +45,23 @@ suites use `-j16` on this evidence.
 | c:fem/src/view3d/ContourInteg.c | contourinteg | 5 contour symbols | byte-identical (prepare/eval/poly/counts) |
 
 Machine grades (splice + rebuild + quick suite + matc probe + nm scan),
-rows in `lane/store.db` run `fem-a-batch1`:
-- `c:fem/src/view3d/LUDecomp.c`: suite failures == K=3
-  (`lane/suite_ludecomp.log`, `fails_ludecomp.txt`), matc probe `3`
-  (`probe_ludecomp.txt`), wall 198 s. Remaining batch-1 units grading.
+rows in `lane/store.db` run `fem-a-batch1`. Batch-1: **10/10 green** —
+every suite fails exactly K=3, every matc probe prints `3`:
+
+| unit | suite log | wall |
+|---|---|---|
+| c:fem/src/view3d/LUDecomp.c | suite_ludecomp.log | 198 s |
+| c:fem/src/view3d/second.c | suite_second.log | 193 s |
+| c:fem/src/f_stubs.c | suite_f_stubs.log | 181 s |
+| c:fem/src/CPUTime.c | suite_cputime.log | 189 s |
+| c:fem/src/view3d/VectorUtil.c | suite_vectorutil.log | 185 s |
+| c:fem/src/GFortranLocaleFix.c | suite_gfortranlocalefix.log | 191 s |
+| c:fem/src/binio/binio.c | suite_binio.log | 185 s |
+| fortran:fem/src/ElementDescription.F90 | suite_elementdescription.log | 180 s |
+| fortran:fem/src/MeshUtils.F90 | suite_meshutils.log | 180 s |
+| fortran:fem/src/SolverUtils.F90 | suite_solverutils.log | 177 s |
+
+Batch-2 (8 units) grading at the time of writing.
 - Held-out: no held-out workloads are frozen for the Elmer package
   (`heldout_workloads.json` is empty), so no HeldoutDivergence row is
   recorded — never a vacuous pass.
