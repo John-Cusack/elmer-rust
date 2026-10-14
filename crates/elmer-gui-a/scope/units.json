@@ -1,0 +1,749 @@
+{
+ "lane": "lane-gui-a",
+ "units": [
+  {
+   "unit": "c:ElmerGUI/netgen/libsrc/include/FlexLexer.h",
+   "lang": "c",
+   "verdict": "skipped",
+   "reason": "c-header-decl-only"
+  },
+  {
+   "unit": "c:ElmerGUI/netgen/libsrc/include/mystdlib.h",
+   "lang": "c",
+   "verdict": "skipped",
+   "reason": "c-header-decl-only"
+  },
+  {
+   "unit": "c:ElmerGUI/netgen/libsrc/interface/nginterface.h",
+   "lang": "c",
+   "verdict": "skipped",
+   "reason": "c-header-decl-only"
+  },
+  {
+   "unit": "c:ElmerGUI/netgen/libsrc/interface/nglib.h",
+   "lang": "c",
+   "verdict": "skipped",
+   "reason": "c-header-decl-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/algprim.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/algprim.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/brick.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/brick.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/bspline2d.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/csg.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/csgeom.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/csgeom.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/csgparser.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/csgparser.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/curve2d.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/curve2d.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/edgeflw.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/edgeflw.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/explicitcurve2d.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/explicitcurve2d.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/extrusion.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/extrusion.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/gencyl.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/gencyl.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/genmesh.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/geoml.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/identify.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/identify.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/manifold.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/manifold.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/meshsurf.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/meshsurf.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/polyhedra.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/polyhedra.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/revolution.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/revolution.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/singularref.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/singularref.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/solid.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/solid.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/specpoin.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/specpoin.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/spline3d.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/spline3d.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/surface.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/surface.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/triapprox.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/csg/triapprox.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/array.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/array.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/autodiff.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/autoptr.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/bitarray.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/bitarray.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/dynamicmem.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/dynamicmem.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/flags.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/flags.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/hashtabl.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/hashtabl.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/moveablemem.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/moveablemem.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/myadt.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/mystring.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/mystring.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/netgenout.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/ngexception.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/ngexception.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/optmem.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/optmem.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/parthreads.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/parthreads.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/profiler.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/profiler.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/seti.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/seti.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/sort.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/sort.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/spbita2d.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/spbita2d.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/stack.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/symbolta.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/symbolta.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/table.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/table.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/general/template.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/geom2d/genmesh2d.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/geom2d/geom2dmesh.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/geom2d/geom2dmesh.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/geom2d/geometry2d.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/geom2d/spline.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/geom2d/spline.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/geom2d/spline2d.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "dead-upstream-uncompilable"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/geom2d/spline2d.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/geom2d/splinegeometry.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/geom2d/splinegeometry.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/geom2d/splinegeometry2.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "dead-upstream-uncompilable"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/geom2d/splinegeometry2.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/adtree.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/adtree.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/geom2d.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/geom2d.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/geom3d.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/geom3d.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/geomfuncs.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/geomfuncs.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/geomobjects.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/geomops.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/geomtest3d.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/geomtest3d.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/gprim.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/transform3d.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-mangled-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/gprim/transform3d.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/include/acisgeom.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/include/csg.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/include/geometry2d.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/include/gprim.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/include/incvis.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/include/linalg.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/include/meshing.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/include/myadt.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/include/mydefs.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/include/occgeom.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  },
+  {
+   "unit": "cxx:ElmerGUI/netgen/libsrc/include/opti.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx-header-only"
+  }
+ ]
+}
