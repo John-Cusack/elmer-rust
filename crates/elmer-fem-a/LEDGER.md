@@ -29,11 +29,11 @@
 | c:fem/src/view3d/BiCubicUtil.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
 | c:fem/src/view3d/BiLinearUtil.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
 | c:fem/src/view3d/BiQuadraticUtil.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
-| c:fem/src/view3d/ClipShadow.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
+| c:fem/src/view3d/ClipShadow.c | ported | batch2: local differential byte-identical; machine grade pending |
 | c:fem/src/view3d/ContourInteg.c | ported | batch2: local differential byte-identical (back-face/0.5*ABS paths); machine grade pending |
 | c:fem/src/view3d/Ipoints.h | skipped-helper | header-only unit: links, never ports (matc T005 precedent) |
 | c:fem/src/view3d/LUDecomp.c | ported | batch1: local differential byte-identical; machine grade vs backstop pending |
-| c:fem/src/view3d/LineUtil.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
+| c:fem/src/view3d/LineUtil.c | ported | batch2: local differential byte-identical (dead-division preserved); machine grade pending |
 | c:fem/src/view3d/LinearSolve.c | skipped-not-in-build | orphan source: no CMake target compiles it (verified: unreferenced in any CMakeLists) |
 | c:fem/src/view3d/LinearSolveConjGrad.c | skipped-not-in-build | orphan source: no CMake target compiles it (verified: unreferenced in any CMakeLists) |
 | c:fem/src/view3d/LinearSolveGaussSeidel.c | skipped-not-in-build | orphan source: no CMake target compiles it (verified: unreferenced in any CMakeLists) |
@@ -41,7 +41,7 @@
 | c:fem/src/view3d/RayTrace.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
 | c:fem/src/view3d/ShaftCull.c | ported | batch2: local differential byte-identical (driver-UB fixed, Walk/planes verified); machine grade pending |
 | c:fem/src/view3d/TestModel.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
-| c:fem/src/view3d/TriangleUtil.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
+| c:fem/src/view3d/TriangleUtil.c | ported | batch2: local differential byte-identical (pair+subdivide paths); machine grade pending |
 | c:fem/src/view3d/VectorUtil.c | ported | batch1: local differential byte-identical; machine grade vs backstop pending |
 | c:fem/src/view3d/ViewFactors.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
 | c:fem/src/view3d/ViewFactors.h | skipped-helper | header-only unit: links, never ports (matc T005 precedent) |
@@ -174,4 +174,4 @@
 | fortran:fem/src/solve_real.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (4); no T014 relaxation landed |
 | python:fem/src/split_ElementDescription.py | skipped-helper | build-time code generator, not linked |
 
-counts: {'portable-pending': 17, 'ported': 15, 'skipped-ext-dep': 5, 'skipped-not-in-build': 9, 'skipped-helper': 7, 'refused-gate': 105, 'refused-COMMON': 10} total: 168
+counts: {'portable-pending': 14, 'ported': 18, 'skipped-ext-dep': 5, 'skipped-not-in-build': 9, 'skipped-helper': 7, 'refused-gate': 105, 'refused-COMMON': 10} total: 168
