@@ -1,0 +1,8 @@
+[package]
+name = "clipshadow"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "clipshadow"
+crate-type = ["staticlib"]
