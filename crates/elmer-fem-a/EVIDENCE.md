@@ -27,7 +27,7 @@ suites use `-j16` on this evidence.
 | c:fem/src/view3d/second.c | second | second | same-syscall functional |
 | c:fem/src/f_stubs.c | f_stubs | rename_c (HAVE_F_ETIME/HAVE_F_FLUSH compile the rest out) | round-trip green |
 | c:fem/src/CPUTime.c | cputime | cputime, realtime, cpumemory | same-syscall functional |
-| c:fem/src/GFortranLocaleFix.c | gfortranlocalefix | elmer_fix_numeric_locale | TBD |
+| c:fem/src/GFortranLocaleFix.c | gfortranlocalefix | elmer_fix_numeric_locale | identical (setlocale path + idempotence) |
 | c:fem/src/binio/binio.c | binio | 16 × bin*_c + strerrorf_c | byte-identical, all fns + swap/EOF/errno paths |
 | fortran:fem/src/minpack_kinds.F90 | minpack_kinds | (none — parameter-only module) | n/a (no symbols) |
 | fortran:fem/src/ElementDescription.F90 | elementdescription | (none — facade) | n/a |
