@@ -1,0 +1,11 @@
+[package]
+name = "elmer-gui-b"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-2.0-or-later"
+description = "lane-gui-b: ElmerGUI/netgen sorted-id half 2 (123 cxx units) — graded skip registry"
+repository = "https://github.com/John-Cusack/elmer-rust"
+
+[lib]
+name = "elmer_gui_b"
+path = "src/lib.rs"
