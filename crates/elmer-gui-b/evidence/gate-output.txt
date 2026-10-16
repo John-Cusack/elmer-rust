@@ -1,0 +1,13 @@
+== members ==
+69
+== test -f sweep ==
+missing=0
+== defined globals (nm -g --defined-only, NF==3) ==
+11329
+== non-mangled, non-toolchain candidates ==
+0
+== STRONG port-level dups ==
+0
+== sha256 ==
+0f0b18b7226a813b0922a31f2d28e6941978659e43cbe82eede8be345a088b1d  /home/john/firstmate/data/rs-elmer-lane-gui-b/proof/objs/liblane-guib-native.a
+GATE_DONE

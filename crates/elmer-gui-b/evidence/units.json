@@ -1,0 +1,1016 @@
+{
+ "lane": "lane-gui-b",
+ "upstream": "9f6af2f85",
+ "units": [
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/include/parallel.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/include/stepgeom.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/include/stepreader.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/include/stlgeom.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/include/visual.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/importsolution.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "not_built_in_tree",
+   "detail": "fatal error: ../visualization/soldata.hpp: No such file or directory (via nginterface.h:275); excluded from upstream ng SOURCES",
+   "compile_wall_s": 0.10341757
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/nginterface.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "not_built_in_tree",
+   "detail": "fatal error: ../visualization/visual.hpp: No such file or directory (via include/visual.hpp:1); excluded from upstream ng SOURCES",
+   "compile_wall_s": 0.142897889
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/nglib.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.9590261,
+   "object_sha256": "36091ea6e3575642d40d57ddde2920c4bd0bcbadc7e14683ddf50032114e443d"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/readtetmesh.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 1.339871413,
+   "object_sha256": "c01f61b13c259aae39e20eeccea163393ff966fc2a1ccbff3029aa751703bf6a"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/readuser.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.981470145,
+   "object_sha256": "b561a58be6bda2a4b72cec2045dd1b9a6198b8d353222148051f5eef59d6221a"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writeabaqus.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 1.827769121,
+   "object_sha256": "01b866a83dbca4c2bf709984a8a64d87c6ffa5ad6449a3da132d5a51afaa3daf"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writediffpack.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 1.610586277,
+   "object_sha256": "aee4b23d73cf0b11967e0227cd48374e7bf73f0c63c59561899a7eae3d6ba5a2"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writedolfin.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.939605788,
+   "object_sha256": "7a975253739b5b7cba4a292fc978aaff6a0426d009fde9cc0852954f926f5c98"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writeelmer.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.599453095,
+   "object_sha256": "a145a9ca466b97b942904bfb104b471165063b398497043876e5cb7b861bb445"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writefeap.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.725410502,
+   "object_sha256": "e75e80510a72dba4483a61bac13a9c7afa4264a30d4bc4a63aa2deb144d07e76"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writefluent.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 1.045432557,
+   "object_sha256": "fbf99cdab699565b3779e8eff8334cdea6c1b65a56d8a4ac10141e5a5485b23a"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writegmsh.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.751019149,
+   "object_sha256": "00d6572c23e830aee26ed954e38a7627b2fa7b5a0eae7a3d9ea1f037f1ff3e51"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writejcm.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.799640018,
+   "object_sha256": "345e30764e677746709d7acc0f5eba1325cdb2359e0d72c7cf95a6202511d0cb"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writepermas.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.674722934,
+   "object_sha256": "4cd833918976c2641cd2a256d1ca524a25367bcb5dcbcc1d5bb070a0413ec5df"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writetecplot.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.9400068,
+   "object_sha256": "3b4bdd8a96c5b5a1e7bce5607857598b2c7ebd639413e2fc018a5c24520e5c3f"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writetet.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 2.456160049,
+   "object_sha256": "9f5672dd5f229bf0dbd09e6cf2c0080f99124ac0483e9d4fa6714e2b41c45891"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writetochnog.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.935730586,
+   "object_sha256": "91fc63b3aadbd851bab98608152cef793174d105e4b4d981f014e36a7d1984fd"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writeuser.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.779018278,
+   "object_sha256": "4861f7de54a68716da466bb38216ca456bf11a8fd367c61e867b9069be7350a0"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/writeuser.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/interface/wuchemnitz.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.911963687,
+   "object_sha256": "9b2c55573e6300fd6154154124cec2c3ced73dc88b6a69c93be565dcd03d9e24"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/linalg/densemat.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.672896919,
+   "object_sha256": "f9ab07adc4ca72ce2fbb24dff2f73df809ae7e61646f34fd037241899dc228ac"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/linalg/densemat.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/linalg/linalg.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/linalg/polynomial.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.462962077,
+   "object_sha256": "a7c4a941153498e25e17678210ad80959b8545e21c33808ebfeb6948cd39a69f"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/linalg/polynomial.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/linalg/vector.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.276609483,
+   "object_sha256": "714783cc7eea137fcda11f5504c900a0ebc9272edfefb6f93e78b19c8355412c"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/linalg/vector.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/adfront2.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.583383703,
+   "object_sha256": "9e44fdae5d866c4e53952db1fe413c6238d9c1580dd7deeab2f4527e55b897e0"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/adfront2.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/adfront3.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.564516353,
+   "object_sha256": "c932d9141cde5ec6e959431562aadd412d8462bd04d0ade96c7615c00487f15f"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/adfront3.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/bisect.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.879372492,
+   "object_sha256": "e7f629e1bf72a125fff94db3c657f90b83c4256697f068615872a7f56ad3302b"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/bisect.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/boundarylayer.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.456127141,
+   "object_sha256": "06724fbb27460b07047907f6889ee82424b8da8c0d9e370f48ef8ac183d62e27"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/boundarylayer.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/classifyhpel.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/clusters.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.427179695,
+   "object_sha256": "0e0b1b1cb0cb9447b28ef8c7843ff3beb751edbaf07874c34e33b6532c54b003"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/clusters.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/curvedelems.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.400850846,
+   "object_sha256": "990b491778d328cd09c3347bca5e946ee3ec96e57979afce8e0790d16a657328"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/curvedelems.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/curvedelems2.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.439073768,
+   "object_sha256": "ada81123e4c28b11a4321cb0bc385ae134235be6f398d3df8d2a47e6a0989562"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/curvedelems_new.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.795912643,
+   "object_sha256": "d9d0bfc6e61d3bdfe59345d541debc14289ff881ffe080b8640ef6aa56249e4c"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/curvedelems_new.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/delaunay.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.69244979,
+   "object_sha256": "26b2478f827b5abaad7ca36520d939b40c6d7cbacd67c26183085ca0d95bf19b"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/findip.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "not_built_in_tree",
+   "detail": "redefinition of netgen::FindInnerPoint template (inline def in findip.hpp:71); excluded from upstream ng SOURCES",
+   "compile_wall_s": 0.412536776
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/findip.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/findip2.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/geomsearch.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.49358219,
+   "object_sha256": "bf0ef1279ba410ecc06c871cbd849430272aa5759f6e531cf1dc511a408bd055"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/geomsearch.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/global.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.506353261,
+   "object_sha256": "8dc58623e5ffc13a04be5393c058383bc02e0033c4377086c4f42c0f34e22b0f"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/global.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/hpref_hex.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/hpref_prism.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/hpref_pyramid.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/hpref_quad.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/hpref_segm.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/hpref_tet.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/hpref_trig.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/hprefinement.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.816391415,
+   "object_sha256": "ae809033b12591be5ad7b6165929140eaf43dc4f462d1461b917d2d0e1ad1f6b"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/hprefinement.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/improve2.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.607545181,
+   "object_sha256": "22a6bb7df187f0f0d9b79bbcae434a4b13e049cf738cf73bdf14374e988c5bf5"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/improve2.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/improve2gen.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.480781703,
+   "object_sha256": "cc6821b609934085b2568d88fc6ed03d8d5fae446ad98906a2f92eab87ef0b94"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/improve3.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.770155061,
+   "object_sha256": "d25dea12276f778955d4abbc44046ac862761e2965b2eb23babadce1055728dc"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/improve3.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/localh.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.505146419,
+   "object_sha256": "02e01104d1a715cff126732f4b0afd203f6ab45d51b39c4cb87c29165f5d0c34"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/localh.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/meshclass.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 1.10444129,
+   "object_sha256": "6a201a7e4d00e78bc00327653f6189b835e04f91e2422af90da31d5b472d9670"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/meshclass.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/meshfunc.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/meshfunc2d.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.509413481,
+   "object_sha256": "403e738de3fc1f0158972f77035f889c1edaf7c9dacbad25450935d6502a6078"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/meshing.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/meshing2.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.59101741,
+   "object_sha256": "81a4666f3b6294be0aa9b21c5fca9e0e33719a871f3e64cbe9cf2e86c662f657"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/meshing2.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/meshing3.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.597265205,
+   "object_sha256": "1eb2b67758124c4998d7b975b2f7c5eced6b688f4245c124359ef9cc35cc4845"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/meshing3.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/meshtool.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.620984151,
+   "object_sha256": "946a61a76787b20b91ff6046822a133c2ce450efe672b3f54d8eb8564a0cb339"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/meshtool.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/meshtype.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/msghandler.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.572435078,
+   "object_sha256": "998a2c2b536b79e1738b16d83fffb430720f0b510250278908605fc2eaf9c16f"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/msghandler.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/netrule2.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.460593565,
+   "object_sha256": "f417bd592452188648e703fcdd1b822293a6bac2bb905fa05f8679c03e65aac8"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/netrule3.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.554474031,
+   "object_sha256": "6ddd857903a1960e8e2b8253224038aea376833526b6dea41e598aba05b89707"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/parser2.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.502265523,
+   "object_sha256": "92345792ec9bc51afed6860ba254c3b6eb897424ecdc4bec759dd557e6bcd6bf"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/parser3.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.56582641,
+   "object_sha256": "f23f4e28719415c68b73b90134be6213b395bedfcca34b96f91c0fcbe1d2939f"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/prism2rls.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.074183629,
+   "object_sha256": "06e6be1dfda28c71ae518cfa94382761d993ce14b4d574bce9fb6e5ca7d43c73"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/pyramid2rls.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.121814015,
+   "object_sha256": "09c3c85bf79e90c7e20a6507273f6684a3dfe831d0b7a1179d736d56a4f79fea"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/pyramidrls.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.171797819,
+   "object_sha256": "3b0117b750e26ba8b806f89820f30ebfc124a8d0cf875e3c063fdb58c2839c29"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/quadrls.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.03873022,
+   "object_sha256": "a445bc1c86f5fc85f6486f57573f5ccbad431f54a04c84d942a0fc8f3f2e6975"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/refine.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.554724212,
+   "object_sha256": "9231e1c77d3ab54db9712c270fabf047a9c98a2e1148aa0a6bf1a0647441398f"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/ruler2.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.535718431,
+   "object_sha256": "53829d9e917e0d22dff3cad50f9667bc6f4a3f65de6fff8ed8638d9dcc70977d"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/ruler2.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/ruler3.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.856619517,
+   "object_sha256": "d23717ad2625b6e08b00bc8049979cb0ee465da9d2bf33a56663b145877094f7"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/ruler3.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/secondorder.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.497991235,
+   "object_sha256": "2343313ed994520467aa33e82bb72f8b25801453961ca46141110878179a2859"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/smoothing2.5.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.465980642,
+   "object_sha256": "91a528c1d97ca7f7a1bae8849106825cdc70a0e200411dc35525c49fcbcc82ab"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/smoothing2.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.527290545,
+   "object_sha256": "4c3ae8c84560ab971d7d7918f1a66739b1bacb2e40f0dc4968ff0c30ee9266e2"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/smoothing3.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.586637209,
+   "object_sha256": "9d643cba449262bf6d08adb70d481fa3b34be0cb404d63b376759fc4cc0b18a8"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/specials.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.418156558,
+   "object_sha256": "1fb348f9798b3ce6aee57eec78e5fb959717e37fd9d8ccbeee7c8baa51c60be9"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/specials.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/tetrarls.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.015420627,
+   "object_sha256": "196e1bd3276be3fab2b1617f36910824953d23ac7b3990a617ea9e73aadb2f26"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/topology.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.568957683,
+   "object_sha256": "4370d380013f9bdfb4d95b936d2c001aaef51163bf4239cf0579b1f918425bc5"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/topology.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/triarls.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.0143532,
+   "object_sha256": "14af2c7c33b51d3b47a0bdc9618661e5092996a158ad0a7e68a382d765b1fa6f"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/validate.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.601978656,
+   "object_sha256": "91456435ec86fe280c3c3ec27dd1e80b0fd2fc44ad6201ed331acb5cb5154dbc"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/validate.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/meshing/zrefine.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.527376306,
+   "object_sha256": "401d597041f7e52d425c51aa39b84b3e9fe5e88b8fd5e3ebc7ebdddd08bd74be"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/opti/linopt.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.340182347,
+   "object_sha256": "e0dfea039f8550bed5b0da65a16807f6007e40c08659b5a8528e62af7ac2c6ad"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/stlgeom/meshstlsurface.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.734168835,
+   "object_sha256": "d2bdbbec1f948848a7c6aac6cb73e8b7bf821dccc55d7f43f117f671baa18383"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/stlgeom/meshstlsurface.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/stlgeom/stlgeom.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/stlgeom/stlgeomchart.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.578353425,
+   "object_sha256": "e9d4be66320d55c4a00de7f3513025d67af8ca507531704a0982b25eecc036a1"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/stlgeom/stlline.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.578399632,
+   "object_sha256": "c6e5cc44edd6645ee9c84509b8d2fa656cd70eae3ddd3b9e638990a8760c8edc"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/stlgeom/stlline.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/stlgeom/stltool.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.643668505,
+   "object_sha256": "d844e3ed027b51263b4c5b1212d1936298b06ad3e626f48e64d15d02ff3e3056"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/stlgeom/stltool.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/stlgeom/stltopology.cpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "cxx_mangled_only",
+   "detail": "compiles; nm -g --defined-only shows only _Z* C++-mangled globals (0 C-linkage symbols); Rust cannot provide C++-mangled symbols",
+   "compile_wall_s": 0.732817209,
+   "object_sha256": "6e5cd132a6f4a71c294bcfd0314bae9c2b4394603c4a019c33e6f3a359df90b5"
+  },
+  {
+   "id": "cxx:ElmerGUI/netgen/libsrc/stlgeom/stltopology.hpp",
+   "lang": "cxx",
+   "verdict": "skipped",
+   "reason": "header_no_tu",
+   "detail": "header/helper unit: no translation unit, no compilable claim (spec US2 acc.2)"
+  }
+ ],
+ "gate": {
+  "native_archive_sha256": "0f0b18b7226a813b0922a31f2d28e6941978659e43cbe82eede8be345a088b1d",
+  "members": 69,
+  "defined_globals": 11329,
+  "unmangled_non_toolchain": 0,
+  "strong_port_level_dups": 0
+ },
+ "halt": "no_differential_probes: no binary exists (WITH_ELMERGUI*=FALSE; netgen builds as lib-only, GUI needs Qt/X)"
+}
