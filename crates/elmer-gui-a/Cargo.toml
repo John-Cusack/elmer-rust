@@ -1,0 +1,7 @@
+[package]
+name = "elmer-gui-a"
+version = "0.1.0"
+edition = "2021"
+description = "lane-gui-a scope record: ElmerGUI/netgen sorted-id half 1 (124 units, all recorded skips)"
+license = "GPL-2.0-or-later"
+repository = "https://github.com/John-Cusack/elmer-rust"
