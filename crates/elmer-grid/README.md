@@ -45,8 +45,10 @@ Machine rows: lane `store.db` (`run_id = lane-grid-io`): 166 unit rows
   weak libm dups permanent (same-toolchain byte-identity).
 - Oracle: `ctest -R ElmerGrid` 10/10 on the spliced tree.
 - `cargo build` (dev + release) clean, `cargo clippy -- -D warnings` 0 errors.
-- `cargo test`: one pre-existing harness-only failure (`fempre`
-  entry-symbol `main`, also present pre-lane); no test fns otherwise.
+- `cargo test`: green at root (triage fix: `fempre`'s `#[export_name = "main"]`
+  is now `#[cfg_attr(not(test), ...)]` — the staticlib still exports `T main`
+  with identical codegen; the lib-test harness compiles again). No test fns
+  otherwise (gui-b registry 6 tests pass under the same workspace).
 - No showcase bench: `bench_sample_unit` unset at dispatch (ADR-045 §4).
 
 ## Lane errata vs prior slices
