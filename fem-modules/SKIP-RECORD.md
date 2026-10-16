@@ -10,6 +10,11 @@ Toolchain pin: `1.100.0-nightly feaadeeac 2026-09-19`; gfortran 13.3.0; ccache r
 - F77 COMMON-block files: 0 of 184 (source-scanned; no COMMON skips needed)
 - Exports audited: 1552 total = 1333 `__<mod>_MOD_<proc>` (REAL CODE, never toolchain noise) + 215 F77-global solver entries + 4 BIND(C); toolchain-noise exports: 0
 - Refined-gate STRONG-dup assertion: not yet runnable (no port objects; gate runs at first substitution)
+- Status vs round-2: this record is the round-1 gate-hold evidence (T014 not
+  landed at dispatch). T014 has since landed (rustsmith#92) and the fem-b
+  round-2 lane regrades these units under the relaxed gate on branch
+  `elmer/lane-fem-b` (PR #6, untouched by this PR). This record stands as
+  the honest-halt baseline round-2 grades against.
 
 ## Why refused (not forced)
 
