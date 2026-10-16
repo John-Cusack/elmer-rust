@@ -10,4 +10,6 @@ members = [
     "crates/elmer-grid/egnative",
     "crates/elmer-grid/egconvert",
     "crates/elmer-grid/egmesh",
+    "crates/elmer-gui-a",
+    "crates/elmer-gui-b",
 ]

@@ -487,7 +487,11 @@ extern "C" {
 /// the `main` symbol). Single-threaded utility; `goto`s become loops.
 /// NOTE: C-dead locals `l`/`showmem` are dropped (declared/assigned, never
 /// read in the C source either).
-#[export_name = "main"]
+/// Exported as the `main` symbol in real (non-test) builds so the splice
+/// keeps owning `fempre.c.o`'s entry; suppressed under `cfg(test)` where the
+/// lib-test harness generates its own `main` (else `cargo test` fails with
+/// "entry symbol `main` declared multiple times").
+#[cfg_attr(not(test), export_name = "main")]
 pub unsafe extern "C" fn fempre_main(argc: c_int, argv: *mut *mut c_char) -> c_int {
     let (mut i, mut j, mut k);
     let (inmethod, outmethod, info, mut errorstat): (c_int, c_int, c_int, c_int);
