@@ -1,8 +1,11 @@
 [toolchain]
 # Campaign pin: 1.100.0-nightly feaadeeac 2026-09-19 (runbook standing pin).
-# The grade host provides exactly this commit as `nightly`; builds assert
-# the commit hash (see crates/elmer-fem-a/build-check.sh and
-# crates/elmer-fem-b/build-check.sh) so a floated nightly fails fast
-# instead of silently voiding byte-identity.
+# Deliberately `channel = "nightly"`, NOT a dated channel: feaadeeac is not
+# the published nightly-2026-09-19 (that date builds 420ed2a0c). The grade
+# host provides exactly feaadeeac as `nightly`; dating the channel would
+# install the WRONG compiler. Drift protection is the commit-hash assertion
+# in crates/elmer-fem-a/build-check.sh (and crates/elmer-fem-b/build-check.sh),
+# which the grade driver runs before every grade (see lane grade_unit.sh)
+# so a floated nightly fails fast instead of silently voiding byte-identity.
 channel = "nightly"
 components = ["rustc", "cargo", "rust-std"]

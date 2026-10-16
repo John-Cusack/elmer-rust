@@ -107,5 +107,7 @@ Result: **failures exactly K=3** (`lane/fails_combined.txt`,
 
 `lane/store.db`: run `fem-a-batch1` (18 `gated` units with
 OracleIntegrity/OracleParity/Differential rows), run `fem-a-ledger`
-(137 `skipped` rows with ledger reasons). The 14 `portable-pending`
-units have no rows; their status lives in LEDGER.md.
+(137 `skipped` rows with ledger reasons + 14 `parked` rows for the
+T008 scope-cut units, each with the round-2 deferral reason in
+`spec_json`). Ledger and store agree on all 168 units; the cut itself is
+recorded as a `decisions` row (`fixforward-triage`).

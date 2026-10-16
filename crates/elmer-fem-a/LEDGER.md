@@ -2,13 +2,15 @@
 # generated mechanically from lanes.json + frozen recon + source scan; reasons reviewed by hand.
 # status: ported = Rust port in crates/elmer-fem-a/ports + local differential green (grade pending backstop);
 # refused-* = recorded skip, never forced.
+# deferred-round2 = T008 round-1 triage scope-cut: gate-clean and portable, but ungraded here;
+#   chartered to the fem-a round-2 lane per the triage ruling ("lane round-2 for portable-pending (fem-a 14)").
 
 | unit | status | reason |
 |---|---|---|
 | c:fem/obsolete/SC2Elmer.c | skipped-not-in-build | fem/obsolete has no CMakeLists: never compiled |
 | c:fem/src/CPUTime.c | ported | batch1: local differential byte-identical; machine grade vs backstop pending |
 | c:fem/src/GFortranLocaleFix.c | ported | batch1: local differential byte-identical; machine grade vs backstop pending |
-| c:fem/src/Load.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
+| c:fem/src/Load.c | deferred-round2 | T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2 |
 | c:fem/src/SolveHypre.c | skipped-ext-dep | needs absent optional solver lib (HYPRE/SuperLU/AMGX/CHOLMOD/ROCALUTION all FALSE); stub bodies unlinked |
 | c:fem/src/SolveSuperLU.c | skipped-ext-dep | needs absent optional solver lib (HYPRE/SuperLU/AMGX/CHOLMOD/ROCALUTION all FALSE); stub bodies unlinked |
 | c:fem/src/amgx.c | skipped-ext-dep | needs absent optional solver lib (HYPRE/SuperLU/AMGX/CHOLMOD/ROCALUTION all FALSE); stub bodies unlinked |
@@ -17,18 +19,18 @@
 | c:fem/src/elmer_lua_iface.c | skipped-not-in-build | WITH_LUA=FALSE: excluded from solverlib_SOURCES, never compiled |
 | c:fem/src/elmer_lua_iface.h | skipped-helper | header-only unit: links, never ports (matc T005 precedent) |
 | c:fem/src/elmerf90-helper.in.h | skipped-helper | header-only unit: links, never ports (matc T005 precedent) |
-| c:fem/src/elmerf90.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
-| c:fem/src/elmerld.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
+| c:fem/src/elmerf90.c | deferred-round2 | T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2 |
+| c:fem/src/elmerld.c | deferred-round2 | T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2 |
 | c:fem/src/f_stubs.c | ported | batch1: local differential byte-identical; machine grade vs backstop pending |
-| c:fem/src/fft.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
+| c:fem/src/fft.c | deferred-round2 | T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2 |
 | c:fem/src/fft_test.c | skipped-not-in-build | no CMake target (test main never built) |
 | c:fem/src/mpif_stub.h | skipped-helper | header-only unit: links, never ports (matc T005 precedent) |
 | c:fem/src/umf4_f77wrapper.c | ported | batch2: local differential byte-identical (di path vs vendored UMFPACK); machine grade pending |
 | c:fem/src/view3d/16node_quad.c | ported | batch2: local differential byte-identical; machine grade pending |
 | c:fem/src/view3d/2d_4node.c | ported | batch2: local differential byte-identical (libc fprintf %g paths); machine grade pending |
-| c:fem/src/view3d/BiCubicUtil.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
-| c:fem/src/view3d/BiLinearUtil.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
-| c:fem/src/view3d/BiQuadraticUtil.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
+| c:fem/src/view3d/BiCubicUtil.c | deferred-round2 | T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2 |
+| c:fem/src/view3d/BiLinearUtil.c | deferred-round2 | T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2 |
+| c:fem/src/view3d/BiQuadraticUtil.c | deferred-round2 | T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2 |
 | c:fem/src/view3d/ClipShadow.c | ported | batch2: local differential byte-identical; machine grade pending |
 | c:fem/src/view3d/ContourInteg.c | ported | batch2: local differential byte-identical (back-face/0.5*ABS paths); machine grade pending |
 | c:fem/src/view3d/Ipoints.h | skipped-helper | header-only unit: links, never ports (matc T005 precedent) |
@@ -38,17 +40,17 @@
 | c:fem/src/view3d/LinearSolveConjGrad.c | skipped-not-in-build | orphan source: no CMake target compiles it (verified: unreferenced in any CMakeLists) |
 | c:fem/src/view3d/LinearSolveGaussSeidel.c | skipped-not-in-build | orphan source: no CMake target compiles it (verified: unreferenced in any CMakeLists) |
 | c:fem/src/view3d/LinearSolveJacob.c | skipped-not-in-build | orphan source: no CMake target compiles it (verified: unreferenced in any CMakeLists) |
-| c:fem/src/view3d/RayTrace.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
+| c:fem/src/view3d/RayTrace.c | deferred-round2 | T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2 |
 | c:fem/src/view3d/ShaftCull.c | ported | batch2: local differential byte-identical (driver-UB fixed, Walk/planes verified); machine grade pending |
-| c:fem/src/view3d/TestModel.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
+| c:fem/src/view3d/TestModel.c | deferred-round2 | T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2 |
 | c:fem/src/view3d/TriangleUtil.c | ported | batch2: local differential byte-identical (pair+subdivide paths); machine grade pending |
 | c:fem/src/view3d/VectorUtil.c | ported | batch1: local differential byte-identical; machine grade vs backstop pending |
-| c:fem/src/view3d/ViewFactors.c | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
+| c:fem/src/view3d/ViewFactors.c | deferred-round2 | T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2 |
 | c:fem/src/view3d/ViewFactors.h | skipped-helper | header-only unit: links, never ports (matc T005 precedent) |
 | c:fem/src/view3d/second.c | ported | batch1: local differential byte-identical; machine grade vs backstop pending |
 | c:fem/src/viewaxis/viewfact.h | skipped-helper | header-only unit: links, never ports (matc T005 precedent) |
 | cxx:fem/src/rocalution.cpp | skipped-ext-dep | needs absent optional solver lib (HYPRE/SuperLU/AMGX/CHOLMOD/ROCALUTION all FALSE); stub bodies unlinked |
-| cxx:fem/src/viewaxis/viewfact.cpp | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
+| cxx:fem/src/viewaxis/viewfact.cpp | deferred-round2 | T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2 |
 | fortran:fem/examples/turing/Turing.f90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed |
 | fortran:fem/obsolete/MovingElstatSolver.F90 | skipped-not-in-build | fem/obsolete has no CMakeLists: never compiled (also non-BIND(C)) |
 | fortran:fem/src/ADIOS2Utils.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (17); no T014 relaxation landed |
@@ -139,8 +141,8 @@
 | fortran:fem/src/ProjectorUtils.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (14); no T014 relaxation landed |
 | fortran:fem/src/Radiation.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed |
 | fortran:fem/src/RadiationFactors.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (30); no T014 relaxation landed |
-| fortran:fem/src/Radiators.F90 | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
-| fortran:fem/src/ResultToPost.F90 | portable-pending | gate-clean (all exports BIND(C)), in build; later batch |
+| fortran:fem/src/Radiators.F90 | deferred-round2 | T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2 |
+| fortran:fem/src/ResultToPost.F90 | deferred-round2 | T008 scope-cut: gate-clean BIND(C), in build, ungraded here; chartered to fem-a round-2 |
 | fortran:fem/src/ResultToResult.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed |
 | fortran:fem/src/SParIterComm.F90 | refused-COMMON | ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2) |
 | fortran:fem/src/SParIterGlobals.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed |
@@ -159,7 +161,7 @@
 | fortran:fem/src/Stress.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (45); no T014 relaxation landed |
 | fortran:fem/src/StressGeneral.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (3); no T014 relaxation landed |
 | fortran:fem/src/TimeIntegrate.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (17); no T014 relaxation landed |
-| fortran:fem/src/Types.F90 | portable-pending | gate-clean but LARGE: 108 __types_MOD___copy_* symbols (derived-type copies); later batch |
+| fortran:fem/src/Types.F90 | deferred-round2 | T008 scope-cut: gate-clean BIND(C) but LARGE (108 derived-type copy symbols), ungraded here; chartered to fem-a round-2 |
 | fortran:fem/src/VankaCreate.F90 | refused-COMMON | ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2) |
 | fortran:fem/src/VectorHelmholtzUtils.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (4); no T014 relaxation landed |
 | fortran:fem/src/ViewFactors.F90 | refused-COMMON | ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2) |
@@ -174,4 +176,4 @@
 | fortran:fem/src/solve_real.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (4); no T014 relaxation landed |
 | python:fem/src/split_ElementDescription.py | skipped-helper | build-time code generator, not linked |
 
-counts: {'portable-pending': 14, 'ported': 18, 'skipped-ext-dep': 5, 'skipped-not-in-build': 9, 'skipped-helper': 7, 'refused-gate': 105, 'refused-COMMON': 10} total: 168
+counts: {'deferred-round2': 14, 'ported': 18, 'skipped-ext-dep': 5, 'skipped-not-in-build': 9, 'skipped-helper': 7, 'refused-gate': 105, 'refused-COMMON': 10} total: 168
