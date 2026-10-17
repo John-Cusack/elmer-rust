@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = [
+    "ports/_16node_quad",
+    "ports/_2d_4node",
+    "ports/binio",
+    "ports/clipshadow",
+    "ports/contourinteg",
+    "ports/cputime",
+    "ports/elementdescription",
+    "ports/f_stubs",
+    "ports/gfortranlocalefix",
+    "ports/lineutil",
+    "ports/ludecomp",
+    "ports/meshutils",
+    "ports/minpack_kinds",
+    "ports/second",
+    "ports/shaftcull",
+    "ports/solverutils",
+    "ports/triangleutil",
+    "ports/umf4_f77wrapper",
+    "ports/vectorutil",
+]
+
+# Pinned campaign toolchain (ADR-045): 1.100.0-nightly feaadeeac 2026-09-19.
+# Stable 1.89.0 cannot build the ports (c_variadic E0658); mixed toolchains
+# void the byte-identity argument, so every lane builds with this nightly.
+# Nested workspace (lane-gui-c precedent): keeps the root workspace from
+# seizing standalone port builds after the rebase onto merged main.

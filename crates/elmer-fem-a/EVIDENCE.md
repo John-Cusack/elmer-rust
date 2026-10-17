@@ -111,3 +111,25 @@ OracleIntegrity/OracleParity/Differential rows), run `fem-a-ledger`
 T008 scope-cut units, each with the round-2 deferral reason in
 `spec_json`). Ledger and store agree on all 168 units; the cut itself is
 recorded as a `decisions` row (`fixforward-triage`).
+
+## Rebase onto merged main (2026-10-16)
+
+Rebased `elmer/lane-fem-a` onto main at `d19e5b1` (merges #3 grid-io,
+#6 fem-b-r2, #4 gui-c). Conflicts: `rust-toolchain.toml` add/add +
+content — kept the lane's float-fix wording, extended to cite both
+`elmer-fem-a` and `elmer-fem-b` `build-check.sh`. Port sources
+(`crates/elmer-fem-a/ports/`, LEDGER.md) byte-identical after rebase.
+One structural fix required by the rebase: main's root workspace
+(grid-io) seized standalone port builds (`believes it's in a workspace`),
+so added nested `crates/elmer-fem-a/Cargo.toml` workspace (19 port
+members, lane-gui-c precedent); no root-manifest touch, no port edits.
+Re-proof on the rebased tree, pinned `rustc 1.100.0-nightly feaadeeac`:
+`cargo build --release` 19/19 archives; refined strong-symbol gate over
+fresh archives — zero non-toolchain STRONG port-level dups (4188 dup
+names, all compiler_builtins/std-monomorphized/weak-libm/alloc-shim
+classes), unit true symbols (`ludecomp`, `mtrinv`, `RotateVector`,
+`second`, `cputime` family, `rename_c`, `elmer_fix_numeric_locale`,
+14 × `umf4*`) each defined-strong in exactly one archive; root
+workspace `cargo test --release` green (7 passed, 0 failed).
+Full splice+corpus re-grade (ctest backstop K=3, SPLICE, matc probe)
+reruns on the grade host — `lane/` state is not in git.
