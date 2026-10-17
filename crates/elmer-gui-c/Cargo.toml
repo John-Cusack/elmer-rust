@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = [
+    "c3d",
+    "clip",
+    "dri_ps",
+    "eig",
+    "error",
+    "eval",
+    "files",
+    "funcs",
+    "gra",
+    "gra_com",
+    "jacobi",
+    "lists",
+    "lu",
+    "matc",
+    "matrix",
+    "oper",
+    "optim",
+    "parser",
+    "str",
+    "urand",
+    "variable",
+]
+
+# Pinned campaign toolchain (ADR-045): 1.100.0-nightly feaadeeac 2026-09-19.
+# Stable 1.89.0 cannot build the ports (c_variadic E0658); mixed toolchains
+# void the byte-identity argument, so every lane builds with this nightly.
