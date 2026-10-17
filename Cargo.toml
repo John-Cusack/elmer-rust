@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/elmer-grid/prelude",
+    "crates/elmer-grid/egutils",
+    "crates/elmer-grid/egexport",
+    "crates/elmer-grid/fempre",
+    "crates/elmer-grid/egextra",
+    "crates/elmer-grid/egparallel",
+    "crates/elmer-grid/egnative",
+    "crates/elmer-grid/egconvert",
+    "crates/elmer-grid/egmesh",
+    "crates/elmer-gui-a",
+    "crates/elmer-gui-b",
+]
