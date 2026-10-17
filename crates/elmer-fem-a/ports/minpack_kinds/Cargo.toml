@@ -1,0 +1,8 @@
+[package]
+name = "minpack_kinds"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "minpack_kinds"
+crate-type = ["staticlib"]

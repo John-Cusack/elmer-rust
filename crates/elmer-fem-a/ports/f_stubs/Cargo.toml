@@ -1,0 +1,8 @@
+[package]
+name = "f_stubs"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "f_stubs"
+crate-type = ["staticlib"]

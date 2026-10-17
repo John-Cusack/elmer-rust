@@ -1,0 +1,8 @@
+[package]
+name = "lineutil"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "lineutil"
+crate-type = ["staticlib"]

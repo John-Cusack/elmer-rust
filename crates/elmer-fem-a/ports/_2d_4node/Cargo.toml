@@ -1,0 +1,8 @@
+[package]
+name = "_2d_4node"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "_2d_4node"
+crate-type = ["staticlib"]
