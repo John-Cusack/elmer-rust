@@ -4,4 +4,21 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["staticlib"]
+# `rlib` is added for the A/B bench harness only: a bench target inside the
+# package links the package's own lib, and a staticlib-only package exposes
+# no linkable Rust artifact. The `staticlib` archive — the artifact the
+# campaign splices — is unchanged by this.
+crate-type = ["staticlib", "rlib"]
+
+# A/B measurement harness (craft pattern, lane-gui-c): the same bench binary
+# is built from the before and after trees and the shared harness drives both
+# arms on one corpus, reporting wall time + peak RSS. `harness = false` (the
+# binary is a program, not a libtest target); `test = false` keeps
+# `cargo test` from running it as a test.
+[[bench]]
+name = "jacobi_bench"
+harness = false
+test = false
+
+[dev-dependencies]
+elmer_bench_harness = { path = "../../../bench/harness" }

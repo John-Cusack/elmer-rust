@@ -78,3 +78,33 @@ code-identical, so these archives export the same C globals as the future
 `elmer-matc` lane ports. Both providers cannot link into one binary; merge
 lane decides (link-instead-of-port re-scope candidate, cf. ADR-045 netgen
 note). This lane asserts uniqueness only within its own splice inputs.
+
+## Tight-loop recraft attempt (2026-10-20): `jacobi` — no gain, reverted
+
+The craft pattern (rustsmith ADR-050) was applied to the ported unit
+`c:ElmerGUI/matc/src/jacobi.c` (crate `gui_c_jacobi`, symbol
+`matc_jacobi`, the generalized Jacobi eigensolver) and measured with the
+repo's A/B bench (`bench/`, one corpus, rep-interleaved arms, fresh child
+per sample, median + MAD, peak RSS via `wait4`, digest equality).
+
+| workload | before | after | speedup | verdict | peak RSS before -> after |
+|---|---|---|---|---|---|
+| generalized Jacobi eigen n=128 | 210.291 ms | 208.028 ms | 1.01x | **no-change** | 3096 KiB -> 3080 KiB (-0.5%) |
+
+15 reps; MAD 1.6% (before) / 4.7% (after); digest identical on both arms
+(`fb5d76d6feb6dc1c`).
+
+**The recraft was reverted.** The variant kept the value caching (the six
+matrix entries an iteration reads are not modified by the update loops, so
+they are read once) and hoisted the loop-invariant bounds; it measured
+1.01x, inside the 3% noise band, so it is not kept on faith. A second
+variant that additionally walked row pointers in the three column-update
+loops measured **0.96x** (slower) and was dropped as well — the compiler
+unrolls the original shape better.
+
+The port source in this lane is therefore **unchanged**; what the lane
+keeps is the bench harness
+(`crates/elmer-gui-c/jacobi/benches/jacobi_bench.rs`, machine row under
+`bench/jacobi-nogain/`), so the next attempt on this unit is measured
+against the same corpus instead of guessed. The no-gain row is the point:
+it is the honest record of an attempt that did not pay off.
