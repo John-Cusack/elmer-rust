@@ -118,6 +118,14 @@ exactly those symbols — **zero STRONG port-level dups** beyond the
 replaced ones, so each port replaces its unit's object **whole**
 (whole-file portable).
 
+Rust craft: both new ports are marshalling wrappers — the arithmetic
+stays in LAPACK, so there is no per-item loop to tighten: no per-item
+boxing, no per-item allocation, no dyn dispatch, and the branch on the
+LAPACK `info` is hoisted out of any loop. The one allocation is the
+pivot array LAPACK requires, one per call — the same automatic array
+the Fortran allocates on the stack. The Rust side is a straight-line
+argument translation, which is what keeps the output bit-identical.
+
 ## Skips that are not gate refusals
 
 - `fortran:fem/src/BackwardError.F90` and `fortran:fem/src/MGPrec.F90`:
