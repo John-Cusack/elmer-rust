@@ -98,7 +98,10 @@ the same value the real `Types` module gives). The two units take
 exactly one entity from `Types`, that compile-time constant, so the
 reference object is the unit's own code; the real `Types` module needs
 the generated `config.h` and the Lua module, which the lane does not
-build.
+build. Measured on the reference object: it defines exactly
+`solvebandlapack_` and `solvecomplexbandlapack_` (`T`) and pulls in no
+`Types` symbol at runtime — only the LAPACK entry points and the
+gfortran runtime (the list-directed write, `STOP`, `malloc`/`free`).
 
 Fidelity notes (the corpus pins both):
 
