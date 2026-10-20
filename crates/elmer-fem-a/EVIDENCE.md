@@ -133,3 +133,90 @@ classes), unit true symbols (`ludecomp`, `mtrinv`, `RotateVector`,
 workspace `cargo test --release` green (7 passed, 0 failed).
 Full splice+corpus re-grade (ctest backstop K=3, SPLICE, matc probe)
 reruns on the grade host — `lane/` state is not in git.
+
+## Tight-loop recraft (2026-10-20): `ludecomp` / `mtrinv`
+
+Craft pattern: rustsmith **ADR-050** (the crc-style tight loop — hoisted
+branching, primitive-int state, no hot-path allocation, narrow fast path
+with delegation guards). Applied to the ported unit
+`c:fem/src/view3d/LUDecomp.c` (crate `ludecomp`, symbols `ludecomp` +
+`mtrinv`) and measured with this repo's own A/B bench (`bench/`, ADR-039
+conventions: one corpus, rep-interleaved arms, fresh child per sample,
+median + MAD, peak RSS via `wait4`, digest equality).
+
+**This is an explicit, per-unit measurement — not a per-unit grade claim.**
+ADR-045 keeps per-unit grades free of timing claims; the rows below are a
+separate, reproducible bench of one unit, with the commands in
+`bench/README.md`.
+
+### Measured (this host, pinned nightly `1.100.0-nightly feaadeeac`)
+
+| workload | before | after | speedup | verdict | peak RSS before -> after | digest |
+|---|---|---|---|---|---|---|
+| LU decompose n=256 | 255.947 ms | 227.187 ms | **1.13x** | faster | 2760 KiB -> 2772 KiB (+0.4%) | identical |
+| matrix inverse n=256 | 187.181 ms | 179.213 ms | **1.04x** | faster | 2760 KiB -> 2748 KiB (-0.4%) | identical |
+| LU decompose n=512 | 214.458 ms | 203.146 ms | **1.06x** | faster | 5840 KiB -> 5832 KiB (-0.1%) | identical |
+| matrix inverse n=512 | 467.345 ms | 421.481 ms | **1.11x** | faster | 5816 KiB -> 5824 KiB (+0.1%) | identical |
+
+15 reps (11 at n=512), arms interleaved, same corpus both sides. Machine
+rows: `bench/ludecomp/results.json`, `bench/mtrinv/results.json`,
+`bench/ludecomp-n512/results.json`, `bench/mtrinv-n512/results.json`
+(plus `rows.md` per directory). The digest is FNV-1a over the result
+matrix bytes: identical on both arms, so the speed numbers are for
+bit-identical results.
+
+Harness overhead (the corpus copy that the measured region needs, because
+the port mutates its argument in place) is reported per row and is 0.8% of
+the LU workload and 0.1% of the inverse workload; it is never subtracted
+from the workload number.
+
+### What changed (and why it is bit-exact)
+
+* **LU decomposition** (`port_ludecomp`): the pivot candidate is held in a
+  register instead of being re-read from the matrix on every candidate;
+  the `j != i` test is invariant over the elimination k-loop, so the swap
+  leaves the loop body (two loop shapes, one body each); the elimination
+  inner loop walks row pointers, so the C index math `n*i + j` is done
+  once per row instead of on every access.
+* **Matrix inverse** (`port_mtrinv`): the inverse product wrote its
+  partial sum back to `a(i,j)` on every k iteration (an n^3 store chain).
+  The only value ever read back from `a(i,j)` is read on the *first*
+  iteration, before any store, and no other iteration of the product reads
+  `a(i,j)` afterwards — so the single final store is equivalent (n^3 stores
+  become n^2). The arithmetic is the same operations in the same order, so
+  the results stay bit-identical.
+
+### Rejected after measurement (kept out on purpose)
+
+Phase medians, n=256, 9 reps, same corpus (scratch study; every variant
+produced an identical digest):
+
+| phase | variant | median | verdict |
+|---|---|---|---|
+| LU | original | 1.28 ms | — |
+| LU | branch hoist only | 1.21 ms | — |
+| LU | **row bases + branch hoist (kept)** | **1.11 ms** | 1.15x |
+| INV(U) | **original (kept)** | **3.58 ms** | — |
+| INV(U) | row base for row i | 3.80 ms | 0.94x, rejected |
+| INV(U) | row bases for both rows | 3.86 ms | 0.93x, rejected |
+| INV(L) | original (kept) | 3.29 ms | — |
+| INV(L) | row bases + cached diagonal | 3.27 ms | inside noise, not kept |
+| INV(AP) | original | 7.06 ms | — |
+| INV(AP) | **hoisted store (kept)** | **6.49 ms** | 1.09x |
+| INV(AP) | split k-range into two branch-free bodies | 8.72 ms | 0.81x, rejected |
+| INV(AP) | hoisted store + split k-range | 7.31 ms | 0.90x, rejected |
+| INV(AP) | hoisted store + split k-range + row bases | 7.85 ms | 0.90x, rejected |
+
+The lesson recorded for the next port: **the craft is not a formula, it is
+a measurement.** "Hoist the branch" and "walk a row pointer" are not
+guaranteed wins in compiled Rust — the compiler already unswitches
+loop-invariant branches and strength-reduces the index math, and a
+hand-rolled form can block the unroller that the original shape enabled.
+
+### Lane-fem-a bench harness
+
+`crates/elmer-fem-a/ports/ludecomp/benches/ludecomp_bench.rs` + the
+shared driver `bench/harness` (see `bench/README.md`). The port crate
+gained `rlib` in its `crate-type` so the bench target can link the
+package's own lib; the `staticlib` archive — the artifact the campaign
+splices — is unchanged.

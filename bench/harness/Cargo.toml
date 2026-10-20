@@ -1,0 +1,14 @@
+[package]
+name = "elmer_bench_harness"
+version = "0.1.0"
+edition = "2021"
+description = "Shared A/B measurement harness for elmer-rust ports (wall time + peak RSS, same corpus, digest equality)"
+
+# Standalone crate: detached from the repo-root workspace on purpose, so both
+# nested lane workspaces (elmer-fem-a, elmer-gui-c) can path-depend on it
+# without either workspace seizing the other.
+[workspace]
+
+[lib]
+name = "elmer_bench_harness"
+path = "src/lib.rs"
