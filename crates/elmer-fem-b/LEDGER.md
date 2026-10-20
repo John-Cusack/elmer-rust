@@ -28,8 +28,8 @@
 | fortran:fem/src/modules/ConsistentSplitting/OptimalSolutionUpdate.F90 | skipped-external-scope | external (F77-global) subroutine scope: no MODULE, synthetic MOD linkage unprovable by gate parse (T017) |
 | fortran:fem/src/modules/ConsistentSplitting/PressureSolver.F90 | skipped-external-scope | external (F77-global) subroutine scope: no MODULE, synthetic MOD linkage unprovable by gate parse (T017) |
 | fortran:fem/src/modules/ConsistentSplitting/VelocitySolver.F90 | skipped-external-scope | external (F77-global) subroutine scope: no MODULE, synthetic MOD linkage unprovable by gate parse (T017) |
-| fortran:fem/src/modules/CoordinateTransform.F90#rotmsolver_init | skipped-external-scope | external (F77-global) subroutine scope: no MODULE, synthetic MOD linkage unprovable by gate parse (T017) |
-| fortran:fem/src/modules/CoordinateTransform.F90#vecutils | skipped-explicit-shape | explicit-shape dummy (later shape; T017) |
+| fortran:fem/src/modules/CoordinateTransform.F90#rotmsolver_init | skipped-derived-type | F77-global scope (T017 shape A admits the linkage) whose dummies are `Model_t`/`Solver_t` derived types: whole-program layout, refused (ADR-027) |
+| fortran:fem/src/modules/CoordinateTransform.F90#vecutils | graded | T017 shape B (module-dummy): crate `vecutils`, 4 module procedures; 7-case differential byte-identical, strong-symbol gate, array-result descriptor wire; EVIDENCE.md |
 | fortran:fem/src/modules/CraigBamptonSolver.F90 | skipped-external-scope | external (F77-global) subroutine scope: no MODULE, synthetic MOD linkage unprovable by gate parse (T017) |
 | fortran:fem/src/modules/CyclicConvergence.F90 | skipped-external-scope | external (F77-global) subroutine scope: no MODULE, synthetic MOD linkage unprovable by gate parse (T017) |
 | fortran:fem/src/modules/DCRComplexSolve.F90 | skipped-external-scope | external (F77-global) subroutine scope: no MODULE, synthetic MOD linkage unprovable by gate parse (T017) |
@@ -122,7 +122,7 @@
 | fortran:fem/src/modules/ParallelRemesh.F90 | skipped-external-scope | external (F77-global) subroutine scope: no MODULE, synthetic MOD linkage unprovable by gate parse (T017) |
 | fortran:fem/src/modules/ParticleAdvector.F90 | skipped-external-scope | external (F77-global) subroutine scope: no MODULE, synthetic MOD linkage unprovable by gate parse (T017) |
 | fortran:fem/src/modules/ParticleDynamics.F90#particledynamics | skipped-external-scope | external (F77-global) subroutine scope: no MODULE, synthetic MOD linkage unprovable by gate parse (T017) |
-| fortran:fem/src/modules/ParticleDynamics.F90#particledynamicsstuff | skipped-explicit-shape | explicit-shape dummy (later shape; T017) |
+| fortran:fem/src/modules/ParticleDynamics.F90#particledynamicsstuff | skipped-not-ported | gate-admitted by T017 shape B (explicit-shape dummies), but the routines read solver parameters through Elmer's `List` API (`ListGetRealArray`, `GetSolverParams`): the Elmer world, not a shim port |
 | fortran:fem/src/modules/PartitionMesh.F90 | skipped-external-scope | external (F77-global) subroutine scope: no MODULE, synthetic MOD linkage unprovable by gate parse (T017) |
 | fortran:fem/src/modules/PhaseChangeSolve.F90 | skipped-external-scope | external (F77-global) subroutine scope: no MODULE, synthetic MOD linkage unprovable by gate parse (T017) |
 | fortran:fem/src/modules/Poisson.F90 | skipped-external-scope | external (F77-global) subroutine scope: no MODULE, synthetic MOD linkage unprovable by gate parse (T017) |
