@@ -63,7 +63,15 @@ name = "shaftcull"
 version = "0.1.0"
 
 [[package]]
+name = "solveband"
+version = "0.1.0"
+
+[[package]]
 name = "solverutils"
+version = "0.1.0"
+
+[[package]]
+name = "solvesband"
 version = "0.1.0"
 
 [[package]]
