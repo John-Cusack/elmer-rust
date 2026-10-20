@@ -133,3 +133,42 @@ classes), unit true symbols (`ludecomp`, `mtrinv`, `RotateVector`,
 workspace `cargo test --release` green (7 passed, 0 failed).
 Full splice+corpus re-grade (ctest backstop K=3, SPLICE, matc probe)
 reruns on the grade host — `lane/` state is not in git.
+
+## T017 shape A — F77-external port (`fortran:fem/src/Walls.F90`)
+
+Tool PR: rustsmith#105 (gate relaxation, ADR-049). Reference: Elmer fork
+`c0b4bc6` (`fem/src/Walls.F90` md5 `8cb4c2ede8536fe8c0b57d189315daec`).
+Toolchain: `rustc 1.100.0-nightly (feaadeeac 2026-09-19)` + gfortran
+13.3.0. Proof script: rustsmith `tests/f77_external_shape_proof.sh`;
+machine rows in the grading store (run `t017-f77-external-grade`).
+
+| unit | crate | true symbols | differential |
+|---|---|---|---|
+| fortran:fem/src/Walls.F90 | walls | `solve_ufric_`, `wall_law_`, `d_wall_law_`, `kewall_` | 12/12 byte-identical stdout (84 values at `ES25.17E3`), stderr empty both sides |
+
+Corpus: 12 parameter sets (density, viscosity, wall distance, roughness,
+tangential velocity) spanning `yplus` from below 1 to above 100, plus two
+held-out regimes (low viscosity, high roughness). Each case prints the
+friction velocity and its wall-law derivative, the wall-law residual and
+its derivative, and the three wall turbulence quantities.
+
+Refined merge gate (runbook §2): the port defines all four unit symbols
+as `T`, and the intersection with the reference `Walls.F90.o` is exactly
+those four — **zero STRONG port-level dups** beyond the replaced symbols,
+so the port replaces `Walls.F90.o` **whole** (whole-file portable).
+Port-only `T` symbols are the `__*_di2`/`__*_di3` compiler-builtin class
+(same class as T003), resolved by the one-provider / byte-identity rule at
+merge, never asserted away.
+
+Fidelity notes (both caught by the corpus, both real Fortran facts):
+
+- `-0.33` in `D_WALL_LAW` is a **default-real literal**; gfortran widens
+  `REAL(4)` to double in a double-precision expression, so the port uses
+  the widened `REAL(4)` value.
+- `x**n` with an **integer** exponent is gfortran's `__powidf2`, i.e.
+  repeated multiplication — not `pow(x, n)`; for `n = 3` the two differ
+  by one ulp.
+
+Timing (ADR-045): lane-fem-a has no `bench_sample_unit` (null at
+dispatch), so no timing sample runs for this unit; per-unit grades carry
+no timing claim.
