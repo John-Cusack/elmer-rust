@@ -166,7 +166,7 @@
 | fortran:fem/src/VectorHelmholtzUtils.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (4); no T014 relaxation landed |
 | fortran:fem/src/ViewFactors.F90 | refused-COMMON | ADR-027: F77 COMMON-block file, refused until follow-up design (brief s2) |
 | fortran:fem/src/ViewUtils.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (9); no T014 relaxation landed |
-| fortran:fem/src/Walls.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (8); no T014 relaxation landed |
+| fortran:fem/src/Walls.F90 | ported | T017 shape A (F77-external): crate `walls`, 4 F77 globals (`solve_ufric_`, `wall_law_`, `d_wall_law_`, `kewall_`); 12-case corpus byte-identical, strong-symbol gate clean (tool PR rustsmith#105) |
 | fortran:fem/src/ZirkaHysteresis.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (31); no T014 relaxation landed |
 | fortran:fem/src/binio/biniomod.f90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (14); no T014 relaxation landed |
 | fortran:fem/src/minpack.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (28); no T014 relaxation landed |
@@ -176,4 +176,4 @@
 | fortran:fem/src/solve_real.F90 | refused-gate | check_substitutable: non-BIND(C) Fortran exports (4); no T014 relaxation landed |
 | python:fem/src/split_ElementDescription.py | skipped-helper | build-time code generator, not linked |
 
-counts: {'deferred-round2': 14, 'ported': 18, 'skipped-ext-dep': 5, 'skipped-not-in-build': 9, 'skipped-helper': 7, 'refused-gate': 105, 'refused-COMMON': 10} total: 168
+counts: {'deferred-round2': 14, 'ported': 19, 'skipped-ext-dep': 5, 'skipped-not-in-build': 9, 'skipped-helper': 7, 'refused-gate': 104, 'refused-COMMON': 10} total: 168

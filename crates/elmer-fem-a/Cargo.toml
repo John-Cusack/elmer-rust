@@ -20,6 +20,7 @@ members = [
     "ports/triangleutil",
     "ports/umf4_f77wrapper",
     "ports/vectorutil",
+    "ports/walls",
 ]
 
 # Pinned campaign toolchain (ADR-045): 1.100.0-nightly feaadeeac 2026-09-19.
