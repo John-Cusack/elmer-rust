@@ -130,6 +130,11 @@ replaced ones, so each port replaces its unit's object **whole**
 - `fortran:fem/src/modules/EMWaveSolver.F90#emwavesolverutils`: the gate
   admits it vacuously (the scope owns no portable procedure) — the
   ADR-047 precedent, `skipped-vacuous-admit`.
+- `fortran:fem/src/modules/CoordinateTransform.F90#vecutils`: the merged
+  gate still refuses it (explicit-shape dummies — T017 shape B,
+  rustsmith#108, was open at this lane's done-gate), but the sibling
+  T017 lane's port (elmer-rust#11) already covers the scope under that
+  relaxation, so the unit is not left unported.
 - The C/C++ units in the claim admit the gate vacuously (no non-BIND(C)
   Fortran export) but are not in the build: eight are never compiled
   (`fem/obsolete` has no `CMakeLists.txt`; `elmer_lua_iface.c` is added

@@ -166,7 +166,7 @@
 | fortran:fem/src/modules/ConsistentSplitting/PressureSolver.F90 | skipped-gate-refused | gate refuses: procedure-not-found-in-gate-parse (2); derived-type dummy (needs whole-program layout) (2) |
 | fortran:fem/src/modules/ConsistentSplitting/VelocitySolver.F90 | skipped-gate-refused | gate refuses: procedure-not-found-in-gate-parse (4); derived-type dummy (needs whole-program layout) (2) |
 | fortran:fem/src/modules/CoordinateTransform.F90#rotmsolver_init | skipped-gate-refused | gate refuses: procedure-not-found-in-gate-parse (3); derived-type dummy (needs whole-program layout) (3) |
-| fortran:fem/src/modules/CoordinateTransform.F90#vecutils | skipped-gate-refused | gate refuses: explicit-shape dummy (later shape) (4) |
+| fortran:fem/src/modules/CoordinateTransform.F90#vecutils | skipped-gate-refused | gate refuses: explicit-shape dummy (later shape) (4); the sibling T017 lane's port (elmer-rust#11) covers this scope under the shape B relaxation (rustsmith#108, open at this lane's done-gate): the gate still refuses it under the merged gate |
 | fortran:fem/src/modules/CraigBamptonSolver.F90 | skipped-gate-refused | gate refuses: procedure-not-found-in-gate-parse (4); derived-type dummy (needs whole-program layout) (3) |
 | fortran:fem/src/modules/CyclicConvergence.F90 | skipped-gate-refused | gate refuses: derived-type dummy (needs whole-program layout) (3); procedure-not-found-in-gate-parse (1) |
 | fortran:fem/src/modules/DCRComplexSolve.F90 | skipped-gate-refused | gate refuses: procedure-not-found-in-gate-parse (7); derived-type dummy (needs whole-program layout) (2) |
