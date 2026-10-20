@@ -499,14 +499,22 @@ pub unsafe extern "C" fn mtr_sum(aa: *mut VARIABLE) -> *mut VARIABLE {
         let cc = var_temp_new(TYPE_DOUBLE, 1, ncola);
         // SAFETY: cc data live through return.
         let c = var_matr(cc);
-        let mut i: c_int = 0;
-        while i < ncola {
-            let mut j: c_int = 0;
-            while j < nrowa {
-                *c.offset(i as isize) += *a.offset((j * ncola + i) as isize);
-                j += 1;
+        // Craft (ADR-050): the C original walked one column at a time, so
+        // every element was read with a stride of `ncola` doubles - one
+        // cache line per element for a large matrix. One sequential pass
+        // over the row-major data replaces it. The accumulation order per
+        // column is unchanged (rows ascending), so the sums are the same
+        // values in the same order: bit-identical results.
+        let mut j: c_int = 0;
+        while j < nrowa {
+            // SAFETY: row j of the argument matrix is live.
+            let row = a.offset((j * ncola) as isize);
+            let mut i: c_int = 0;
+            while i < ncola {
+                *c.offset(i as isize) += *row.offset(i as isize);
+                i += 1;
             }
-            i += 1;
+            j += 1;
         }
         cc
     }

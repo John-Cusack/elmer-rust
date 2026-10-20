@@ -51,9 +51,12 @@ Current state (measured, this host, pinned nightly
 | `ludecomp` (fem-a) | matrix inverse n=256 | 187.181 ms | 179.213 ms | 1.04x | faster |
 | `ludecomp` (fem-a) | LU decompose n=512 | 214.458 ms | 203.146 ms | 1.06x | faster |
 | `ludecomp` (fem-a) | matrix inverse n=512 | 467.345 ms | 421.481 ms | 1.11x | faster |
+| `matrix` (gui-c) | column sums n=256 | 2.079 ms | 0.437 ms | 4.76x | faster |
+| `matrix` (gui-c) | column sums n=1024 | 75.509 ms | 3.830 ms | 19.72x | faster |
+| `matrix` (gui-c) | column sums n=4096 | 200.674 ms | 16.126 ms | 12.44x | faster |
 | `jacobi` (gui-c) | generalized Jacobi eigen n=128 | 210.291 ms | 208.028 ms | 1.01x | no-change (reverted) |
 
 Machine rows: `crates/elmer-fem-a/bench/*/results.json`,
-`crates/elmer-gui-c/bench/jacobi-nogain/results.json`. A recraft that
-does not measure a win is reverted and reported as `no-change` — the
-`jacobi` row is that record, not a kept change.
+`crates/elmer-gui-c/bench/*/results.json`. A recraft that does not
+measure a win is reverted and reported as `no-change` — the `jacobi` row
+is that record, not a kept change.

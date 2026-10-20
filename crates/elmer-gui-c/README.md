@@ -108,3 +108,37 @@ keeps is the bench harness
 `bench/jacobi-nogain/`), so the next attempt on this unit is measured
 against the same corpus instead of guessed. The no-gain row is the point:
 it is the honest record of an attempt that did not pay off.
+
+## Tight-loop recraft (2026-10-20): `mtr_sum` — 4.8x–19.7x
+
+The craft pattern (rustsmith ADR-050) applied to the ported unit
+`c:ElmerGUI/matc/src/matrix.c` (crate `gui_c_matrix`, symbol `mtr_sum`),
+measured with the repo's A/B bench (`bench/`).
+
+**Anti-pattern D (per-item lookup a bulk transform replaces).** The C
+original walked the matrix **one column at a time**, so every element was
+read with a stride of `ncola` doubles — for a 4096x4096 matrix that is
+one cache line per element, and the whole 128 MiB is re-read per column
+pass. The recraft makes **one sequential pass** over the row-major data
+and accumulates the columns as it goes. The accumulation order per column
+is unchanged (rows ascending), so the sums are the same values added in
+the same order: bit-identical results, same digest on both arms.
+
+| workload | before | after | speedup | verdict | peak RSS before -> after |
+|---|---|---|---|---|---|
+| column sums n=256 | 2.079 ms | 0.437 ms | **4.76x** | faster | 2268 KiB -> 2264 KiB (-0.2%) |
+| column sums n=1024 | 75.509 ms | 3.830 ms | **19.72x** | faster | 9908 KiB -> 9928 KiB (+0.2%) |
+| column sums n=4096 | 200.674 ms | 16.126 ms | **12.44x** | faster | 132164 KiB -> 132240 KiB (+0.1%) |
+
+11 reps, arms interleaved, one corpus per size, peak RSS through `wait4`,
+digest identical on both arms. Machine rows: `bench/mtr-sum-n256/`,
+`bench/mtr-sum-n1024/`, `bench/mtr-sum-n4096/`.
+
+The win grows with the matrix because the original is memory-bound on the
+strided read; the honest floor is the smallest size measured (4.76x at
+n=256, where the matrix already fits in cache). Peak RSS is unchanged
+(the corpus dominates the child's footprint on both sides).
+
+The bench for this unit is `crates/elmer-gui-c/matrix/benches/matrix_bench.rs`
+(the matc temp allocator is implemented in the bench, because the measured
+result is read back from it).
