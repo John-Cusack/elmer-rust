@@ -93,13 +93,13 @@ fn sband_failure(message: &str, info: c_int) -> ! {
 
 /// `SOLVESBANDLAPACK`: symmetric band Cholesky factorization (`DPBTRF`)
 /// and the band triangular solves (`DPBTRS`).
-#[export_name = "solvesbandlapack_"]
 /// # Safety
 ///
 /// `n`, `m`, `subband` and `band` must point to valid `c_int`s. `a` must
 /// point to a writable `A(Band,N)` array and `x` to a writable `X(N,M)`
 /// array, both filled the way the Fortran caller fills them (LAPACK
 /// symmetric band storage). The pointers are handed to LAPACK unchanged.
+#[export_name = "solvesbandlapack_"]
 pub unsafe extern "C" fn port_solve_sband_lapack(
     n: *const c_int,
     m: *const c_int,
@@ -155,7 +155,6 @@ pub unsafe extern "C" fn port_solve_sband_lapack(
 
 /// `SOLVECOMPLEXSBANDLAPACK`: the complex counterpart
 /// (`ZPBTRF`/`ZPBTRS`).
-#[export_name = "solvecomplexsbandlapack_"]
 /// # Safety
 ///
 /// `n`, `m`, `subband` and `band` must point to valid `c_int`s. `a` must
@@ -163,6 +162,7 @@ pub unsafe extern "C" fn port_solve_sband_lapack(
 /// complex `X(N,M)` array, both filled the way the Fortran caller fills
 /// them (LAPACK symmetric band storage). The pointers are handed to
 /// LAPACK unchanged.
+#[export_name = "solvecomplexsbandlapack_"]
 pub unsafe extern "C" fn port_solve_complex_sband_lapack(
     n: *const c_int,
     m: *const c_int,

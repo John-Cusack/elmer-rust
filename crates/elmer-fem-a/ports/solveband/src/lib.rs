@@ -101,13 +101,13 @@ fn band_failure(message: &str, info: c_int) -> ! {
 
 /// `SOLVEBANDLAPACK`: general band LU factorization with partial pivoting
 /// (`DGBTRF`) and the band triangular solves (`DGBTRS`).
-#[export_name = "solvebandlapack_"]
 /// # Safety
 ///
 /// `n`, `m`, `subband` and `band` must point to valid `c_int`s. `a` must
 /// point to a writable `A(Band,N)` array and `x` to a writable `X(M,N)`
 /// array, both filled the way the Fortran caller fills them (LAPACK band
 /// storage). The pointers are handed to LAPACK unchanged.
+#[export_name = "solvebandlapack_"]
 pub unsafe extern "C" fn port_solve_band_lapack(
     n: *const c_int,
     m: *const c_int,
@@ -160,7 +160,6 @@ pub unsafe extern "C" fn port_solve_band_lapack(
 }
 
 /// `SOLVECOMPLEXBANDLAPACK`: the complex counterpart (`ZGBTRF`/`ZGBTRS`).
-#[export_name = "solvecomplexbandlapack_"]
 /// # Safety
 ///
 /// `n`, `m`, `subband` and `band` must point to valid `c_int`s. `a` must
@@ -168,6 +167,7 @@ pub unsafe extern "C" fn port_solve_band_lapack(
 /// complex `X(M,N)` array, both filled the way the Fortran caller fills
 /// them (LAPACK band storage). The pointers are handed to LAPACK
 /// unchanged.
+#[export_name = "solvecomplexbandlapack_"]
 pub unsafe extern "C" fn port_solve_complex_band_lapack(
     n: *const c_int,
     m: *const c_int,
