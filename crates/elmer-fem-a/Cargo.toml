@@ -16,6 +16,8 @@ members = [
     "ports/minpack_kinds",
     "ports/second",
     "ports/shaftcull",
+    "ports/solveband",
+    "ports/solvesband",
     "ports/solverutils",
     "ports/triangleutil",
     "ports/umf4_f77wrapper",
