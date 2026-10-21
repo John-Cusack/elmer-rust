@@ -71,3 +71,43 @@ stride `amp(4:1:-2,:)`; `t = phase = 0` edge on 8×2; strided `big(1:7:2,:)`;
   `EMWaveSolverUtils`; data-only `GlobMat`/`GlobMatC` owning the
   unproven `B`-class `__globmat_MOD_matrix` / `__globmatc_MOD_matrix`
   descriptor symbols). F77 COMMON/BLOCK DATA files: 0.
+
+## T017 shape B — module-dummy port (`fortran:fem/src/modules/CoordinateTransform.F90#vecutils`)
+
+Tool PR: rustsmith#108 (gate relaxation, ADR-050). Reference: Elmer fork
+`c0b4bc6` (`fem/src/modules/CoordinateTransform.F90` md5
+`348989c19c13fb198cd7f9c422d036ef`). Toolchain: `rustc
+1.100.0-nightly (feaadeeac 2026-09-19)` + gfortran 13.3.0 (the calling
+convention is version-specific — ADR-027 §1/§3). Proof script: rustsmith
+`tests/module_dummy_shape_proof.sh`; machine rows in the grading store
+(run `t017-module-dummy-grade`).
+
+| unit | crate | true symbols | differential |
+|---|---|---|---|
+| fortran:fem/src/modules/CoordinateTransform.F90#vecutils | vecutils | `__vecutils_MOD_norm2`, `__vecutils_MOD_normalized`, `__vecutils_MOD_jac`, `__vecutils_MOD_transform2rank` | 7/7 byte-identical stdout (14 values at `ES25.17E3`), stderr empty both sides |
+
+Corpus: 4 vector cases (axis-aligned, Pythagorean, mixed-sign,
+degenerate) x 2 kernels, plus 3 matrix cases (identity, sheared,
+non-symmetric) x 2 kernels. The vector cases pass a **rank-1 section**
+actual — gfortran packs the section and passes the packed pointer, the
+same raw-base-address wire — and the matrix cases pass whole 3x3 arrays.
+
+Measured wire (ADR-050): the explicit-shape dummy travels as a raw base
+address in Fortran's column-major order, and because these four
+functions return **arrays**, the result travels back through a hidden
+**first** argument that is a gfortran **array descriptor** (base at
+offset 0, dimension stride at offset 40) — not a plain pointer. The
+first port draft assumed a pointer and wrote the result into the
+descriptor; the corpus caught it (all zeros where the reference printed
+the norm).
+
+Refined merge gate (runbook §2): the port defines all four unit symbols
+as `T`, the intersection with the reference `CoordinateTransform.F90.o`
+is exactly those four — **zero STRONG port-level dups** — and the port
+claims no sibling symbol. Honest limitation: the file's two F77 globals
+(`rotmsolver_`, `rotmsolver_init_`) stay refused (derived-type dummies),
+so the substitution is **driver-level**, not a whole-file splice.
+
+Timing (ADR-045): the lane-fem-b `bench_sample_unit`
+(`fortran:fem/src/modules/HeatSolve.F90`) stays refused, so no timing
+sample runs for this unit; per-unit grades carry no timing claim.
