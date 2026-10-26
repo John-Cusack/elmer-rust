@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["ports/hutiaux"]
+
+# Nested workspace (lane-fem-a precedent): keeps the root workspace from
+# seizing standalone port builds. Pinned campaign nightly 1.100.0-nightly
+# feaadeeac 2026-09-19 asserted by build-check.sh before every grade.

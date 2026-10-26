@@ -1,0 +1,8 @@
+[package]
+name = "hutiaux"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "hutiaux"
+crate-type = ["staticlib"]
