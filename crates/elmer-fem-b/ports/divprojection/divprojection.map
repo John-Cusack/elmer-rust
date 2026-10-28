@@ -1,0 +1,4 @@
+{
+  global: divprojection_;
+  local: *;
+};

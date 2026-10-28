@@ -1,0 +1,5 @@
+{
+  global: divergencesolver_;
+  global: divergencesolver_init_;
+  local: *;
+};

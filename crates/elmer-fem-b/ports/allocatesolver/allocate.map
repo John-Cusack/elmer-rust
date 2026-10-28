@@ -1,0 +1,5 @@
+{
+  global: allocatesolver_;
+  global: allocatesolver_init_;
+  local: *;
+};
