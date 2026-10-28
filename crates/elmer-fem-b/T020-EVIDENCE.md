@@ -45,3 +45,11 @@ executes in both arms.
   tree): `ctest -L quick` 451/454 with the same 3 SIGSEGV failures —
   identical to the pristine baseline (no suite-wide change from the
   splice; no Poisson quick-test regressed).
+- Campaign bar (T013-style, lane script `backstop-t020.sh`): fresh tree
+  @ `9f6af2f85`, campaign configure (Debug, WITH_MPI, ccache,
+  `HWLOC_COMPONENTS=-gl`), both T020 ports spliced
+  (`solve_cmplx.o <- libsolvecmplx.a` via `ld -r`; `Poisson.so <-` port
+  cdylib), full rebuild, `ctest -L quick`: **479/482, failures exactly
+  the K=3 upstream segfaults #80/#536/#537**. The serial-config 451/454
+  runs above are superseded by this run. Logs under the lane `proof/`
+  dir (`LastTest-t020.log`).
