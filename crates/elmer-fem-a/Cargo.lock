@@ -71,6 +71,10 @@ name = "solveband"
 version = "0.1.0"
 
 [[package]]
+name = "solvecmplx"
+version = "0.1.0"
+
+[[package]]
 name = "solvereal"
 version = "0.1.0"
 
