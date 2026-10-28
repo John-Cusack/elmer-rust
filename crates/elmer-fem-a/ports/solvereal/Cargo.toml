@@ -1,0 +1,8 @@
+[package]
+name = "solvereal"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "solvereal"
+crate-type = ["staticlib"]
