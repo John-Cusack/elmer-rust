@@ -4632,8 +4632,10 @@ unsafe fn unite_merge(
             continue;
         }
         *k = *j;
+        // NOTE (T013 gridio fix): C `for(k=j;...;k++) if(!bound1[k].created) break;`
+        // scans past OCCUPIED slots to the first FREE slot; `!= 0` keeps that shape.
         while *k < MAXBOUNDARIES as c_int
-            && (*bound1.wrapping_offset(*k as isize)).created == 0
+            && (*bound1.wrapping_offset(*k as isize)).created != 0
         {
             *k += 1;
         }
@@ -18772,4 +18774,112 @@ pub unsafe extern "C" fn BoundingBox(
         printf(c"If using Elmer to analyze large geometry, such as a glacier, then ignore this notice.\n\n".as_ptr());
     }
     0
+}
+
+/// Regression tests for the T013 gridio slice (16 failures, 463/482).
+///
+/// `squares.grd` (`ElmerGrid 1 2`) unites two meshes with 4 boundaries each.
+/// The buggy free-slot search overwrote `bound1[0..4]` with `bound2[0..4]`
+/// (28 boundary rows instead of 52); the fix appends at the first free slot.
+#[cfg(test)]
+mod unite_merge_tests {
+    use super::*;
+    use core::ffi::{c_int, c_void};
+    extern "C" {
+        fn malloc(size: usize) -> *mut c_void;
+    }
+    unsafe fn ivec1(nosides: c_int, fill: c_int) -> *mut c_int {
+        // 1-indexed `[1..=nosides]` to match `ivector(1, nosides)` bias.
+        let n = (nosides + 1) as usize;
+        let p = malloc(n * size_of::<c_int>()) as *mut c_int;
+        assert!(!p.is_null());
+        for k in 0..n {
+            *p.add(k) = fill;
+        }
+        p
+    }
+    unsafe fn mk_boundary(slot_type: c_int) -> BoundaryType {
+        let nosides = 2;
+        let mut b: BoundaryType = core::mem::zeroed();
+        b.created = 1;
+        b.nosides = nosides;
+        b.parent = ivec1(nosides, 1);
+        b.parent2 = ivec1(nosides, 0);
+        b.material = ivec1(nosides, 0);
+        b.side = ivec1(nosides, 1);
+        b.side2 = ivec1(nosides, 1);
+        b.types = ivec1(nosides, slot_type);
+        b.normal = ivec1(nosides, 1);
+        b
+    }
+    #[test]
+    fn preserves_first_mesh_boundaries() {
+        unsafe {
+            let mut data1: FemType = core::mem::zeroed();
+            let mut data2: FemType = core::mem::zeroed();
+            data1.noelements = 0;
+            data1.noknots = 0;
+            data1.maxnodes = 4;
+            data1.dim = 2;
+            data2.noelements = 0;
+            data2.noknots = 0;
+            data2.maxnodes = 4;
+            data2.dim = 2;
+            let mut bound1 = vec![core::mem::zeroed::<BoundaryType>(); MAXBOUNDARIES];
+            let mut bound2 = vec![core::mem::zeroed::<BoundaryType>(); MAXBOUNDARIES];
+            for s in 0..4 {
+                bound1[s] = mk_boundary((s + 1) as c_int);
+                bound2[s] = mk_boundary((s + 5) as c_int);
+            }
+            let mut mat: c_int = 0;
+            let mut nonodes: c_int = 0;
+            let mut i: c_int = 0;
+            let mut j: c_int = 0;
+            let mut k: c_int = 0;
+            unite_merge(
+                &mut data1,
+                &mut data2,
+                bound1.as_mut_ptr(),
+                bound2.as_mut_ptr(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                4,
+                &mut mat,
+                &mut nonodes,
+                &mut i,
+                &mut j,
+                &mut k,
+            );
+            for s in 0..4 {
+                assert_eq!(bound1[s].created, 1, "slot {s} must stay created");
+                assert_eq!(bound1[s].nosides, 2, "slot {s} nosides");
+                assert_eq!(
+                    *bound1[s].types.wrapping_offset(1),
+                    (s + 1) as c_int,
+                    "slot {s} must keep first-mesh type"
+                );
+            }
+            for s in 0..4 {
+                let t = 4 + s;
+                assert_eq!(bound1[t].created, 1, "slot {t} must be appended");
+                assert_eq!(
+                    *bound1[t].types.wrapping_offset(1),
+                    (s + 5) as c_int,
+                    "slot {t} must carry second-mesh type"
+                );
+            }
+            assert_eq!(bound1[8].created, 0, "slot 8 must stay free");
+        }
+    }
 }
