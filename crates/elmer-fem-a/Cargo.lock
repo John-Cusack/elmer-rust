@@ -55,6 +55,10 @@ name = "minpack_kinds"
 version = "0.1.0"
 
 [[package]]
+name = "mpistubs"
+version = "0.1.0"
+
+[[package]]
 name = "second"
 version = "0.1.0"
 
@@ -64,6 +68,10 @@ version = "0.1.0"
 
 [[package]]
 name = "solveband"
+version = "0.1.0"
+
+[[package]]
+name = "solvereal"
 version = "0.1.0"
 
 [[package]]
