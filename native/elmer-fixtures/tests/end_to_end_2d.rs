@@ -85,3 +85,14 @@ fn model_pde_splitted_cases_match_pristine() {
         case::assert_norm_prints(name, out.norm(1), pristine);
     }
 }
+
+/// `fem/tests/PoissonML` (`PoissonML.so`, `ElmerGrid 1 2 square`): the
+/// matrix-free CG on `Element = "p:9"` quads, with the dofs from
+/// `elmer-pdofs`.
+#[test]
+fn poisson_ml_matches_pristine() {
+    let dir = case::stage("PoissonML", None);
+    let out = case::run("PoissonML", &dir, "ptest.sif").unwrap_or_else(|e| panic!("PoissonML: {e}"));
+    assert_eq!(out.passed, Some(true), "reference check\n{}", out.log);
+    case::assert_norm_prints("PoissonML", out.norm(1), "1.71580608E-01");
+}

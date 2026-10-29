@@ -28,6 +28,7 @@ use crate::hooks::{PoissonBoundary, PoissonBulk};
 use crate::l2nd_derivatives;
 use crate::model_pde_handle;
 use crate::model_pde_splitted;
+use crate::poisson_ml;
 use crate::poisson_solver;
 use crate::single_edge_elements;
 use crate::single_elements;
@@ -131,6 +132,7 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     // No `AdvDiffSolver` in the library: Elmer runs `_bulk` and `_boundary` in steps.
     ("ModelPDEsplitted", "ModelPDEsplitted", "AdvDiffSolver", Hook::Solver(model_pde_splitted::factory)),
     ("SD_ModelPDEsplitted", "ModelPDEsplitted", "AdvDiffSolver", Hook::Solver(model_pde_splitted::factory)),
+    ("PoissonML", "PoissonML", "PoissonSolver", Hook::Solver(poisson_ml::factory)),
     ("L2ndDerivatives", "L2ndDerivativesTest", "TestSolver", Hook::Solver(l2nd_derivatives::factory)),
     ("StokesProj", "Pressure", "PressureSolver", Hook::Solver(stokes_proj::pressure_factory)),
     ("StokesProj", "Velocity", "VelocitySolver", Hook::Solver(stokes_proj::velocity_factory)),
