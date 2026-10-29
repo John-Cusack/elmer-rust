@@ -48,3 +48,11 @@ test's `runtest.cmake` does. The `.result` values are in node order
   `fem/tests/SD_QuadraturesBrick` (serendipity; RUN blocks with the default
   rule and 27, 64 and 8 points, all norm 0.37267799624996323; 81 dofs =
   27 nodes + 54 edges) on the same mesh.
+- `quadratures_wedge/`: `fem/tests/QuadraturesWedge` (`case.sif`; mesh
+  `ElmerGrid 1 2 cube.grd`, 16 wedges) and `fem/tests/SD_QuadraturesWedge`
+  (`sd_case.sif`, serendipity) on the same mesh, with the post-file line
+  replaced by `Output File`. `perm.dat` / `sd_perm.dat` hold the used Perm
+  slots (`slot row`; 125 of 149 and 93 of 93), `solution.dat` /
+  `sd_solution.dat` the values in that slot order (`index value`), from
+  `case.result` after the RUN blocks (16 and 19 rules), all norm
+  0.29999999999999927 and 0.3478041718201255.
