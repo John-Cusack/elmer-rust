@@ -1,6 +1,7 @@
 //! MinimalExample end to end: hand-built case and mesh -> `elmer-assembly`
 //! -> `elmer-direct` band LU -> `ComputeNorm` -> `TEST.PASSED` and the
-//! `Post File` VTU, directly and through `elmer-cli`'s driver.
+//! `Post File` VTU, directly and through `elmer-cli`'s driver (hand-built
+//! case, and the pristine `case.sif` through `elmer-sif`).
 
 mod support;
 
@@ -12,7 +13,7 @@ use elmer_cli::ExitCode;
 use elmer_core::{SerialComm, Value};
 use elmer_run::{run_case, Case, NativeEngine};
 use elmer_solver::SolverError;
-use support::case::{fe, minimal_example, scratch_case, HandBuilt};
+use support::case::{fe, minimal_example, scratch_case, sif_frontend, HandBuilt};
 use support::logger;
 use support::mesh::FileMesh;
 
@@ -75,6 +76,17 @@ fn cli_driver_runs_minimal_example_natively() {
     let engine = NativeEngine::new(Box::new(HandBuilt(|_| {})));
     let (action, out, diag) = drive(&engine, &dir);
     assert_eq!(action, Action::Exit(ExitCode::Pass), "{out}\n{diag}");
+    assert_eq!(std::fs::read_to_string(dir.join("TEST.PASSED")).unwrap(), "1\n");
+    assert!(dir.join("triangle/case_t0001.vtu").is_file());
+}
+
+#[test]
+fn cli_driver_runs_the_pristine_sif_through_elmer_sif() {
+    let dir = scratch_case("minimal_example", "cli-sif");
+    let engine = NativeEngine::new(Box::new(sif_frontend()));
+    let (action, out, diag) = drive(&engine, &dir);
+    assert_eq!(action, Action::Exit(ExitCode::Pass), "{out}\n{diag}");
+    assert!(out.contains("PASSED all 1 tests!"), "{out}");
     assert_eq!(std::fs::read_to_string(dir.join("TEST.PASSED")).unwrap(), "1\n");
     assert!(dir.join("triangle/case_t0001.vtu").is_file());
 }

@@ -9,7 +9,7 @@ use elmer_solver::{
 };
 
 use crate::compose::solver_registry;
-use crate::output::take_post_file;
+use crate::output::take_vtu_output;
 
 /// A parsed case and its mesh.
 pub struct Case<'a> {
@@ -69,8 +69,8 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
     }
     let Case { mut model, mesh, case_dir, mesh_dir } = case;
     let registry = solver_registry();
+    let mut post = take_vtu_output(&mut model, &case_dir, &mesh_dir)?;
     preflight(&model, &registry)?;
-    let mut post = take_post_file(&mut model, &case_dir, &mesh_dir)?;
 
     let mut sim = Simulation::new(model);
     sim.setup(mesh, &registry, log, comm)?;
