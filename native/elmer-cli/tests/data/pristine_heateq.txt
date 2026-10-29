@@ -1,0 +1,13 @@
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.76801649E-01  2.0000000     ) :: he1
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.38400825E-01 0.66666667     ) :: he1
+ComputeChange: NS (ITER=3) (NRM,RELC): ( 0.25600550E-01 0.40000000     ) :: he1
+ComputeChange: NS (ITER=4) (NRM,RELC): ( 0.19200412E-01 0.28571429     ) :: he1
+ComputeChange: NS (ITER=5) (NRM,RELC): ( 0.15360330E-01 0.22222222     ) :: he1
+ComputeChange: NS (ITER=6) (NRM,RELC): ( 0.12800275E-01 0.18181818     ) :: he1
+ComputeChange: NS (ITER=7) (NRM,RELC): ( 0.10971664E-01 0.15384615     ) :: he1
+ComputeChange: NS (ITER=8) (NRM,RELC): ( 0.96002062E-02 0.13333333     ) :: he1
+ComputeChange: NS (ITER=9) (NRM,RELC): ( 0.85335166E-02 0.11764706     ) :: he1
+ComputeChange: NS (ITER=10) (NRM,RELC): ( 0.76801649E-02 0.10526316     ) :: he1
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.76801649E-02  2.0000000     ) :: he1
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.76801649E-01  2.0000000     ) :: he2
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.76801649E-01  2.0000000     ) :: he2

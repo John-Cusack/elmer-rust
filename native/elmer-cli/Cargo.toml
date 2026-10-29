@@ -1,0 +1,18 @@
+[package]
+name = "elmer-cli"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "ElmerSolver / ElmerSolver_mpi binaries: capability check, Fortran strangler, Elmer stdout formats"
+
+[dependencies]
+elmer-core.workspace = true
+
+[[bin]]
+name = "ElmerSolver"
+path = "src/bin/ElmerSolver.rs"
+
+[[bin]]
+name = "ElmerSolver_mpi"
+path = "src/bin/ElmerSolver_mpi.rs"

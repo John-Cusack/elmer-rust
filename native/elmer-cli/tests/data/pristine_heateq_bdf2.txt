@@ -1,0 +1,24 @@
+MAIN: Time: 1/8:   1.000E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.75696824E-02  2.0000000     ) :: heat
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.75696824E-02  0.0000000     ) :: heat
+MAIN: Time: 2/8:   2.000E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.14447068E-01 0.62474118     ) :: heat
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.14447068E-01  0.0000000     ) :: heat
+MAIN: Time: 3/8:   3.000E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20597343E-01 0.35099896     ) :: heat
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.20597343E-01  0.0000000     ) :: heat
+MAIN: Time: 4/8:   4.000E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.26101850E-01 0.23574313     ) :: heat
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.26101850E-01  0.0000000     ) :: heat
+MAIN: Time: 5/8:   5.000E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.31042888E-01 0.17293062     ) :: heat
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.31042888E-01  0.0000000     ) :: heat
+MAIN: Time: 6/8:   7.000E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.39535361E-01 0.24065411     ) :: heat
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.39535361E-01  0.0000000     ) :: heat
+MAIN: Time: 7/8:   9.000E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.46474557E-01 0.16135804     ) :: heat
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.46474557E-01  0.0000000     ) :: heat
+MAIN: Time: 8/8:   1.100E+00
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.52142253E-01 0.11494382     ) :: heat
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.52142253E-01  0.0000000     ) :: heat
