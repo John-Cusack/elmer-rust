@@ -36,8 +36,9 @@ fn section_converts_to_params() {
     assert_eq!(map.real("viscosity"), Some(1.0e-3));
     assert_eq!(map.integer("equation"), Some(1));
     assert_eq!(map.logical("active"), Some(true));
-    // `Str` (quoted text) and `File` both read through `string`.
-    assert_eq!(map.string("name"), Some("Water"));
+    // `Str` (quoted text) and `File` both read through `string`; Elmer's
+    // `ListAddString` lowercases `Str` at storage, `File` keeps case.
+    assert_eq!(map.string("name"), Some("water"));
     assert_eq!(map.string("data file"), Some("data.dat"));
     // A table value is a Dependent, not a constant: typed getters say None.
     let mut run = parse_body(
