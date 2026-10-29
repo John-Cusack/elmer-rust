@@ -1,0 +1,11 @@
+[package]
+name = "elmer-sparse"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CRS matrix operations, scaling, ILU family and Linear System Save I/O for the Rust-native Elmer rewrite"
+
+[dependencies]
+elmer-core.workspace = true
+num-complex.workspace = true
