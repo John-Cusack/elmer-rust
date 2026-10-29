@@ -58,7 +58,10 @@ fn refuses_radiation_and_phase_change() {
     // `none` is no radiation at all.
     bc.insert("Radiation", Value::Str("none".into()));
     check_supported(&sections(&s, None, None, vec![&bc])).unwrap();
+    // Diffuse gray radiation is the default path's.
     bc.insert("Radiation", Value::Str("diffuse gray".into()));
+    check_supported(&sections(&s, None, None, vec![&bc])).unwrap();
+    bc.insert("Radiation", Value::Str("weird".into()));
     assert_eq!(
         keyword(check_supported(&sections(&s, None, None, vec![&bc])).unwrap_err()),
         "Radiation"
@@ -122,5 +125,35 @@ fn convection_needs_supg() {
     assert_eq!(
         keyword(check_supported(&sections(&s, Some(&eq), None, vec![])).unwrap_err()),
         "Convection"
+    );
+}
+
+#[test]
+fn radiators_need_the_default_assembly() {
+    let mut s = solver();
+    let mut bc = ParamMap::new();
+    bc.insert("Radiator BC", Value::Logical(true));
+    check_supported(&sections(&s, None, None, vec![&bc])).unwrap();
+
+    let mut bf = ParamMap::new();
+    bf.insert(
+        "Radiator Coordinates",
+        Value::Real {
+            rows: 1,
+            cols: 3,
+            data: vec![0.0, 0.0, 0.0],
+        },
+    );
+    let mut with_bf = sections(&s, None, None, vec![]);
+    with_bf.body_force = Some(&bf);
+    check_supported(&with_bf).unwrap();
+
+    // HeatSolveLegacy: "For radiative point sources use HeatSolveVec".
+    s.insert("Legacy Assembly", Value::Logical(true));
+    let mut with_bf = sections(&s, None, None, vec![]);
+    with_bf.body_force = Some(&bf);
+    assert_eq!(
+        keyword(check_supported(&with_bf).unwrap_err()),
+        "Radiator Coordinates"
     );
 }
