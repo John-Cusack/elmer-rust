@@ -107,12 +107,13 @@ impl SolverDofs for PSetup {
 /// with the MATC variable `cx` = `[body, x, y, z]`.
 pub type MatcFn = dyn Fn(&str, [f64; 4]) -> Result<f64, String> + Send + Sync;
 
-/// The [`DofsBackend`] serving every solver section with a non-nodal
-/// `Element` keyword from [`PSetup`].
+/// The [`DofsBackend`] serving, from [`PSetup`], every solver that a
+/// non-nodal definition applies to: its own `Element`, a body's `Solver
+/// id: Element`, an equation's `Element{id}`, or (without its own) an
+/// equation `Element`.
 ///
-/// Refused: `Element` in equation sections or body-wise
-/// `Solver i: Element`, and boundary elements that a BC `Body Id` makes
-/// active (both change `Def_Dofs` or the active set in ways not ported).
+/// Refused: boundary elements that a BC `Body Id` makes active (that
+/// changes the active set in a way not ported).
 #[derive(Clone, Default)]
 pub struct PDofsBackend {
     matc: Option<Arc<MatcFn>>,
@@ -130,7 +131,80 @@ impl PDofsBackend {
     }
 }
 
+/// The element definitions a solver sees outside its own section, by its
+/// 1-based id (0 when unknown: only the solver section and plain equation
+/// `Element`s count).
+struct OtherDefs<'m> {
+    model: &'m Model,
+    id: usize,
+}
+
+impl OtherDefs<'_> {
+    fn equation_element(&self, q: usize) -> Option<String> {
+        self.model
+            .equations
+            .get(q.checked_sub(1)?)?
+            .string("element")
+            .map(str::to_owned)
+    }
+    /// `Element{id}` of equation `q`.
+    fn equation_solver_element(&self, q: usize) -> Option<String> {
+        if self.id == 0 {
+            return None;
+        }
+        let eq = self.model.equations.get(q.checked_sub(1)?)?;
+        eq.string(&format!("element{{{}}}", self.id))
+            .map(str::to_owned)
+    }
+    /// `Solver id: Element` of body `b`.
+    fn body_solver_element(&self, b: usize) -> Option<String> {
+        if self.id == 0 {
+            return None;
+        }
+        let body = self.model.bodies.get(b.checked_sub(1)?)?;
+        body.string(&format!("solver {}: element", self.id))
+            .map(str::to_owned)
+    }
+    fn body_equation(&self, b: usize) -> Option<usize> {
+        let eq = self
+            .model
+            .bodies
+            .get(b.checked_sub(1)?)?
+            .integer("equation")?;
+        usize::try_from(eq)
+            .ok()
+            .filter(|&q| q >= 1 && q <= self.model.equations.len())
+    }
+    fn equation_activates(&self, q: usize) -> Option<bool> {
+        let eq = self.model.equations.get(q.checked_sub(1)?)?;
+        match eq.get("active solvers")? {
+            elmer_core::Value::Integer(v) => Some(v.iter().any(|&s| s as usize == self.id)),
+            _ => Some(false),
+        }
+    }
+
+    /// Whether any definition other than plain nodal `n:1` applies to the
+    /// solver: its own `Element`, a body's `Solver id: Element`, an
+    /// equation's `Element{id}`, or (without its own) an equation
+    /// `Element`, which Elmer applies to every such solver.
+    fn has_p_definitions(&self, solver: &ParamMap) -> bool {
+        if solver.string("element").is_some() {
+            return is_p_section(solver);
+        }
+        let nodal = |d: &str| d.trim().to_lowercase() == "n:1";
+        (1..=self.model.bodies.len())
+            .any(|b| self.body_solver_element(b).is_some_and(|d| !nodal(&d)))
+            || (1..=self.model.equations.len()).any(|q| {
+                self.equation_solver_element(q).is_some_and(|d| !nodal(&d))
+                    || self.equation_element(q).is_some_and(|d| !nodal(&d))
+            })
+    }
+}
+
 impl DofsBackend for PDofsBackend {
+    /// Without a solver id only the solver section and plain equation
+    /// `Element`s are seen; the framework calls
+    /// [`for_solver_id`](DofsBackend::for_solver_id).
     fn for_solver(
         &self,
         mesh: &dyn MeshView,
@@ -139,10 +213,26 @@ impl DofsBackend for PDofsBackend {
         active: &[ElemId],
         dofs: usize,
     ) -> Option<Result<Box<dyn SolverDofs>, SolverError>> {
-        if !is_p_section(solver) {
+        self.for_solver_id(mesh, model, 0, solver, active, dofs)
+    }
+
+    fn for_solver_id(
+        &self,
+        mesh: &dyn MeshView,
+        model: &Model,
+        solver_id: usize,
+        solver: &ParamMap,
+        active: &[ElemId],
+        dofs: usize,
+    ) -> Option<Result<Box<dyn SolverDofs>, SolverError>> {
+        let other = OtherDefs {
+            model,
+            id: solver_id,
+        };
+        if !other.has_p_definitions(solver) {
             return None;
         }
-        Some(self.build(mesh, model, solver, active, dofs))
+        Some(self.build(mesh, &other, solver, active, dofs))
     }
 }
 
@@ -150,29 +240,12 @@ impl PDofsBackend {
     fn build(
         &self,
         mesh: &dyn MeshView,
-        model: &Model,
+        other: &OtherDefs<'_>,
         solver: &ParamMap,
         active: &[ElemId],
         dofs: usize,
     ) -> Result<Box<dyn SolverDofs>, SolverError> {
-        if let Some(i) = model
-            .equations
-            .iter()
-            .position(|q| q.get("element").is_some())
-        {
-            return Err(SolverError::Unsupported(format!(
-                "Equation {}: Element (element definitions in equation sections)",
-                i + 1
-            )));
-        }
-        if model.bodies.iter().any(|b| {
-            b.0.keys()
-                .any(|k| k.starts_with("solver ") && k.ends_with(": element"))
-        }) {
-            return Err(SolverError::Unsupported(
-                "Body: Solver i: Element (body-wise element definitions)".into(),
-            ));
-        }
+        let model = other.model;
         if model
             .boundary_conditions
             .iter()
@@ -186,12 +259,6 @@ impl PDofsBackend {
         for &e in active {
             is_active[e.0 as usize] = true;
         }
-        let body_has_equation = |b: usize| {
-            model
-                .bodies
-                .get(b - 1)
-                .is_some_and(|p| p.get("equation").is_some())
-        };
         let matc = self.matc.clone();
         let mut matc_degree = move |f: &str, cx: [f64; 4]| -> Result<f64, Error> {
             match &matc {
@@ -207,7 +274,12 @@ impl PDofsBackend {
             &model.simulation,
             ModelFacts {
                 n_bodies: model.bodies.len(),
-                body_has_equation: &body_has_equation,
+                n_equations: model.equations.len(),
+                body_equation: &|b| other.body_equation(b),
+                equation_element: &|q| other.equation_element(q),
+                equation_solver_element: &|q| other.equation_solver_element(q),
+                body_solver_element: &|b| other.body_solver_element(b),
+                equation_activates: &|q| other.equation_activates(q),
                 active: &|e: ElemId| is_active[e.0 as usize],
                 boundary_body: &|_| 0,
                 matc_degree: &mut matc_degree,

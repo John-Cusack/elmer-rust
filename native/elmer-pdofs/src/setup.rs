@@ -33,25 +33,76 @@ pub fn is_p_section(solver: &dyn Params) -> bool {
         .is_some_and(|e| e.trim().to_lowercase() != "n:1")
 }
 
+fn has_p_or_b(def: &str) -> bool {
+    def.contains("p:") || def.contains("b:")
+}
+
 /// `SetGlobalBubblesFlag` (MainUtils.F90:1106) for a solver-section
 /// definition: `Bubbles in Global System`, else whether `Element`
 /// contains `p:` or `b:`.
 pub fn global_bubbles(solver: &dyn Params) -> bool {
     solver
         .logical("bubbles in global system")
-        .unwrap_or_else(|| {
-            solver
-                .string("element")
-                .is_some_and(|s| s.contains("p:") || s.contains("b:"))
-        })
+        .unwrap_or_else(|| solver.string("element").is_some_and(has_p_or_b))
+}
+
+/// `SetGlobalBubblesFlag` with the model fallbacks: `Bubbles in Global
+/// System`; else the solver `Element`; else the `Element` of each
+/// equation whose `Active Solvers` include the solver; and, when the last
+/// of those lookups found nothing (the Fortran tests the `Found` of the
+/// last `ListGet` call), the bodies' `Solver id: Element`. Any `p:` or `b:`
+/// found turns the global bubbles on.
+pub fn global_bubbles_with(solver: &dyn Params, facts: &ModelFacts<'_>) -> bool {
+    if let Some(gb) = solver.logical("bubbles in global system") {
+        return gb;
+    }
+    if let Some(def) = solver.string("element") {
+        return has_p_or_b(def);
+    }
+    let mut gb = false;
+    let mut found = false;
+    for q in 1..=facts.n_equations {
+        match (facts.equation_activates)(q) {
+            None => found = false,
+            Some(active) => {
+                found = true;
+                if active {
+                    let def = (facts.equation_element)(q);
+                    found = def.is_some();
+                    if def.is_some_and(|d| has_p_or_b(&d)) {
+                        gb = true;
+                    }
+                }
+            }
+        }
+    }
+    if !found {
+        for b in 1..=facts.n_bodies {
+            if (facts.body_solver_element)(b).is_some_and(|d| has_p_or_b(&d)) {
+                gb = true;
+            }
+        }
+    }
+    gb
 }
 
 /// The model facts [`PSetup::new`] needs besides the keywords.
 pub struct ModelFacts<'a> {
     /// Number of bodies.
     pub n_bodies: usize,
-    /// Whether body `b` (1-based) has an `Equation`.
-    pub body_has_equation: &'a dyn Fn(usize) -> bool,
+    /// Number of equation sections.
+    pub n_equations: usize,
+    /// The `Equation` of body `b` (1-based), when it has one.
+    pub body_equation: &'a dyn Fn(usize) -> Option<usize>,
+    /// `Element` of equation `q` (1-based).
+    pub equation_element: &'a dyn Fn(usize) -> Option<String>,
+    /// `Element{id}` of equation `q` for this solver's id.
+    pub equation_solver_element: &'a dyn Fn(usize) -> Option<String>,
+    /// `Solver id: Element` of body `b` for this solver's id.
+    pub body_solver_element: &'a dyn Fn(usize) -> Option<String>,
+    /// Whether equation `q`'s `Active Solvers` include this solver, `None`
+    /// when it has no `Active Solvers` (`SetGlobalBubblesFlag`'s fallback).
+    pub equation_activates: &'a dyn Fn(usize) -> Option<bool>,
     /// `CheckElementEquation` for the solver, over bulk and boundary
     /// elements (boundary elements count only with a BC `Body Id`).
     pub active: &'a dyn Fn(ElemId) -> bool,
@@ -75,10 +126,11 @@ pub struct PSetup {
 }
 
 impl PSetup {
-    /// The setup of one solver with `dofs` components on `mesh`. Only the
-    /// solver-section `Element` is read; the caller must refuse element
-    /// definitions in equation sections and body-wise `Solver i: Element`
-    /// keywords.
+    /// The setup of one solver with `dofs` components on `mesh`, from its
+    /// own `Element`, the equations' `Element` / `Element{id}` and the
+    /// bodies' `Solver id: Element` with Elmer's precedence
+    /// (`NonNodalElements`). Only this solver's definitions shape the mesh
+    /// tables (Elmer takes the maximum over all solvers on the mesh).
     pub fn new(
         mesh: &dyn MeshView,
         solver: &dyn Params,
@@ -89,24 +141,22 @@ impl PSetup {
         if solver.logical("discontinuous galerkin") == Some(true) {
             return Err(Error::Unsupported("Discontinuous Galerkin".into()));
         }
-        let def = solver
-            .string("element")
-            .ok_or_else(|| Error::BadDefinition("no Element keyword".into()))?;
+        let def = solver.string("element");
         let mut max = initial_max_defs();
-        let mut defs =
-            ElementDefs::from_solver_element(Some(def), facts.n_bodies, false, &mut max)?;
+        let mut defs = ElementDefs::from_solver_element(def, facts.n_bodies, false, &mut max)?;
         let need_edges = match mesh.dim() {
             2 => simulation.logical("need edges 2d"),
             3 => simulation.logical("need edges 3d"),
             _ => None,
         };
-        let none = |_: usize| None;
+        let gb = global_bubbles_with(solver, &facts);
         let mut pm = {
             let mut solvers = [SolverElements {
                 defs: &mut defs,
-                element: Some(def),
+                element: def,
                 dg: false,
-                body_element: &none,
+                body_element: facts.body_solver_element,
+                equation_element: facts.equation_solver_element,
             }];
             PMesh::new(
                 mesh,
@@ -116,13 +166,14 @@ impl PSetup {
                     serendipity: simulation.logical("serendipity p elements").unwrap_or(true),
                     need_edges,
                     n_bodies: facts.n_bodies,
-                    body_has_equation: facts.body_has_equation,
+                    n_equations: facts.n_equations,
+                    body_equation: facts.body_equation,
+                    equation_element: facts.equation_element,
                     matc_degree: facts.matc_degree,
                     boundary_body: facts.boundary_body,
                 },
             )?
         };
-        let gb = global_bubbles(solver);
         let bubbles = solver.logical("bubbles").unwrap_or(false);
         let opts = PermOptions {
             optimize_bandwidth: solver.logical("optimize bandwidth").unwrap_or(true),
