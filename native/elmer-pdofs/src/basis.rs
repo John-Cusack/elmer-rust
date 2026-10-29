@@ -18,15 +18,17 @@ use elmer_core::ElementType;
 use elmer_fe::quadrature::{
     gauss_points, gauss_points_1d, gauss_points_brick, gauss_points_quad, GaussRule,
 };
-use elmer_fe_hp::maps::{bubble_dofs, edge_direction, face_direction};
+use elmer_fe_hp::maps::{
+    bubble_dofs, edge_direction, face_direction, tetra_edge_direction, tetra_face_direction,
+};
 use elmer_fe_hp::{PElementBasis, PElementSpec, MAX_EDGES, MAX_FACES};
 
 use crate::defs::Kind;
 use crate::dofs::DofLayout;
 use crate::pmesh::effective_bubble_p;
 use crate::quadrature::{
-    gauss_points_p_triangle, gauss_points_quad_p, gauss_points_triangle_p, p_triangle_rule,
-    p_wedge_rule, triangle_rule_tabulated,
+    gauss_points_p_pyramid, gauss_points_p_triangle, gauss_points_quad_p, gauss_points_triangle_p,
+    p_tetra_rule, p_triangle_rule, p_wedge_rule, triangle_rule_tabulated,
 };
 use crate::Error;
 
@@ -106,6 +108,43 @@ impl DofLayout<'_> {
                         let dir = face_direction(el.code, 1, &gind).expect("2D face map");
                         spec.bubble_face_dir = Some(dir[0]);
                     }
+                }
+            }
+            504 => {
+                // Edges and faces on the TetraType tables (ConvertToACTetra
+                // ordered the nodes), effective-p bubbles.
+                let tt = pd.tetra_type.max(1);
+                let edofs = pm.edge_dofs_of(e, p);
+                if !el.edges.is_empty() && edofs > 0 {
+                    spec.edge_degree[..6].fill(edofs as i32 + 1);
+                }
+                spec.edge_dir = tetra_edge_direction(tt);
+                if !el.faces.is_empty() {
+                    spec.face_degree[..4].fill(p);
+                }
+                spec.face_dir = tetra_face_direction(tt);
+                if bdofs > 0 {
+                    spec.bubble_p = effective_bubble_p(504, p, bdofs, sd);
+                }
+            }
+            605 => {
+                if sd {
+                    return Err(Error::BadDefinition(
+                        "ElementInfo: p-Pyramid not implemented for serendipity scheme, please use the full scheme instead."
+                            .into(),
+                    ));
+                }
+                let edofs = pm.edge_dofs_of(e, p);
+                if !el.edges.is_empty() && edofs > 0 {
+                    spec.edge_degree[..8].fill(edofs as i32 + 1);
+                }
+                spec.edge_dir = edge_direction(605, 8, &gind).expect("pyramid edge map");
+                if !el.faces.is_empty() {
+                    spec.face_degree[..5].fill(p);
+                }
+                spec.face_dir = face_direction(605, 5, &gind).expect("pyramid face map");
+                if bdofs > 0 {
+                    spec.bubble_p = effective_bubble_p(605, p, bdofs, sd);
                 }
             }
             706 => {
@@ -201,6 +240,8 @@ impl DofLayout<'_> {
                 Some(n) => gauss_points_p_triangle(n),
                 None => p_triangle_rule(n),
             },
+            5 => p_tetra_rule(n, np.is_some()),
+            6 => gauss_points_p_pyramid(n),
             7 => p_wedge_rule(n, np.is_some()),
             8 => fe(gauss_points_brick(n)),
             _ => Err(Error::Unsupported(format!(

@@ -104,16 +104,17 @@ Refused with a named reason:
   variable`. Registered, the case runs to norm 0 (a mismatch) instead of
   erroring. Register it once explicit control exists or `elmer-run`
   refuses `Apply Explicit Control`.
-- `ElementUnitTest_p1`, `SD_ElementUnitTest_p1`: registered. The solver's
-  variable is a global, so `elmer-solver` builds no dof layout for it, and
-  `SingleElements` builds `elmer-pdofs`' layout for its own section in
-  `init`. That layout has no tetrahedral p elements yet (the unit meshes
-  have a 504), so both are refused by name before the run. On the brick of
-  the unit mesh alone (`tests/data/ElementUnitTest_p1_brick`), the p:1 sums
+- `ElementUnitTest_p1`, `SD_ElementUnitTest_p1`: registered and passing
+  (12 and 10 reference norms). The solver's variable is a global, so
+  `elmer-solver` builds no dof layout for it, and `SingleElements` builds
+  `elmer-pdofs`' layout for its own section in `init`: p bricks, wedges,
+  pyramids and tetrahedra (`ConvertToACTetra`). The parentless 404 and 303
+  boundary elements of the unit mesh get no p definitions there and take the
+  Lagrange basis; at p:1 their nodal functions are the same polynomials, so
+  the sums agree with the pristine ones to rounding. On the brick of the
+  unit mesh alone (`tests/data/ElementUnitTest_p1_brick`), the p:1 sums
   match the pristine values to 1e-15 (the stiffness sum differs in the last
-  place, as for `_h1`). Wedges have no p basis in `elmer-pdofs` yet either. Its parentless 404 boundary face is "not an active p
-  element" for `elmer-pdofs`, while the pristine run gives it a p basis (its
-  stiffness sum differs from `_h1`'s).
+  place, as for `_h1`).
 - The other shell cases are registered and refused by name. `p-FEM_two_solvers`
   defines its degrees body-wise (`Solver 1: Element` in each Body) and
   `SD_p-FEM_with_varying_p` in its Equation section. `elmer-pdofs` lays out a
