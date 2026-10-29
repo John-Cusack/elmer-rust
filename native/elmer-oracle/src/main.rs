@@ -10,8 +10,9 @@ use std::path::{Path, PathBuf};
 fn usage() -> ! {
     eprintln!("usage:");
     eprintln!("  elmer-oracle plan <tests-dir> <test> [--np N]");
-    eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N]");
-    eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N]");
+    eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N] [--o2] [--o2m]");
+    eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N] [--o2] [--o2m]");
+    eprintln!("  elmer-oracle grade-fields <golden.result> <candidate.result> [--tol X]");
     eprintln!("  elmer-oracle manifest <dir> <out> --origin NAME");
     eprintln!("  elmer-oracle bins <build-dir>");
     eprintln!("  elmer-oracle discover <tests-dir>");
@@ -205,6 +206,41 @@ fn main() {
             }
             std::fs::write(&manifest_path, m.serialize()).unwrap_or_else(|_| usage());
             println!("entries: {}", m.entries.len());
+        }
+        "grade-fields" => {
+            // Grade a candidate binary .result against a golden one with
+            // a uniform Tier bar; per-field tables refine this later.
+            if args.len() < 5 {
+                usage();
+            }
+            let golden_path = PathBuf::from(&args[2]);
+            let candidate_path = PathBuf::from(&args[3]);
+            let mut tol = 1e-10f64;
+            let mut i = 4;
+            while i < args.len() {
+                if args[i] == "--tol" && i + 1 < args.len() {
+                    tol = args[i + 1].parse().unwrap_or_else(|_| usage());
+                    i += 1;
+                }
+                i += 1;
+            }
+            let golden = elmer_oracle::result::read_result_file(&golden_path).unwrap_or_else(|e| {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            });
+            let candidate =
+                elmer_oracle::result::read_result_file(&candidate_path).unwrap_or_else(|e| {
+                    eprintln!("error: {e}");
+                    std::process::exit(1);
+                });
+            let mismatches = elmer_oracle::grade::grade_results(&golden, &candidate, tol);
+            for m in &mismatches {
+                println!("{} step {}: {:?}", m.variable, m.step, m.kind);
+            }
+            println!("mismatches: {}", mismatches.len());
+            if !mismatches.is_empty() {
+                std::process::exit(1);
+            }
         }
         "manifest" => {
             if args.len() < 4 {
