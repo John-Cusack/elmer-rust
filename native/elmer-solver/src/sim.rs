@@ -412,6 +412,12 @@ impl Simulation {
         for ix in 0..self.slots.len() {
             self.init_slot(ix, mesh, log, comm)?;
         }
+        // ElmerSolver.F90:578-585, after the initial conditions.
+        for ix in 0..self.slots.len() {
+            if self.slots[ix].params.logical("initialize exported variables") == Some(true) {
+                self.update_exported_variables(ix, mesh, log)?;
+            }
+        }
         self.initialize_dirichlet(mesh)
     }
 
@@ -468,7 +474,9 @@ impl Simulation {
     /// (all nodes of its active elements, or every node when it has none),
     /// or `-global` ones; `Exported Variable n Output` and `-nooutput`
     /// control output. Initial conditions are applied when `apply_ics`.
-    /// Masks, `-ip`, `-elem`, `-dg` and time derivatives are refused.
+    /// `-elem` fields live on the active elements, `-ip` ones on their
+    /// Gauss points (`exported`). Masks, `-dg` and time derivatives are
+    /// refused.
     fn add_exported_variables(&mut self, slot: &SolverSlot, mesh: &dyn MeshView, apply_ics: bool) -> Result<(), SolverError> {
         for l in 1.. {
             let key = format!("exported variable {l}");
@@ -502,6 +510,25 @@ impl Simulation {
                         self.apply_initial_conditions(slot, &spec, mesh, &perm, &mut values)?;
                     }
                     let mut v = Variable::new(&spec.name, FieldKind::Nodal, spec.dofs, Some(perm), values);
+                    v.output = spec.output;
+                    self.vars.add_with_components(v, &spec.components)?;
+                }
+                FieldKind::Elemental | FieldKind::Ip => {
+                    let ic_key = |k: &str| self.model.initial_conditions.iter().any(|ic| ic.get(k).is_some());
+                    if apply_ics && (ic_key(&spec.name) || spec.components.iter().any(|c| ic_key(c))) {
+                        return Err(SolverError::Unsupported(format!(
+                            "initial condition of the {:?} exported variable {}",
+                            spec.kind, spec.name
+                        )));
+                    }
+                    let (perm, n) = if spec.kind == FieldKind::Ip {
+                        let offsets = crate::exported::ip_perm(self, mesh, slot)?;
+                        let n = *offsets.last().expect("one entry") as usize;
+                        (offsets, n)
+                    } else {
+                        crate::exported::element_perm(mesh, slot)
+                    };
+                    let mut v = Variable::new(&spec.name, spec.kind, spec.dofs, Some(perm.into()), vec![0.0; n * spec.dofs]);
                     v.output = spec.output;
                     self.vars.add_with_components(v, &spec.components)?;
                 }
@@ -929,7 +956,6 @@ impl Simulation {
             "calculate derivative",
             "nonlinear calculate derivative",
             "nonlinear calculate velocity",
-            "nonlinear update exported variables",
         ] {
             if p.logical(k) == Some(true) {
                 return Err(SolverError::Unsupported(format!("ComputeChange option {k}")));
@@ -970,7 +996,12 @@ impl Simulation {
             comm,
         };
         let var = self.vars.by_id_mut(id);
-        compute_change(&env, var, &mut slot.state).map(Some)
+        let report = compute_change(&env, var, &mut slot.state)?;
+        // UpdateDependentObjects(Solver, .FALSE.) (SolverBasics.F90:4242).
+        if !steady && self.slots[ix].params.logical("nonlinear update exported variables") == Some(true) {
+            self.update_exported_variables(ix, mesh, log)?;
+        }
+        Ok(Some(report))
     }
 
     /// `SolverActivate` + `SingleSolver`: exec conditions, `nonlin iter`
@@ -1070,6 +1101,10 @@ impl Simulation {
             };
             self.slots[ix].instance = Some(inst);
             r?;
+        }
+        // UpdateDependentObjects(Solver, .TRUE.) (MainUtils.F90:5625).
+        if self.slots[ix].params.logical("update exported variables") == Some(true) {
+            self.update_exported_variables(ix, mesh, log)?;
         }
         self.slots[ix].times_visited += 1;
         Ok(())
