@@ -184,3 +184,53 @@ fn idrs() {
 fn bicgstabl_block_ilu0() {
     method_passes("BiCGStabl", "ILU0", "0.16133448045348997", "1e-8", &[2, 4]);
 }
+
+/// The ParallelSlices quick test at np=2 (`tests/data/slices`, its own
+/// `case.sif` and `ElmerGrid 1 2 square.grd` mesh): `Single Mesh`, each
+/// rank rotating its copy of the mesh by its `slice` with RigidMeshMapper.
+/// Rank 0's norm must meet the test's reference.
+#[test]
+fn parallel_slices_np2() {
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/slices");
+    let dir = std::env::temp_dir().join(format!("elmer-mpi-run-slices-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    copy_dir(&src, &dir);
+    let Some(out) = mpirun(2, &dir, "case.sif") else { return };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}\n{}", String::from_utf8_lossy(&out.stderr));
+    let verdict = std::fs::read_to_string(dir.join("TEST.PASSED_2")).unwrap_or_else(|e| panic!("TEST.PASSED_2: {e}\n{stdout}"));
+    assert_eq!(verdict.trim(), "1", "{stdout}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// `Single Mesh` with a `Post File`: every rank solves the whole mesh, rank
+/// 0 writes `TEST.PASSED_<np>`, each rank writes its piece
+/// `case_<np>np<rank+1>_t0001.vtu` and rank 0 the `.pvtu` listing them
+/// (VtuOutputSolver.F90 `VtuFileNaming`, `WritePvtuFile`).
+#[test]
+fn single_mesh_writes_partition_pieces() {
+    let dir = stage("single-mesh");
+    let sif = std::fs::read_to_string(dir.join("case.sif")).unwrap();
+    let start = sif.find("\nSolver 2\n").unwrap();
+    let end = start + sif[start..].find("\nEnd \n").unwrap() + "\nEnd \n".len();
+    let sif = format!("{}{}", &sif[..start], &sif[end..])
+        .replacen("Simulation\n", "Simulation\n  Single Mesh = True\n  Post File = \"case.vtu\"\n", 1)
+        .replace("Output Intervals = 0", "Output Intervals = 1");
+    assert!(sif.contains("Target Boundaries = 1") && !sif.contains("SaveScalars"));
+    std::fs::write(dir.join("single.sif"), sif).unwrap();
+    let Some(out) = mpirun(3, &dir, "single.sif") else { return };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}\n{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(std::fs::read_to_string(dir.join("TEST.PASSED_3")).unwrap().trim(), "1", "{stdout}");
+    let mesh = dir.join("angle");
+    for p in 1..=3 {
+        assert!(mesh.join(format!("case_3np{p}_t0001.vtu")).is_file(), "piece {p}");
+    }
+    let pvtu = std::fs::read_to_string(mesh.join("case_t0001.pvtu")).unwrap();
+    let pieces: Vec<&str> = pvtu.lines().filter(|l| l.contains("<Piece")).map(str::trim).collect();
+    assert_eq!(
+        pieces,
+        ["<Piece Source=\"case_3np1_t0001.vtu\"/>", "<Piece Source=\"case_3np2_t0001.vtu\"/>", "<Piece Source=\"case_3np3_t0001.vtu\"/>"]
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}

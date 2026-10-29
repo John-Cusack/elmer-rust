@@ -158,6 +158,9 @@ fn load_mesh(mesh_dir: &Path, rank: usize, np: usize, scale: f64) -> Result<ParM
 pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> Result<ParOutcome, SolverError> {
     let (rank, np) = (ex.rank(), ex.size());
     let loaded = SifFrontend { mesh: no_mesh }.load(sif).map_err(SolverError::Unsupported)?;
+    if loaded.model.simulation.logical("single mesh") == Some(true) {
+        return run_single_mesh(loaded, &*ex, log);
+    }
     if !loaded.reloads.is_empty() {
         return Err(unsupported("RUN blocks in parallel"));
     }
@@ -202,6 +205,29 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
         .filter_map(|s| Some((s.id, sim.vars.by_id(s.variable?).conv.norm)))
         .collect();
     Ok(ParOutcome { report, norms, passed })
+}
+
+/// `Single Mesh = True`: every rank reads the whole mesh DB and runs the
+/// case serially through `elmer-run` (`Mesh % SingleMesh` turns Elmer's
+/// parallel paths off), as one rank of the job: rank 0 writes
+/// `TEST.PASSED_<np>`, VTU pieces are named per rank, and `Parallel Slices`
+/// gives each rank its own slice. Not reproduced: the maximum of the
+/// nonlinear change over slices (`ComputeChange` with `Number Of Slices >
+/// 1`), which only matters when a slice would otherwise stop iterating
+/// earlier than another.
+fn run_single_mesh(loaded: elmer_run::LoadedCase, job: &dyn Exchange, log: &dyn Logger) -> Result<ParOutcome, SolverError> {
+    let scale = loaded.model.simulation.real("coordinate scaling").unwrap_or(1.0);
+    let mesh = agree(job, ParMesh::read_serial(&loaded.mesh_dir, scale).map_err(|e| SolverError::fatal("LoadMesh", e)))?;
+    let case = elmer_run::Case {
+        model: loaded.model,
+        reloads: loaded.reloads,
+        mesh: &mesh,
+        case_dir: loaded.case_dir,
+        mesh_dir: loaded.mesh_dir,
+    };
+    let job: &dyn Communicator = job;
+    let out = elmer_run::run_case_with(case, log, &elmer_run::RunEnv { job, globals: Vec::new() })?;
+    Ok(ParOutcome { report: out.report, norms: out.norms, passed: out.passed })
 }
 
 /// The partitioned run behind `elmer-cli`'s [`Engine`]: one run per process
