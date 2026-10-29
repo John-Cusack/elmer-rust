@@ -1,0 +1,7 @@
+{
+  global:
+    phasechangesolve_;
+    phasechangesolve_init_;
+    meltingheat_;
+  local: *;
+};

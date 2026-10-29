@@ -1,0 +1,10 @@
+{
+global: vectorhelmholtzsolver_;
+global: vectorhelmholtzsolver_init_;
+global: vectorhelmholtzsolver_init0_;
+global: vectorhelmholtz_dummy_;
+global: vectorhelmholtzcalcfields_;
+global: vectorhelmholtzcalcfields_init_;
+global: vectorhelmholtzcalcfields_init0_;
+local: *;
+};

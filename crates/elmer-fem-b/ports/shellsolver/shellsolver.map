@@ -1,0 +1,5 @@
+{
+  global: shellsolver_;
+  global: shellsolver_init0_;
+  local: *;
+};

@@ -1,0 +1,5 @@
+{
+  global: statmagsolver_;
+  global: statmagsolver_init_;
+  local: *;
+};
