@@ -3,10 +3,12 @@
 //! physics and output procedures, the element library they and the
 //! framework's own integrals share and the MATC engine.
 
+use std::path::Path;
 use std::sync::OnceLock;
 
-use elmer_core::{ElementBasis, MeshView, Params, Quadrature};
+use elmer_core::{ElementBasis, Logger, MeshView, Params, Quadrature};
 use elmer_fe::{CoordinateSystem, ElmerQuadrature, LagrangeBasis};
+use elmer_mortar::{generate_periodic_projectors, PeriodicAssembly, ProjectorEnv};
 use elmer_physics_heat::FeProvider;
 use elmer_solver::{FeBackend, Model, SolverError, SolverRegistry};
 
@@ -81,4 +83,38 @@ pub fn install_fe(cdim: usize) -> Result<(), SolverError> {
         )));
     }
     Ok(())
+}
+
+/// `GeneratePeriodicProjectors`: with a `Periodic BC`, `elmer-mortar`'s
+/// projectors and its `PeriodicAssembly` (the default assembly with the
+/// projector couplings and `SetPeriodicBoundaries`) as the assembly
+/// backend. `Save Projector` files go to `save_dir`.
+pub fn periodic_assembly(
+    model: &Model,
+    mesh: &dyn MeshView,
+    cdim: usize,
+    save_dir: &Path,
+    log: &dyn Logger,
+) -> Result<Option<PeriodicAssembly>, SolverError> {
+    if !model.boundary_conditions.iter().any(|bc| bc.get("periodic bc").is_some()) {
+        return Ok(None);
+    }
+    // The Fortran stops the run once the projector is saved; refused before
+    // any file is written.
+    if model.boundary_conditions.iter().any(|bc| bc.logical("save projector and stop") == Some(true)) {
+        return Err(SolverError::Unsupported("Save Projector And Stop".into()));
+    }
+    let bcs: Vec<&dyn Params> = model.boundary_conditions.iter().map(|b| b as &dyn Params).collect();
+    let bc_of = |tag: i32| model.bc_of_tag(tag);
+    let env = ProjectorEnv {
+        mesh,
+        bcs: &bcs,
+        bc_of: &bc_of,
+        simulation: &model.simulation,
+        solver: model.solvers.first().map(|s| s as &dyn Params),
+        coord_dim: cdim,
+        log,
+    };
+    let (projectors, _) = generate_periodic_projectors(&env, save_dir, 0)?;
+    Ok(Some(PeriodicAssembly::new(model.boundary_conditions.clone(), projectors, mesh.n_nodes())))
 }

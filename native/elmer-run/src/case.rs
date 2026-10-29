@@ -11,7 +11,7 @@ use elmer_solver::{
     finalize_reference, solver::procedure_of, Model, RunReport, Simulation, SolverError, SolverRegistry,
 };
 
-use crate::compose::{coordinate_system, fe_backend, install_fe, solver_registry};
+use crate::compose::{coordinate_system, fe_backend, install_fe, periodic_assembly, solver_registry};
 use crate::matc::SifMatc;
 use crate::motion::MovableMesh;
 use crate::output::{is_result_output, prepare_vtu_output, MappedTags};
@@ -302,9 +302,13 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
     check_mesh_and_elements(&model)?;
     check_reloads(&model, &reloads, &registry)?;
     install_fe(coords.dim)?;
+    let periodic = periodic_assembly(&model, mesh, coords.dim, &case_dir, log)?;
 
     let mut sim = Simulation::new(model);
     sim.backends.fe = Some(fe_backend(coords.dim));
+    if let Some(backend) = periodic {
+        sim.backends.assembly = Some(Box::new(backend));
+    }
     sim.set_matc(Rc::new(SifMatc));
     sim.setup(mesh, &registry, log, comm)?;
     check_mesh_velocity(&sim)?;
