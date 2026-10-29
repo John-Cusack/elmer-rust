@@ -9,10 +9,14 @@
 mod checksum;
 pub mod motion;
 mod rigid;
+mod structure;
+mod structured;
 mod util;
 
 pub use checksum::{checksum, pseudo_norm, MeshChecksum};
 pub use rigid::RigidMeshMapper;
+pub use structure::{detect_extruded_structure, Structure, Want};
+pub use structured::StructuredMeshMapper;
 
 use elmer_solver::SolverRegistry;
 
@@ -20,4 +24,5 @@ use elmer_solver::SolverRegistry;
 pub fn register(registry: &mut SolverRegistry) {
     registry.register("MeshChecksum", "MeshChecksum", checksum::factory);
     registry.register("RigidMeshMapper", "RigidMeshMapper", rigid::factory);
+    registry.register("StructuredMeshMapper", "StructuredMeshMapper", structured::factory);
 }
