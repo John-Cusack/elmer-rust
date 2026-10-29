@@ -122,16 +122,8 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
     }
 
     let (primary, exported) = variables(model);
-    // SetNodalLoads reads `<Variable> Load` from BCs; CheckPassiveElement
-    // reads `<Variable> Passive` from body forces.
+    // CheckPassiveElement reads `<Variable> Passive` from body forces.
     for var in &primary {
-        let load = format!("{var} load");
-        if let Some(i) = model.boundary_conditions.iter().position(|b| b.0.contains_key(&load)) {
-            return Err(SolverError::Unsupported(format!(
-                "Boundary Condition {}: {load}: nodal loads (<Variable> Load) are not implemented",
-                i + 1
-            )));
-        }
         let passive = format!("{var} passive");
         if let Some(i) = model.body_forces.iter().position(|b| b.0.contains_key(&passive)) {
             return Err(SolverError::Unsupported(format!(
@@ -256,10 +248,8 @@ mod tests {
             boundary_conditions: vec![pm(&[("temperature load", equals("tempb loads"))])],
             ..Model::default()
         };
-        assert_eq!(
-            refusal(&model),
-            "Boundary Condition 1: temperature load: nodal loads (<Variable> Load) are not implemented"
-        );
+        // Nodal loads are elmer-solver's (SetNodalLoads).
+        assert!(check(&model).is_ok());
 
         let model = Model {
             solvers: vec![heat(&[])],
