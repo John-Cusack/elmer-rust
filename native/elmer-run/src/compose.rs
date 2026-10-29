@@ -1,14 +1,14 @@
 //! Which provider serves which seam of `elmer-solver`. Assembly, time and the
 //! linear solvers are `elmer-solver`'s default backends; this crate adds the
-//! physics and output procedures, the element library they share and the
-//! MATC engine.
+//! physics and output procedures, the element library they and the
+//! framework's own integrals share and the MATC engine.
 
 use std::sync::OnceLock;
 
 use elmer_core::{ElementBasis, MeshView, Params, Quadrature};
 use elmer_fe::{CoordinateSystem, ElmerQuadrature, LagrangeBasis};
 use elmer_physics_heat::FeProvider;
-use elmer_solver::{Model, SolverError, SolverRegistry};
+use elmer_solver::{FeBackend, Model, SolverError, SolverRegistry};
 
 /// The procedures this build can run.
 pub fn solver_registry() -> SolverRegistry {
@@ -45,6 +45,12 @@ pub fn fe_provider(cdim: usize) -> FeProvider {
         2 => lagrange::<2>,
         _ => lagrange::<3>,
     }
+}
+
+/// `elmer-fe` for the integrals `elmer-solver` computes itself (`Coupled
+/// Solver` integral constraints, `Apply Source Control` sources).
+pub fn fe_backend(cdim: usize) -> FeBackend {
+    FeBackend { basis: Box::new(LagrangeBasis::new(cdim)), quadrature: Box::new(ElmerQuadrature) }
 }
 
 static INSTALLED: OnceLock<usize> = OnceLock::new();
