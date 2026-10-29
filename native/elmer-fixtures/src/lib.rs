@@ -19,7 +19,9 @@
 //!   checks and [`single_edge_elements`] their H(curl) version;
 //!   [`model_pde_handle`]: `ModelPDEhandle`'s `AdvDiffSolver`;
 //!   [`stokes_proj`]: `StokesProj`'s velocity and pressure solvers;
-//!   [`bentonite`]: the `bentonite` case's coupled 3-dof solver.
+//!   [`bentonite`]: the `bentonite` case's coupled 3-dof solver;
+//!   [`l2nd_derivatives`]: the basis and second-derivative check of
+//!   `L2ndDerivatives`.
 //! * [`registry`]: case-qualified keys. Plugin libraries share names across
 //!   cases (`Source` is four different functions), so a fixture is selected
 //!   by case, library and entry together, and every `install` builds fresh
@@ -32,6 +34,7 @@
 
 pub mod bentonite;
 pub mod hooks;
+pub mod l2nd_derivatives;
 pub mod model_pde_handle;
 pub mod poisson_assembly;
 pub mod poisson_solver;

@@ -90,3 +90,13 @@ fn tresca_is_the_spread_of_the_principal_stresses() {
     }
     assert_abs_diff_eq!(tresca(&[4.0, 2.0, 3.0, 1.0, 0.5, -2.0]), e.iter().fold(f64::MIN, |a, &b| a.max(b)) - e.iter().fold(f64::MAX, |a, &b| a.min(b)), epsilon = 1e-14);
 }
+
+#[test]
+fn l2nd_derivatives_checks_pass_for_every_element_of_the_case() {
+    // The element types of `fem/tests/L2ndDerivatives/mesh`, in its order.
+    let codes = [202, 203, 204, 303, 306, 310, 404, 408, 409, 412, 416, 504, 510, 605, 613, 706, 715, 808, 820, 827];
+    for code in codes {
+        let def = elmer_fe::element_type(code).unwrap();
+        elmer_fixtures::l2nd_derivatives::check_element(def, 3).unwrap_or_else(|e| panic!("{code}: {e}"));
+    }
+}

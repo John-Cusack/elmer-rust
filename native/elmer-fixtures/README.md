@@ -26,6 +26,7 @@ References below are paths under `/home/john/runs/elmer-fork/orig_src/fem/tests/
 | `PressureSolver`, `VelocitySolver` | `StokesProj/Pressure.f90`, `StokesProj/Velocity.f90` | two solver procedures of a projection scheme; `SAVE Newton, Norm` | `stokes_proj` |
 | `BentoniteSolver` | `bentonite/BentoniteSolver.F90` | 3-dof coupled solver with `CompEta` initialisation (`SAVE AllocationsDone`), axisymmetric metric, Robin boundaries | `bentonite` |
 | `SingleEdgeElements`, `SingleEdgeElements_init` | `ElementUnitTest_edge*/SingleEdgeElements.F90` | solver procedure on `elmer-fe-hp`'s Whitney and Piola edge bases; the `_init` edit sets the variable, the edge element choice stays in the solver | `single_edge_elements` |
+| `TestSolver` | `L2ndDerivatives/L2ndDerivativesTest.f90` | solver procedure checking basis, gradients and second derivatives (L2 projections, `STOP` on a failed check) | `l2nd_derivatives` |
 | `AlternatingSource` | `HeatControlExplicit/AlternatingSource.F90` | scalar function, `Variable "cpar, time"`, `SAVE sgn`, prints each flip | `udf::AlternatingSource` (not registered, see below) |
 
 ### Cases that match the pristine reference end to end
@@ -106,6 +107,15 @@ Refused with a named reason:
   place, as for `_h1`). Wedges have no p basis in `elmer-pdofs` yet either. Its parentless 404 boundary face is "not an active p
   element" for `elmer-pdofs`, while the pristine run gives it a p basis (its
   stiffness sum differs from `_h1`'s).
+- `L2ndDerivatives`: registered. Its checks pass on `elmer-fe` for all 20
+  element types of the case's mesh (unit test). The `.sif` has no `Body` or
+  `Equation` sections. The pristine run still activates the solver on all 20
+  elements (`SetActiveElementsTable: Number of active elements found : 20`)
+  and creates an unnamed null variable (`AddEquationBasics: Creating null
+  variable with no name`), whose norm 0 is the reference. `elmer-solver`
+  activates nothing there, so the solver refuses (`no active elements`)
+  rather than pass without checking anything. `CheckValue` compares with an
+  uninitialised `scal`; the port stops on any difference of 1e-12 or more.
 - `BlockPoisson1`, `BlockPoisson2`: registered, but `Block Solver = True` is
   refused by `elmer-solver` (`coupled.rs`).
 
@@ -280,7 +290,6 @@ largest group and the best next target after the scalar batch; `CountSolver` and
 | `FaceElement3D_BCs/FaceFEInterpolationTest.F90` | BestApproximationSolver:solver | SAVE STIFF, LOAD, FORCE, Acoef, AllocationsDone, Nodes, Indices; init ; work arrays | default_* solve path; elmer-fe; edge/face basis (L15); p/edge/face Element in .sif; writes Solver%Variable |
 | `HelmholtzEdge/Hrot.f90` | HrotSolver:solver | SAVE STIFF, LOAD, MASS, FORCE, Acoef, Bcoef, &, Nodes; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; edge/face basis (L15); p/edge/face Element in .sif; direct CSR row surgery; current-element context; writes Solver%Variable |
 | `HelmholtzFace/Helmholtz.f90` | HelmholtzHDIVSolver:solver | SAVE STIFF, LOAD, MASS, FORCE, Acoef, Bcoef, &, Nodes; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; edge/face basis (L15); p/edge/face Element in .sif; direct CSR row surgery; current-element context; writes Solver%Variable |
-| `L2ndDerivatives/L2ndDerivativesTest.f90` | TestSolver:solver | SAVE Nodes | elmer-fe; writes Solver%Variable |
 | `MeshColour/MeshColour.F90` | MeshColour_init:solver _init; MeshColour:solver | work arrays | METIS C binding; writes Solver%Variable |
 | `ModelPDEsplitted/ModelPDEsplitted.f90` (+1: SD_ModelPDEsplitted) | AdvDiffSolver_bulk:solver; AdvDiffSolver_boundary:solver | SAVE Nodes | default_* solve path; elmer-fe; boundary parent lookup; p/edge/face Element in .sif |
 | `PoissonML/PoissonML.f90` | PoissonSolver:solver | init diag=0._dp, eCount=0; work arrays | elmer-fe; boundary parent lookup; p/edge/face Element in .sif; writes Solver%Variable |
