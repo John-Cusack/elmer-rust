@@ -294,7 +294,8 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
 /// any definition for the solvers that read their DOFs from `elmer-pdofs`
 /// (`ctx.solver_dofs()`) and refuse what they do not port: ModelPDE's
 /// AdvDiffSolver and the test-local `Poisson` / `PoissonML`
-/// `PoissonSolver`, `ModelPDEsplitted` and `SingleElements` ports.
+/// `PoissonSolver`, `ModelPDEsplitted`, `SingleElements` and
+/// `BenchmarkShell` ports.
 pub fn native_element(params: &ParamMap) -> bool {
     let Some(e) = params.string("element") else { return true };
     if normalize_key(e) == "n:1" {
@@ -302,7 +303,8 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 5] = [
+    const P_DOFS: [(&str, &str); 6] = [
+        ("benchmarkshell", "shellsolver"),
         ("poisson", "poissonsolver"),
         ("poissonml", "poissonsolver"),
         ("modelpde", "advdiffsolver"),

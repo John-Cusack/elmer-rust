@@ -103,15 +103,7 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
     }
 
     let primary = variables(model);
-    // CheckPassiveElement reads `<Variable> Passive` from body forces.
     for var in &primary {
-        let passive = format!("{var} passive");
-        if let Some(i) = model.body_forces.iter().position(|b| b.0.contains_key(&passive)) {
-            return Err(SolverError::Unsupported(format!(
-                "Body Force {}: {passive}: passive elements (<Variable> Passive) are not implemented",
-                i + 1
-            )));
-        }
         // SetDirichletBoundaries' body-force pass (Dirichlet values on bodies).
         if let Some(i) = model.body_forces.iter().position(|b| b.0.contains_key(var)) {
             return Err(SolverError::Unsupported(format!(
@@ -233,10 +225,8 @@ mod tests {
             body_forces: vec![pm(&[]), pm(&[("temperature passive", Value::Logical(true))])],
             ..Model::default()
         };
-        assert_eq!(
-            refusal(&model),
-            "Body Force 2: temperature passive: passive elements (<Variable> Passive) are not implemented"
-        );
+        // Passive elements are elmer-solver's (CheckPassiveElement).
+        assert!(check(&model).is_ok());
     }
 
     #[test]
