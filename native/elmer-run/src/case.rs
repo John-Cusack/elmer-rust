@@ -238,7 +238,7 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
     let sections = model.solvers.iter().map(|p| ("Solver", p)).chain(model.equations.iter().map(|p| ("Equation", p)));
     for (i, (name, p)) in sections.enumerate() {
         if let Some(e) = p.string("element") {
-            if normalize_key(e) != "n:1" {
+            if !native_element(p) {
                 return Err(SolverError::Unsupported(format!(
                     "{name} section {}: Element = {e} (p-, bubble, edge or DG elements)",
                     i + 1
@@ -247,6 +247,19 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
         }
     }
     Ok(())
+}
+
+/// Whether the section's `Element` (if any) is one a provider evaluates:
+/// the Lagrange `n:1`, or `p:1` for ThermoElectricSolver. Its `b:N`
+/// bubbles stay refused: the solver condenses them, while Elmer keeps them
+/// in the global system and its solution norm (the `Reference Norm`).
+pub fn native_element(params: &ParamMap) -> bool {
+    let Some(e) = params.string("element") else { return true };
+    if normalize_key(e) == "n:1" {
+        return true;
+    }
+    procedure_of(params).is_some_and(|(lib, _)| lib.eq_ignore_ascii_case("thermoelectricsolver"))
+        && elmer_physics_thermoelectric::parse_element(e).is_ok_and(|nb| nb == 0)
 }
 
 /// Elmer's mesh-load transforms, in Elmer's order: `Mesh Levels` splits
@@ -311,7 +324,7 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
     // Field lists are fixed once every variable exists, before the run, so a
     // refusal still comes before any file.
     for out in &mut outputs {
-        out.select_fields(&sim)?;
+        out.select_fields(&sim, mesh.dim())?;
     }
     let written = Arc::new(Mutex::new(Vec::new()));
     for out in outputs {
