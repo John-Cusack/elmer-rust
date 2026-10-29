@@ -9,6 +9,10 @@ description = "Solver framework for the Rust-native Elmer: Simulation, SolverCtx
 [dependencies]
 elmer-assembly = { path = "../elmer-assembly" }
 elmer-core.workspace = true
+elmer-direct = { path = "../elmer-direct" }
 elmer-expr = { path = "../elmer-expr" }
+elmer-itermethods = { path = "../elmer-itermethods" }
+elmer-krylov = { path = "../elmer-krylov" }
+elmer-sparse = { path = "../elmer-sparse" }
 elmer-timeint = { path = "../elmer-timeint" }
 thiserror.workspace = true

@@ -54,7 +54,7 @@ pub trait AssemblyBackend: Send + Sync {
     /// Adds `local.stiff` and `local.force`. `slots` holds one entry per
     /// element node: its perm slot, or [`elmer_core::NO_DOF`] to skip it
     /// (Elmer's `Perm(Indexes)`); local row `dofs * i + c` is component `c`
-    /// of node `i`.
+    /// of node `i`, with `dofs = local.n / slots.len()`.
     fn add_local(&self, a: &mut CsrMatrix<f64>, rhs: &mut [f64], slots: &[u32], local: &LocalSystem);
 
     /// Fixes each `(row, value)` with Elmer's Dirichlet semantics, read from
@@ -114,9 +114,15 @@ pub type PrecondFactory =
 #[derive(Default)]
 pub struct LinearSolverRegistry {
     iterative: BTreeMap<String, IterativeFactory>,
+    /// Serves iterative method names not registered explicitly.
+    iterative_default: Option<IterativeFactory>,
     direct: BTreeMap<String, DirectFactory>,
     precond: BTreeMap<String, PrecondFactory>,
 }
+
+/// Preconditioners IterSolve knows (IterSolve.F90:1074-1093) that are not
+/// ported: refused instead of IterSolve's unknown-name fallback to none.
+const KNOWN_UNPORTED_PRECONDITIONERS: &[&str] = &["bilu", "multigrid", "vanka", "auxiliary space solver", "slave", "circuit"];
 
 /// A linear solver selected from the solver section.
 pub enum LinearSolverChoice {
@@ -137,6 +143,12 @@ impl LinearSolverRegistry {
         self.iterative.insert(normalize_key(method), f);
     }
 
+    /// The factory for iterative method names with no explicit entry (it
+    /// reads the name itself, as IterSolve's `CASE DEFAULT` does).
+    pub fn set_iterative_default(&mut self, f: IterativeFactory) {
+        self.iterative_default = Some(f);
+    }
+
     pub fn register_direct(&mut self, method: &str, f: DirectFactory) {
         self.direct.insert(normalize_key(method), f);
     }
@@ -145,21 +157,23 @@ impl LinearSolverRegistry {
         self.precond.insert(normalize_key(name), f);
     }
 
-    /// Picks the solver the section asks for. `Linear System Solver`
-    /// defaults to `iterative` and the method to `bicgstab` (IterSolve.F90:724);
-    /// the preconditioner defaults to `none` (IterSolve.F90:1053), which maps to `None`.
-    pub fn select(&self, params: &ParamMap) -> Result<LinearSolverChoice, SolverError> {
+    /// Picks the solver the section asks for. `Linear System Solver` is
+    /// required (SolveCore.F90:1575); the direct method defaults to `banded`
+    /// (DirectSolve.F90) and the iterative one to `bicgstab`
+    /// (IterSolve.F90:724). `Linear System Preconditioning` defaults to
+    /// `none` (IterSolve.F90:1053); an unknown name is warned about and
+    /// treated as `none`, as IterSolve.F90:1095-1097 does.
+    pub fn select(&self, params: &ParamMap, log: &dyn elmer_core::Logger) -> Result<LinearSolverChoice, SolverError> {
         use elmer_core::Params;
-        let kind = params
-            .string("linear system solver")
-            .map(normalize_key)
-            .unwrap_or_else(|| "iterative".into());
+        let kind = params.string("linear system solver").map(normalize_key).ok_or_else(|| {
+            SolverError::fatal("SolveLinearSystem", "Give \"Linear System Solver\", e.g. \"iterative\" or \"direct\"")
+        })?;
         match kind.as_str() {
             "direct" => {
                 let m = params
                     .string("linear system direct method")
                     .map(normalize_key)
-                    .unwrap_or_else(|| "umfpack".into());
+                    .unwrap_or_else(|| "banded".into());
                 let f = self
                     .direct
                     .get(&m)
@@ -174,31 +188,33 @@ impl LinearSolverRegistry {
                 let f = self
                     .iterative
                     .get(&m)
+                    .or(self.iterative_default.as_ref())
                     .ok_or_else(|| SolverError::NotWired(format!("iterative method {m}")))?;
                 let p = params
                     .string("linear system preconditioning")
                     .map(normalize_key)
                     .unwrap_or_else(|| "none".into());
-                let precond = if p == "none" {
-                    None
-                } else {
-                    Some(
-                        *self
-                            .precond
-                            .get(&p)
-                            .ok_or_else(|| SolverError::NotWired(format!("preconditioner {p}")))?,
-                    )
+                let precond = match (p.as_str(), self.precond.get(&p)) {
+                    ("none", _) => None,
+                    (_, Some(f)) => Some(*f),
+                    (_, None) if KNOWN_UNPORTED_PRECONDITIONERS.iter().any(|k| p.starts_with(k)) => {
+                        return Err(SolverError::NotWired(format!("preconditioner {p}")))
+                    }
+                    (_, None) => {
+                        log.warn("IterSolve", &format!("Unknown preconditioner type: {p}, feature disabled."));
+                        None
+                    }
                 };
                 Ok(LinearSolverChoice::Iterative { solver: f(params)?, precond })
             }
-            other => Err(SolverError::Unsupported(format!("linear system solver {other}"))),
+            other => Err(SolverError::Unsupported(format!("Linear System Solver = {other}"))),
         }
     }
 }
 
 /// The installed backends of a [`crate::Simulation`]. The default has
-/// [`crate::assembly::ElmerAssembly`], [`crate::time::ElmerTime`], an
-/// empty linear solver registry and no MATC engine.
+/// [`crate::assembly::ElmerAssembly`], [`crate::time::ElmerTime`],
+/// [`crate::linsys::elmer_registry`] and no MATC engine.
 pub struct Backends {
     pub assembly: Option<Box<dyn AssemblyBackend>>,
     pub time: Option<Box<dyn TimeBackend>>,
@@ -212,7 +228,7 @@ impl Default for Backends {
         Self {
             assembly: Some(Box::new(crate::assembly::ElmerAssembly)),
             time: Some(Box::new(crate::time::ElmerTime)),
-            linear: LinearSolverRegistry::default(),
+            linear: crate::linsys::elmer_registry(),
             matc: None,
         }
     }

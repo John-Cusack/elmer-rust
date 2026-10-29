@@ -400,21 +400,38 @@ impl<'a> SolverCtx<'a> {
         backend.try_apply_dirichlet(&mut sys.matrix, &mut sys.rhs, &fixed, &slot.params)
     }
 
-    /// `DefaultSolve`: solve the assembled system into the primary variable
-    /// with the linear solver the section selects, then run the nonlinear
-    /// `ComputeChange`. Returns the variable norm.
+    /// `DefaultSolve` -> `SolveLinearSystem` (SolveCore.F90:1186): keep the
+    /// previous iterate when needed, the zero right-hand-side shortcut,
+    /// `Linear System Scaling` (default on) around the solve, the
+    /// nullify-guess options, the solve with the linear solver the section
+    /// selects, then the nonlinear `ComputeChange`. Returns the variable norm.
     pub fn default_solve(&mut self) -> Result<f64, SolverError> {
         let (mesh, log, comm, slot_ix) = (self.mesh, self.log, self.comm, self.slot);
         let sim = &mut *self.sim;
+        let nonlin_iter = sim.vars.scalar("nonlin iter");
         let slot = &mut sim.slots[slot_ix];
         let id = slot
             .variable
             .ok_or_else(|| SolverError::fatal("DefaultSolve", "solver has no variable"))?;
+        let p = &slot.params;
+        for k in [
+            "nonlinear system acceleration",
+            "nonlinear system compute change in scaled system",
+            "linear system normalize guess",
+            "linear system complex",
+            "apply limiter",
+        ] {
+            if p.logical(k) == Some(true) {
+                return Err(SolverError::Unsupported(format!("SolveLinearSystem option {k}")));
+            }
+        }
         let sys = slot
             .system
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| SolverError::fatal("DefaultSolve", "no assembled system"))?;
-        let p = &slot.params;
+        let var = sim.vars.by_id_mut(id);
+        let n = sys.matrix.nrows;
+
         // SolveCore.F90:3158-3186: keep the previous iterate when relaxing or
         // measuring the solution change.
         let need_prev = p.real("nonlinear system relaxation factor").is_some_and(|r| r != 1.0)
@@ -422,26 +439,81 @@ impl<'a> SolverCtx<'a> {
                 p.string("nonlinear system convergence measure"),
                 Some("residual") | Some("solution")
             );
-        let var = sim.vars.by_id_mut(id);
-        let n = sys.matrix.nrows;
         if need_prev {
             var.nonlin_values = Some(var.values[..n].to_vec());
         }
-        match sim.backends.linear.select(p)? {
-            LinearSolverChoice::Direct(mut d) => {
-                d.factor(&sys.matrix)?;
-                let mut x = sys.rhs.clone();
-                d.solve_in_place(&mut x)?;
-                var.values[..n].copy_from_slice(&x);
+
+        // SolveCore.F90:1502-1527: b = 0 has only the trivial solution.
+        let mut bb = [sys.rhs[..n].iter().fold(0.0, |s, b| s + b * b)];
+        comm.sum_f64(&mut bb);
+        let bnorm = bb[0].sqrt();
+        if bnorm <= f64::MIN_POSITIVE && p.logical("skip zero rhs test") != Some(true) {
+            log.info("SolveLinearSystem", "Solution trivially zero!", 5);
+            var.values.iter_mut().for_each(|x| *x = 0.0);
+            var.values_changed = true;
+            if let Some(it) = nonlin_iter {
+                var.conv.nonlin_iter = it.round() as i32;
+                sim.vars.set_scalar("nonlin iter", it + 1.0);
             }
-            LinearSolverChoice::Iterative { mut solver, precond } => {
-                let m: Box<dyn elmer_core::Preconditioner<f64> + Send> = match precond {
-                    Some(f) => f(p, &sys.matrix)?,
-                    None => Box::new(elmer_core::IdentityPrecond),
-                };
-                solver.solve(&sys.matrix, &*m, &sys.rhs, &mut var.values[..n], comm)?;
-            }
+            let var = sim.vars.by_id_mut(id);
+            var.conv.norm = 0.0;
+            var.conv.nonlin_converged = 1;
+            return Ok(0.0);
         }
+
+        // SolveCore.F90:1263-1268, 1540 and MatrixScaling.F90 method choice.
+        let scale = p.logical("linear system skip scaling") != Some(true)
+            && p.logical("linear system scaling").unwrap_or(true);
+        let x = &mut var.values[..n];
+        let scaling = if scale {
+            let method = if p.logical("linear system row equilibration") == Some(true) {
+                elmer_sparse::ScalingMethod::RowEquilibration
+            } else {
+                elmer_sparse::ScalingMethod::from_keyword(p.string("linear system scaling method").unwrap_or("diagonal"))?
+            };
+            let opts = elmer_sparse::ScaleOptions {
+                method,
+                apply: true,
+                rhs_scaling: bnorm != 0.0,
+            };
+            Some(elmer_sparse::scale_system(&mut sys.matrix, Some(&mut sys.rhs[..n]), Some(&mut *x), &opts))
+        } else {
+            None
+        };
+
+        if p.logical("linear system nullify guess") == Some(true)
+            || (p.logical("linear system nullify first guess") == Some(true) && nonlin_iter.is_some_and(|i| i.round() <= 1.0))
+        {
+            x.iter_mut().for_each(|v| *v = 0.0);
+        }
+
+        let solved = match sim.backends.linear.select(p, log) {
+            Err(e) => Err(e),
+            Ok(LinearSolverChoice::Direct(mut d)) => d
+                .factor(&sys.matrix)
+                .and_then(|_| {
+                    let mut y = sys.rhs[..n].to_vec();
+                    d.solve_in_place(&mut y).map(|_| x.copy_from_slice(&y))
+                })
+                .map_err(SolverError::from),
+            Ok(LinearSolverChoice::Iterative { mut solver, precond }) => {
+                let m: Result<Box<dyn elmer_core::Preconditioner<f64> + Send>, SolverError> = match precond {
+                    Some(f) => f(p, &sys.matrix),
+                    None => Ok(Box::new(elmer_core::IdentityPrecond)),
+                };
+                m.and_then(|m| {
+                    solver
+                        .solve(&sys.matrix, &*m, &sys.rhs[..n], x, comm)
+                        .map(|_| ())
+                        .map_err(SolverError::from)
+                })
+            }
+        };
+        // BackScaleLinearSystem before anything else reads the system.
+        if let Some(rs) = scaling {
+            rs.unscale(&mut sys.matrix, Some(&mut sys.rhs[..n]), Some(x));
+        }
+        solved?;
         var.values_changed = true;
         sim.compute_change(slot_ix, false, Some(n), true, mesh, log, comm)?;
         Ok(sim.vars.by_id(id).conv.norm)
