@@ -37,8 +37,8 @@ pub mod time;
 pub mod variable;
 
 pub use assembly::ElmerAssembly;
-pub use backend::{AssemblyBackend, Backends, LinearSolverRegistry, Perm, TimeBackend, TimeTerms};
-pub use coupled::AssemblySolver;
+pub use backend::{AssemblyBackend, Backends, FeBackend, LinearSolverRegistry, Perm, TimeBackend, TimeTerms};
+pub use coupled::{AssemblySolver, CoupledSystem};
 pub use change::{compute_change, ChangeEnv, ChangeReport, SolverState};
 pub use error::SolverError;
 pub use expr::{SharedMatc, TextMatc};

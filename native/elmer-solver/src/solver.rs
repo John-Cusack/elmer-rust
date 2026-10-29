@@ -467,6 +467,13 @@ impl<'a> SolverCtx<'a> {
         let Some(id) = self.sim.slots[self.slot].variable else {
             return Ok(Vec::new());
         };
+        self.dirichlet_values_of(id, 0)
+    }
+
+    /// [`dirichlet_values`](Self::dirichlet_values) of any nodal variable,
+    /// with `offset` added to every row (`DefaultDirichletBCs(Ux=Var,
+    /// UOffset=offset)`).
+    pub fn dirichlet_values_of(&self, id: crate::VarId, offset: usize) -> Result<Vec<(u32, f64)>, SolverError> {
         let v = self.sim.vars.by_id(id);
         let keys: Vec<(usize, String)> = if v.dofs == 1 {
             vec![(0, v.name.clone())]
@@ -483,7 +490,7 @@ impl<'a> SolverCtx<'a> {
                 let Some(vals) = self.real_at_nodes(bc, key, e)? else { continue };
                 for (&n, &x) in self.mesh.element(e).nodes.iter().zip(&vals) {
                     if let Some(s) = v.slot(n) {
-                        fixed.insert((s * v.dofs + k) as u32, x);
+                        fixed.insert((offset + s * v.dofs + k) as u32, x);
                     }
                 }
             }

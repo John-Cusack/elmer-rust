@@ -1,0 +1,30 @@
+CoupledSolver: ---------------------------------------
+CoupledSolver: Solving a system of equations
+CoupledSolver: ---------------------------------------
+CoupledSolver: Variable t1 does not exist, creating
+CoupledSolver: Constraint consa does not exist, creating
+CoupledSolver: Permutation offset 1:             0
+CoupledSolver: Permutation offset 2:             1099
+CoupledSolver: Number of coupled variables:      1
+CoupledSolver: Number of constraints:            1
+CoupledSolver: Size of coupled system:           1100
+CoupledSolver: New coupled variable added: Alldofs
+CoupledSolver: -------------------------------------------------
+CoupledSolver: Coupled iteration:                    1
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Using assembly routine: ./PoissonAssembly BulkAssembly
+CoupledSolver: Starting constraint assembly
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Using assembly routine: ./PoissonAssembly BulkAssembly
+PoissonBulkAssembly: 1st time
+CoupledSolver: Starting constraint assembly
+CoupledSolver: Setting coupled system Dirichlet conditions
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.52518876      2.0000000     ) :: test
+CoupledSolver: -------------------------------------------------
+CoupledSolver: Copying results into original variables
+CoupledSolver: All done
+CoupledSolver: -------------------------------------------------
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.52518876      2.0000000     ) :: test
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 5.25188761E-01  RefNorm = 5.25189000E-01
+CompareToReferenceSolution: Relative Error to reference norm: 4.547336E-07
+CompareToReferenceSolution: PASSED all 1 tests!

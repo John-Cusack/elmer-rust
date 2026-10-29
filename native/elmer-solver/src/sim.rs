@@ -365,7 +365,8 @@ impl Simulation {
             if transient {
                 self.set_time_order(&mut slot)?;
             }
-            if let Some(vs) = slot.params.string("variable").map(str::to_string) {
+            let coupled = crate::coupled::is_coupled_system(&slot.params);
+            if let Some(vs) = slot.params.string("variable").filter(|_| !coupled).map(str::to_string) {
                 let spec = parse_variable_spec(&vs, slot.params.integer("variable dofs"))?;
                 self.publish_live();
                 self.add_solver_variable(&mut slot, &spec, mesh)?;
