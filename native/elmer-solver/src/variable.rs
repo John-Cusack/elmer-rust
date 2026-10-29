@@ -330,6 +330,26 @@ impl VariableStore {
         }
     }
 
+    /// Every name in Elmer's variable-list order: each primary variable in
+    /// registration order followed by its component aliases.
+    pub fn names_in_order(&self) -> Vec<(String, VarHandle)> {
+        let mut out = Vec::new();
+        for &id in &self.order {
+            out.push((self.vars[id.0].name.clone(), VarHandle::Primary(id)));
+            let mut comps: Vec<(usize, &String)> = self
+                .names
+                .iter()
+                .filter_map(|(n, h)| match *h {
+                    VarHandle::Component { parent, component } if parent == id => Some((component, n)),
+                    _ => None,
+                })
+                .collect();
+            comps.sort();
+            out.extend(comps.into_iter().map(|(c, n)| (n.clone(), VarHandle::Component { parent: id, component: c })));
+        }
+        out
+    }
+
     /// Primary variables in registration order.
     pub fn iter(&self) -> impl Iterator<Item = (VarId, &Variable)> + '_ {
         self.order.iter().map(|&id| (id, &self.vars[id.0]))

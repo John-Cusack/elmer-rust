@@ -45,3 +45,48 @@ impl Solver for Poisson {
         Ok(())
     }
 }
+
+/// Transient `T' - T'' = 0` with unit conductivity, density and heat
+/// capacity: HeatSolver's diffusion terms with consistent mass, through
+/// `Default1stOrderTime`.
+pub struct Heat;
+
+pub fn heat(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
+    Ok(Box::new(Heat))
+}
+
+impl Solver for Heat {
+    fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
+        ctx.default_initialize()?;
+        let active: Vec<ElemId> = ctx.active_elements().collect();
+        let mut ev = BasisEval::default();
+        for e in active {
+            let el = ctx.mesh.element(e);
+            let n = el.nodes.len();
+            let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+            let mut local = LocalSystem::zeros(n);
+            let mut mass = vec![0.0; n * n];
+            for qp in super::quad::TestQuadrature.gauss_points(el.etype, None) {
+                super::basis::TestBasis
+                    .eval(el.etype, &xyz, qp.uvw, &mut ev)
+                    .map_err(|m| SolverError::fatal("HeatSolve", m))?;
+                let w = qp.weight * ev.det_j;
+                for p in 0..n {
+                    for q in 0..n {
+                        let g = (ev.dbasis_dx[p], ev.dbasis_dx[q]);
+                        local.stiff[p * n + q] += w * (g.0[0] * g.1[0] + g.0[1] * g.1[1] + g.0[2] * g.1[2]);
+                        mass[p * n + q] += w * ev.basis[p] * ev.basis[q];
+                    }
+                }
+            }
+            local.mass = Some(mass);
+            if transient {
+                ctx.default_first_order_time(&mut local, e, dt)?;
+            }
+            ctx.default_update(&local, e)?;
+        }
+        ctx.default_dirichlet()?;
+        ctx.default_solve()?;
+        Ok(())
+    }
+}

@@ -13,13 +13,13 @@ use elmer_expr::MatcEngine;
 use crate::backend::{Backends, Perm};
 use crate::change::{compute_change, ChangeEnv, ChangeReport, SolverState};
 use crate::error::SolverError;
-use crate::expr::{SharedMatc, SimFields};
+use crate::expr::{NoMatc, SharedMatc, SimFields};
 use crate::fortran_fmt::{es, i2s, list_int};
 use crate::live::LiveModel;
 use crate::model::Model;
 use crate::reference::ReferenceTally;
 use crate::solver::{procedure_of, Solver, SolverCtx, SolverRegistry};
-use crate::variable::{VarId, Variable, VariableStore};
+use crate::variable::{VarHandle, VarId, Variable, VariableStore};
 
 /// `Exec Solver` (MainUtils.F90:966-1010 AddExecWhenFlag).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -379,6 +379,105 @@ impl Simulation {
                 r?;
             }
         }
+        self.initialize_dirichlet(mesh)
+    }
+
+    /// The end of `SetInitialConditions` (ElmerSolver.F90:1862-2052): unless
+    /// `Initialize Dirichlet Conditions = False`, every boundary element with
+    /// a boundary condition writes the condition's value of each variable
+    /// (and each component alias) into the variable at its nodes, overriding
+    /// the initial condition there; for a transient second-order solver
+    /// `<name> Velocity` and `<name> Acceleration` seed its `PrevValues`
+    /// columns 1 and 2 (and 6). Elements go in mesh order, variables in
+    /// list order, so a later element wins at a shared node. Normal-tangential
+    /// conditions are refused; global variables are skipped.
+    pub fn initialize_dirichlet(&mut self, mesh: &dyn MeshView) -> Result<(), SolverError> {
+        if self.model.simulation.logical("initialize dirichlet conditions") == Some(false) {
+            return Ok(());
+        }
+        let transient = self.is_transient();
+        let names = self.vars.names_in_order();
+        let nb = mesh.n_bulk() as u32;
+        for e in (nb..nb + mesh.n_boundary() as u32).map(ElemId) {
+            let el = mesh.element(e);
+            let Some(bc_id) = self.model.bc_of_tag(el.tag) else { continue };
+            let bc = &self.model.boundary_conditions[bc_id - 1];
+            for (name, handle) in &names {
+                let (id, comp) = match *handle {
+                    VarHandle::Primary(id) => (id, None),
+                    VarHandle::Component { parent, component } => (parent, Some(component)),
+                };
+                let (dofs, kind) = {
+                    let v = self.vars.by_id(id);
+                    (v.dofs, v.kind)
+                };
+                if kind == FieldKind::Global {
+                    continue;
+                }
+                let Some(val) = bc.get(name) else { continue };
+                let b = &self.backends;
+                let fields = SimFields { vars: &self.vars, mesh };
+                if dofs > 1 && comp.is_none() {
+                    // ListGetRealArray: the first MIN(rows, dofs) entries of column 1.
+                    let c = crate::expr::compile_value(val, &b.udfs);
+                    let mut out = vec![0.0; el.nodes.len() * c.ncomp()];
+                    c.eval_nodes(el.nodes, &fields, b.matc.as_deref().unwrap_or(&NoMatc), &mut out)?;
+                    let (rows, cols, nc) = (c.rows(), c.cols(), c.ncomp());
+                    let v = self.vars.by_id_mut(id);
+                    for (j, &n) in el.nodes.iter().enumerate() {
+                        if let Some(s) = v.slot(n) {
+                            for l in 0..rows.min(dofs) {
+                                v.values[s * dofs + l] = out[j * nc + l * cols];
+                            }
+                        }
+                    }
+                    continue;
+                }
+                if el.etype.family() != 1 && comp.is_some() {
+                    let base = name.rsplit_once(' ').map_or(name.as_str(), |(b, _)| b);
+                    if bc.logical(&format!("normal-tangential {base}")) == Some(true) {
+                        return Err(SolverError::Unsupported(format!(
+                            "Initialize Dirichlet Conditions with Normal-Tangential {base}"
+                        )));
+                    }
+                }
+                let xs = crate::expr::eval_at_nodes_with(val, el.nodes, &fields, b.matc.as_deref(), &b.udfs)?;
+                let second = transient
+                    && self
+                        .slots
+                        .iter()
+                        .any(|s| s.variable == Some(id) && s.time_order == 2);
+                let rates = if second {
+                    let mut r = [None, None];
+                    for (k, suffix) in ["velocity", "acceleration"].into_iter().enumerate() {
+                        if let Some(v) = bc.get(&format!("{name} {suffix}")) {
+                            r[k] = Some(crate::expr::eval_at_nodes_with(v, el.nodes, &fields, b.matc.as_deref(), &b.udfs)?);
+                        }
+                    }
+                    r
+                } else {
+                    [None, None]
+                };
+                let v = self.vars.by_id_mut(id);
+                let (stride, offset) = match comp {
+                    Some(c) => (dofs, c),
+                    None => (1, 0),
+                };
+                for (j, &n) in el.nodes.iter().enumerate() {
+                    let Some(s) = v.slot(n) else { continue };
+                    let k = s * stride + offset;
+                    v.values[k] = xs[j];
+                    if let Some(vel) = &rates[0] {
+                        v.prev_values[0][k] = vel[j];
+                    }
+                    if let Some(acc) = &rates[1] {
+                        v.prev_values[1][k] = acc[j];
+                        v.prev_values[5][k] = acc[j];
+                    }
+                }
+            }
+        }
+        self.publish_live();
         Ok(())
     }
 
