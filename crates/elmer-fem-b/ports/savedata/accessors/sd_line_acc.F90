@@ -151,6 +151,18 @@ contains
     if (associated(acc_solver % variable)) then
       acc_maskwithperm = associated(acc_solver % variable % perm)
     end if
+    acc_intersectedge = ListGetLogical(params, 'Intersect Edge', gotit)
+    if (.not. gotit) then
+      acc_intersectcoord = ListGetInteger(params, 'Intersect Coordinate', gotit)
+      if (gotit) acc_intersectedge = .true.
+    end if
+    if (acc_intersectedge) then
+      acc_intersectepsilon = ListGetCReal(params, 'Intersect Epsilon')
+    end if
+    acc_calculateflux = ListGetLogical(params, 'Save Heat Flux', gotit)
+    if (.not. acc_calculateflux) then
+      acc_calculateflux = ListGetLogical(params, 'Save Flux', gotit)
+    end if
     nullify(acc_saveperm)
     ! Save Solver Mesh Index
     i = 0

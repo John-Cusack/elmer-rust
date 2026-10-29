@@ -580,7 +580,243 @@ contains
     call sdl_save_names()
   end subroutine sdl_saveline
 
+
+  ! -- GlobalToLocalCoords + Reduced (verbatim helpers for poly_faces) -------
+    SUBROUTINE GlobalToLocalCoords(Element,Plane,n,Line,Eps, &
+        Inside,Weights,maxind,linepos,LocalCoords)
+
+      TYPE(Nodes_t) :: Plane, Line
+      TYPE(Element_t), POINTER   :: Element
+      INTEGER :: n, maxind
+      REAL (KIND=dp) :: Eps,Weights(:)
+      LOGICAL :: Inside
+      REAL(KIND=dp) :: linepos
+      REAL(KIND=dp) :: LocalCoords(3)
+
+      REAL (KIND=dp) :: A(3,3),A0(3,3),B(3),C(3),Eps2,detA,absA,ds
+      INTEGER :: split, i, corners
+      REAL(KIND=dp) :: Basis(2*n),dBasisdx(2*n,3)
+      REAL(KIND=dp) :: SqrtElementMetric,U,V,W
+    logical :: stat
+
+      Inside = .FALSE.
+      corners = MIN(n,4)
+      LocalCoords = 0.0_dp
+
+      ! Only the local coordinates the element's own dimension uses are set below,
+      ! but all three are passed on to ElementInfo and copied to LocalCoords.
+      U = 0.0_dp
+      V = 0.0_dp
+      W = 0.0_dp
+
+      Eps2 = SQRT(TINY(Eps2))    
+
+      ! In 2D the intersection is between two lines
+      IF(acc_dim == 2) THEN
+        A(1,1) = Line % x(2) - Line % x(1)
+        A(2,1) = Line % y(2) - Line % y(1)
+        A(1,2) = Plane % x(1) - Plane % x(2)
+        A(2,2) = Plane % y(1) - Plane % y(2)
+        A0 = A
+
+        detA = A(1,1)*A(2,2)-A(1,2)*A(2,1)
+        absA = SUM(ABS(A(1,1:2))) * SUM(ABS(A(2,1:2)))
+
+        ! Lines are almost parallel => no intersection possible
+        IF(ABS(detA) <= eps * absA + Eps2) RETURN
+
+        B(1) = Plane % x(1) - Line % x(1) 
+        B(2) = Plane % y(1) - Line % y(1) 
+
+        CALL InvertMatrix( A,2 )
+        C(1:2) = MATMUL(A(1:2,1:2),B(1:2))
+
+        IF(ANY(C(1:2) < 0.0) .OR. ANY(C(1:2) > 1.0d0)) RETURN
+
+        Inside = .TRUE.
+        u = -1.0d0 + 2.0d0 * C(2)
+
+      ELSE IF( acc_dim == 3 ) THEN
+        ! In 3D rectangular faces are treated as two triangles
+        DO split=0,corners-3
+
+          A(1,1) = Line % x(2) - Line % x(1)
+          A(2,1) = Line % y(2) - Line % y(1)
+          A(3,1) = Line % z(2) - Line % z(1)
+
+          IF(split == 0) THEN
+            A(1,2) = Plane % x(1) - Plane % x(2)
+            A(2,2) = Plane % y(1) - Plane % y(2)
+            A(3,2) = Plane % z(1) - Plane % z(2)
+          ELSE 
+            A(1,2) = Plane % x(1) - Plane % x(4)
+            A(2,2) = Plane % y(1) - Plane % y(4)
+            A(3,2) = Plane % z(1) - Plane % z(4)
+          END IF
+
+          A(1,3) = Plane % x(1) - Plane % x(3)
+          A(2,3) = Plane % y(1) - Plane % y(3)
+          A(3,3) = Plane % z(1) - Plane % z(3)
+
+          ! Check for linearly dependent vectors
+          detA = A(1,1)*(A(2,2)*A(3,3)-A(2,3)*A(3,2)) &
+               - A(1,2)*(A(2,1)*A(3,3)-A(2,3)*A(3,1)) &
+               + A(1,3)*(A(2,1)*A(3,2)-A(2,2)*A(3,1))
+          absA = SUM(ABS(A(1,1:3))) * SUM(ABS(A(2,1:3))) * SUM(ABS(A(3,1:3))) 
+
+          IF(ABS(detA) <= eps * absA + Eps2) CYCLE
+
+          B(1) = Plane % x(1) - Line % x(1)
+          B(2) = Plane % y(1) - Line % y(1)
+          B(3) = Plane % z(1) - Line % z(1)
+
+          CALL InvertMatrix( A,3 )
+          C(1:3) = MATMUL( A(1:3,1:3),B(1:3) )
+
+          ! position on the line
+          linepos = C(1)
+
+          IF( ANY(C(1:3) < 0.0) .OR. ANY(C(1:3) > 1.0d0) ) CYCLE
+          IF(C(2)+C(3) > 1.0d0) CYCLE
+
+          Inside = .TRUE. 
+
+          ! Relate the point of intersection to local coordinates
+          IF(corners < 4) THEN
+            u = C(2)
+            v = C(3)
+          ELSE IF(corners == 4 .AND. split == 0) THEN
+            u = 2*(C(2)+C(3))-1
+            v = 2*C(3)-1
+          ELSE 
+            ! For the 2nd split of the rectangle the local coordinates switched
+            v = 2*(C(2)+C(3))-1
+            u = 2*C(3)-1        
+          END IF
+
+          IF(Inside) EXIT
+
+        END DO
+      END IF
+
+      IF(.NOT. Inside) RETURN
+
+      stat = ElementInfo( Element, Plane, U, V, W, SqrtElementMetric, &
+          Basis, dBasisdx )
+
+      Weights(1:n) = Basis(1:n)
+      MaxInd = 1
+      DO i=2,n
+        IF(Weights(MaxInd) < Weights(i)) MaxInd = i
+      END DO
+
+      LocalCoords(1) = u
+      LocalCoords(2) = v
+      LocalCoords(3) = w
+
+    END SUBROUTINE GlobalToLocalCoords
+
+
+
+  !---------------------------------------------------------------------------
+  !> As the previous but performs mapping to plane
+  !---------------------------------------------------------------------------
+    SUBROUTINE GlobalToLocalCoordsReduced(Element,Plane,n,Line,Eps, &
+        Inside,Weights,maxind,linepos,LocalCoords)
+
+      TYPE(Nodes_t) :: Plane, Line
+      TYPE(Element_t), POINTER   :: Element
+      INTEGER :: n, maxind
+      REAL (KIND=dp) :: Eps,Weights(:)
+      LOGICAL :: Inside
+      REAL(KIND=dp) :: linepos
+      REAL(KIND=dp) :: LocalCoords(3)
+
+      REAL (KIND=dp) :: A(3,3),A0(3,3),B(3),C(3),Eps2,detA,absA,ds
+      INTEGER :: split, i, corners
+      REAL(KIND=dp) :: Basis(2*n),dBasisdx(2*n,3)
+      REAL(KIND=dp) :: SqrtElementMetric,U,V,W
+    logical :: stat
+
+      Inside = .FALSE.
+      corners = MIN(n,4)
+      LocalCoords = 0.0_dp
+
+      ! As above: only U is set on this path, the rest still reach ElementInfo.
+      U = 0.0_dp
+      V = 0.0_dp
+      W = 0.0_dp
+
+      Eps2 = SQRT(TINY(Eps2))    
+
+      IF( acc_dim /= 3 ) CALL Fatal(Caller,'GlobalToLocalReduced only for 3 dimensions!')
+
+      IF(acc_intersectcoord == 1) THEN
+        A(1,1) = Line % y(2) - Line % y(1)
+        A(2,1) = Line % z(2) - Line % z(1)
+        A(1,2) = Plane % y(1) - Plane % y(2)
+        A(2,2) = Plane % z(1) - Plane % z(2)
+      ELSE IF(acc_intersectcoord == 2) THEN
+        A(1,1) = Line % x(2) - Line % x(1)
+        A(2,1) = Line % z(2) - Line % z(1)
+        A(1,2) = Plane % x(1) - Plane % x(2)
+        A(2,2) = Plane % z(1) - Plane % z(2)
+      ELSE IF(acc_intersectcoord == 3) THEN
+        A(1,1) = Line % x(2) - Line % x(1)
+        A(2,1) = Line % y(2) - Line % y(1)
+        A(1,2) = Plane % x(1) - Plane % x(2)
+        A(2,2) = Plane % y(1) - Plane % y(2)
+      ELSE
+        CALL Fatal('GlobalToLocalCoords','Impossible value for parameter acc_intersectcoord: '&
+            //I2S(acc_intersectcoord))
+      END IF
+
+      A0 = A
+
+      detA = A(1,1)*A(2,2)-A(1,2)*A(2,1)
+      absA = SUM(ABS(A(1,1:2))) * SUM(ABS(A(2,1:2)))
+
+      IF(ABS(detA) <= eps * absA + Eps2) RETURN
+
+      B(1) = Plane % x(1) - Line % x(1) 
+      B(2) = Plane % y(1) - Line % y(1) 
+
+      CALL InvertMatrix( A,2 )
+      C(1:2) = MATMUL(A(1:2,1:2),B(1:2))
+      linepos = C(1)
+
+      IF(ANY(C(1:2) < 0.0) .OR. ANY(C(1:2) > 1.0d0)) RETURN
+
+      IF(acc_intersectcoord == 1) THEN
+        ds = Line % x(1) + C(1)* (Line % x(2) - Line % x(1))  &
+            - Plane % x(1) - C(2) * (Plane % x(1) - Plane % x(2))
+      ELSE IF(acc_intersectcoord == 2) THEN
+        ds = Line % y(1) + C(1)* (Line % y(2) - Line % y(1))  &
+            - Plane % y(1) - C(2) * (Plane % y(1) - Plane % y(2))
+      ELSE 
+        ds = Line % z(1) + C(1)* (Line % z(2) - Line % z(1))  &
+            - Plane % z(1) - C(2) * (Plane % z(1) - Plane % z(2))      
+      END IF
+
+      IF(ABS(ds) > acc_intersectepsilon) RETURN
+
+      ! Ok, we are this far so we must be inside    
+      Inside = .TRUE.
+      u = -1.0d0 + 2.0d0 * C(2)
+
+      stat = ElementInfo( Element, Plane, U, V, W, SqrtElementMetric, &
+          Basis, dBasisdx )
+
+      Weights(1:n) = Basis(1:n)
+      MaxInd = 1
+      DO i=2,n
+        IF(Weights(MaxInd) < Weights(i)) MaxInd = i
+      END DO
+
+      LocalCoords(1) = u
+      LocalCoords(2) = v
+      LocalCoords(3) = w
+
+    END SUBROUTINE GlobalToLocalCoordsReduced
+
 end module sd_line_rest
-
-
-
