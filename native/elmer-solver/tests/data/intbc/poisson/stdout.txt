@@ -1,0 +1,19 @@
+IntegralProjector: Creating integral constraint matrix for boundary: 3
+IntegralProjector: Total area of boundary integral:  1.0000E+00
+IntegralProjector: Setting the representative node to: 127
+GenerateConstraintMatrix: There are 1 initial rows in constraint matrices
+GenerateConstraintMatrix: Adding integral constraint for BC: 3
+GenerateConstraintMatrix: Allocating 1 rows and 8 nonzeros
+GenerateConstraintMatrix: Used 1 rows and 8 nonzeros
+SolveWithLinearRestriction: Adding ConstraintMatrix into CollectionMatrix
+SolveWithLinearRestriction: Reverting CollectionMatrix back to CRS matrix
+SolveWithLinearRestriction: Collection matrix increased with 1 rows and 17 non-zeros
+SolveWithLinearRestriction: Now solving the linear system with constraints!
+ComputeChange: WARNING: Possible mismatch in length of vectors (129 vs. 128)!
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.57866043      2.0000000     ) :: heat equation
+SolveWithLinearRestriction: Picking solution from collection solution
+SolveWithLinearRestriction: All done
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.57809787      2.0000000     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 5.78097868E-01  RefNorm = 5.78097868E-01
+CompareToReferenceSolution: Relative Error to reference norm: 1.935054E-10
+CompareToReferenceSolution: PASSED all 1 tests!

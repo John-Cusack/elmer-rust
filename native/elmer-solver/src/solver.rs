@@ -570,6 +570,17 @@ impl<'a> SolverCtx<'a> {
     /// solved and split again; otherwise see [`solve_system`](Self::solve_system).
     /// Returns the variable norm.
     pub fn default_solve(&mut self) -> Result<f64, SolverError> {
+        crate::constraints::generate(self)?;
+        let slot = &self.sim.slots[self.slot];
+        if (slot.constraints.is_some() || slot.own_constraints.is_some())
+            && ["apply source control", "monolithic slave"]
+                .iter()
+                .any(|k| slot.params.logical(k) == Some(true))
+        {
+            return Err(SolverError::Unsupported(
+                "linear constraints with Apply Source Control or Monolithic Slave".into(),
+            ));
+        }
         if self.params().logical("linear system solver disabled") == Some(true) {
             self.info("DefaultSolve", "Solver disabled, exiting early!", 10);
             return Ok(self.convergence().map_or(0.0, |c| c.norm));
@@ -621,6 +632,27 @@ impl<'a> SolverCtx<'a> {
             .ok_or_else(|| SolverError::fatal("DefaultSolve", "no assembled system"))?;
         let var = sim.vars.by_id_mut(id);
         let n = sys.matrix.nrows;
+        // SolveSystem's RestrictionMode: SolveWithLinearRestriction solves
+        // the collection system [A C^T; C 0] instead.
+        let restricted = match slot.constraints.as_ref().or(slot.own_constraints.as_ref()) {
+            None => None,
+            Some(c) => {
+                crate::constraints::refuse_options(p)?;
+                if var.values.len() != n {
+                    return Err(SolverError::Unsupported(
+                        "linear constraints on a variable longer than its system".into(),
+                    ));
+                }
+                let (a, b) = crate::constraints::collection(&sys.matrix, &sys.rhs, c, &slot.asm.constrained, p, log);
+                let mut x = var.values.clone();
+                x.resize(a.nrows, 0.0);
+                Some((a, b, x))
+            }
+        };
+        let (mut ca, mut cb, mut cx) = match restricted {
+            Some((a, b, x)) => (Some(a), Some(b), Some(x)),
+            None => (None, None, None),
+        };
 
         // SolveCore.F90:3150-3186: keep the previous iterate in residual
         // mode, when relaxing or when measuring the solution change.
@@ -658,9 +690,10 @@ impl<'a> SolverCtx<'a> {
         } else {
             None
         };
-        let b: &mut [f64] = match &mut res {
-            Some(r) => r,
-            None => &mut sys.rhs[..n],
+        let b: &mut [f64] = match (&mut res, &mut cb) {
+            (Some(r), _) => r,
+            (None, Some(bc)) => bc,
+            (None, None) => &mut sys.rhs[..n],
         };
 
         // SolveCore.F90:1502-1527: b = 0 has only the trivial solution. In
@@ -692,14 +725,37 @@ impl<'a> SolverCtx<'a> {
         // the complex one's modulus; that changes their scaling, not x.
         let nullify = p.logical("linear system nullify guess") == Some(true)
             || (p.logical("linear system nullify first guess") == Some(true) && nonlin_iter.is_some_and(|i| i.round() <= 1.0));
-        let x = &mut var.values[..n];
-        let solved = solve_linear(&sim.backends.linear, p, &mut sys.matrix, b, x, bnorm, nullify, log, comm);
-        solved?;
-        var.values_changed = true;
-        // SolveCore.F90:1727-1741, then the change, then :1763-1771.
-        sim.calculate_loads(slot_ix, n, true, mesh, log)?;
-        sim.compute_change(slot_ix, false, Some(n), true, mesh, log, comm)?;
-        sim.calculate_loads(slot_ix, n, false, mesh, log)?;
+        if let (Some(a), Some(x)) = (&mut ca, &mut cx) {
+            log.info("SolveWithLinearRestriction", "Now solving the linear system with constraints!", 10);
+            solve_linear(&sim.backends.linear, p, a, b, x, bnorm, nullify, log, comm)?;
+            // ComputeChange over the collection solution, multipliers
+            // included; then 'Picking solution from collection solution'.
+            // Without NonlinValues the Fortran's x0 is the variable's own
+            // (previous, n long) values.
+            let nc = x.len();
+            let own_x0 = var.nonlin_values.is_none();
+            let prev = std::mem::replace(&mut var.values, std::mem::take(x));
+            if own_x0 {
+                var.nonlin_values = Some(prev);
+            }
+            var.values_changed = true;
+            sim.compute_change(slot_ix, false, Some(nc), true, mesh, log, comm)?;
+            log.info("SolveWithLinearRestriction", "Picking solution from collection solution", 10);
+            let var = sim.vars.by_id_mut(id);
+            var.values.truncate(n);
+            if own_x0 {
+                var.nonlin_values = None;
+            }
+            log.info("SolveWithLinearRestriction", "All done", 10);
+        } else {
+            let x = &mut var.values[..n];
+            solve_linear(&sim.backends.linear, p, &mut sys.matrix, b, x, bnorm, nullify, log, comm)?;
+            var.values_changed = true;
+            // SolveCore.F90:1727-1741, then the change, then :1763-1771.
+            sim.calculate_loads(slot_ix, n, true, mesh, log)?;
+            sim.compute_change(slot_ix, false, Some(n), true, mesh, log, comm)?;
+            sim.calculate_loads(slot_ix, n, false, mesh, log)?;
+        }
         sim.update_2nd_order(slot_ix, n)?;
         sim.publish_live();
         sim.run_slave_solvers(slot_ix, "Nonlinear Post Solvers", mesh, log, comm)?;
