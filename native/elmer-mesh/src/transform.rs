@@ -584,3 +584,100 @@ pub(crate) fn increase_element_order(mesh: &mut Mesh) -> Result<(), MeshError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mesh::Elem;
+    use elmer_sif::model::Value as SifValue;
+
+    fn int_section(id: u32, name: &str, values: Vec<i32>) -> Section {
+        Section {
+            id,
+            entries: vec![Entry {
+                name: name.to_string(),
+                value: SifValue::IntArray { values },
+                partag: None,
+                distribute: false,
+            }],
+        }
+    }
+
+    fn two_tri(dim: usize) -> Mesh {
+        Mesh {
+            dim,
+            max_dim: dim,
+            nodes: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+            ],
+            node_tags: vec![1, 2, 3, 4],
+            bulk: vec![
+                Elem { code: 303, body: 1, nodes: vec![0, 1, 2], tag: 1, edges: vec![] },
+                Elem { code: 303, body: 1, nodes: vec![0, 2, 3], tag: 2, edges: vec![] },
+            ],
+            boundary: vec![],
+            edges: None,
+        }
+    }
+
+    fn sim_model(sections: Vec<Section>, sim: Option<Section>) -> Model {
+        Model { bcs: sections, simulation: sim, ..Model::default() }
+    }
+
+    #[test]
+    fn intersection_needs_exactly_two_parents() {
+        let mut mesh = two_tri(2);
+        let model = sim_model(vec![int_section(1, "intersection bc", vec![1, 2, 3])], None);
+        let err = transform(&mut mesh, &model).unwrap_err();
+        assert!(err.msg.contains("two parents"), "unexpected: {err:?}");
+    }
+
+    #[test]
+    fn intersection_3d_is_later_lane() {
+        let mut mesh = two_tri(3);
+        let model = sim_model(vec![int_section(5, "intersection body", vec![1, 2])], None);
+        let err = transform(&mut mesh, &model).unwrap_err();
+        assert!(err.msg.contains("later lane"), "unexpected: {err:?}");
+    }
+
+    fn logical_section(name: &str) -> Section {
+        Section {
+            id: 0,
+            entries: vec![Entry {
+                name: name.to_string(),
+                value: SifValue::Logical(true),
+                partag: None,
+                distribute: false,
+            }],
+        }
+    }
+
+    #[test]
+    fn increase_rejects_nonlinear_type() {
+        let mut mesh = two_tri(2);
+        // Quadratic tet (already second order) can never be increased.
+        mesh.bulk.push(Elem {
+            code: 510,
+            body: 1,
+            nodes: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            tag: 3,
+            edges: vec![],
+        });
+        let model = sim_model(vec![], Some(logical_section("increase element order")));
+        let err = transform(&mut mesh, &model).unwrap_err();
+        assert!(err.msg.contains("cannot increase element order for: 510"), "unexpected: {err:?}");
+    }
+
+    #[test]
+    fn increase_rejects_wrong_node_count() {
+        let mut mesh = two_tri(2);
+        // A 303 must carry exactly 3 corner nodes.
+        mesh.bulk[0].nodes.push(3);
+        let model = sim_model(vec![], Some(logical_section("increase element order")));
+        let err = transform(&mut mesh, &model).unwrap_err();
+        assert!(err.msg.contains("got 4 nodes"), "unexpected: {err:?}");
+    }
+}
