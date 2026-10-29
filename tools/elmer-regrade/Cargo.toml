@@ -1,0 +1,16 @@
+[package]
+name = "elmer-regrade"
+version = "0.1.0"
+edition = "2021"
+description = "Re-run the Fortran substitution/entry gate over a list of Elmer campaign units"
+license = "GPL-2.0-or-later"
+
+[[bin]]
+name = "elmer-regrade"
+path = "src/main.rs"
+
+[dependencies]
+rustsmith-adapters = { git = "https://github.com/John-Cusack/rustsmith", package = "rustsmith-adapters" }
+serde_json = "1"
+
+[workspace]
