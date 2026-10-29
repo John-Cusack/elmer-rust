@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use elmer_run::output::take_vtu_output;
+use elmer_run::output::prepare_vtu_output;
 use elmer_run::sif::to_model;
 use elmer_run::SifFrontend;
 use elmer_solver::{Model, SolverError};
@@ -22,7 +22,6 @@ pub fn frontend() -> SifFrontend {
 pub fn read_model(sif: &Path) -> Result<(Model, Option<String>), String> {
     let path = sif.to_str().ok_or("non-UTF-8 case path")?;
     let mut parsed = elmer_sif::parse_file(path).map_err(|e| e.to_string())?;
-    let blocks = parsed.sif.runs.iter().skip(1).filter(|r| r.header.present || r.simulation.is_some() || !r.solvers.is_empty()).count();
     elmer_sif::complete(&mut parsed.sif, path)?;
     let merged = parsed.sif.merged();
     let mut model = to_model(&merged)?;
@@ -31,13 +30,12 @@ pub fn read_model(sif: &Path) -> Result<(Model, Option<String>), String> {
         Some((db, name)) => case_dir.join(db).join(name),
         None => case_dir.clone(),
     };
-    let mut refusal = match take_vtu_output(&mut model, &case_dir, &mesh_dir) {
+    // Several RUN blocks run as reloads of one simulation; the screen looks
+    // at all of them merged.
+    let refusal = match prepare_vtu_output(&mut model, &case_dir, &mesh_dir) {
         Ok(_) => None,
         Err(SolverError::Unsupported(m) | SolverError::NotWired(m)) => Some(m),
         Err(e) => Some(e.to_string()),
     };
-    if blocks > 0 {
-        refusal.get_or_insert_with(|| format!("{} RUN blocks (one Simulation per process is composed)", blocks + 1));
-    }
     Ok((model, refusal))
 }

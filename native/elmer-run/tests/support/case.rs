@@ -88,7 +88,7 @@ impl Frontend for HandBuilt {
         let mesh_dir = case_dir.join("triangle");
         let mut model = minimal_example();
         (self.0)(&mut model);
-        Ok(LoadedCase { model, mesh: Box::new(FileMesh::read(&mesh_dir, 2)), case_dir, mesh_dir })
+        Ok(LoadedCase { model, reloads: vec![], mesh: Box::new(FileMesh::read(&mesh_dir, 2)), case_dir, mesh_dir })
     }
 }
 

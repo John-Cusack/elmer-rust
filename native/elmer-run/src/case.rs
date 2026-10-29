@@ -3,8 +3,9 @@
 
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
-use elmer_core::{Communicator, Logger, MeshView, Params, Value};
+use elmer_core::{normalize_key, Communicator, Logger, MeshView, ParamMap, Params, Value};
 use elmer_fe::{CoordinateKind, CoordinateSystem};
 use elmer_solver::{
     finalize_reference, solver::procedure_of, Model, RunReport, Simulation, SolverError, SolverRegistry,
@@ -12,11 +13,14 @@ use elmer_solver::{
 
 use crate::compose::{coordinate_system, install_fe, solver_registry};
 use crate::matc::SifMatc;
-use crate::output::take_vtu_output;
+use crate::output::{is_result_output, prepare_vtu_output};
 
 /// A parsed case and its mesh.
 pub struct Case<'a> {
     pub model: Model,
+    /// Further `RUN` blocks (`Simulation::reload`), each with only its own
+    /// entries; empty for a single simulation.
+    pub reloads: Vec<Model>,
     pub mesh: &'a dyn MeshView,
     /// Where `TEST.PASSED` goes and a relative `Output Directory` starts.
     pub case_dir: PathBuf,
@@ -99,6 +103,10 @@ fn preflight(model: &Model, registry: &SolverRegistry) -> Result<(), SolverError
         if params.0.is_empty() || params.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never")) {
             continue;
         }
+        // Checked and served by [`crate::output`].
+        if is_result_output(params) {
+            continue;
+        }
         let Some((lib, entry)) = procedure_of(params) else {
             return Err(SolverError::Unsupported(format!("Solver {}: no Procedure", i + 1)));
         };
@@ -109,6 +117,109 @@ fn preflight(model: &Model, registry: &SolverRegistry) -> Result<(), SolverError
     crate::unported::check(model)
 }
 
+/// Section-wise merge of `block` into `model`, as `Simulation::reload` does
+/// (`ReloadInputFile`): entries replace same-name ones, new sections append.
+fn merged_with(model: &Model, block: &Model) -> Model {
+    fn merge(into: &mut ParamMap, from: &ParamMap) {
+        for (k, v) in &from.0 {
+            into.0.insert(k.clone(), v.clone());
+        }
+    }
+    fn merge_vec(into: &mut Vec<ParamMap>, from: &[ParamMap]) {
+        if into.len() < from.len() {
+            into.resize_with(from.len(), ParamMap::new);
+        }
+        for (a, b) in into.iter_mut().zip(from) {
+            merge(a, b);
+        }
+    }
+    let mut m = model.clone();
+    merge(&mut m.simulation, &block.simulation);
+    merge(&mut m.constants, &block.constants);
+    merge_vec(&mut m.solvers, &block.solvers);
+    merge_vec(&mut m.equations, &block.equations);
+    merge_vec(&mut m.bodies, &block.bodies);
+    merge_vec(&mut m.materials, &block.materials);
+    merge_vec(&mut m.body_forces, &block.body_forces);
+    merge_vec(&mut m.initial_conditions, &block.initial_conditions);
+    merge_vec(&mut m.boundary_conditions, &block.boundary_conditions);
+    m
+}
+
+/// Refuses, before anything runs, what a later `RUN` block would make
+/// unsupported. Fortran solvers read their keywords on every visit, while
+/// several native solvers read their section once when built; until the
+/// slots are rebuilt on reload, a block may only change `Reference Norm` /
+/// `Reference Norm Tolerance` of existing solvers.
+fn check_reloads(model: &Model, reloads: &[Model], registry: &SolverRegistry) -> Result<(), SolverError> {
+    const ALLOWED: [&str; 2] = ["reference norm", "reference norm tolerance"];
+    let mut merged = model.clone();
+    for (k, block) in reloads.iter().enumerate() {
+        let run = k + 2;
+        let refuse = |what: String| {
+            Err(SolverError::Unsupported(format!(
+                "RUN block {run} changes {what} (re-reading changed keywords after a reload is not composed)"
+            )))
+        };
+        if let Some(key) = block.simulation.0.keys().find(|k| *k != "solver input file") {
+            return refuse(format!("Simulation {key}"));
+        }
+        let others = [
+            ("Constants", std::slice::from_ref(&block.constants)),
+            ("Equation", &block.equations[..]),
+            ("Body", &block.bodies[..]),
+            ("Material", &block.materials[..]),
+            ("Body Force", &block.body_forces[..]),
+            ("Initial Condition", &block.initial_conditions[..]),
+            ("Boundary Condition", &block.boundary_conditions[..]),
+        ];
+        for (name, sections) in others {
+            if let Some((i, p)) = sections.iter().enumerate().find(|(_, p)| !p.0.is_empty()) {
+                let key = p.0.keys().next().cloned().unwrap_or_default();
+                return refuse(format!("{name} {} {key}", i + 1));
+            }
+        }
+        for (i, params) in block.solvers.iter().enumerate() {
+            if i >= model.solvers.len() && !params.0.is_empty() {
+                return refuse(format!("Solver {} (a new solver)", i + 1));
+            }
+            if let Some(key) = params.0.keys().find(|k| !ALLOWED.contains(&k.as_str())) {
+                return refuse(format!("Solver {} {key}", i + 1));
+            }
+        }
+        merged = merged_with(&merged, block);
+        preflight(&merged, registry)?;
+    }
+    Ok(())
+}
+
+/// Mesh-load transforms and element definitions no provider applies yet:
+/// the mesh reader delivers the mesh as stored (after `Coordinate Scaling`),
+/// and `elmer-fe` evaluates the Lagrange (`n:1`) basis only.
+fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
+    let sim = &model.simulation;
+    if sim.get("coordinate transformation").is_some() {
+        return Err(SolverError::Unsupported("Simulation: Coordinate Transformation".into()));
+    }
+    match sim.get("coordinate mapping") {
+        None => {}
+        Some(Value::Integer(v)) if v[..] == [1, 2, 3] => {}
+        Some(v) => return Err(SolverError::Unsupported(format!("Simulation: Coordinate Mapping {v:?}"))),
+    }
+    let sections = model.solvers.iter().map(|p| ("Solver", p)).chain(model.equations.iter().map(|p| ("Equation", p)));
+    for (i, (name, p)) in sections.enumerate() {
+        if let Some(e) = p.string("element") {
+            if normalize_key(e) != "n:1" {
+                return Err(SolverError::Unsupported(format!(
+                    "{name} section {}: Element = {e} (p-, bubble, edge or DG elements)",
+                    i + 1
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Runs `case` serially. Unsupported input comes back as
 /// [`SolverError::Unsupported`] or [`SolverError::NotWired`] before any
 /// file is written.
@@ -116,26 +227,40 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
     if comm.size() > 1 {
         return Err(SolverError::Unsupported("more than one MPI rank".into()));
     }
-    let Case { mut model, mesh, case_dir, mesh_dir } = case;
+    let Case { mut model, reloads, mesh, case_dir, mesh_dir } = case;
     let registry = solver_registry();
-    let mut post = take_vtu_output(&mut model, &case_dir, &mesh_dir)?;
+    let mut outputs = prepare_vtu_output(&mut model, &case_dir, &mesh_dir)?;
     let coords = coordinate_system(&model, mesh)?;
     legacy_solvers(&mut model, coords);
     preflight(&model, &registry)?;
+    check_mesh_and_elements(&model)?;
+    check_reloads(&model, &reloads, &registry)?;
     install_fe(coords.dim)?;
 
     let mut sim = Simulation::new(model);
     sim.set_matc(Rc::new(SifMatc));
     sim.setup(mesh, &registry, log, comm)?;
-    if let Some(post) = &mut post {
-        post.select_fields(&sim)?;
+    // Field lists are fixed once every variable exists, before the run, so a
+    // refusal still comes before any file.
+    for out in &mut outputs {
+        out.select_fields(&sim)?;
     }
-    let report = sim.run(mesh, log, comm)?;
-
-    let mut written = Vec::new();
-    if let Some(post) = post {
-        written.push(post.write(&sim, mesh)?);
+    let written = Arc::new(Mutex::new(Vec::new()));
+    for out in outputs {
+        let id = out.index + 1;
+        let slot = sim
+            .slots
+            .iter_mut()
+            .find(|s| s.id == id)
+            .ok_or_else(|| SolverError::fatal("ResultOutputSolver", format!("no slot for Solver {id}")))?;
+        slot.set_instance(Box::new(out.into_solver(Arc::clone(&written))));
     }
+    let mut report = sim.run(mesh, log, comm)?;
+    for block in &reloads {
+        sim.reload(block, mesh, &registry, log, comm)?;
+        report = sim.run(mesh, log, comm)?;
+    }
+    let written = std::mem::take(&mut *written.lock().unwrap());
     let passed = finalize_reference(&sim.reference, &case_dir, log, comm)?;
     let norms = sim
         .slots

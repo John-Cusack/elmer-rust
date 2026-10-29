@@ -19,12 +19,13 @@ fn heateq_spline_table() {
     let (log, buf) = logger();
     let case = Case {
         model: loaded.model,
+        reloads: loaded.reloads,
         mesh: loaded.mesh.as_ref(),
         case_dir: loaded.case_dir,
         mesh_dir: loaded.mesh_dir,
     };
     let out = run_case(case, &log, &SerialComm).unwrap_or_else(|e| panic!("{e}\n{}", buf.text()));
-    let [(1, norm)] = out.norms[..] else {
+    let Some(&(_, norm)) = out.norms.iter().find(|(id, _)| *id == 1) else {
         panic!("{:?}", out.norms)
     };
     let reference = 1.5131;

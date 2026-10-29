@@ -13,7 +13,9 @@ elmer-sif = { path = "../elmer-sif" }
 elmer-physics-heat = { path = "../elmer-physics-heat" }
 elmer-physics-flux = { path = "../elmer-physics-flux" }
 elmer-physics-elastic = { path = "../elmer-physics-elastic" }
+elmer-physics-elasticsolve = { path = "../elmer-physics-elasticsolve" }
 elmer-physics-flow = { path = "../elmer-physics-flow" }
+elmer-physics-incompressible = { path = "../elmer-physics-incompressible" }
 elmer-physics-scalar = { path = "../elmer-physics-scalar" }
 elmer-physics-advdiff = { path = "../elmer-physics-advdiff" }
 elmer-fe = { path = "../elmer-fe" }

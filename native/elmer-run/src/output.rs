@@ -1,93 +1,90 @@
-//! VTU output through `ResultOutputSolver` semantics, written with
-//! `elmer-vtu` once the run finishes: the `Post File = "*.vtu"` auto-solver
-//! (ElmerSolver.F90 `AddVtuOutputSolverHack`), either still a Simulation
-//! keyword or already injected as a solver section by `elmer-sif`.
-//!
-//! Only the steady case with `Exec Solver = After Saving` is composed: that
-//! runs once, after the last steady iteration. Transient runs and other exec
-//! modes are refused until the output solver is a scheduled `Solver` slot.
+//! VTU output with `ResultOutputSolver` semantics (`VtuOutputSolver.F90`)
+//! as a scheduled solver: every `ResultOutputSolver` section with VTU
+//! format, including the `Post File = "*.vtu"` auto-solver
+//! (ElmerSolver.F90 `AddVtuOutputSolverHack`, which `elmer-sif` usually has
+//! already appended), becomes a [`VtuSolver`] in its slot, so
+//! `elmer-solver` visits it as its `Exec Solver` says (always, after
+//! saving, each output step of a transient run). Each visit writes one
+//! piece with `elmer-vtu`, numbered as `VtuOutputSolver` numbers them.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use elmer_core::{ElemId, ElementRef, FieldKind, FieldSource, MeshView, ParamMap, Params};
-use elmer_solver::{solver::procedure_of, variable::Snapshot, Model, Simulation, SolverError};
+use elmer_solver::{
+    solver::procedure_of, variable::Snapshot, Model, Simulation, Solver, SolverCtx, SolverError,
+};
 use elmer_vtu::{post_file_solver, FileIndexer, GeometryIds, VtuNaming, VtuOptions};
 
-/// A configured VTU output.
+/// One VTU output section, checked and with its directory resolved.
 #[derive(Clone, Debug)]
 pub struct VtuOutput {
+    /// Index of the section in `Model::solvers` (solver id - 1).
+    pub index: usize,
     opts: VtuOptions,
     dir: PathBuf,
 }
 
-fn is_result_output(params: &ParamMap) -> bool {
+pub fn is_result_output(params: &ParamMap) -> bool {
     procedure_of(params).is_some_and(|(lib, entry)| {
         lib.eq_ignore_ascii_case("resultoutputsolve") && entry.eq_ignore_ascii_case("resultoutputsolver")
     })
 }
 
-/// Takes the model's VTU output: a Simulation `Post File` (removed, as
-/// Fortran's `ListRemove` does) or a `ResultOutputSolver` section (left in
-/// place as an empty section, so later solver ids keep their numbers).
+/// Finds the model's VTU outputs: a Simulation `Post File` is first turned
+/// into an appended `ResultOutputSolver` section (and removed, as Fortran's
+/// `ListRemove` does); then every `ResultOutputSolver` section is checked.
 /// `mesh_dir` is the default output directory (`SolverOutputDirectory(...,
 /// UseMeshDir = .TRUE.)`), `case_dir` the base of a relative `Output
-/// Directory`. Refuses what the composition cannot write correctly.
-pub fn take_vtu_output(model: &mut Model, case_dir: &Path, mesh_dir: &Path) -> Result<Option<VtuOutput>, SolverError> {
-    let params = if let Some(post) = model.simulation.string("post file").map(str::to_string) {
-        let Some(params) = post_file_solver(&model.simulation, &model.solvers) else {
-            return Err(SolverError::Unsupported(format!("Post File = {post} (only .vtu is composed)")));
-        };
-        model.simulation.0.remove("post file");
-        params
-    } else {
-        let mut found = model.solvers.iter().enumerate().filter(|(_, p)| is_result_output(p));
-        let Some((ix, _)) = found.next() else {
-            return Ok(None);
-        };
-        if found.next().is_some() {
-            return Err(SolverError::Unsupported("several ResultOutputSolver sections".into()));
+/// Directory`. Refuses what the composition cannot write correctly, before
+/// any side effect.
+pub fn prepare_vtu_output(model: &mut Model, case_dir: &Path, mesh_dir: &Path) -> Result<Vec<VtuOutput>, SolverError> {
+    if let Some(post) = model.simulation.string("post file").map(str::to_string) {
+        match post_file_solver(&model.simulation, &model.solvers) {
+            Some(params) => model.solvers.push(params),
+            None if post.contains(".vtu") => {} // A VTU ResultOutputSolver already exists.
+            None => return Err(SolverError::Unsupported(format!("Post File = {post} (only .vtu is composed)"))),
         }
-        let params = std::mem::take(&mut model.solvers[ix]);
+        model.simulation.0.remove("post file");
+    }
+    let mut outputs = Vec::new();
+    for (index, params) in model.solvers.iter().enumerate() {
+        if !is_result_output(params) {
+            continue;
+        }
+        let id = index + 1;
+        if params.string("exec solver").is_some_and(|e| e.eq_ignore_ascii_case("never")) {
+            continue;
+        }
         let vtu = params.logical("vtu format") == Some(true)
             || params.string("output format").is_some_and(|f| f.eq_ignore_ascii_case("vtu"));
         if !vtu {
-            return Err(SolverError::Unsupported(format!("Solver {}: ResultOutputSolver other than VTU", ix + 1)));
+            return Err(SolverError::Unsupported(format!("Solver {id}: ResultOutputSolver other than VTU")));
         }
-        if !params.string("exec solver").is_some_and(|e| e.eq_ignore_ascii_case("after saving")) {
-            return Err(SolverError::Unsupported(format!(
-                "Solver {}: ResultOutputSolver without Exec Solver = After Saving",
-                ix + 1
-            )));
+        let mut opts = VtuOptions::from_params(params);
+        opts.apply_simulation(&model.simulation);
+        if opts.time_collection || opts.part_collection {
+            opts.unsupported.push("vtu time/part collection (.pvd)".into());
         }
-        params
-    };
-    let transient = model
-        .simulation
-        .string("simulation type")
-        .is_some_and(|s| s.eq_ignore_ascii_case("transient"));
-    if transient {
-        return Err(SolverError::Unsupported("VTU output in a transient simulation".into()));
+        if !opts.unsupported.is_empty() {
+            return Err(SolverError::Unsupported(format!("Solver {id}: VTU output: {}", opts.unsupported.join(", "))));
+        }
+        if opts.output_file_name.contains('/') {
+            return Err(SolverError::Unsupported(format!("Solver {id}: a directory in the VTU output file name")));
+        }
+        if opts.save_geometry_ids {
+            opts = opts.with_geometry(geometry(model));
+        }
+        let dir = match params
+            .string("output directory")
+            .or_else(|| model.simulation.string("output directory"))
+        {
+            Some(d) => case_dir.join(d),
+            None => mesh_dir.to_path_buf(),
+        };
+        outputs.push(VtuOutput { index, opts, dir });
     }
-
-    let mut opts = VtuOptions::from_params(&params);
-    opts.apply_simulation(&model.simulation);
-    if !opts.unsupported.is_empty() {
-        return Err(SolverError::Unsupported(format!("VTU output: {}", opts.unsupported.join(", "))));
-    }
-    if opts.output_file_name.contains('/') {
-        return Err(SolverError::Unsupported("a directory in the VTU output file name".into()));
-    }
-    if opts.save_geometry_ids {
-        opts = opts.with_geometry(geometry(model));
-    }
-    let dir = match params
-        .string("output directory")
-        .or_else(|| model.simulation.string("output directory"))
-    {
-        Some(d) => case_dir.join(d),
-        None => mesh_dir.to_path_buf(),
-    };
-    Ok(Some(VtuOutput { opts, dir }))
+    Ok(outputs)
 }
 
 /// Body and BC facts for `GeometryIds`. The writer sees [`MappedTags`], so
@@ -179,15 +176,31 @@ impl VtuOutput {
         Ok(())
     }
 
-    /// Writes the one steady-state piece and returns its path.
-    pub fn write(&self, sim: &Simulation, mesh: &dyn MeshView) -> Result<PathBuf, SolverError> {
-        let index = FileIndexer::new().advance(&self.opts);
-        let naming = VtuNaming { no_fileindex: self.opts.no_fileindex, ..VtuNaming::default() };
-        let name = naming.file_name(&self.opts.output_file_name, ".vtu", index, None, false);
-        std::fs::create_dir_all(&self.dir)?;
-        let path = self.dir.join(name);
-        let mapped = MappedTags { mesh, model: &sim.model };
-        elmer_vtu::write_vtu(&path, &mapped, &Snapshot { store: &sim.vars }, &self.opts)?;
-        Ok(path)
+    /// The solver to install in this output's slot; it appends each file it
+    /// writes to `written`.
+    pub fn into_solver(self, written: Arc<Mutex<Vec<PathBuf>>>) -> VtuSolver {
+        VtuSolver { out: self, indexer: FileIndexer::new(), written }
+    }
+}
+
+/// `VtuOutputSolver` for one section: one `.vtu` piece per visit.
+pub struct VtuSolver {
+    out: VtuOutput,
+    indexer: FileIndexer,
+    written: Arc<Mutex<Vec<PathBuf>>>,
+}
+
+impl Solver for VtuSolver {
+    fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
+        let opts = &self.out.opts;
+        let index = self.indexer.advance(opts);
+        let naming = VtuNaming { no_fileindex: opts.no_fileindex, ..VtuNaming::default() };
+        let name = naming.file_name(&opts.output_file_name, ".vtu", index, None, false);
+        std::fs::create_dir_all(&self.out.dir)?;
+        let path = self.out.dir.join(name);
+        let mapped = MappedTags { mesh: ctx.mesh, model: &ctx.sim.model };
+        elmer_vtu::write_vtu(&path, &mapped, &Snapshot { store: &ctx.sim.vars }, opts)?;
+        self.written.lock().unwrap().push(path);
+        Ok(())
     }
 }
