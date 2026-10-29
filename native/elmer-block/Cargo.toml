@@ -1,0 +1,15 @@
+[package]
+name = "elmer-block"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Elmer's block linear system (BlockSolve.F90) for the Rust-native rewrite: block splitting of a monolithic system, block matrix-vector product, Jacobi/Gauss-Seidel block preconditioner over inner solves, and the outer Krylov iteration"
+
+[dependencies]
+elmer-core.workspace = true
+elmer-direct = { path = "../elmer-direct" }
+elmer-itermethods = { path = "../elmer-itermethods" }
+elmer-krylov = { path = "../elmer-krylov" }
+elmer-sparse = { path = "../elmer-sparse" }
+thiserror.workspace = true
