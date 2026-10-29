@@ -87,14 +87,14 @@ fn cli_driver_refuses_without_side_effects() {
     assert_eq!(action, Action::Exit(ExitCode::Refuse));
     assert!(diag.contains("no .sif and mesh front end"), "{diag}");
 
-    // An iterative solve is not wired until elmer-krylov merges.
-    let dir = scratch_case("minimal_example", "iterative");
+    // A direct method elmer-direct does not provide.
+    let dir = scratch_case("minimal_example", "spqr");
     let engine = NativeEngine::new(Box::new(HandBuilt(|m| {
-        m.solvers[0].0.remove("linear system solver");
+        m.solvers[0].insert("Linear System Direct Method", Value::Str("spqr".into()));
     })));
     let (action, _, diag) = drive(&engine, &dir);
     assert_eq!(action, Action::Exit(ExitCode::Refuse));
-    assert!(diag.contains("iterative method bicgstab"), "{diag}");
+    assert!(diag.contains("spqr"), "{diag}");
     assert!(!dir.join("TEST.PASSED").exists());
     assert!(!dir.join("triangle/case_t0001.vtu").exists());
 
@@ -106,6 +106,20 @@ fn cli_driver_refuses_without_side_effects() {
     let (action, _, diag) = drive(&engine, &dir);
     assert_eq!(action, Action::Exit(ExitCode::Refuse));
     assert!(diag.contains("StatCurrentSolve"), "{diag}");
+}
+
+#[test]
+fn missing_linear_system_solver_is_fatal_without_output() {
+    // SolveLinearSystem's Fatal, as in Elmer: exit 1, no TEST.PASSED, no VTU.
+    let dir = scratch_case("minimal_example", "nosolver");
+    let engine = NativeEngine::new(Box::new(HandBuilt(|m| {
+        m.solvers[0].0.remove("linear system solver");
+    })));
+    let (action, out, _) = drive(&engine, &dir);
+    assert_eq!(action, Action::Exit(ExitCode::Fail));
+    assert!(out.contains("Linear System Solver"), "{out}");
+    assert!(!dir.join("TEST.PASSED").exists());
+    assert!(!dir.join("triangle/case_t0001.vtu").exists());
 }
 
 #[test]

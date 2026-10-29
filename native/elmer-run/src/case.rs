@@ -8,7 +8,7 @@ use elmer_solver::{
     finalize_reference, solver::procedure_of, Model, RunReport, Simulation, SolverError, SolverRegistry,
 };
 
-use crate::compose::{install_backends, solver_registry};
+use crate::compose::solver_registry;
 use crate::output::take_post_file;
 
 /// A parsed case and its mesh.
@@ -63,7 +63,6 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
     let mut post = take_post_file(&mut model, &case_dir, &mesh_dir)?;
 
     let mut sim = Simulation::new(model);
-    install_backends(&mut sim);
     sim.setup(mesh, &registry, log, comm)?;
     if let Some(post) = &mut post {
         post.select_fields(&sim)?;

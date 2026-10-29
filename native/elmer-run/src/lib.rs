@@ -4,9 +4,8 @@
 //! `CompareToReferenceSolution` verdict (`TEST.PASSED`) and the `Post File`
 //! VTU.
 //!
-//! * [`compose`]: the solver registry (HeatSolve) and `elmer-direct` for
-//!   `Linear System Solver = Direct`, next to `elmer-solver`'s default
-//!   `elmer-assembly` and `elmer-timeint` backends.
+//! * [`compose`]: the solver registry (HeatSolve); assembly, time and linear
+//!   solvers are `elmer-solver`'s default backends.
 //! * [`case`]: [`run_case`], the `ExecSimulation` path from a [`Case`] to an
 //!   [`Outcome`], refusing unsupported input before any side effect.
 //! * [`output`]: the `Post File = *.vtu` auto-solver, written with `elmer-vtu`.
@@ -26,5 +25,5 @@ pub mod engine;
 pub mod output;
 
 pub use case::{run_case, Case, Outcome};
-pub use compose::{install_backends, solver_registry};
+pub use compose::solver_registry;
 pub use engine::{Frontend, LoadedCase, NativeEngine};
