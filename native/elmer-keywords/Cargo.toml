@@ -1,0 +1,15 @@
+[package]
+name = "elmer-keywords"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Generated keyword type catalog (section, name, type) from Elmer's SOLVER.KEYWORDS"
+
+[dependencies]
+elmer-core.workspace = true
+thiserror.workspace = true
+
+[[bin]]
+name = "gen-keywords"
+path = "src/bin/gen_keywords.rs"
