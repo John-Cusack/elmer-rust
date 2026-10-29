@@ -57,3 +57,29 @@ fn element_unit_test_edge_cases_pass_all_twelve_runs() {
         assert_eq!(out.passed, Some(true), "{name}");
     }
 }
+
+/// `ElementUnitTest_p1` and `SD_ElementUnitTest_p1`: `SingleElements` on
+/// `Element = "p:1"`, with each element's p basis and Gauss rule from
+/// `elmer-pdofs`. Its p layout does not cover tetrahedra yet (the unit mesh
+/// has a 504), so the solver refuses by name before the run.
+#[test]
+fn element_unit_test_p1_cases_are_refused_until_p_tetrahedra() {
+    for name in ["ElementUnitTest_p1", "SD_ElementUnitTest_p1"] {
+        let dir = case::stage(name, None);
+        let err = case::run(name, &dir, "case.sif").err().unwrap_or_else(|| panic!("{name}: ran"));
+        assert!(matches!(err, elmer_solver::SolverError::Unsupported(_)), "{name}: {err}");
+        assert!(err.to_string().contains("tetrahedral p elements"), "{name}: {err}");
+        assert!(!dir.join("TEST.PASSED").exists(), "{name}: refused before any output");
+    }
+}
+
+/// The p path of `SingleElements` where `elmer-pdofs` has a layout: the
+/// brick of ElementUnitTest_p1's unit mesh (`tests/data/ElementUnitTest_p1_brick`),
+/// its mass and stiffness sums checked against the pristine run's 17-digit
+/// values to 1e-15.
+#[test]
+fn element_unit_test_p1_brick_matches_pristine_digits() {
+    let dir = case::stage("ElementUnitTest_p1_brick", None);
+    let out = case::run("ElementUnitTest_p1", &dir, "case.sif").unwrap_or_else(|e| panic!("p1 brick: {e}"));
+    assert!(out.log.contains("PASSED all 2 tests"), "{}", out.log);
+}

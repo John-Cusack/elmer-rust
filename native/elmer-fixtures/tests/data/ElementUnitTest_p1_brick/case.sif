@@ -1,0 +1,32 @@
+! ElementUnitTest_p1's case.sif on the brick of its unit mesh only (the
+! element elmer-pdofs has a 3D p layout for). The reference values are the
+! brick's 17-digit "Norm for element" values of the pristine
+! ElementUnitTest_p1 run (ElmerSolver 26.2-devel, Rev 9f6af2f85, with
+! SingleElements.so), checked to 1e-15.
+Check Keywords "Warn"
+Header :: Mesh DB "." "unitelems"
+Simulation
+  Max Output Level = 10
+  Coordinate System = Cartesian 3D
+  Simulation Type = Steady
+  Output Intervals(1) = 1
+  Steady State Max Iterations = 1
+  Serendipity P Elements = False
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Material 1
+End
+Equation 1 :: Active Solvers(1) = 1
+Solver 1
+  Equation = "Test"
+  Procedure = "SingleElements" "SingleElements"
+  Element = "p:1"
+  Reference Norm Tolerance = 1.0e-15
+End
+Solver 1 :: Reference Norm = 1.0000000000000004 ! 808
+RUN
+Solver 1 :: Reference Norm = 5.3333333333333330 ! 808
+RUN
