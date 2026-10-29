@@ -579,6 +579,44 @@ impl<'a> SolverCtx<'a> {
     /// solved and split again; otherwise see [`solve_system`](Self::solve_system).
     /// Returns the variable norm.
     pub fn default_solve(&mut self) -> Result<f64, SolverError> {
+        // DefUtils.F90:4502-4508: `Linear System Namespace Number` n > 0
+        // pushes the namespace `linsys<n>:`, so that `linsys<n>: <key>`
+        // stands for `<key>` until the solve returns.
+        let p = self.params();
+        if p.logical("linear system trialing") == Some(true) {
+            return Err(SolverError::Unsupported("Linear System Trialing".into()));
+        }
+        let ns = self.creal(p, "linear system namespace number")?.map_or(0, |x| x.round() as i64);
+        if ns <= 0 {
+            return self.default_solve_in_namespace();
+        }
+        self.info("DefaultSolve", &format!("Linear system namespace number: {}", crate::fortran_fmt::i2s(ns)), 7);
+        let prefix = format!("linsys{ns}:");
+        let params = &mut self.sim.slots[self.slot].params;
+        let scoped: Vec<(String, Value)> = params
+            .0
+            .iter()
+            .filter_map(|(k, v)| Some((k.strip_prefix(&prefix)?.trim_start().to_string(), v.clone())))
+            .collect();
+        let saved: Vec<(String, Option<Value>)> = scoped
+            .into_iter()
+            .map(|(k, v)| {
+                let old = params.0.insert(k.clone(), v);
+                (k, old)
+            })
+            .collect();
+        let r = self.default_solve_in_namespace();
+        let params = &mut self.sim.slots[self.slot].params;
+        for (k, old) in saved {
+            match old {
+                Some(v) => params.0.insert(k, v),
+                None => params.0.remove(&k),
+            };
+        }
+        r
+    }
+
+    fn default_solve_in_namespace(&mut self) -> Result<f64, SolverError> {
         crate::constraints::generate(self)?;
         let slot = &self.sim.slots[self.slot];
         if (slot.constraints.is_some() || slot.own_constraints.is_some())
