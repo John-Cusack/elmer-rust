@@ -242,6 +242,6 @@ impl Solver for HeatNl {
                 break;
             }
         }
-        Ok(())
+        ctx.default_finish()
     }
 }
