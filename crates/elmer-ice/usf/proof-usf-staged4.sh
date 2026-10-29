@@ -39,7 +39,7 @@ rm -f "$WORK/shadow-port/ElmerIceUSF.so"
 cp "$PORT_SO" "$WORK/shadow-port/ElmerIceUSF.so"
 
 norm(){
-  grep -v -E "Elapsed REAL time|SOLVER TOTAL TIME|FINISHED AT|STARTED AT|File started at|Estimated [Tt]ime left|Active coordinate mapping time|tcp_peer_recv_connect_ack" "$1" \
+  grep -v -E "Elapsed REAL time|SOLVER TOTAL TIME|FINISHED AT|STARTED AT|File started at|Estimated [Tt]ime left|Active coordinate mapping time|tcp_peer_recv_connect_ack|Projection time|system time|Solver time" "$1" \
     | sed -E -e 's/(Assembly: [ ]*\(s\))[0-9.eE+ -]+/\1 <t>/g' -e 's/(Solve: [ ]*\(s\))[0-9.eE+ -]+/\1 <t>/g' || true
 }
 

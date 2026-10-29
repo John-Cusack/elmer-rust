@@ -86,7 +86,7 @@ nm -D --defined-only "$REF_SO" | grep -q " T seapressure_ " \
   || nm -D --defined-only "$REF_SO" | grep -q " T seapressure_" \
   || { echo "FAIL: spliced .so lost its entries"; exit 1; }
 norm(){ # P1 pattern: strip only wall-clock lines/values
-  grep -v -E "Elapsed REAL time|SOLVER TOTAL TIME|FINISHED AT|STARTED AT|File started at|Estimated [Tt]ime left|Active coordinate mapping time|tcp_peer_recv_connect_ack" "$1" \
+  grep -v -E "Elapsed REAL time|SOLVER TOTAL TIME|FINISHED AT|STARTED AT|File started at|Estimated [Tt]ime left|Active coordinate mapping time|tcp_peer_recv_connect_ack|Projection time|system time|Solver time" "$1" \
     | sed -E -e 's/(Assembly: [ ]*\(s\))[0-9.eE+ -]+/\1 <t>/g' -e 's/(Solve: [ ]*\(s\))[0-9.eE+ -]+/\1 <t>/g' || true
 }
 run_ice_test() { # <name> <arm>: run one elmerice test, snapshot outputs
