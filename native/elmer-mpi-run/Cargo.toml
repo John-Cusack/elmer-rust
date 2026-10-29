@@ -14,6 +14,8 @@ elmer-mesh-levels = { path = "../elmer-mesh-levels" }
 elmer-mesh = { path = "../elmer-mesh" }
 elmer-fe = { path = "../elmer-fe" }
 elmer-dist = { path = "../elmer-dist" }
+elmer-itermethods = { path = "../elmer-itermethods" }
+elmer-sparse = { path = "../elmer-sparse" }
 elmer-krylov = { path = "../elmer-krylov" }
 elmer-mpi = { path = "../elmer-mpi" }
 elmer-run = { path = "../elmer-run" }

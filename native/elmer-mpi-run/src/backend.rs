@@ -14,7 +14,9 @@ use elmer_core::{
     normalize_key, CsrMatrix, ElemId, IterativeSolver, LinalgError, LinearOperator, LocalSystem, MeshView, ParamMap,
     Params, Preconditioner, SolveStats, SolveStatus, Value,
 };
-use elmer_dist::{dist_solve, DistError, DistSolveOptions};
+use elmer_dist::{dist_solve, DistCsr, DistError, DistPrecond, DistSolveOptions, DofLayout, Exchange};
+use elmer_itermethods::IterMethodsConfig;
+use elmer_sparse::Ilu;
 use elmer_solver::{AssemblyBackend, ElmerAssembly, LinearSolverRegistry, Perm, SolverError};
 
 use crate::context::RankContext;
@@ -25,6 +27,33 @@ pub const SCALING_KEY: &str = "mpi run: linear system scaling";
 
 /// The HUTI methods `elmer_dist::dist_solve` runs (IterSolve's names).
 pub const PARALLEL_METHODS: [&str; 6] = ["bicgstab", "bicgstab2", "tfqmr", "cgs", "cg", "gmres"];
+
+/// The IterativeMethods.F90 Krylov methods (`elmer-itermethods`), run on
+/// the same split matrix: their inner products already reduce through the
+/// communicator.
+pub const ITERMETHODS: [&str; 3] = ["bicgstabl", "gcr", "idrs"];
+
+/// The section's linear solver method, IterSolve's default `bicgstab` when
+/// absent.
+pub fn method_of(p: &ParamMap) -> String {
+    p.string("linear system iterative method").map_or_else(|| "bicgstab".into(), normalize_key)
+}
+
+/// Preconditioner, scaling and HUTI settings of a parallel solve. For the
+/// [`ITERMETHODS`] the HUTI part is read as for CG, which shares the
+/// tolerance, iteration and abort keywords; only the preconditioner, the
+/// scaling and the abort flag are used.
+pub fn dist_options(p: &ParamMap) -> Result<DistSolveOptions, SolverError> {
+    let mut opts = if ITERMETHODS.contains(&method_of(p).as_str()) {
+        let mut q = p.clone();
+        q.insert("Linear System Iterative Method", Value::Str("cg".into()));
+        DistSolveOptions::from_params(&q)?
+    } else {
+        DistSolveOptions::from_params(p)?
+    };
+    opts.scaling = scaling_of(p) && p.string("linear system scaling method").is_none_or(|m| normalize_key(m) == "diagonal");
+    Ok(opts)
+}
 
 fn dist_err(e: DistError) -> SolverError {
     match e {
@@ -182,7 +211,7 @@ impl AssemblyBackend for ParAssembly {
 /// summed over the ranks holding the dof (`ParallelSumVector`), with the
 /// absolute row sum, summed likewise, standing in for a zero diagonal
 /// (MatrixScaling.F90:122-200). Collective.
-fn summed_diagonal_scaling(ex: &dyn elmer_dist::Exchange, layout: &elmer_dist::DofLayout, a: &CsrMatrix<f64>) -> Vec<f64> {
+fn summed_diagonal_scaling(ex: &dyn Exchange, layout: &DofLayout, a: &CsrMatrix<f64>) -> Vec<f64> {
     let tiny = f64::MIN_POSITIVE;
     let diag_of = |i: usize| {
         (a.row_ptr[i]..a.row_ptr[i + 1]).find(|&k| a.col_idx[k] as usize == i).map_or(0.0, |k| a.values[k])
@@ -205,13 +234,13 @@ fn summed_diagonal_scaling(ex: &dyn elmer_dist::Exchange, layout: &elmer_dist::D
     d.iter().map(|&di| if di.abs() > tiny { 1.0 / di.abs().sqrt() } else { 1.0 }).collect()
 }
 
-/// The linear solvers of a partitioned run: [`PARALLEL_METHODS`] as
-/// distributed solves. Direct methods and the IterativeMethods.F90 family
-/// are not registered, so selecting them is an error (the run refuses them
+/// The linear solvers of a partitioned run: [`PARALLEL_METHODS`] and
+/// [`ITERMETHODS`] as distributed solves. Direct and stationary methods
+/// (Jacobi, Richardson, SGS) are not registered, so selecting them is an error (the run refuses them
 /// up front).
 pub fn linear_registry() -> LinearSolverRegistry {
     let mut r = LinearSolverRegistry::new();
-    for m in PARALLEL_METHODS {
+    for m in PARALLEL_METHODS.into_iter().chain(ITERMETHODS) {
         r.register_iterative_with_matrix(m, dist_iterative);
         r.register_iterative(m, needs_matrix);
     }
@@ -238,16 +267,28 @@ fn unused_precond(_: &ParamMap, _: &CsrMatrix<f64>) -> Result<Box<dyn Preconditi
 }
 
 fn dist_iterative(p: &ParamMap, a: &CsrMatrix<f64>) -> Result<Box<dyn IterativeSolver<f64> + Send>, SolverError> {
-    let mut opts = DistSolveOptions::from_params(p)?;
-    opts.scaling = scaling_of(p)
-        && p.string("linear system scaling method").is_none_or(|m| normalize_key(m) == "diagonal");
-    Ok(Box::new(DistIterative { opts, a: a.clone() }))
+    let opts = dist_options(p)?;
+    let itermethod = if ITERMETHODS.contains(&method_of(p).as_str()) {
+        Some(IterMethodsConfig::from_params(p)?)
+    } else {
+        None
+    };
+    Ok(Box::new(DistIterative { opts, itermethod, a: a.clone() }))
 }
 
-/// One distributed solve of the matrix it was built from.
+/// One distributed solve of the matrix it was built from: HUTI through
+/// `elmer_dist::dist_solve`, or an IterativeMethods.F90 method.
 struct DistIterative {
     opts: DistSolveOptions,
+    itermethod: Option<IterMethodsConfig>,
     a: CsrMatrix<f64>,
+}
+
+fn to_linalg(e: DistError) -> LinalgError {
+    match e {
+        DistError::Linalg(l) => l,
+        other => LinalgError::Unsupported(other.to_string()),
+    }
 }
 
 impl IterativeSolver<f64> for DistIterative {
@@ -259,14 +300,13 @@ impl IterativeSolver<f64> for DistIterative {
         x: &mut [f64],
         _comm: &dyn elmer_core::Communicator,
     ) -> Result<SolveStats, LinalgError> {
-        let to_linalg = |e: DistError| match e {
-            DistError::Linalg(l) => l,
-            other => LinalgError::Unsupported(other.to_string()),
-        };
         let ctx = RankContext::current()
             .ok_or_else(|| LinalgError::Unsupported("parallel solve outside a partitioned run".into()))?;
         let layout = ctx.layout_of(&self.a).map_err(to_linalg)?;
-        let stats = dist_solve(&*ctx.ex, &layout, &self.a, b, x, &self.opts, None).map_err(to_linalg)?;
+        let stats = match &self.itermethod {
+            None => dist_solve(&*ctx.ex, &layout, &self.a, b, x, &self.opts, None).map_err(to_linalg)?,
+            Some(cfg) => itermethod_solve(&*ctx.ex, &layout, &self.a, b, x, &self.opts, cfg)?,
+        };
         // IterSolve.F90:1652-1659.
         if self.opts.huti.abort_not_converged && matches!(stats.status, SolveStatus::MaxIterations | SolveStatus::Diverged) {
             return Err(LinalgError::Breakdown {
@@ -275,6 +315,91 @@ impl IterativeSolver<f64> for DistIterative {
             });
         }
         Ok(stats)
+    }
+}
+
+/// `dist_solve` with an IterativeMethods.F90 method in place of HUTI: the
+/// zero-rhs shortcut, `ScaleLinearSystem` with the summed diagonal and rhs
+/// scaling, the split matrix and block-local preconditioner, the method on
+/// owned dofs, then back-scaling and the ghost update. Collective.
+fn itermethod_solve(
+    ex: &dyn Exchange,
+    layout: &DofLayout,
+    a: &CsrMatrix<f64>,
+    b: &[f64],
+    x: &mut [f64],
+    opts: &DistSolveOptions,
+    cfg: &IterMethodsConfig,
+) -> Result<SolveStats, LinalgError> {
+    let n = layout.n_local();
+    if b.len() != n || x.len() != n || a.nrows != n {
+        return Err(LinalgError::Dim(format!("rhs {}, x {}, matrix {} for {n} local dofs", b.len(), x.len(), a.nrows)));
+    }
+    // SolveCore.F90:1514-1520: the norm of the unsummed local pieces.
+    let mut bb = [b.iter().map(|v| v * v).sum::<f64>()];
+    ex.sum_f64(&mut bb);
+    if bb[0].sqrt() <= f64::MIN_POSITIVE {
+        x.fill(0.0);
+        return Ok(SolveStats { iterations: 0, residual: 0.0, status: SolveStatus::Converged });
+    }
+
+    let mut a = a.clone();
+    let mut b = b.to_vec();
+    let (d, rhs_scaling) = if opts.scaling {
+        let d = summed_diagonal_scaling(ex, layout, &a);
+        for i in 0..n {
+            for k in a.row_ptr[i]..a.row_ptr[i + 1] {
+                a.values[k] *= d[i] * d[a.col_idx[k] as usize];
+            }
+        }
+        for (bi, di) in b.iter_mut().zip(&d) {
+            *bi *= di;
+        }
+        let summed = layout.sum_to_owned(ex, &b);
+        let mut s = [summed.iter().map(|v| v * v).sum::<f64>()];
+        ex.sum_f64(&mut s);
+        let bnorm = s[0].sqrt();
+        let rhs_scaling = if bnorm < f64::MIN_POSITIVE.sqrt() {
+            1.0
+        } else {
+            b.iter_mut().for_each(|bi| *bi /= bnorm);
+            bnorm
+        };
+        for (xi, di) in x.iter_mut().zip(&d) {
+            *xi /= di * rhs_scaling;
+        }
+        (d, rhs_scaling)
+    } else {
+        (vec![1.0; n], 1.0)
+    };
+
+    let m = DistCsr::from_local(ex, layout, &a).map_err(to_linalg)?;
+    let b_own = layout.sum_to_owned(ex, &b);
+    let mut x_own = layout.gather_owned(x);
+    let prec: Box<dyn Preconditioner<f64>> = match &opts.precond {
+        DistPrecond::None => Box::new(elmer_core::IdentityPrecond),
+        DistPrecond::Diagonal => Box::new(Ilu::diagonal(m.inside())),
+        DistPrecond::Ilu(k) => Box::new(agreed(ex, Ilu::ilu_n(m.inside(), *k))?),
+        DistPrecond::Ilut(tol) => Box::new(agreed(ex, Ilu::ilut(m.inside(), *tol))?),
+    };
+    let mut solver = cfg.build_real(m.inside())?;
+    let comm: &dyn elmer_core::Communicator = ex;
+    let stats = solver.solve(&m.operator(ex), prec.as_ref(), &b_own, &mut x_own, comm)?;
+    layout.owned_to_local(ex, &x_own, x);
+    for (xi, di) in x.iter_mut().zip(&d) {
+        *xi *= di * rhs_scaling;
+    }
+    Ok(stats)
+}
+
+/// A rank-local factorisation result that every rank agrees on.
+fn agreed<T>(ex: &dyn Exchange, local: Result<T, LinalgError>) -> Result<T, LinalgError> {
+    let mut flag = [if local.is_err() { 1.0 } else { 0.0 }];
+    ex.max_f64(&mut flag);
+    match local {
+        Err(e) => Err(e),
+        Ok(_) if flag[0] != 0.0 => Err(LinalgError::Unsupported("preconditioner failed on another rank".into())),
+        Ok(v) => Ok(v),
     }
 }
 

@@ -8,11 +8,11 @@ use std::sync::Mutex;
 use elmer_cli::driver::{Engine, EngineOutcome, RunRequest};
 use elmer_cli::{ElmerLogger, ExitCode};
 use elmer_core::{normalize_key, Communicator, LinalgError, Logger, MeshView, ParamMap, Params, Value};
-use elmer_dist::{DistSolveOptions, Exchange};
+use elmer_dist::Exchange;
 use elmer_run::{Frontend, SifFrontend, SifMatc};
 use elmer_solver::{finalize_reference, solver::procedure_of, Model, RunReport, Simulation, SolverError};
 
-use crate::backend::{linear_registry, prepare_slot, ParAssembly, PARALLEL_METHODS};
+use crate::backend::{dist_options, linear_registry, method_of, prepare_slot, ParAssembly, ITERMETHODS, PARALLEL_METHODS};
 use crate::context::RankContext;
 use crate::mesh::ParMesh;
 
@@ -115,11 +115,14 @@ fn preflight(model: &Model, registry: &elmer_solver::SolverRegistry) -> Result<(
         if kind != "iterative" {
             return Err(unsupported(format!("Solver {id}: Linear System Solver = {kind} in parallel")));
         }
-        let method = p.string("linear system iterative method").map_or_else(|| "bicgstab".into(), normalize_key);
-        if !PARALLEL_METHODS.contains(&method.as_str()) {
+        let method = method_of(p);
+        if !PARALLEL_METHODS.contains(&method.as_str()) && !ITERMETHODS.contains(&method.as_str()) {
             return Err(unsupported(format!("Solver {id}: Linear System Iterative Method = {method} in parallel")));
         }
-        DistSolveOptions::from_params(p)?;
+        dist_options(p)?;
+        if ITERMETHODS.contains(&method.as_str()) {
+            elmer_itermethods::IterMethodsConfig::from_params(p)?;
+        }
     }
     elmer_run::unported::check(model)
 }
