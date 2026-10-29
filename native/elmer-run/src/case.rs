@@ -13,6 +13,7 @@ use elmer_solver::{
 
 use crate::compose::{coordinate_system, fe_backend, install_fe, solver_registry};
 use crate::matc::SifMatc;
+use crate::motion::MovableMesh;
 use crate::output::{is_result_output, prepare_vtu_output, MappedTags};
 use elmer_mesh_levels::{extrude, mesh_levels, ExtrudeOptions, Mesh as LevelsMesh, MeshLevelsError};
 
@@ -116,6 +117,28 @@ fn preflight(model: &Model, registry: &SolverRegistry) -> Result<(), SolverError
         }
     }
     crate::unported::check(model)
+}
+
+/// HeatSolve convects relative to the mesh (`U - MU` with the `Mesh
+/// Velocity` variable, HeatSolve.F90); `elmer-physics-heat` uses the
+/// material velocity alone, so a convected heat equation on a moving mesh
+/// is refused once the variables exist.
+fn check_mesh_velocity(sim: &Simulation) -> Result<(), SolverError> {
+    if sim.vars.id("mesh velocity").is_none() {
+        return Ok(());
+    }
+    let heat = sim.model.solvers.iter().any(|p| {
+        procedure_of(p).is_some_and(|(lib, _)| lib.eq_ignore_ascii_case("heatsolve"))
+            && !p.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never"))
+    });
+    let convected =
+        sim.model.equations.iter().any(|p| p.string("convection").is_some_and(|c| !c.eq_ignore_ascii_case("none")));
+    if heat && convected {
+        return Err(SolverError::Unsupported(
+            "HeatSolve: convection relative to the Mesh Velocity (moving mesh) is not implemented".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Section-wise merge of `block` into `model`, as `Simulation::reload` does
@@ -269,6 +292,9 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
         Some(m) => m,
         None => mesh,
     };
+    let mesh = MovableMesh::new(mesh);
+    let _motion = mesh.install();
+    let mesh: &dyn MeshView = &mesh;
     let mut outputs = prepare_vtu_output(&mut model, &case_dir, &mesh_dir)?;
     let coords = coordinate_system(&model, mesh)?;
     legacy_solvers(&mut model, coords);
@@ -281,6 +307,7 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
     sim.backends.fe = Some(fe_backend(coords.dim));
     sim.set_matc(Rc::new(SifMatc));
     sim.setup(mesh, &registry, log, comm)?;
+    check_mesh_velocity(&sim)?;
     // Field lists are fixed once every variable exists, before the run, so a
     // refusal still comes before any file.
     for out in &mut outputs {
