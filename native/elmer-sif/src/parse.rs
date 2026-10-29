@@ -608,9 +608,12 @@ impl Parser {
                 }
                 "string" => {
                     self.check_keyword(section, name, KwType::String, &chunk_tok, free_names)?;
+                    // Elmer's `ListAddString` lowercases the stored value by
+                    // default (`DoCase`, Lists.F90), quoted or not; `file`
+                    // passes `.FALSE.` and keeps case.
                     target.set(Entry {
                         name: name.to_string(),
-                        value: Value::Text { text: rest, is_file: false },
+                        value: Value::Text { text: rest.to_lowercase(), is_file: false },
                         partag,
                         distribute,
                     });
@@ -1196,6 +1199,26 @@ mod tests {
         );
         // `my table` is unlisted: Check Abort makes it fatal.
         assert!(parse_text(&sif).is_err());
+    }
+
+    #[test]
+    fn string_values_store_lowercase_file_values_keep_case() {
+        let sif = format!(
+            "{}Simulation\nCoordinate System = String \"Cartesian Right\"\nPost File = File \"MixedCase.ep\"\nEnd\n",
+            header()
+        );
+        let r = parse_text(&sif).unwrap().sif;
+        let sim = r.runs[0].simulation.as_ref().unwrap();
+        let coord = sim.get("coordinate system").map(|e| &e.value);
+        assert!(matches!(
+            coord,
+            Some(Value::Text { text, is_file: false }) if text == "cartesian right"
+        ));
+        let post = sim.get("post file").map(|e| &e.value);
+        assert!(matches!(
+            post,
+            Some(Value::Text { text, is_file: true }) if text == "MixedCase.ep"
+        ));
     }
 
     #[test]
