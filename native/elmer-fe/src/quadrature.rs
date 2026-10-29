@@ -322,8 +322,8 @@ fn wedge_named(n: usize) -> Result<GaussRule, FeError> {
         85 | 100 => 5,
         _ => 0,
     };
-    if nseg > 0 {
-        return gauss_points_wedge2(n / nseg, nseg);
+    if let Some(ntri) = n.checked_div(nseg) {
+        return gauss_points_wedge2(ntri, nseg);
     }
     if matches!(n, 4 | 5 | 7 | 10 | 11 | 14 | 15 | 16 | 24) {
         return gauss_points_wedge_economic(n);

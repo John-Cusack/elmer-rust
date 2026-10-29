@@ -67,24 +67,18 @@ impl CoordinateSystem {
 
     /// `CoordinateSystemInfo( Metric, SqrtMetric, Symbols, dSymbols, X, Y, Z )`.
     pub fn info(&self, x: f64, y: f64, z: f64) -> CoordinateInfo {
+        // Every system starts from the identity metric.
         let mut ci = CoordinateInfo {
-            metric: [[0.0; 3]; 3],
+            metric: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
             sqrt_metric: 1.0,
             symbols: [[[0.0; 3]; 3]; 3],
             dsymbols: [[[[0.0; 3]; 3]; 3]; 3],
         };
         match self.kind {
-            CoordinateKind::Cartesian => {
-                for i in 0..3 {
-                    ci.metric[i][i] = 1.0;
-                }
-            }
+            CoordinateKind::Cartesian => {}
             CoordinateKind::Polar => {
                 let (r, t) = (x, z);
                 ci.sqrt_metric = polar_sqrt_metric(x, y, z, self.dim);
-                for i in 0..3 {
-                    ci.metric[i][i] = 1.0;
-                }
                 if r != 0.0 {
                     ci.metric[1][1] = 1.0 / (r * r * (t.cos() * t.cos()));
                     if self.dim == 3 {
@@ -128,9 +122,6 @@ impl CoordinateSystem {
             _ => {
                 let r = x;
                 ci.sqrt_metric = r;
-                for i in 0..3 {
-                    ci.metric[i][i] = 1.0;
-                }
                 if r != 0.0 {
                     ci.metric[2][2] = 1.0 / (r * r);
                 }
