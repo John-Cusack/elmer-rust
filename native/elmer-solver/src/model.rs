@@ -43,6 +43,40 @@ pub(crate) fn int_list<'a>(p: &'a ParamMap, key: &str) -> &'a [i32] {
 }
 
 impl Model {
+    /// The sections `LoadModel` adds when the input gives none of a kind
+    /// (ModelDescription.F90:1314): `Equation 1` activating every solver,
+    /// `Material 1`, `Body Force 1`, `Initial Condition 1`, and `Body 1`
+    /// pointing at all four. A front end reading a `.sif` calls this where
+    /// Elmer does; a model built by hand keeps exactly what it was given.
+    pub fn add_default_sections(&mut self) {
+        let named = |name: &str| {
+            let mut p = ParamMap::new();
+            p.insert("Name", Value::Str(name.into()));
+            p
+        };
+        if self.equations.is_empty() {
+            let mut eq = named("default equation 1");
+            eq.insert("Active Solvers", Value::Integer((1..=self.solvers.len() as i32).collect()));
+            self.equations.push(eq);
+        }
+        if self.materials.is_empty() {
+            self.materials.push(named("default material 1"));
+        }
+        if self.body_forces.is_empty() {
+            self.body_forces.push(named("default body force 1"));
+        }
+        if self.initial_conditions.is_empty() {
+            self.initial_conditions.push(named("default ic 1"));
+        }
+        if self.bodies.is_empty() {
+            let mut body = named("default body 1");
+            for k in ["Equation", "Material", "Body Force", "Initial Condition"] {
+                body.insert(k, Value::Integer(vec![1]));
+            }
+            self.bodies.push(body);
+        }
+    }
+
     /// 1-based body id for a bulk element tag: a body whose `Target Bodies`
     /// lists the tag, else the body with that id.
     pub fn body_of_tag(&self, tag: i32) -> Option<usize> {
