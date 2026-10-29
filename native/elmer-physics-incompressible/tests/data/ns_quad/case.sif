@@ -1,0 +1,63 @@
+Header
+  Mesh DB "." "stepquad"
+End
+Simulation
+  Max Output Level = 5
+  Coordinate System = Cartesian 2D
+  Simulation Type = Steady
+  Steady State Max Iterations = 1
+  Output File = "case.result"
+End
+Constants
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+  Body Force = 1
+End
+Initial Condition 1
+  Velocity 1 = 0
+  Velocity 2 = 0
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Solver 1
+  Equation = "NS-Vec"
+  Procedure = "IncompressibleNS" "IncompressibleNSSolver"
+  Linear System Solver = Direct
+  Linear System Direct Method = UMFPack
+  Pressure Stabilization = Logical True
+  Nonlinear System Max Iterations = 30
+  Nonlinear System Convergence Tolerance = 1.0e-10
+  Nonlinear System Newton After Iterations = 1
+  GradP Discretization = Logical True
+  Div-Curl Discretization = Logical True
+  Pressure Stabilization Element Size = String "volume"
+  Pressure Stabilization Coefficient = 1.5
+End
+Material 1
+  Density = 2
+  Viscosity = 0.2
+End
+Body Force 1
+  Flow Bodyforce 2 = -0.1
+End
+Boundary Condition 1
+  Target Boundaries = 1
+  Velocity 1 = Variable Coordinate 2
+    Real MATC "(2-tx)*(tx-1)"
+  Velocity 2 = 0
+End
+Boundary Condition 2
+  Target Boundaries = 2
+  Normal Surface Traction = 0.05
+  Surface Traction 2 = 0.01
+  Velocity 2 = 0
+End
+Boundary Condition 3
+  Target Boundaries = 3
+  Velocity 2 = 0
+  Slip Coefficient 1 = 5.0
+End
