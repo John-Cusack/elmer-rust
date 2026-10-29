@@ -475,13 +475,13 @@ impl Simulation {
     /// or `-global` ones; `Exported Variable n Output` and `-nooutput`
     /// control output. Initial conditions are applied when `apply_ics`.
     /// `-elem` fields live on the active elements, `-ip` ones on their
-    /// Gauss points (`exported`). Masks, `-dg` and time derivatives are
-    /// refused.
+    /// Gauss points (`exported`), both optionally masked and initialised.
+    /// Masks of other fields, `-dg` and time derivatives are refused.
     fn add_exported_variables(&mut self, slot: &SolverSlot, mesh: &dyn MeshView, apply_ics: bool) -> Result<(), SolverError> {
         for l in 1.. {
             let key = format!("exported variable {l}");
             let Some(text) = slot.params.string(&key).map(str::to_string) else { break };
-            for suffix in ["mask", "transient", "calculate velocity", "calculate acceleration"] {
+            for suffix in ["transient", "calculate velocity", "calculate acceleration"] {
                 if slot.params.get(&format!("{key} {suffix}")).is_some() {
                     return Err(SolverError::Unsupported(format!("Exported Variable {l} {suffix}")));
                 }
@@ -493,6 +493,14 @@ impl Simulation {
             if self.vars.id(&spec.name).is_some() {
                 continue;
             }
+            let mask = crate::exported::mask_of(&slot.params, &key);
+            if mask.is_some() && !matches!(spec.kind, FieldKind::Elemental | FieldKind::Ip) {
+                return Err(SolverError::Unsupported(format!(
+                    "Exported Variable {l} mask on a {:?} field (MakePermUsingMask / CreateMaskedPerm)",
+                    spec.kind
+                )));
+            }
+            let mask = mask.as_ref().map(|(s, k)| (s.as_str(), k.as_str()));
             match spec.kind {
                 FieldKind::Global => {
                     let mut v = Variable::new(&spec.name, FieldKind::Global, spec.dofs, None, vec![0.0; spec.dofs]);
@@ -514,21 +522,20 @@ impl Simulation {
                     self.vars.add_with_components(v, &spec.components)?;
                 }
                 FieldKind::Elemental | FieldKind::Ip => {
-                    let ic_key = |k: &str| self.model.initial_conditions.iter().any(|ic| ic.get(k).is_some());
-                    if apply_ics && (ic_key(&spec.name) || spec.components.iter().any(|c| ic_key(c))) {
-                        return Err(SolverError::Unsupported(format!(
-                            "initial condition of the {:?} exported variable {}",
-                            spec.kind, spec.name
-                        )));
-                    }
-                    let (perm, n) = if spec.kind == FieldKind::Ip {
-                        let offsets = crate::exported::ip_perm(self, mesh, slot)?;
-                        let n = *offsets.last().expect("one entry") as usize;
-                        (offsets, n)
-                    } else {
-                        crate::exported::element_perm(mesh, slot)
+                    let (perm, n) = match (spec.kind, mask) {
+                        (FieldKind::Ip, _) => {
+                            let offsets = crate::exported::ip_perm(self, mesh, slot, mask)?;
+                            let n = *offsets.last().expect("one entry") as usize;
+                            (offsets, n)
+                        }
+                        (_, Some(m)) => crate::exported::element_perm_masked(self, mesh, slot, m)?,
+                        (_, None) => crate::exported::element_perm(mesh, slot),
                     };
-                    let mut v = Variable::new(&spec.name, spec.kind, spec.dofs, Some(perm.into()), vec![0.0; n * spec.dofs]);
+                    let mut values = vec![0.0; n * spec.dofs];
+                    if apply_ics {
+                        self.exported_initial_values(mesh, &spec, &perm, &mut values)?;
+                    }
+                    let mut v = Variable::new(&spec.name, spec.kind, spec.dofs, Some(perm.into()), values);
                     v.output = spec.output;
                     self.vars.add_with_components(v, &spec.components)?;
                 }
