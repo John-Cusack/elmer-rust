@@ -71,7 +71,7 @@ impl BlockAssembled {
         let ix = ctx.slot;
         if let Some(b) = ctx.sim.backends.dofs.as_ref() {
             let active = ctx.sim.slots[ix].active.clone();
-            if let Some(d) = b.for_solver(ctx.mesh, &ctx.sim.model, &p, &active, 1) {
+            if let Some(d) = b.for_solver_id(ctx.mesh, &ctx.sim.model, ctx.solver_id(), &p, &active, 1) {
                 let d: Arc<dyn SolverDofs> = Arc::from(d?);
                 let perm = d.perm();
                 let mut raw = vec![NO_DOF; perm.n_slots];
