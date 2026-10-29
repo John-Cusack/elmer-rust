@@ -1,7 +1,7 @@
 //! One case through the native path: preflight, `Simulation` setup and run,
 //! `Post File` output, then `CompareToReferenceSolution`'s `TEST.PASSED`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -15,6 +15,7 @@ use crate::compose::{coordinate_system, fe_backend, install_fe, solver_registry}
 use crate::matc::SifMatc;
 use crate::motion::MovableMesh;
 use crate::output::{is_result_output, prepare_vtu_output, MappedTags};
+use elmer_mortar::{generate_periodic_projectors, PeriodicAssembly, ProjectorEnv};
 use elmer_mesh_levels::{extrude, mesh_levels, ExtrudeOptions, Mesh as LevelsMesh, MeshLevelsError};
 
 /// A parsed case and its mesh.
@@ -291,6 +292,38 @@ fn transform_mesh(model: &mut Model, mesh: &dyn MeshView) -> Result<Option<Level
     Ok(Some(extruded))
 }
 
+/// `GeneratePeriodicProjectors` (ElmerSolver.F90) when a boundary
+/// condition has `Periodic BC`: `elmer-mortar`'s projectors, applied by its
+/// [`PeriodicAssembly`] in place of the default assembly. `Save Projector`
+/// files go to the case directory.
+fn periodic_assembly(
+    model: &Model,
+    mesh: &dyn MeshView,
+    coord_dim: usize,
+    case_dir: &Path,
+    log: &dyn Logger,
+) -> Result<Option<PeriodicAssembly>, SolverError> {
+    if !model.boundary_conditions.iter().any(|bc| bc.get("periodic bc").is_some()) {
+        return Ok(None);
+    }
+    let bcs: Vec<&dyn Params> = model.boundary_conditions.iter().map(|b| b as &dyn Params).collect();
+    let bc_of = |tag: i32| model.bc_of_tag(tag);
+    let env = ProjectorEnv {
+        mesh,
+        bcs: &bcs,
+        bc_of: &bc_of,
+        simulation: &model.simulation,
+        solver: model.solvers.first().map(|s| s as &dyn Params),
+        coord_dim,
+        log,
+    };
+    let (projectors, stop) = generate_periodic_projectors(&env, case_dir, 0)?;
+    if stop {
+        return Err(SolverError::Unsupported("Save Projector And Stop".into()));
+    }
+    Ok(Some(PeriodicAssembly::new(model.boundary_conditions.clone(), projectors, mesh.n_nodes())))
+}
+
 /// Runs `case` serially. Unsupported input comes back as
 /// [`SolverError::Unsupported`] or [`SolverError::NotWired`] before any
 /// file is written.
@@ -316,8 +349,13 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
     check_reloads(&model, &reloads, &registry)?;
     install_fe(coords.dim)?;
 
+    let periodic = periodic_assembly(&model, mesh, coords.dim, &case_dir, log)?;
+
     let mut sim = Simulation::new(model);
     sim.backends.fe = Some(fe_backend(coords.dim));
+    if let Some(periodic) = periodic {
+        sim.backends.assembly = Some(Box::new(periodic));
+    }
     sim.set_matc(Rc::new(SifMatc));
     sim.setup(mesh, &registry, log, comm)?;
     check_mesh_velocity(&sim)?;
