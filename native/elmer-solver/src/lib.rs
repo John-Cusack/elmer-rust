@@ -28,6 +28,7 @@ pub mod expr;
 pub mod fortran_fmt;
 pub mod linsys;
 pub mod live;
+mod loads;
 pub mod model;
 pub mod norm;
 pub mod reference;

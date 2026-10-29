@@ -105,6 +105,7 @@ pub struct SolverSlot {
     pub state: SolverState,
     pub system: Option<LinearSystem>,
     pub(crate) instance: Option<Box<dyn Solver>>,
+    pub(crate) asm: crate::loads::AssemblyState,
 }
 
 impl SolverSlot {
@@ -127,6 +128,7 @@ impl SolverSlot {
             state: SolverState::default(),
             system: None,
             instance: None,
+            asm: Default::default(),
         })
     }
 
@@ -390,6 +392,9 @@ impl Simulation {
             let spec = parse_variable_spec(&vs, slot.params.integer("variable dofs"))?;
             self.publish_live();
             self.add_solver_variable(&mut slot, &spec, mesh, apply_ics)?;
+            if let Some(id) = slot.variable {
+                self.add_load_variables(&mut slot.params, &spec, id)?;
+            }
         }
         Ok(Some(slot))
     }
