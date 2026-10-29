@@ -3,7 +3,8 @@
 //!
 //! A structural transliteration of Integration.F90, ElementBasis.F90 /
 //! PElementBase.F90 (nodal bases), ElemInfo.F90 (`ElementInfo`,
-//! `ElementMetric`, `StabParam`) and CoordinateSystems.F90. Expression order
+//! `ElementMetric`, `StabParam`, with the reference-LAPACK `DSYGV` path it
+//! calls) and CoordinateSystems.F90. Expression order
 //! follows the Fortran so values match the pristine binary bit for bit; the
 //! reference tests compare against values captured from it. The
 //! p-hierarchic and edge bases live in `elmer-fe-hp`.
@@ -16,6 +17,7 @@ pub mod element_type;
 pub mod error;
 mod gauss1d;
 pub mod info;
+mod lapack;
 mod lu;
 pub mod metric;
 pub mod quadrature;

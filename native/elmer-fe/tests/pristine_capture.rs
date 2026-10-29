@@ -2,7 +2,8 @@
 //! binary (Debug build, `HAVE_QP`) with gdb: Gauss rules returned by the
 //! Integration.F90 rule builders, `ElementInfo` outputs on curved and
 //! distorted elements of every Lagrange type in 1D, 2D and 3D models, the
-//! basis coefficients of each type, and `StabParam` / `ElementDiameter`.
+//! basis coefficients of each type, and `StabParam` / `ElementDiameter`
+//! (including the DSYGV eigenvalue of the higher-order types).
 //! Fixture format: tests/data/*.txt, reals as f64 bit patterns in hex.
 
 use elmer_core::{BasisEval, ElementType};
@@ -278,15 +279,12 @@ fn stabilization_parameters() {
     for l in text.lines() {
         let t: Vec<&str> = l.split_whitespace().collect();
         let (case, kind, code) = (t[0], t[1], t[2].parse::<u16>().unwrap());
-        let def = element_type(code).unwrap();
-        // Linear types are closed-form and must match bit for bit; the
-        // eigenvalue path of higher-order types goes through LAPACK DSYGV in
-        // Elmer, which is not transliterated (yet), so those get 64 ulps.
-        let tol = if def.basis_degree <= 1 { 0 } else { 64 };
+        // Bit for bit for every type: the higher-order eigenvalue goes
+        // through the transliterated DSYGV.
         let e = geom(case, code);
         let check = |what: &str, got: f64, want: f64| {
             let d = ulps(got, want);
-            assert!(d <= tol, "{l}: {what} got {got:e} want {want:e} ({d} ulps)");
+            assert!(d == 0, "{l}: {what} got {got:e} want {want:e} ({d} ulps)");
         };
         match kind {
             "typemk" => check(
