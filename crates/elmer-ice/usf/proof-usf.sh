@@ -167,7 +167,7 @@ rm -f "$REF_SO" && cp "$PORT_SO" "$REF_SO"
 trap restore EXIT
 (cd "$ELMER_BUILD" && timeout 3000 ctest -L quick -j16 > "$WORK/LastTest-quick-port.log" 2>&1) || true
 tail -3 "$WORK/LastTest-quick-port.log"
-fails="$(grep -cE "Failed" "$WORK/LastTest-quick-port.log" || true)"
+fails="$(grep -cE "^[[:space:]]+[0-9]+ - .*\(Failed\)" "$WORK/LastTest-quick-port.log" || true)"
 if [ "$fails" != "3" ]; then
   echo "FAIL: expected exactly K=3 failures, got $fails"; exit 1;
 fi
