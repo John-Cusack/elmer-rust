@@ -14,10 +14,10 @@ use elmer_core::{ElemId, ElementBasis, LocalSystem, ParamMap, Params, Quadrature
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 use num_complex::Complex64;
 
-use crate::common::{axisymmetric, fe_provider, real_at_nodes, unsupported};
+use crate::common::{axisymmetric, fe_provider, init_dirichlet, real_at_nodes, unsupported};
 use crate::helmholtz::{
-    helmholtz_boundary_local, helmholtz_bulk_local, HelmholtzBcAtNodes, HelmholtzBulkAtNodes, HelmholtzConfig,
-    HelmholtzLocal,
+    helmholtz_boundary_local, helmholtz_bulk_local, HelmholtzBcAtNodes, HelmholtzBulkAtNodes,
+    HelmholtzConfig, HelmholtzLocal,
 };
 use crate::HELMHOLTZ_PROCEDURE;
 
@@ -25,7 +25,11 @@ const CALLER: &str = "HelmholtzSolve";
 
 /// Registers `("HelmholtzSolve", "HelmholtzSolver")`.
 pub fn register(registry: &mut SolverRegistry) {
-    registry.register(HELMHOLTZ_PROCEDURE.0, HELMHOLTZ_PROCEDURE.1, helmholtz_factory);
+    registry.register(
+        HELMHOLTZ_PROCEDURE.0,
+        HELMHOLTZ_PROCEDURE.1,
+        helmholtz_factory,
+    );
 }
 
 /// [`SolverFactory`](elmer_solver::SolverFactory) for [`HelmholtzSolver`].
@@ -60,7 +64,10 @@ fn flag(p: &ParamMap, key: &str) -> bool {
 /// Refuses what this port does not implement, instead of dropping it.
 fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
     if flag(ctx.params(), "bubbles") {
-        return Err(unsupported("Solver keyword \"Bubbles\"", "bubble condensation is not ported"));
+        return Err(unsupported(
+            "Solver keyword \"Bubbles\"",
+            "bubble condensation is not ported",
+        ));
     }
     let model = &ctx.sim.model;
     for m in &model.materials {
@@ -98,7 +105,9 @@ fn angular_frequency(ctx: &SolverCtx<'_>) -> Option<f64> {
         .or_else(|| from(ctx.params()))
         .or_else(|| {
             let bp = ctx.body_params(ctx.active_elements().next()?)?;
-            bp.equation.and_then(from).or_else(|| bp.material.and_then(from))
+            bp.equation
+                .and_then(from)
+                .or_else(|| bp.material.and_then(from))
         })
 }
 
@@ -113,22 +122,42 @@ impl Solver for HelmholtzSolver {
                 format!("the pressure is complex: \"Variable DOFs\" must be 2, got {dofs:?}"),
             ));
         }
+        init_dirichlet(ctx)?;
         Ok(())
     }
 
-    fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
+    fn solve(
+        &mut self,
+        ctx: &mut SolverCtx<'_>,
+        _dt: f64,
+        _transient: bool,
+    ) -> Result<(), SolverError> {
         check_supported(ctx)?;
         let axi = axisymmetric(ctx)?;
         let dim = ctx.mesh.dim();
-        let omega = angular_frequency(ctx).ok_or_else(|| SolverError::fatal(CALLER, "Could not figure out Frequency!"))?;
-        ctx.sim
-            .model
-            .simulation
-            .insert("res: Frequency", Value::real(omega / (2.0 * std::f64::consts::PI)));
-        if (flag(ctx.params(), "linear system preconditioning damp coefficient")
-            || ctx.params().get("linear system preconditioning damp coefficient").is_some()
-            || ctx.params().get("linear system preconditioning damp coefficient im").is_some())
-            && ctx.params().string("linear system solver").map(str::to_ascii_lowercase).as_deref() == Some("iterative")
+        let omega = angular_frequency(ctx)
+            .ok_or_else(|| SolverError::fatal(CALLER, "Could not figure out Frequency!"))?;
+        ctx.sim.model.simulation.insert(
+            "res: Frequency",
+            Value::real(omega / (2.0 * std::f64::consts::PI)),
+        );
+        if (flag(
+            ctx.params(),
+            "linear system preconditioning damp coefficient",
+        ) || ctx
+            .params()
+            .get("linear system preconditioning damp coefficient")
+            .is_some()
+            || ctx
+                .params()
+                .get("linear system preconditioning damp coefficient im")
+                .is_some())
+            && ctx
+                .params()
+                .string("linear system solver")
+                .map(str::to_ascii_lowercase)
+                .as_deref()
+                == Some("iterative")
         {
             ctx.warn(
                 CALLER,
@@ -150,7 +179,11 @@ impl Solver for HelmholtzSolver {
             ctx.info(CALLER, " ", 4);
             ctx.info(CALLER, "-------------------------------------", 4);
             ctx.info(CALLER, &format!(" Helmholtz iteration {iter}"), 4);
-            ctx.info(CALLER, &format!(" Frequency (Hz): {}", omega / (2.0 * std::f64::consts::PI)), 4);
+            ctx.info(
+                CALLER,
+                &format!(" Frequency (Hz): {}", omega / (2.0 * std::f64::consts::PI)),
+                4,
+            );
             ctx.info(CALLER, "-------------------------------------", 4);
             ctx.default_initialize()?;
 
@@ -159,12 +192,13 @@ impl Solver for HelmholtzSolver {
                 let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
                 let n = xyz.len();
                 let mat = {
-                    let bp = ctx
-                        .body_params(e)
-                        .ok_or_else(|| SolverError::fatal(CALLER, format!("element {} has no body", e.0)))?;
+                    let bp = ctx.body_params(e).ok_or_else(|| {
+                        SolverError::fatal(CALLER, format!("element {} has no body", e.0))
+                    })?;
                     let required = |key: &str| -> Result<Vec<f64>, SolverError> {
-                        real_at_nodes(ctx, bp.material, key, e)?
-                            .ok_or_else(|| SolverError::fatal("ListGetReal", format!("Failed to find \"{key}\"")))
+                        real_at_nodes(ctx, bp.material, key, e)?.ok_or_else(|| {
+                            SolverError::fatal("ListGetReal", format!("Failed to find \"{key}\""))
+                        })
                     };
                     HelmholtzBulkAtNodes {
                         sound_speed: required("Sound Speed")?,
@@ -173,7 +207,15 @@ impl Solver for HelmholtzSolver {
                         load: complex_at_nodes(ctx, bp.body_force, "Pressure Source", e, n)?,
                     }
                 };
-                helmholtz_bulk_local(&*self.basis, &*self.quad, el.etype, &xyz, &mat, &cfg, &mut self.complex)?;
+                helmholtz_bulk_local(
+                    &*self.basis,
+                    &*self.quad,
+                    el.etype,
+                    &xyz,
+                    &mat,
+                    &cfg,
+                    &mut self.complex,
+                )?;
                 self.complex.to_real(&mut self.local);
                 ctx.default_update(&self.local, e)?;
             }
@@ -189,15 +231,27 @@ impl Solver for HelmholtzSolver {
                 let bc = {
                     let p = ctx.bc_params(e);
                     let parent = el.parents.iter().flatten().next().copied().ok_or_else(|| {
-                        SolverError::fatal(CALLER, format!("boundary element {} has no parent element", e.0))
+                        SolverError::fatal(
+                            CALLER,
+                            format!("boundary element {} has no parent element", e.0),
+                        )
                     })?;
                     let pmat = ctx.body_params(parent).and_then(|b| b.material);
                     let parent_prop = |key: &str| -> Result<Vec<f64>, SolverError> {
-                        real_at_nodes(ctx, pmat, key, e)?
-                            .ok_or_else(|| SolverError::fatal("GetParentMatProp", format!("Failed to find \"{key}\"")))
+                        real_at_nodes(ctx, pmat, key, e)?.ok_or_else(|| {
+                            SolverError::fatal(
+                                "GetParentMatProp",
+                                format!("Failed to find \"{key}\""),
+                            )
+                        })
                     };
                     let impedance = if p.is_some_and(|p| flag(p, "plane wave bc")) {
-                        Some(parent_prop("Sound Speed")?.into_iter().map(|c| Complex64::new(c, 0.0)).collect())
+                        Some(
+                            parent_prop("Sound Speed")?
+                                .into_iter()
+                                .map(|c| Complex64::new(c, 0.0))
+                                .collect(),
+                        )
                     } else {
                         complex_at_nodes(ctx, p, "Wave Impedance", e, n)?
                     };
@@ -207,7 +261,15 @@ impl Solver for HelmholtzSolver {
                         wave_flux: complex_at_nodes(ctx, p, "Wave Flux", e, n)?,
                     }
                 };
-                helmholtz_boundary_local(&*self.basis, &*self.quad, el.etype, &xyz, &bc, &cfg, &mut self.complex)?;
+                helmholtz_boundary_local(
+                    &*self.basis,
+                    &*self.quad,
+                    el.etype,
+                    &xyz,
+                    &bc,
+                    &cfg,
+                    &mut self.complex,
+                )?;
                 self.complex.to_real(&mut self.local);
                 ctx.default_update(&self.local, e)?;
             }
@@ -237,5 +299,9 @@ fn complex_at_nodes(
         return Ok(None);
     }
     let get = |v: &Option<Vec<f64>>, i: usize| v.as_ref().map_or(0.0, |v| v[i]);
-    Ok(Some((0..n).map(|i| Complex64::new(get(&re, i), get(&im, i))).collect()))
+    Ok(Some(
+        (0..n)
+            .map(|i| Complex64::new(get(&re, i), get(&im, i)))
+            .collect(),
+    ))
 }

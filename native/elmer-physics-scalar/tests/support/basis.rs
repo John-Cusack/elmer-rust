@@ -107,7 +107,11 @@ fn shape(etype: u16, uvw: [f64; 3]) -> Option<(usize, Vec<f64>, Vec<[f64; 3]>)> 
             for i in 0..8 {
                 let (a, b, c) = (1.0 + su[i] * u, 1.0 + sv[i] * v, 1.0 + sw[i] * w);
                 n[i] = a * b * c / 8.0;
-                g[i] = [su[i] * b * c / 8.0, sv[i] * a * c / 8.0, sw[i] * a * b / 8.0];
+                g[i] = [
+                    su[i] * b * c / 8.0,
+                    sv[i] * a * c / 8.0,
+                    sw[i] * a * b / 8.0,
+                ];
             }
             (3, n, g)
         }

@@ -83,4 +83,3 @@ pub fn read_elmer_mesh(dir: &Path, dim: usize) -> Mesh {
         boundary,
     }
 }
-

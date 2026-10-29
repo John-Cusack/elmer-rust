@@ -61,7 +61,11 @@ pub(crate) fn check_len(what: &'static str, n: usize, got: usize) -> Result<(), 
     }
 }
 
-pub(crate) fn check_opt(what: &'static str, n: usize, v: &Option<Vec<f64>>) -> Result<(), ScalarError> {
+pub(crate) fn check_opt(
+    what: &'static str,
+    n: usize,
+    v: &Option<Vec<f64>>,
+) -> Result<(), ScalarError> {
     v.as_ref().map_or(Ok(()), |v| check_len(what, n, v.len()))
 }
 
@@ -105,4 +109,78 @@ pub(crate) fn slot_mut<'a>(ctx: &'a mut SolverCtx<'_>) -> &'a mut elmer_solver::
         .iter_mut()
         .find(|s| s.id == id)
         .expect("the running solver has a slot")
+}
+
+/// A material coefficient at the nodes of element `e`, by the shape of the
+/// keyword's array (`ListGetElementReal`'s `Rdim`): 1 row is a scalar, 1
+/// column a diagonal, else a full tensor. A scalar may depend on fields; a
+/// tensor must be constant. `None` when the keyword is absent.
+pub(crate) fn coefficient_at_nodes(
+    ctx: &SolverCtx<'_>,
+    p: Option<&ParamMap>,
+    key: &str,
+    e: ElemId,
+    n: usize,
+    dim: usize,
+) -> Result<Option<crate::potential::Coefficient>, SolverError> {
+    use crate::potential::Coefficient;
+    use elmer_core::Value;
+    let Some(p) = p else { return Ok(None) };
+    let Some(v) = p.get(key) else { return Ok(None) };
+    match v {
+        Value::Real { rows, cols, data } if rows * cols > 1 => {
+            let (r, c) = (*rows, *cols);
+            if c == 1 {
+                if r < dim {
+                    return Err(SolverError::fatal(
+                        "ListGetElementReal",
+                        format!("\"{key}\" has {r} rows, the problem has {dim} dimensions"),
+                    ));
+                }
+                let mut d = [0.0; 3];
+                d[..dim].copy_from_slice(&data[..dim]);
+                Ok(Some(Coefficient::Diagonal(vec![d; n])))
+            } else {
+                if r < dim || c < dim {
+                    return Err(SolverError::fatal(
+                        "ListGetElementReal",
+                        format!("\"{key}\" is {r}x{c}, the problem has {dim} dimensions"),
+                    ));
+                }
+                let mut k = [[0.0; 3]; 3];
+                for (i, row) in k.iter_mut().enumerate().take(dim) {
+                    for (j, kij) in row.iter_mut().enumerate().take(dim) {
+                        *kij = data[i * c + j];
+                    }
+                }
+                Ok(Some(Coefficient::Full(vec![k; n])))
+            }
+        }
+        Value::Dependent(d) if d.rows * d.cols > 1 => Err(SolverError::Unsupported(format!(
+            "\"{key}\": a non-constant tensor"
+        ))),
+        _ => Ok(ctx.real_at_nodes(p, key, e)?.map(Coefficient::Scalar)),
+    }
+}
+
+/// `Initialize Dirichlet Conditions` (ElmerSolver.F90, `SetInitialConditions`):
+/// unless `Simulation` turns it off, the solver variable starts at the
+/// Dirichlet values on its boundary nodes, so the first time step of a
+/// transient run sees them in the history. `elmer-solver` does not do this
+/// for any solver yet.
+pub(crate) fn init_dirichlet(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+    if ctx
+        .simulation_params()
+        .logical("initialize dirichlet conditions")
+        == Some(false)
+    {
+        return Ok(());
+    }
+    let fixed = ctx.dirichlet_values()?;
+    if let Some(v) = ctx.primary_mut() {
+        for (dof, x) in fixed {
+            v.values[dof as usize] = x;
+        }
+    }
+    Ok(())
 }

@@ -104,7 +104,11 @@ impl HelmholtzLocal {
     }
 }
 
-fn check_complex(what: &'static str, n: usize, v: &Option<Vec<Complex64>>) -> Result<(), ScalarError> {
+fn check_complex(
+    what: &'static str,
+    n: usize,
+    v: &Option<Vec<Complex64>>,
+) -> Result<(), ScalarError> {
     v.as_ref().map_or(Ok(()), |v| check_len(what, n, v.len()))
 }
 
@@ -141,7 +145,10 @@ pub fn helmholtz_bulk_local(
     }
     check_complex("pressure source", n, &mat.load)?;
     if !(1..=3).contains(&cfg.dim) {
-        return Err(ScalarError::Invalid(format!("dim {} not in 1..=3", cfg.dim)));
+        return Err(ScalarError::Invalid(format!(
+            "dim {} not in 1..=3",
+            cfg.dim
+        )));
     }
     out.reset(n);
     let ips = quad.gauss_points(etype, cfg.quad_points);
@@ -150,7 +157,9 @@ pub fn helmholtz_bulk_local(
     }
     let mut be = BasisEval::default();
     for qp in &ips {
-        basis.eval(etype, xyz, qp.uvw, &mut be).map_err(ScalarError::Basis)?;
+        basis
+            .eval(etype, xyz, qp.uvw, &mut be)
+            .map_err(ScalarError::Basis)?;
         let phi = &be.basis[..n];
         let dphi = &be.dbasis_dx[..n];
         let s = measure(cfg, qp.weight * be.det_j, phi, xyz);
@@ -158,7 +167,10 @@ pub fn helmholtz_bulk_local(
         let wave_number = cfg.angular_frequency / interp(phi, &mat.sound_speed);
         let d = wave_number * mat.damping.as_deref().map_or(0.0, |d| interp(phi, d));
         let m = -wave_number * wave_number;
-        let load = mat.load.as_deref().map_or(Complex64::new(0.0, 0.0), |l| interp_c(phi, l));
+        let load = mat
+            .load
+            .as_deref()
+            .map_or(Complex64::new(0.0, 0.0), |l| interp_c(phi, l));
         let rho = interp(phi, &mat.density);
 
         for p in 0..n {
@@ -196,18 +208,26 @@ pub fn helmholtz_boundary_local(
     }
     let mut be = BasisEval::default();
     for qp in &ips {
-        basis.eval(etype, xyz, qp.uvw, &mut be).map_err(ScalarError::Basis)?;
+        basis
+            .eval(etype, xyz, qp.uvw, &mut be)
+            .map_err(ScalarError::Basis)?;
         let phi = &be.basis[..n];
         let s = measure(cfg, qp.weight * be.det_j, phi, xyz);
 
-        let z = bc.impedance.as_deref().map_or(Complex64::new(0.0, 0.0), |z| interp_c(phi, z));
+        let z = bc
+            .impedance
+            .as_deref()
+            .map_or(Complex64::new(0.0, 0.0), |z| interp_c(phi, z));
         let admittance = if z.re.abs() < AEPS && z.im.abs() < AEPS {
             Complex64::new(0.0, 0.0)
         } else {
             Complex64::new(0.0, cfg.angular_frequency) / z
         };
         let rho = interp(phi, &bc.density);
-        let load = bc.wave_flux.as_deref().map_or(Complex64::new(0.0, 0.0), |l| interp_c(phi, l));
+        let load = bc
+            .wave_flux
+            .as_deref()
+            .map_or(Complex64::new(0.0, 0.0), |l| interp_c(phi, l));
         for p in 0..n {
             for q in 0..n {
                 out.stiff[p * n + q] += admittance * (s * phi[q] * phi[p] / rho);

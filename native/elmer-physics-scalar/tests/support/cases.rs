@@ -13,7 +13,9 @@ use super::simmesh::SimMesh;
 use super::{TestBasis, TestQuadrature};
 
 pub fn data(case: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data").join(case)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data")
+        .join(case)
 }
 
 pub fn sec(entries: &[(&str, Value)]) -> ParamMap {
@@ -73,7 +75,10 @@ pub fn read_columns(path: &Path) -> Vec<Vec<f64>> {
 
 /// A solver variable component by node (`dofs` interleaved, component `k`).
 pub fn nodal(sim: &Simulation, var: &str, k: usize, n_nodes: usize) -> Vec<f64> {
-    let v = sim.vars.get(var).unwrap_or_else(|| panic!("no variable {var}"));
+    let v = sim
+        .vars
+        .get(var)
+        .unwrap_or_else(|| panic!("no variable {var}"));
     (0..n_nodes)
         .map(|n| v.values[v.slot(n as u32).unwrap() * v.dofs + k])
         .collect()
@@ -87,7 +92,10 @@ pub fn norm(sim: &Simulation, var: &str) -> f64 {
 pub fn rel_max_diff(a: &[f64], b: &[f64]) -> f64 {
     assert_eq!(a.len(), b.len());
     let scale = b.iter().fold(0.0f64, |m, x| m.max(x.abs()));
-    a.iter().zip(b).fold(0.0f64, |m, (x, y)| m.max((x - y).abs())) / scale
+    a.iter()
+        .zip(b)
+        .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()))
+        / scale
 }
 
 pub fn assert_rel(got: f64, want: f64, tol: f64) {

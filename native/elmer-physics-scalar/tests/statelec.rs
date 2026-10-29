@@ -11,7 +11,10 @@ use support::meshio::read_elmer_mesh;
 use support::simmesh::SimMesh;
 
 fn direct() -> Vec<(&'static str, Value)> {
-    vec![("Linear System Solver", st("Direct")), ("Linear System Direct Method", st("UMFPack"))]
+    vec![
+        ("Linear System Solver", st("Direct")),
+        ("Linear System Direct Method", st("UMFPack")),
+    ]
 }
 
 fn elstat_solver(extra: &[(&str, Value)]) -> elmer_core::ParamMap {
@@ -43,7 +46,10 @@ fn elstat_model(extra: &[(&str, Value)]) -> Model {
         materials: vec![sec(&[("Relative Permittivity", real(1.0))])],
         boundary_conditions: vec![
             sec(&[("Target Boundaries", ints(&[4])), ("Potential", real(0.0))]),
-            sec(&[("Target Boundaries", ints(&[3])), ("Potential", real(1.0e3))]),
+            sec(&[
+                ("Target Boundaries", ints(&[3])),
+                ("Potential", real(1.0e3)),
+            ]),
         ],
         ..Model::default()
     }
@@ -58,7 +64,11 @@ fn elstat_mesh() -> SimMesh {
 #[test]
 fn elstat_potential_and_energy_match_elmer() {
     let mesh = elstat_mesh();
-    let sim = run(elstat_model(&[("Calculate Electric Energy", Value::Logical(true))]), &mesh).unwrap();
+    let sim = run(
+        elstat_model(&[("Calculate Electric Energy", Value::Logical(true))]),
+        &mesh,
+    )
+    .unwrap();
     let n = mesh.mesh.coords.len();
     let cols = read_columns(&data("elstat_coarse").join("fields.dat"));
     let d = rel_max_diff(&nodal(&sim, "potential", 0, n), &cols[0]);
@@ -68,9 +78,17 @@ fn elstat_potential_and_energy_match_elmer() {
 
     let p = &sim.model.simulation;
     use elmer_core::Params;
-    assert_rel(p.real("res: electric energy").unwrap(), 1.073050209726e-10, 1e-8);
+    assert_rel(
+        p.real("res: electric energy").unwrap(),
+        1.073050209726e-10,
+        1e-8,
+    );
     assert_rel(p.real("res: potential difference").unwrap(), 1.0e3, 1e-14);
-    assert_rel(p.real("res: effective capacitance").unwrap(), 2.146100419453e-16, 1e-8);
+    assert_rel(
+        p.real("res: effective capacitance").unwrap(),
+        2.146100419453e-16,
+        1e-8,
+    );
     let e = nodal(&sim, "electric energy density", 0, n);
     assert!(rel_max_diff(&e, &cols[1]) < 1e-8);
 }
@@ -120,7 +138,11 @@ fn elstat_source_matches_elmer() {
         constants: sec(&[("Permittivity Of Vacuum", real(8.8542e-12))]),
         solvers: vec![elstat_solver(&[])],
         equations: vec![sec(&[("Active Solvers", ints(&[1]))])],
-        bodies: vec![sec(&[("Equation", ints(&[1])), ("Material", ints(&[1])), ("Body Force", ints(&[1]))])],
+        bodies: vec![sec(&[
+            ("Equation", ints(&[1])),
+            ("Material", ints(&[1])),
+            ("Body Force", ints(&[1])),
+        ])],
         materials: vec![sec(&[("Relative Permittivity", real(1.0))])],
         body_forces: vec![sec(&[("Charge density", real(2e-6))])],
         boundary_conditions: vec![sec(&[
