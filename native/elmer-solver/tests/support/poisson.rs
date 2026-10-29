@@ -147,3 +147,72 @@ impl Solver for Helmholtz {
         Ok(())
     }
 }
+
+/// HeatSolve's diffusion with constant material values and a body-force
+/// `Heat Source` (any keyword value, so MATC and field dependence work),
+/// iterated `Nonlinear System Max Iterations` times until
+/// `default_converged`: stiffness `k grad N . grad N`, mass `rho c_p N N`
+/// through `Default1stOrderTime`, load `rho * source` interpolated at the
+/// Gauss points.
+pub struct HeatNl;
+
+pub fn heat_nl(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
+    Ok(Box::new(HeatNl))
+}
+
+impl Solver for HeatNl {
+    fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
+        use elmer_core::Params;
+        let iters = ctx.params().integer("nonlinear system max iterations").unwrap_or(1);
+        for _ in 0..iters {
+            ctx.default_initialize()?;
+            let active: Vec<ElemId> = ctx.active_elements().collect();
+            let mut ev = BasisEval::default();
+            for e in active {
+                let el = ctx.mesh.element(e);
+                let n = el.nodes.len();
+                let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+                let b = ctx.body_params(e).expect("body");
+                let mat = b.material.expect("material");
+                let (k, rho, cp) = (
+                    mat.real("heat conductivity").unwrap_or(1.0),
+                    mat.real("density").unwrap_or(1.0),
+                    mat.real("heat capacity").unwrap_or(1.0),
+                );
+                let source = match b.body_force {
+                    Some(bf) => ctx.real_at_nodes(bf, "heat source", e)?.unwrap_or_else(|| vec![0.0; n]),
+                    None => vec![0.0; n],
+                };
+                let load: Vec<f64> = source.iter().map(|s| s * rho).collect();
+                let mut local = LocalSystem::zeros(n);
+                let mut mass = vec![0.0; n * n];
+                for qp in super::quad::TestQuadrature.gauss_points(el.etype, None) {
+                    super::basis::TestBasis
+                        .eval(el.etype, &xyz, qp.uvw, &mut ev)
+                        .map_err(|m| SolverError::fatal("HeatSolve", m))?;
+                    let w = qp.weight * ev.det_j;
+                    let f: f64 = ev.basis.iter().zip(&load).map(|(a, b)| a * b).sum();
+                    for p in 0..n {
+                        for q in 0..n {
+                            let g = (ev.dbasis_dx[p], ev.dbasis_dx[q]);
+                            local.stiff[p * n + q] += w * k * (g.0[0] * g.1[0] + g.0[1] * g.1[1] + g.0[2] * g.1[2]);
+                            mass[p * n + q] += w * rho * cp * ev.basis[p] * ev.basis[q];
+                        }
+                        local.force[p] += w * f * ev.basis[p];
+                    }
+                }
+                local.mass = Some(mass);
+                if transient {
+                    ctx.default_first_order_time(&mut local, e, dt)?;
+                }
+                ctx.default_update(&local, e)?;
+            }
+            ctx.default_dirichlet()?;
+            ctx.default_solve()?;
+            if ctx.default_converged() {
+                break;
+            }
+        }
+        Ok(())
+    }
+}
