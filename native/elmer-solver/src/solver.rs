@@ -914,7 +914,7 @@ pub(crate) fn schur_matrix(sim: &Simulation, p: &ParamMap) -> Option<elmer_core:
 }
 
 /// `BlockError` as the framework's error, one to one.
-fn block_error(e: elmer_block::BlockError) -> SolverError {
+pub(crate) fn block_error(e: elmer_block::BlockError) -> SolverError {
     match e {
         elmer_block::BlockError::Fatal { caller, msg } => SolverError::Fatal { caller, msg },
         elmer_block::BlockError::Numerical { caller, msg } => SolverError::Numerical { caller, msg },

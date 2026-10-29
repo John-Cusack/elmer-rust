@@ -1,0 +1,72 @@
+! Change linear system namespace in middle of simulation
+
+Header
+  CHECK KEYWORDS Warn
+  Mesh DB "." "angle"
+  Include Path ""
+  Results Directory ""
+End
+
+Simulation
+  Max Output Level = 10
+
+  Coordinate System = "Cartesian"
+  Coordinate Mapping(3) = 1 2 3
+
+  Simulation Type = "Steady State"
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+
+!  Post File = "case.vtu"
+End
+
+Constants
+  Gravity(4) = 0 -1 0 9.82
+  Stefan Boltzmann = 5.67e-08
+End
+
+Body 1
+  Name = "Body"
+  Body Force = 1
+  Equation = 1
+  Material = 1
+End
+
+Equation 1
+  Name = "Equations"
+  Active Solvers(1) = 1
+End
+
+Solver 1
+  Block Solver = Logical True
+  Equation = "Heat Equation"
+  Procedure = "HeatSolve" "HeatSolver"
+  Variable = "Temperature"
+  Nonlinear System Max Iterations = 3
+  Nonlinear System Convergence Tolerance = 1.0e-8
+  Outer: Linear System Solver = "Iterative"
+  Outer: Linear System Iterative Method = BiCGStab
+  Outer: Linear System Convergence Tolerance = 1e-10
+  Outer: Linear System Max Iterations = 500
+  Outer: Linear System Preconditioning = ILU0
+  Outer: Linear System Residual Output = 1
+End
+
+Material 1
+  Name = "Material"
+  Density = 1
+  Heat Conductivity = 3
+End
+
+Body Force 1
+  Name = "BodyForce"
+  Heat Source = 1
+End
+
+Boundary Condition 1
+  Name = "Constraint"
+  Target Boundaries(1) = 1 
+  Temperature = 0
+End
+
+Solver 1 :: Reference Norm = Real 0.25941344E-01
