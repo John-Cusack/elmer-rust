@@ -93,11 +93,21 @@ impl MeshView for Mesh {
     }
 
     fn element_edges(&self, e: ElemId) -> Option<&[u32]> {
-        let i = e.0 as usize;
-        if i < self.bulk.len() {
-            Some(&self.bulk[i].edges)
+        // Edge ids exist only after `find_edges` (Elmer: `FindEdges`); an
+        // empty table means not computed, not "no edges", so report `None`
+        // like the trait default instead of a misleading empty slice.
+        let edges = {
+            let i = e.0 as usize;
+            if i < self.bulk.len() {
+                &self.bulk[i].edges
+            } else {
+                &self.boundary[i - self.bulk.len()].edges
+            }
+        };
+        if edges.is_empty() {
+            None
         } else {
-            Some(&self.boundary[i - self.bulk.len()].edges)
+            Some(edges)
         }
     }
 }
@@ -159,5 +169,18 @@ mod tests {
         let m = two_tri();
         check_view(&m);
         check_view(&m.view());
+    }
+
+    #[test]
+    fn uncomputed_edges_read_as_unknown() {
+        let mut m = two_tri();
+        for e in m.bulk.iter_mut() {
+            e.edges.clear();
+        }
+        m.boundary[0].edges.clear();
+        // No `find_edges` yet: `None`, not a misleading empty slice.
+        assert_eq!(m.element_edges(ElemId(0)), None);
+        assert_eq!(m.element_edges(ElemId(2)), None);
+        assert_eq!(m.view().element_edges(ElemId(1)), None);
     }
 }
