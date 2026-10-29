@@ -1,0 +1,33 @@
+ ASCII 3
+!File started at: 2026/10/29 10:38:13
+ Degrees of freedom: 
+temperature              :        3       3   1 : heat equation
+ Total DOFs:            1
+ Number Of Nodes:            3
+Time:       1      1  1.00000000E-001
+temperature
+Perm:            3            3
+          1          3
+          2          2
+          3          1
+  0.27272727272727271     
+   0.0000000000000000     
+   0.0000000000000000     
+Time:       2      2  2.00000000E-001
+temperature
+Perm:            3            3
+          1          3
+          2          2
+          3          1
+  0.39669421487603301     
+   0.0000000000000000     
+   0.0000000000000000     
+Time:       3      3  3.00000000E-001
+temperature
+Perm:            3            3
+          1          3
+          2          2
+          3          1
+  0.45304282494365128     
+   0.0000000000000000     
+   0.0000000000000000     
