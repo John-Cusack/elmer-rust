@@ -44,9 +44,6 @@ const SOLVER: &[Rule] = &[
 const BODY_FORCE: &[Rule] = &[];
 
 const BOUNDARY: &[Rule] = &[
-    // MapBodiesAndBCs fallbacks `Model::bc_of_tag` does not apply.
-    flag("Default Internal BC", "default BC targets are not implemented"),
-    flag("Default External BC", "default BC targets are not implemented"),
     present("Intersection BC", "intersection BCs are not implemented"),
     present("Intersection Body", "intersection BCs are not implemented"),
     present("Conforming BC", "conforming BCs are not implemented"),
@@ -231,7 +228,7 @@ mod tests {
 
         let model = Model {
             solvers: vec![heat(&[])],
-            boundary_conditions: vec![pm(&[("default internal bc", Value::Logical(false))])],
+            boundary_conditions: vec![pm(&[("default internal bc", Value::Logical(true))])],
             ..Model::default()
         };
         assert!(check(&model).is_ok());
