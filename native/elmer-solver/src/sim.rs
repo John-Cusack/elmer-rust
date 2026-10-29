@@ -473,7 +473,12 @@ impl Simulation {
         if self.is_transient() {
             self.set_time_order(&mut slot)?;
         }
-        let coupled = crate::coupled::is_coupled_system(&slot.params);
+        // AddEquationBasics (MainUtils.F90:1514-1520): a coupled or block
+        // solver without a procedure makes its variables itself.
+        let coupled = crate::coupled::is_coupled_system(&slot.params)
+            || (slot.params.logical("block solver") == Some(true)
+                && slot.params.get("procedure").is_none()
+                && slot.params.logical("assembly solver") != Some(true));
         if let Some(vs) = slot.params.string("variable").filter(|_| !coupled).map(str::to_string) {
             let spec = parse_variable_spec(&vs, slot.params.integer("variable dofs"))?;
             self.publish_live();
