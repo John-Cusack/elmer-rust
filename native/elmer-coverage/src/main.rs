@@ -11,7 +11,7 @@ const DEFAULT_SCRATCH: &str = "/home/john/firstmate/data/elmer-swarm-w4coverage/
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage:\n  elmer-coverage run [--build-dir D] [--scratch D] [--out D] [--only a,b] [--timeout S] [--commit SHA] [--keep]\n  \
+        "usage:\n  elmer-coverage run [--build-dir D] [--scratch D] [--out D] [--ctest-cache F] [--only a,b] [--timeout S] [--commit SHA] [--keep]\n  \
          elmer-coverage report --results results.tsv [--out COVERAGE.md] [--commit SHA]\n  \
          elmer-coverage one --dir D --sif S [--modules a,b] [--static]   (internal)"
     );
@@ -57,7 +57,8 @@ fn main() -> ExitCode {
                 clean: !args.has("--keep"),
             };
             let only: Vec<&str> = args.value("--only").map(|o| o.split(',').collect()).unwrap_or_default();
-            let tests = match discover::list(&build, "quick") {
+            let cache = args.value("--ctest-cache").map(PathBuf::from).unwrap_or_else(|| out.join("ctest-quick.txt"));
+            let tests = match discover::list_cached(&build, "quick", &cache) {
                 Ok(t) => t,
                 Err(e) => {
                     eprintln!("elmer-coverage: {e}");
