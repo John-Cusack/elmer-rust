@@ -458,16 +458,31 @@ fn sd_model_pde_p2_matches_elmer() {
     check_model_pde_p(true, "sd_p2", 1281, 1.057859263392748);
 }
 
-/// The quick tests `QuadraturesBrick` and `SD_QuadraturesBrick`: ModelPDE
-/// with `Element = "p:2"` (full or serendipity) on a 2x2x2 brick mesh, a
-/// flux BC on 3D boundary faces, run as their RUN blocks do with the default
-/// rule and the listed `Number of Integration Points`. Each run gives the
-/// pristine values (`<prefix>perm.dat`, `<prefix>solution.dat`) and norm.
-fn check_quadratures_brick(serendipity: bool, nps: &[Option<i32>], n_dofs: usize, norm: f64) {
+/// `(slot, row)` pairs (1-based) of a `case.result` Perm block: the used
+/// slots only, in slot order.
+fn read_perm_pairs(path: &std::path::Path) -> Vec<(usize, u32)> {
+    std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+        .lines()
+        .map(|l| {
+            let t: Vec<&str> = l.split_whitespace().collect();
+            (t[0].parse().unwrap(), t[1].parse().unwrap())
+        })
+        .collect()
+}
+
+/// The quick tests `QuadraturesBrick`, `QuadraturesWedge` and their
+/// serendipity `SD_` variants: ModelPDE with `Element = "p:2"` on a 2x2x2
+/// mesh of `case` (`quadratures_brick` / `quadratures_wedge`), a flux BC on
+/// 3D boundary faces, run as their RUN blocks do with the default rule and
+/// the listed `Number of Integration Points`. Each run gives the pristine
+/// Perm (`<prefix>perm.dat`, used slots), values (`<prefix>solution.dat`,
+/// in that slot order) and norm.
+fn check_quadratures(case: &str, serendipity: bool, nps: &[Option<i32>], n_dofs: usize, norm: f64) {
     let prefix = if serendipity { "sd_" } else { "" };
-    let mesh = SimMesh::new(read_elmer_mesh(&data("quadratures_brick"), 3));
-    let want_perm = read_solution(&data("quadratures_brick").join(format!("{prefix}perm.dat")));
-    let want = read_solution(&data("quadratures_brick").join(format!("{prefix}solution.dat")));
+    let mesh = SimMesh::new(read_elmer_mesh(&data(case), 3));
+    let want_perm = read_perm_pairs(&data(case).join(format!("{prefix}perm.dat")));
+    let want = read_solution(&data(case).join(format!("{prefix}solution.dat")));
     for &np in nps {
         let mut solver = vec![
             ("Equation", st("ModelPDE")),
@@ -522,9 +537,17 @@ fn check_quadratures_brick(serendipity: bool, nps: &[Option<i32>], n_dofs: usize
         let v = sim.vars.get("field").unwrap();
         assert_eq!(v.values.len(), n_dofs, "{np:?}");
         let perm = v.perm.as_deref().unwrap();
-        let ours: Vec<f64> = perm.iter().map(|&p| f64::from(p + 1)).collect();
-        assert_eq!(ours, want_perm, "{np:?}: Perm");
-        let got: Vec<f64> = perm.iter().map(|&p| v.values[p as usize]).collect();
+        let ours: Vec<(usize, u32)> = perm
+            .iter()
+            .enumerate()
+            .filter(|(_, &p)| p != elmer_core::NO_DOF)
+            .map(|(i, &p)| (i + 1, p + 1))
+            .collect();
+        assert_eq!(ours, want_perm, "{case} {np:?}: Perm");
+        let got: Vec<f64> = want_perm
+            .iter()
+            .map(|&(slot, _)| v.values[perm[slot - 1] as usize])
+            .collect();
         assert!(
             max_diff(&got, &want) < 1e-12,
             "{np:?}: {:e}",
@@ -541,18 +564,46 @@ fn check_quadratures_brick(serendipity: bool, nps: &[Option<i32>], n_dofs: usize
 #[test]
 fn quadratures_brick_matches_elmer() {
     // 27 nodes + 54 edges + 36 faces + 8 bubbles; the solution is linear.
-    check_quadratures_brick(false, &[None, Some(27), Some(64)], 125, 0.3);
+    check_quadratures(
+        "quadratures_brick",
+        false,
+        &[None, Some(27), Some(64)],
+        125,
+        0.3,
+    );
 }
 
 #[test]
 fn sd_quadratures_brick_matches_elmer() {
     // Serendipity p:2: 27 nodes + 54 edges; Reference Norm 0.37267800.
-    check_quadratures_brick(
+    check_quadratures(
+        "quadratures_brick",
         true,
         &[None, Some(27), Some(64), Some(8)],
         81,
         0.37267799624996323,
     );
+}
+
+/// The point counts of the wedge cases' RUN blocks after the first.
+const WEDGE_NPS: [i32; 15] = [64, 44, 28, 27, 24, 21, 18, 16, 15, 14, 12, 11, 10, 8, 44];
+
+#[test]
+fn quadratures_wedge_matches_elmer() {
+    // 16 wedges: 27 nodes + 66 edges + 32 quad faces (the 24 triangle
+    // faces carry no p:2 dofs but keep their Perm slots: 149 slots).
+    let mut nps = vec![None];
+    nps.extend(WEDGE_NPS.iter().map(|&n| Some(n)));
+    check_quadratures("quadratures_wedge", false, &nps, 125, 0.29999999999999927);
+}
+
+#[test]
+fn sd_quadratures_wedge_matches_elmer() {
+    // Serendipity p:2: 27 nodes + 66 edges; Reference Norm 3.47804172E-01.
+    let mut nps = vec![None];
+    nps.extend(WEDGE_NPS[..14].iter().map(|&n| Some(n)));
+    nps.extend([7, 6, 5, 44].iter().map(|&n| Some(n)));
+    check_quadratures("quadratures_wedge", true, &nps, 93, 0.3478041718201255);
 }
 
 fn setup_error(model: Model, mesh: &SimMesh) -> String {
