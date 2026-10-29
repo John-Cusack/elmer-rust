@@ -159,15 +159,20 @@ fn read_ints(s: &str) -> (Vec<i64>, bool) {
 
 fn read_nodes(dir: &str, n: usize) -> Result<Vec<[f64; 3]>, MeshError> {
     let base = format!("{dir}/mesh.nodes");
-    // Binary variants first (Elmer tries ASCII, then .bin, then .sbin).
+    // Elmer tries ASCII first, then `.bin`, then `.sbin`.
+    if let Ok(text) = std::fs::read_to_string(&base) {
+        return read_nodes_ascii(&text, n);
+    }
     if let Ok(bytes) = std::fs::read(format!("{base}.bin")) {
         return read_nodes_bin(&bytes, false, n, &base);
     }
     if let Ok(bytes) = std::fs::read(format!("{base}.sbin")) {
         return read_nodes_bin(&bytes, true, n, &base);
     }
-    let text = std::fs::read_to_string(&base)
-        .map_err(|e| MeshError::new(format!("cannot open mesh.nodes: {e}")))?;
+    Err(MeshError::new(format!("cannot open {base}")))
+}
+
+fn read_nodes_ascii(text: &str, n: usize) -> Result<Vec<[f64; 3]>, MeshError> {
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
     let mut nodes = Vec::with_capacity(n);
     let mut tags: Vec<i32> = Vec::with_capacity(n);
@@ -365,17 +370,16 @@ fn read_boundary(
     let min_tag = bulk_tags.iter().min().copied().unwrap_or(1);
     let max_tag = bulk_tags.iter().max().copied().unwrap_or(0);
 
-    let text = std::fs::read_to_string(&base).or_else(|_| {
-        std::fs::read_to_string(format!("{base}.bin"))
-            .map(|_| String::new())
-            .map_err(|_| MeshError::new("cannot open mesh.boundary".to_string()))
-    })?;
-    // Binary boundary files use fixed records; ASCII parsed per line.
-    let is_bin = std::path::Path::new(&format!("{base}.bin")).is_file()
-        && std::fs::read_to_string(&base).is_err();
-    if is_bin {
+    // Elmer tries ASCII first, then `.bin` (no `.sbin` for boundary).
+    // Probe the binary path on the filesystem: reading it as text fails on
+    // real files since the stream bytes are rarely valid UTF-8.
+    let probe = std::fs::read_to_string(&base);
+    if probe.is_err() && std::path::Path::new(&format!("{base}.bin")).is_file() {
         return read_boundary_bin(dir, n_bulk, n_bound, bulk_tags, &local_eperm, min_tag, max_tag);
     }
+    let text =
+        probe.map_err(|_| MeshError::new("cannot open mesh.boundary".to_string()))?;
+    // ASCII parsed per line.
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
     for j in 0..n_bound {
         let line = lines.next().ok_or_else(|| {
