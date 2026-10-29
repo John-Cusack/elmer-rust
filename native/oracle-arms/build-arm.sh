@@ -97,7 +97,10 @@ case "$ARM" in
             -DLAPACK_LIBRARIES=/usr/lib/x86_64-linux-gnu/openblas-pthread/liblapack.so
         )
         ;;
-    listusage) extra_flags=(-DDEVEL_LISTUSAGE=ON) ;;
+    # DEVEL_LISTUSAGE is not a declared CMake option: a bare -D only
+    # lands in the cache and never reaches the compiler. Pass it as a
+    # Fortran pre-processor define instead (verified in flags.make).
+    listusage) extra_flags=(-DCMAKE_Fortran_FLAGS="-DDEVEL_LISTUSAGE") ;;
     *) echo "unknown arm $ARM" >&2; exit 2 ;;
 esac
 
@@ -119,6 +122,7 @@ cmake --build "$DEST" --parallel 4
     echo "--- blas/lapack ---"
     readlink -f /usr/lib/x86_64-linux-gnu/libblas.so.3 /usr/lib/x86_64-linux-gnu/liblapack.so.3
     grep -E '^(BLAS_LIBRARIES|LAPACK_LIBRARIES|BLA_VENDOR)' "$DEST/CMakeCache.txt" || true
+    grep -E '^(CMAKE_Fortran_FLAGS|CMAKE_C_FLAGS)' "$DEST/CMakeCache.txt" || true
     echo "--- cpu ---"
     grep -m1 'model name' /proc/cpuinfo
     grep -m1 flags /proc/cpuinfo | tr ' ' '\n' | grep -c -E '^(fma|avx2|avx512f)$' || true
