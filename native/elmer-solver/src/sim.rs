@@ -1049,12 +1049,24 @@ impl Simulation {
         }
         self.slots[ix].dt = dts * dt;
         self.publish_live();
+        // MainUtils.F90:1392, 1518: `Block Solver` runs BlockSolver around
+        // the procedure; without one the blocks are assembled one by one.
+        let block = self.slots[ix].params.logical("block solver") == Some(true);
+        if block && self.slots[ix].instance.is_none() {
+            return Err(SolverError::Unsupported(
+                "Block Solver without a Procedure (block-by-block assembly)".into(),
+            ));
+        }
         if let Some(mut inst) = self.slots[ix].instance.take() {
-            let r = inst.solve(
-                &mut SolverCtx::new(self, ix, mesh, log, comm),
-                dts * dt,
-                time_derivative_active,
-            );
+            let r = if block {
+                crate::block_driver::block_solver(self, ix, &mut inst, dts * dt, time_derivative_active, mesh, log, comm)
+            } else {
+                inst.solve(
+                    &mut SolverCtx::new(self, ix, mesh, log, comm),
+                    dts * dt,
+                    time_derivative_active,
+                )
+            };
             self.slots[ix].instance = Some(inst);
             r?;
         }

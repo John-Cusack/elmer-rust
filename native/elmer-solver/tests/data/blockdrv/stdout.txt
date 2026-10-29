@@ -1,0 +1,8 @@
+BlockSolver: ---------------------------------------
+BlockSolver: Solving system of equations utilizing block strategies
+BlockSolver: ---------------------------------------
+BlockSolver: -------------------------------------------------
+BlockSolver: Coupled iteration:                1
+DefaultSolve: Solver disabled, exiting early!
+BlockSolver: Applying scaling
+ERROR:: CRS_BlockMatrixPick: No applicable to just one block!

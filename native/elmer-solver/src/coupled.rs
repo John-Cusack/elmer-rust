@@ -45,6 +45,11 @@ pub fn solver_for_mode(params: &ParamMap, registry: &SolverRegistry) -> Result<O
         Some("coupled solver") if params.get("procedure").is_none() => {
             Ok(Some(Box::new(CoupledSystem::from_section(params, registry)?)))
         }
+        // The procedure runs under BlockSolver (`block_driver`).
+        Some("block solver") if params.get("procedure").is_some() => Ok(None),
+        Some("block solver") => Err(SolverError::Unsupported(
+            "Block Solver without a Procedure (block-by-block assembly)".into(),
+        )),
         Some(m) => Err(SolverError::Unsupported(format!("{m} = True"))),
     }
 }

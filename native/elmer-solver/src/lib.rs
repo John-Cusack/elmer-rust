@@ -21,6 +21,7 @@
 
 pub mod assembly;
 pub mod backend;
+mod block_driver;
 pub mod change;
 mod constraints;
 mod control;
