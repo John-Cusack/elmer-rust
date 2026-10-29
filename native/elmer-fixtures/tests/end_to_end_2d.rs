@@ -122,3 +122,42 @@ fn p_fem_two_solvers_body_wise_elements_are_refused() {
     let err = case::run("p-FEM_two_solvers", &dir, "two_solvers.sif").err().expect("refused");
     assert!(err.to_string().contains("body-wise element definitions"), "{err}");
 }
+
+/// `fem/tests/StokesPFEM` (`Stokes1.so`): Stokes on `p:2`. The case as
+/// given is refused (`Set Dirichlet BCs By BC Numbering`); without that
+/// keyword the pristine run prints the same norm, 5.41277436E+00, from a
+/// BiCGStabL solve stopped at 1e-6. With a direct solver instead
+/// (`ptest_direct.sif`) the pristine norm is 5.41277409E+00, which the port
+/// must print; with the iterative solve it must stay within that solve's
+/// tolerance.
+#[test]
+fn stokes_pfem_matches_pristine_without_bc_numbering() {
+    let dir = case::stage("StokesPFEM", None);
+    let out = case::run("StokesPFEM", &dir, "ptest_direct.sif").unwrap_or_else(|e| panic!("StokesPFEM: {e}"));
+    assert_eq!(out.passed, Some(true), "reference check\n{}", out.log);
+    case::assert_norm_prints("StokesPFEM", out.norm(1), "5.41277409E+00");
+
+    let dir = case::stage("StokesPFEM", None);
+    let out = case::run("StokesPFEM", &dir, "ptest_without_bc_numbering.sif").unwrap_or_else(|e| panic!("StokesPFEM: {e}"));
+    assert_eq!(out.passed, Some(true), "reference check\n{}", out.log);
+    let rel = (out.norm(1) - 5.41277436).abs() / 5.41277436;
+    assert!(rel < 1e-6, "iterative norm {} vs pristine 5.41277436E+00", out.norm(1));
+}
+
+/// The case as given is refused by name before anything runs.
+#[test]
+fn stokes_pfem_as_given_is_refused_for_bc_numbering() {
+    let dir = case::stage("StokesPFEM", None);
+    let err = case::run("StokesPFEM", &dir, "ptest.sif").err().expect("refused");
+    assert!(err.to_string().contains("BC Numbering"), "{err}");
+}
+
+/// `HeatControlExplicit` has its `AlternatingSource` registered, and is
+/// refused by name before anything runs: its argument `cpar` comes from
+/// `Apply Explicit Control`, which is not implemented.
+#[test]
+fn heat_control_explicit_is_refused_for_explicit_control() {
+    let dir = case::stage("HeatControlExplicit", None);
+    let err = case::run("HeatControlExplicit", &dir, "case.sif").err().expect("refused");
+    assert!(err.to_string().contains("Apply Explicit Control"), "{err}");
+}

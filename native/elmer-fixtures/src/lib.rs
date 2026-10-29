@@ -21,6 +21,7 @@
 //!   [`model_pde_splitted`]: ModelPDE as `_bulk`/`_boundary` steps;
 //!   [`poisson_ml`]: the matrix-free p-element Poisson of `PoissonML`;
 //!   [`benchmark_shell`]: the p-element cylindrical shell of the shell cases;
+//!   [`stokes_pfem`]: `StokesPFEM`'s p-element Stokes solver;
 //!   [`stokes_proj`]: `StokesProj`'s velocity and pressure solvers;
 //!   [`bentonite`]: the `bentonite` case's coupled 3-dof solver;
 //!   [`l2nd_derivatives`]: the basis and second-derivative check of
@@ -48,6 +49,7 @@ pub mod poisson_solver;
 pub mod registry;
 pub mod single_edge_elements;
 pub mod single_elements;
+pub mod stokes_pfem;
 pub mod stokes_proj;
 pub mod tresca;
 pub mod udf;
