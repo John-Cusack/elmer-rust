@@ -1,0 +1,7 @@
+MapInternalExternalBCs: Default Internal BC: 2
+MapInternalExternalBCs: Default External BC: 3
+MapInternalExternalBCs: "Default Internal BC" count: 20
+MapInternalExternalBCs: "Default External BC" count: 60
+ComputeChange: NS (ITER=1) (NRM,RELC): (  2.4485346      2.0000000     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  2.4485346      2.0000000     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 2.44853456E+00  RefNorm = 2.44853456E+00

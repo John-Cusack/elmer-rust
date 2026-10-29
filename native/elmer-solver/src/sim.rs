@@ -404,6 +404,23 @@ impl Simulation {
         log: &dyn Logger,
         comm: &dyn Communicator,
     ) -> Result<(), SolverError> {
+        // MeshLoad's MapInternalExternalBCs.
+        let bc = |k: &str| self.model.boundary_conditions.iter().rposition(|b| b.logical(k) == Some(true));
+        let (int_bc, ext_bc) = (bc("default internal bc"), bc("default external bc"));
+        let (n_int, n_ext) = self.model.map_default_bcs(mesh)?;
+        const MAP: &str = "MapInternalExternalBCs";
+        if let Some(i) = int_bc {
+            log.info(MAP, &format!("Default Internal BC: {}", crate::fortran_fmt::i2s(i as i64 + 1)), 8);
+        }
+        if let Some(i) = ext_bc {
+            log.info(MAP, &format!("Default External BC: {}", crate::fortran_fmt::i2s(i as i64 + 1)), 8);
+        }
+        if n_int > 0 {
+            log.info(MAP, &format!("\"Default Internal BC\" count: {}", crate::fortran_fmt::i2s(n_int as i64)), 6);
+        }
+        if n_ext > 0 {
+            log.info(MAP, &format!("\"Default External BC\" count: {}", crate::fortran_fmt::i2s(n_ext as i64)), 6);
+        }
         for i in 0..self.model.solvers.len() {
             if let Some(slot) = self.build_slot(i, mesh, registry, true)? {
                 self.slots.push(slot);

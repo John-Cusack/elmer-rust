@@ -43,6 +43,76 @@ pub(crate) fn int_list<'a>(p: &'a ParamMap, key: &str) -> &'a [i32] {
 }
 
 impl Model {
+    /// `MapInternalExternalBCs` (MeshLoad.F90:466): a boundary element no
+    /// boundary condition targets gets the last section with `Default
+    /// Internal BC` when it has two parents, with `Default External BC` when
+    /// it has one (elements of a lower dimension than the mesh's boundary are
+    /// left out). Done here per boundary tag, by adding the tag to that
+    /// section's `Target Boundaries`, so every reader of `bc_of_tag` sees it;
+    /// a tag whose elements would go to different sections is refused.
+    /// Returns the internal and external element counts.
+    pub fn map_default_bcs(&mut self, mesh: &dyn elmer_core::MeshView) -> Result<(usize, usize), crate::SolverError> {
+        let find = |key: &str| {
+            self.boundary_conditions
+                .iter()
+                .rposition(|b| b.logical(key) == Some(true))
+                .map(|i| i + 1)
+        };
+        let (int_bc, ext_bc) = (find("default internal bc"), find("default external bc"));
+        if int_bc.is_none() && ext_bc.is_none() {
+            return Ok((0, 0));
+        }
+        let dim = mesh.dim();
+        let nb = mesh.n_bulk() as u32;
+        // tag -> (target section per element, counts)
+        let mut by_tag: BTreeMap<i32, Option<Option<usize>>> = BTreeMap::new();
+        let (mut n_int, mut n_ext) = (0, 0);
+        for e in (nb..nb + mesh.n_boundary() as u32).map(elmer_core::ElemId) {
+            let el = mesh.element(e);
+            if self.bc_of_tag(el.tag).is_some() {
+                continue;
+            }
+            let code = el.etype.0;
+            let low = (dim == 3 && code < 300) || (dim == 2 && code < 200);
+            let parents = el.parents.iter().filter(|p| p.is_some()).count();
+            let target = if low {
+                None
+            } else if parents == 2 {
+                int_bc
+            } else if parents == 1 {
+                ext_bc
+            } else {
+                None
+            };
+            match target {
+                Some(b) if Some(b) == int_bc && parents == 2 => n_int += 1,
+                Some(_) => n_ext += 1,
+                None => {}
+            }
+            match by_tag.get(&el.tag) {
+                None => {
+                    by_tag.insert(el.tag, Some(target));
+                }
+                Some(Some(t)) if *t == target => {}
+                _ => {
+                    return Err(crate::SolverError::Unsupported(format!(
+                        "Default Internal/External BC on boundary {} whose elements differ",
+                        el.tag
+                    )))
+                }
+            }
+        }
+        for (tag, target) in by_tag {
+            if let Some(Some(b)) = target {
+                let bc = &mut self.boundary_conditions[b - 1];
+                let mut list = int_list(bc, "target boundaries").to_vec();
+                list.push(tag);
+                bc.insert("Target Boundaries", Value::Integer(list));
+            }
+        }
+        Ok((n_int, n_ext))
+    }
+
     /// The sections `LoadModel` adds when the input gives none of a kind
     /// (ModelDescription.F90:1314): `Equation 1` activating every solver,
     /// `Material 1`, `Body Force 1`, `Initial Condition 1`, and `Body 1`
