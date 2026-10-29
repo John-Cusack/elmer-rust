@@ -22,6 +22,8 @@
 //! ported; callers get [`elmer_solver::SolverError::Unsupported`] for a case that
 //! asks for them rather than an approximation.
 #![forbid(unsafe_code)]
+// The kernels keep the index loops of the Fortran they port.
+#![allow(clippy::needless_range_loop)]
 
 pub mod boundary;
 pub mod bulk;

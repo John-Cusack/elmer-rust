@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 use support::{data, Run};
 
 /// `name -> (l2 norm, max abs)`.
-fn pristine(case: &str) -> BTreeMap<String, (f64, f64)> {
-    std::fs::read_to_string(data(case).join("pristine.tsv"))
+fn pristine_file(case: &str, file: &str) -> BTreeMap<String, (f64, f64)> {
+    std::fs::read_to_string(data(case).join(file))
         .unwrap()
         .lines()
         .map(|l| {
@@ -39,7 +39,11 @@ fn close(a: f64, b: f64, rel: f64, abs: f64) -> bool {
 
 /// Checks every variable of the pristine file that this run has; `must` have to be there.
 fn check(case: &str, run: &Run, must: &[&str], rel: f64) {
-    let reference = pristine(case);
+    check_file(case, "pristine.tsv", run, must, rel);
+}
+
+fn check_file(case: &str, file: &str, run: &Run, must: &[&str], rel: f64) {
+    let reference = pristine_file(case, file);
     for m in must {
         assert!(reference.contains_key(*m), "{m} not in pristine.tsv");
     }
@@ -89,4 +93,23 @@ fn elastic_thermal_bimetal() {
     .unwrap();
     check("elasticthermalbimetal", &run, &["displacement 1", "displacement 2"], 1e-8);
     assert_eq!(run.passed, Some(true));
+}
+
+/// Cook's membrane (NeoHookean2D's mesh and loads) with the variations whose pristine fields were
+/// captured separately: St. Venant-Kirchhoff instead of neo-Hookean (`svk_pseudo` is left out: the pristine Newton
+/// iteration does not converge and wanders for its 20 iterations), a traction that follows the
+/// deformed boundary (no `Pseudo-Traction`) and a normal pressure. Each runs to the same nonlinear
+/// iteration the pristine solver stopped at, so a wrong tangent or cofactor shows as a different field.
+#[test]
+fn cooks_membrane_variants() {
+    for (v, tol) in [("nh_follower", 1e-7), ("nh_pressure", 1e-7), ("svk_follower", 1e-7)] {
+        let run = support::run_sif("neohookean2d", &format!("case_{v}.sif"), |_| {}).unwrap();
+        check_file("neohookean2d", &format!("pristine_{v}.tsv"), &run, &["displacement 1", "displacement 2"], tol);
+    }
+}
+
+#[test]
+fn neohookean2d_fields() {
+    let run = support::run_sif("neohookean2d", "cooksmembrane.sif", |_| {}).unwrap();
+    check("neohookean2d", &run, &["displacement 1", "displacement 2"], 1e-9);
 }

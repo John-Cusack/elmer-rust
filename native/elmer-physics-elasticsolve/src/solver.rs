@@ -313,7 +313,6 @@ impl ElasticSolver {
         ctx: &SolverCtx<'_>,
         e: ElemId,
         cdim: usize,
-        axi: bool,
         model: Model,
         temp: &Option<FieldRef<'_>>,
     ) -> Result<ElementData, SolverError> {
@@ -540,7 +539,7 @@ impl ElasticSolver {
             let plane_stress = flag(body.as_ref().and_then(|b| b.equation), "plane stress");
             let el = ctx.mesh.element(e);
             let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
-            let d = self.element_data(ctx, e, cdim, axi, model, temp_ref)?;
+            let d = self.element_data(ctx, e, cdim, model, temp_ref)?;
             let disp: Vec<[f64; 3]> = el
                 .nodes
                 .iter()
@@ -748,7 +747,7 @@ impl Solver for ElasticSolver {
             for e in elems {
                 let el = ctx.mesh.element(e);
                 let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
-                let d = self.element_data(ctx, e, cdim, axi, model, &temp_ref)?;
+                let d = self.element_data(ctx, e, cdim, model, &temp_ref)?;
                 let plane_stress = flag(ctx.body_params(e).and_then(|b| b.equation), "plane stress");
                 let disp = if model.linear_model {
                     vec![[0.0; 3]; el.nodes.len()]
