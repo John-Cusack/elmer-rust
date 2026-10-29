@@ -1,5 +1,5 @@
 //! Elmer mesh DB reader (`mesh.nodes`, `mesh.elements`, `mesh.boundary`) as
-//! a `MeshView`. Boundary parents are not resolved.
+//! a `MeshView`, with boundary parents resolved from `mesh.boundary`.
 
 use std::path::Path;
 
@@ -9,6 +9,7 @@ struct Elem {
     etype: ElementType,
     nodes: Vec<u32>,
     tag: i32,
+    parents: [Option<ElemId>; 2],
 }
 
 pub struct FileMesh {
@@ -34,6 +35,7 @@ fn elem(row: &[String], first: usize) -> Elem {
         tag: row[1].parse().unwrap(),
         etype: ElementType(row[first].parse().unwrap()),
         nodes: row[first + 1..].iter().map(|s| s.parse::<u32>().unwrap() - 1).collect(),
+        parents: [None, None],
     }
 }
 
@@ -44,9 +46,19 @@ impl FileMesh {
             .iter()
             .map(|l| [l[2].parse().unwrap(), l[3].parse().unwrap(), l[4].parse().unwrap()])
             .collect();
-        let mut elems: Vec<Elem> = rows(&dir.join("mesh.elements")).iter().map(|r| elem(r, 2)).collect();
+        let bulk_rows = rows(&dir.join("mesh.elements"));
+        // Parent columns hold mesh.elements ids, which need not be 1..n.
+        let index: std::collections::HashMap<u64, u32> =
+            bulk_rows.iter().enumerate().map(|(i, r)| (r[0].parse().unwrap(), i as u32)).collect();
+        let mut elems: Vec<Elem> = bulk_rows.iter().map(|r| elem(r, 2)).collect();
         let n_bulk = elems.len();
-        elems.extend(rows(&dir.join("mesh.boundary")).iter().map(|r| elem(r, 4)));
+        elems.extend(rows(&dir.join("mesh.boundary")).iter().map(|r| {
+            let mut e = elem(r, 4);
+            for k in 0..2 {
+                e.parents[k] = r[2 + k].parse::<u64>().ok().and_then(|p| index.get(&p)).map(|&i| ElemId(i));
+            }
+            e
+        }));
         FileMesh { dim, coords, elems, n_bulk }
     }
 
@@ -80,7 +92,7 @@ impl MeshView for FileMesh {
     }
     fn element(&self, e: ElemId) -> ElementRef<'_> {
         let el = &self.elems[e.0 as usize];
-        ElementRef { etype: el.etype, nodes: &el.nodes, tag: el.tag, parents: [None, None] }
+        ElementRef { etype: el.etype, nodes: &el.nodes, tag: el.tag, parents: el.parents }
     }
 }
 

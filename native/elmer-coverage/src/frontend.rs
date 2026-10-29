@@ -13,7 +13,7 @@ use crate::standin;
 
 /// The front end `NativeEngine` runs the quick tests through.
 pub fn frontend() -> SifFrontend {
-    SifFrontend { mesh: standin::mesh::load, fe: standin::fe() }
+    SifFrontend { mesh: standin::mesh::load }
 }
 
 /// The model `elmer-run` would run `sif` with, before the mesh is read and

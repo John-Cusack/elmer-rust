@@ -15,7 +15,6 @@ fn heateq_spline_table() {
     let dir = scratch_case("heateq_spline_table", "sif-spline");
     std::env::set_current_dir(&dir).unwrap();
     let frontend = sif_frontend();
-    let _ = elmer_physics_heat::install_fe(frontend.fe());
     let loaded = frontend.load(&dir.join("TempDist.sif")).unwrap();
     let (log, buf) = logger();
     let case = Case {

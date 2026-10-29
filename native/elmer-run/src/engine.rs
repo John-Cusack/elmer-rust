@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use elmer_cli::driver::{Engine, EngineOutcome, RunRequest};
 use elmer_cli::{ElmerLogger, ExitCode};
 use elmer_core::{LinalgError, MeshView, SerialComm};
-use elmer_physics_heat::FeProvider;
 use elmer_solver::{Model, SolverError};
 
 use crate::case::{run_case, Case};
@@ -18,11 +17,8 @@ pub struct LoadedCase {
     pub mesh_dir: PathBuf,
 }
 
-/// The `.sif` parser, mesh reader and element basis (S1's `elmer-sif`,
-/// `elmer-mesh` and `elmer-fe`).
+/// The `.sif` parser and mesh reader (S1's `elmer-sif` and `elmer-mesh`).
 pub trait Frontend {
-    /// The basis and quadrature the physics kernels evaluate with.
-    fn fe(&self) -> FeProvider;
     /// Parses `sif` and loads its `Mesh DB`. An `Err` is a refusal reason.
     fn load(&self, sif: &Path) -> Result<LoadedCase, String>;
 }
@@ -36,8 +32,6 @@ pub struct NativeEngine {
 
 impl NativeEngine {
     pub fn new(frontend: Box<dyn Frontend>) -> Self {
-        // The kernels read one process-wide provider; a second install is a no-op.
-        let _ = elmer_physics_heat::install_fe(frontend.fe());
         NativeEngine { frontend: Some(frontend) }
     }
 }

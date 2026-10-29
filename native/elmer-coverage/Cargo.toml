@@ -15,6 +15,7 @@ elmer-physics-elastic = { path = "../elmer-physics-elastic" }
 elmer-physics-flux = { path = "../elmer-physics-flux" }
 elmer-savedata = { path = "../elmer-savedata" }
 elmer-run = { path = "../elmer-run" }
+elmer-fe = { path = "../elmer-fe" }
 elmer-cli = { path = "../elmer-cli" }
 
 [[bin]]

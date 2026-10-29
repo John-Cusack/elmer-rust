@@ -113,7 +113,10 @@ pub fn blockers(model: &Model, registry: &elmer_solver::SolverRegistry, local_mo
             }
             None => {
                 let eq = p.0.get("equation").and_then(text).unwrap_or_default();
-                if LEGACY.contains(&eq.as_str()) {
+                let completed = elmer_run::case::legacy_procedure(&eq).is_some_and(|(l, e)| registry.get(l, e).is_some());
+                if completed {
+                    // elmer-run supplies the procedure (AddEquationBasics).
+                } else if LEGACY.contains(&eq.as_str()) {
                     out.push(format!("solver: implicit legacy solver `{eq}`"));
                 } else {
                     out.push("solver: Coupled / Assembly solver without Procedure".to_string());
@@ -296,6 +299,7 @@ mod tests {
                 pm(&[("procedure", st("\"SaveData\" \"SaveScalars\""))]),
                 pm(&[("procedure", st("\"Poisson\" \"PoissonSolver\""))]),
                 pm(&[("equation", st("heat equation"))]),
+                pm(&[("equation", st("magnetic induction"))]),
             ],
             ..Model::default()
         };
@@ -303,11 +307,9 @@ mod tests {
         let b = blockers(&model, &reg, &["Poisson".to_string()]);
         assert_eq!(
             b,
-            vec![
-                "plugin: poisson",
-                "solver: implicit legacy solver `heat equation`",
-                "solver: savedata savescalars",
-            ]
+            // SaveScalars is registered and the legacy heat equation completed
+            // by elmer-run, so neither is a blocker.
+            vec!["plugin: poisson", "solver: implicit legacy solver `magnetic induction`"]
         );
     }
 

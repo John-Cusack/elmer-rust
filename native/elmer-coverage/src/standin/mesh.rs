@@ -1,6 +1,6 @@
 //! Elmer mesh DB reader (`mesh.nodes`, `mesh.elements`, `mesh.boundary`) as
-//! a `MeshView`, standing in for S1's `elmer-mesh`. Boundary parents are not
-//! resolved. Unlike the copy in `elmer-run`'s tests, a malformed file is an
+//! a `MeshView`, standing in for S1's `elmer-mesh`, with boundary parents
+//! resolved from `mesh.boundary`. Unlike the copy in `elmer-run`'s tests, a malformed file is an
 //! error, not a panic.
 
 use std::path::Path;
@@ -11,6 +11,7 @@ struct Elem {
     etype: ElementType,
     nodes: Vec<u32>,
     tag: i32,
+    parents: [Option<ElemId>; 2],
 }
 
 pub struct FileMesh {
@@ -42,11 +43,11 @@ fn elem(row: &[String], first: usize) -> Result<Elem, String> {
         .iter()
         .map(|s| s.parse::<u32>().ok().and_then(|n| n.checked_sub(1)).ok_or_else(|| format!("mesh: bad node id `{s}`")))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(Elem { tag: num(row, 1, "tag")?, etype: ElementType(num(row, first, "element type")?), nodes })
+    Ok(Elem { tag: num(row, 1, "tag")?, etype: ElementType(num(row, first, "element type")?), nodes, parents: [None, None] })
 }
 
 impl FileMesh {
-    /// Reads `dir/mesh.*`; `dim` is the coordinate system dimension and
+    /// Reads `dir/mesh.*`; `dim` is the mesh dimension and
     /// `scale` the `Coordinate Scaling` factor (MeshUtils applies a scalar
     /// factor at load).
     pub fn read(dir: &Path, dim: usize, scale: f64) -> Result<Self, String> {
@@ -54,9 +55,21 @@ impl FileMesh {
             .iter()
             .map(|l| Ok([scale * num::<f64>(l, 2, "x")?, scale * num::<f64>(l, 3, "y")?, scale * num::<f64>(l, 4, "z")?]))
             .collect::<Result<Vec<_>, String>>()?;
-        let mut elems = rows(&dir.join("mesh.elements"))?.iter().map(|r| elem(r, 2)).collect::<Result<Vec<_>, _>>()?;
+        let bulk_rows = rows(&dir.join("mesh.elements"))?;
+        // Parent columns hold mesh.elements ids, which need not be 1..n.
+        let mut index = std::collections::HashMap::new();
+        for (i, r) in bulk_rows.iter().enumerate() {
+            index.insert(num::<u64>(r, 0, "element id")?, i as u32);
+        }
+        let mut elems = bulk_rows.iter().map(|r| elem(r, 2)).collect::<Result<Vec<_>, _>>()?;
         let n_bulk = elems.len();
-        elems.extend(rows(&dir.join("mesh.boundary"))?.iter().map(|r| elem(r, 4)).collect::<Result<Vec<_>, _>>()?);
+        for r in rows(&dir.join("mesh.boundary"))? {
+            let mut e = elem(&r, 4)?;
+            for k in 0..2 {
+                e.parents[k] = index.get(&num::<u64>(&r, 2 + k, "parent")?).map(|&i| ElemId(i));
+            }
+            elems.push(e);
+        }
         if elems.iter().any(|e| e.nodes.iter().any(|&n| n as usize >= coords.len())) {
             return Err("mesh: element node id beyond mesh.nodes".into());
         }
@@ -87,31 +100,27 @@ impl MeshView for FileMesh {
     }
     fn element(&self, e: ElemId) -> ElementRef<'_> {
         let el = &self.elems[e.0 as usize];
-        ElementRef { etype: el.etype, nodes: &el.nodes, tag: el.tag, parents: [None, None] }
-    }
-}
-
-/// Dimension of the `Coordinate System` (`Cartesian 2D`, `Axi Symmetric`, ...).
-fn dimension(simulation: &ParamMap) -> Result<usize, String> {
-    let cs = simulation.string("coordinate system").unwrap_or("cartesian").to_ascii_lowercase();
-    match cs.as_str() {
-        "cartesian 1d" => Ok(1),
-        "cartesian 2d" | "axi symmetric" | "cylindric symmetric" | "cylindric" => Ok(2),
-        "cartesian" | "cartesian 3d" => Ok(3),
-        other => Err(format!("stand-in: Coordinate System = {other}")),
+        ElementRef { etype: el.etype, nodes: &el.nodes, tag: el.tag, parents: el.parents }
     }
 }
 
 /// `elmer-run`'s `MeshLoader`: the mesh DB in `dir` with `Coordinate
-/// Scaling` applied, refusing element types `TestBasis` cannot evaluate.
+/// Scaling` applied, refusing element types `elmer-fe` does not define.
 pub fn load(dir: &Path, simulation: &ParamMap) -> Result<Box<dyn MeshView>, String> {
     let scale = match simulation.get("coordinate scaling") {
         None => 1.0,
         Some(_) => simulation.real("coordinate scaling").ok_or("Coordinate Scaling is not a constant")?,
     };
-    let mesh = FileMesh::read(dir, dimension(simulation)?, scale)?;
-    if let Some(t) = mesh.element_types().into_iter().find(|t| !super::SUPPORTED_ELEMENTS.contains(t)) {
-        return Err(format!("stand-in: element type {t} (elmer-fe not merged)"));
+    let mut mesh = FileMesh::read(dir, 3, scale)?;
+    // The mesh dimension (Elmer's `Mesh % MaxDim`, inherited by a plain
+    // "cartesian" coordinate system) from the bulk elements.
+    mesh.dim = match mesh.elems[..mesh.n_bulk].iter().map(|e| e.etype.family()).max() {
+        Some(1 | 2) => 1,
+        Some(3 | 4) => 2,
+        _ => 3,
+    };
+    if let Some(t) = mesh.element_types().into_iter().find(|&t| elmer_fe::element_type(t).is_err()) {
+        return Err(format!("element type {t} is not an elmer-fe Lagrange type"));
     }
     Ok(Box::new(mesh))
 }
