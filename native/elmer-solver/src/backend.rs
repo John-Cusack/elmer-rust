@@ -78,6 +78,24 @@ pub trait DofsBackend: Send + Sync {
         active: &[ElemId],
         dofs: usize,
     ) -> Option<Result<Box<dyn SolverDofs>, SolverError>>;
+
+    /// [`for_solver`](Self::for_solver) for the solver with 1-based id
+    /// `solver_id` (Elmer's `Solver % SolverId`), which element definitions
+    /// outside the solver section name: `Element{id}` in an Equation,
+    /// `Solver id: Element` in a Body. The framework calls this one; the
+    /// default ignores the id.
+    fn for_solver_id(
+        &self,
+        mesh: &dyn MeshView,
+        model: &Model,
+        solver_id: usize,
+        solver: &ParamMap,
+        active: &[ElemId],
+        dofs: usize,
+    ) -> Option<Result<Box<dyn SolverDofs>, SolverError>> {
+        let _ = solver_id;
+        self.for_solver(mesh, model, solver, active, dofs)
+    }
 }
 
 /// Matrix structure and assembly (Elmer `CreateMatrix`, `DefaultUpdate*`,

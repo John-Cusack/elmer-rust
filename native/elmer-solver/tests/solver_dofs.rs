@@ -130,6 +130,38 @@ struct BubbleBackend {
     pin_last_bubble: bool,
 }
 
+/// The solver ids `for_solver_id` was called with.
+static IDS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+/// A backend that records the id and otherwise defers to [`BubbleBackend`].
+struct IdBackend(BubbleBackend);
+
+impl DofsBackend for IdBackend {
+    fn for_solver(
+        &self,
+        mesh: &dyn MeshView,
+        model: &Model,
+        solver: &ParamMap,
+        active: &[ElemId],
+        dofs: usize,
+    ) -> Option<Result<Box<dyn SolverDofs>, SolverError>> {
+        self.0.for_solver(mesh, model, solver, active, dofs)
+    }
+
+    fn for_solver_id(
+        &self,
+        mesh: &dyn MeshView,
+        model: &Model,
+        solver_id: usize,
+        solver: &ParamMap,
+        active: &[ElemId],
+        dofs: usize,
+    ) -> Option<Result<Box<dyn SolverDofs>, SolverError>> {
+        IDS.lock().unwrap().push(solver_id);
+        self.for_solver(mesh, model, solver, active, dofs)
+    }
+}
+
 impl DofsBackend for BubbleBackend {
     fn for_solver(
         &self,
@@ -206,6 +238,10 @@ fn sec(entries: &[(&str, Value)]) -> ParamMap {
 }
 
 fn run(n: usize, pin_last_bubble: bool, right: Value) -> Result<Simulation, SolverError> {
+    run_with(n, Box::new(BubbleBackend { pin_last_bubble }), right)
+}
+
+fn run_with(n: usize, backend: Box<dyn DofsBackend>, right: Value) -> Result<Simulation, SolverError> {
     let model = Model {
         simulation: sec(&[
             ("Simulation Type", Value::Str("steady state".into())),
@@ -232,7 +268,7 @@ fn run(n: usize, pin_last_bubble: bool, right: Value) -> Result<Simulation, Solv
     let mut reg = SolverRegistry::new();
     reg.register("Test", "Poisson", poisson);
     let mut sim = Simulation::new(model);
-    sim.backends.dofs = Some(Box::new(BubbleBackend { pin_last_bubble }));
+    sim.backends.dofs = Some(backend);
     sim.setup(&mesh, &reg, &NullLogger, &SerialComm)?;
     sim.run(&mesh, &NullLogger, &SerialComm)?;
     Ok(sim)
@@ -281,6 +317,13 @@ fn extra_boundary_slots_are_fixed_to_zero() {
     assert!(seen
         .iter()
         .any(|(_, f)| f == &[(0, 0.0), (n as u32, 0.0), (2 * n as u32, 0.0)]));
+}
+
+#[test]
+fn for_solver_id_receives_the_solver_id() {
+    let backend = IdBackend(BubbleBackend { pin_last_bubble: false });
+    run_with(3, Box::new(backend), Value::real(0.0)).unwrap();
+    assert!(IDS.lock().unwrap().contains(&1));
 }
 
 #[test]
