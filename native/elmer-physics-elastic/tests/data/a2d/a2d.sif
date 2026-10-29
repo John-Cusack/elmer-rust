@@ -1,0 +1,49 @@
+Header
+  Mesh DB "." "a2d"
+End
+Simulation
+  Max Output Level = 5
+  Coordinate System = Cartesian 2D
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Optimize Bandwidth = Logical False
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body Force 1
+  Stress Bodyforce 1 = Real 1.0e3
+  Stress Bodyforce 2 = Real -2.0e3
+End
+Material 1
+  Density = 1.0
+  Youngs Modulus = 70e9
+  Poisson Ratio = 0.3
+End
+Solver 1
+  Equation = Stress Solver
+  Variable = Displacement
+  Variable DOFs = 2
+  Procedure = "StressSolve" "StressSolver"
+  Linear System Solver = Direct
+  Linear System Direct Method = Umfpack
+  Nonlinear System Max Iterations = 1
+  Linear System Save = Logical True
+  Linear System Save Perm = Logical True
+End
+Equation 1
+  Active Solvers(1) = 1
+  Plane Stress = False
+End
+Boundary Condition 1
+  Target Boundaries = 1
+  Displacement 1 = 0
+  Displacement 2 = 0
+End
+Boundary Condition 2
+  Target Boundaries = 2
+  Surface Traction 2 = Real -5.0e7
+  Normal Surface Traction = Real 1.0e6
+End

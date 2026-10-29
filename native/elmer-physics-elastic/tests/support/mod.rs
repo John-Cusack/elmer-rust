@@ -39,6 +39,30 @@ fn shape(etype: ElementType, uvw: [f64; 3]) -> (Vec<f64>, Vec<[f64; 3]>) {
                 [0.0, 0.0, 1.0],
             ],
         ),
+        808 => {
+            const S: [[f64; 3]; 8] = [
+                [-1.0, -1.0, -1.0],
+                [1.0, -1.0, -1.0],
+                [1.0, 1.0, -1.0],
+                [-1.0, 1.0, -1.0],
+                [-1.0, -1.0, 1.0],
+                [1.0, -1.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [-1.0, 1.0, 1.0],
+            ];
+            let f = |s: f64, x: f64| 1.0 + s * x;
+            let mut n = vec![];
+            let mut d = vec![];
+            for q in &S {
+                n.push(f(q[0], u) * f(q[1], v) * f(q[2], w) / 8.0);
+                d.push([
+                    q[0] * f(q[1], v) * f(q[2], w) / 8.0,
+                    f(q[0], u) * q[1] * f(q[2], w) / 8.0,
+                    f(q[0], u) * f(q[1], v) * q[2] / 8.0,
+                ]);
+            }
+            (n, d)
+        }
         c => panic!("support basis: element {c}"),
     }
 }
@@ -164,6 +188,17 @@ impl Quadrature for Gauss {
                 pt(-g, g, 0.0, 1.0),
             ],
             (504, _) => vec![pt(0.25, 0.25, 0.25, 1.0 / 6.0)],
+            (808, _) => {
+                let mut v = vec![];
+                for k in [-g, g] {
+                    for j in [-g, g] {
+                        for i in [-g, g] {
+                            v.push(pt(i, j, k, 1.0));
+                        }
+                    }
+                }
+                v
+            }
             (c, n) => panic!("support quadrature: {c} np {n:?}"),
         }
     }

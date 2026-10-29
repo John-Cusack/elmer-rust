@@ -1,0 +1,67 @@
+
+Header
+  Mesh DB "." "c3d"
+End
+
+Simulation
+  Max Output Level = 5
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 0
+  Optimize Bandwidth = Logical False
+End
+
+Body 1
+  Equation = 1
+  Material = 1
+End
+
+Material 1
+  Density = 1.0
+  Youngs Modulus(6,6) = Real \
+    1346.154  576.923  576.923    0.000    0.000    0.000 \
+     576.923 1346.154  576.923    0.000    0.000    0.000 \
+     576.923  576.923 1346.154  200.000    0.000    0.000 \
+       0.000    0.000  200.000  384.615    0.000    0.000 \
+       0.000    0.000    0.000    0.000  384.615    0.000 \
+       0.000    0.000    0.000    0.000    0.000  384.615
+End
+
+Equation 1
+  Active Solvers(1) = 1
+End
+
+Solver 1
+  Equation = "Elasticity"
+  Procedure = "ElasticSolve" "ElasticSolver"
+  Variable = -dofs 3 Displacement
+
+  Large Deflection = False
+
+  Displace Mesh = Logical False
+
+  Linear System Solver = Direct
+  Linear System Direct Method = UMFPack
+
+  Nonlinear System Max Iterations = 1
+  Linear System Save = Logical True
+  Linear System Save Perm = Logical True
+  Nonlinear System Convergence Tolerance = 1.0e-11
+  Steady State Convergence Tolerance = 1.0e-9
+End
+
+Boundary Condition 1
+  Target Boundaries(1) = 5
+  Displacement 1 = Real 0.0
+  Displacement 2 = Real 0.0
+  Displacement 3 = Real 0.0
+End
+
+Boundary Condition 2
+  Target Boundaries(1) = 6
+  Displacement 1 = Real 1.0e-3
+  Displacement 2 = Real 2.0e-3
+  Displacement 3 = Real 0.5e-3
+End
+
