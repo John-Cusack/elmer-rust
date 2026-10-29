@@ -408,7 +408,10 @@ mod tests {
         let one = initialize_matrix(&list, None, 1);
         let three = initialize_matrix(&list, None, 3);
         let r = reexpand(&three, 3, 1);
-        assert_eq!((r.row_ptr.clone(), r.col_idx.clone()), (one.row_ptr.clone(), one.col_idx.clone()));
+        assert_eq!(
+            (r.row_ptr.clone(), r.col_idx.clone()),
+            (one.row_ptr.clone(), one.col_idx.clone())
+        );
         let r = reexpand(&one, 1, 3);
         assert_eq!((r.row_ptr, r.col_idx), (three.row_ptr, three.col_idx));
     }

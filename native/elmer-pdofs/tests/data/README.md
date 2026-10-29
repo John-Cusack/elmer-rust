@@ -10,6 +10,8 @@ provenance header; the rest is Elmer's own output, unchanged.
 |---|---|---|---|
 | `poisson_pfem` | `fem/tests/PoissonPFEM` (`ElmerGrid 1 2 square.grd`) | the test's `Poisson.f90`, `Element = "p:2"` | 10x10 quads, 2 bodies; 441 DOFs = 121 nodes + 220 edges + 100 global bubbles; bandwidth 342 -> 85 |
 | `varying_p` | `fem/tests/p-FEM_with_varying_p` (`ElmerGrid 1 2 eighth.grd`) | `BenchmarkShell`, 5 DOFs, `Element = "p:%bodywisep"` | 2x2 quads, p = 4 (body 1) and 8 (body 2); 189 of 289 slots; bandwidth 187 -> 187 (identity kept) |
+| `sd_poisson_pfem` | `fem/tests/SD_PoissonPFEM` (same mesh as `poisson_pfem`, which it reads) | the same `Poisson.f90`, serendipity `p:2` | 341 DOFs (no bubbles), 8-point economic quad rule; bandwidth 233 -> 65; norm 2.23542169E-02 |
+| `tri_p3` | lane-made: `poisson_pfem`'s `square.grd` meshed with `ElmerGrid 1 2 square.grd -triangles`, `Element = "p:3"`, no Reference Norm | the same `Poisson.f90` | 200 triangles; 961 DOFs = 121 nodes + 320 edges x 2 + 200 bubbles; 12-point p-reference simplex rule; bandwidth 852 -> 104 |
 
 `poisson_pfem` was run twice with these lines added to `Solver 1`:
 
@@ -35,3 +37,7 @@ dumps it after `DefaultDirichletBCs`. Files:
 only `perm.dat` and `pattern.dat`, the list-matrix pattern derived from
 it (rows and columns of the 5x5 blocks, as ranges), are kept; the
 shell kernel itself is not ported here.
+
+`sd_poisson_pfem` and `tri_p3` were run once, with the default `solve`
+slot dump, and keep only `case.sif` (the run's), `perm.dat` and
+`solution.dat` (from `case.result`); `tri_p3` also keeps its mesh.
