@@ -55,6 +55,7 @@ plugins) printed:
 | `bentonite` (29 nonlinear iterations, as pristine) | `BentoniteSolver` | 1.95292467E+02 |
 | `ModelPDEsplitted`, `SD_ModelPDEsplitted` (`Element = "p:2"`, full and serendipity) | `AdvDiffSolver_bulk`/`_boundary` | 9.23486039E-01, 1.05785926E+00 |
 | `PoissonML` (`Element = "p:9"`, matrix-free CG: 73 iterations, final residual ratio equal to 9 digits) | `PoissonSolver` | 1.71580608E-01 |
+| `L2ndDerivatives` (no `Body`/`Equation` sections: `LoadModel`'s defaults activate all 20 elements; same `PASSED` records as pristine) | `TestSolver` | the null variable's 0 |
 
 `StokesProj` names `Before Linsolve = "EliminateDirichlet"`, which nothing
 implements and `elmer-solver` ignores. Eliminating Dirichlet rows does not
@@ -111,15 +112,6 @@ Refused with a named reason:
   place, as for `_h1`). Wedges have no p basis in `elmer-pdofs` yet either. Its parentless 404 boundary face is "not an active p
   element" for `elmer-pdofs`, while the pristine run gives it a p basis (its
   stiffness sum differs from `_h1`'s).
-- `L2ndDerivatives`: registered. Its checks pass on `elmer-fe` for all 20
-  element types of the case's mesh (unit test). The `.sif` has no `Body` or
-  `Equation` sections. The pristine run still activates the solver on all 20
-  elements (`SetActiveElementsTable: Number of active elements found : 20`)
-  and creates an unnamed null variable (`AddEquationBasics: Creating null
-  variable with no name`), whose norm 0 is the reference. `elmer-solver`
-  activates nothing there, so the solver refuses (`no active elements`)
-  rather than pass without checking anything. `CheckValue` compares with an
-  uninitialised `scal`; the port stops on any difference of 1e-12 or more.
 - `BlockPoisson1`, `BlockPoisson2`: registered, but `Block Solver = True` is
   refused by `elmer-solver` (`coupled.rs`).
 
@@ -187,7 +179,8 @@ cargo test --manifest-path <worktree>/native/Cargo.toml -p elmer-fixtures
 rule 6): a P1 triangle and two-node line basis with quadrature, and a mutable
 model. The fixtures themselves integrate with `elmer-fe` and read
 `elmer_solver::LiveModel`. `tests/case/` is the end-to-end composition;
-It installs `elmer-pdofs`' `PDofsBackend` for sections with a non-nodal
+It adds `LoadModel`'s default sections (`Model::add_default_sections`) and
+installs `elmer-pdofs`' `PDofsBackend` for sections with a non-nodal
 `Element`, as `elmer-run` does. `install_fe` keeps one basis per process, so there is one test binary per
 coordinate dimension (`end_to_end_1d`, `_2d`, `_3d`). Case files and
 ElmerGrid meshes are in `tests/data/` (`meshes/` holds the two shared by
