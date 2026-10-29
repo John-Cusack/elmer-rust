@@ -100,7 +100,13 @@ impl AssemblyBackend for DenseAssembly {
         }
     }
 
-    fn add_local(&self, a: &mut CsrMatrix<f64>, rhs: &mut [f64], idx: &[u32], l: &LocalSystem) {
+    fn add_local(&self, a: &mut CsrMatrix<f64>, rhs: &mut [f64], slots: &[u32], l: &LocalSystem) {
+        // One perm slot per element node; local row `dofs * i + c` is component `c` of node `i`.
+        let dofs = l.n / slots.len();
+        let idx: Vec<u32> = slots
+            .iter()
+            .flat_map(|&s| (0..dofs as u32).map(move |c| if s == NO_DOF { NO_DOF } else { s * dofs as u32 + c }))
+            .collect();
         let n = a.nrows;
         for (i, &gi) in idx.iter().enumerate() {
             if gi == NO_DOF {
