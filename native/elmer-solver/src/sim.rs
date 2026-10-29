@@ -73,6 +73,44 @@ impl ExecWhen {
     }
 }
 
+/// `ddt` and `StepControl` of the adaptive scheme, kept across steps of
+/// one run (`SAVE`d in `ExecSimulation`, reset on entry).
+#[derive(Clone, Debug)]
+struct AdaptiveState {
+    ddt: f64,
+    step_control: i32,
+}
+
+impl Default for AdaptiveState {
+    fn default() -> Self {
+        Self { ddt: -1.0, step_control: 0 }
+    }
+}
+
+/// Fortran `Ew.d`: `0.ddd...dE+xx`, right-aligned in `w`.
+fn e_fmt(x: f64, w: usize, d: usize) -> String {
+    let body = if x == 0.0 {
+        format!("0.{}E+00", "0".repeat(d))
+    } else {
+        let t = format!("{:.*e}", d - 1, x.abs());
+        let (m, e) = t.split_once('e').expect("exponent form");
+        let digits: String = m.chars().filter(|c| c.is_ascii_digit()).collect();
+        let e: i32 = e.parse::<i32>().expect("exponent") + 1;
+        let sign = if x < 0.0 { "-" } else { "" };
+        format!("{sign}0.{digits}E{}{:02}", if e < 0 { '-' } else { '+' }, e.abs())
+    };
+    format!("{body:>w$}")
+}
+
+/// Which solver groups a `SolveEquations` call runs (`BeforeTime`,
+/// `AtTime`, `AfterTime`).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Phases {
+    pub before: bool,
+    pub at: bool,
+    pub after: bool,
+}
+
 /// An assembled system: the matrix (pattern from the assembly backend) and
 /// right-hand side.
 #[derive(Clone, Debug)]
@@ -952,6 +990,27 @@ impl Simulation {
         log: &dyn Logger,
         comm: &dyn Communicator,
     ) -> Result<bool, SolverError> {
+        let all = Phases { before: true, at: true, after: true };
+        self.solve_equations_in(dt, transient, coupled_min, coupled_max, real_timestep, all, mesh, log, comm)
+    }
+
+    /// [`solve_equations`](Self::solve_equations) with `BeforeTime`,
+    /// `AtTime` and `AfterTime` selecting which solver groups run. The
+    /// histories advance (`InitializeTimestep`) on every call of a transient
+    /// run, whatever the phases, as in the Fortran.
+    #[allow(clippy::too_many_arguments)]
+    pub fn solve_equations_in(
+        &mut self,
+        dt: f64,
+        transient: bool,
+        coupled_min: i32,
+        coupled_max: i32,
+        real_timestep: Option<usize>,
+        phases: Phases,
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+        comm: &dyn Communicator,
+    ) -> Result<bool, SolverError> {
         let scanning = self.is_scanning();
         let (mut cmin, mut cmax) = (coupled_min, coupled_max);
         if transient {
@@ -973,14 +1032,48 @@ impl Simulation {
         }
         let skip_first = |s: &SolverSlot| real_timestep == Some(1) && s.params.logical("skip first timestep") == Some(true);
 
-        log.info("SolveEquations", "Solvers before timestep", 12);
-        for ix in 0..self.slots.len() {
-            let s = &self.slots[ix];
-            if s.has_procedure() && s.exec_when == ExecWhen::BeforeTimestep && !skip_first(s) {
-                self.solver_activate(ix, dt, transient, mesh, log, comm)?;
-                comm.barrier();
+        if phases.before {
+            log.info("SolveEquations", "Solvers before timestep", 12);
+            for ix in 0..self.slots.len() {
+                let s = &self.slots[ix];
+                if s.has_procedure() && s.exec_when == ExecWhen::BeforeTimestep && !skip_first(s) {
+                    self.solver_activate(ix, dt, transient, mesh, log, comm)?;
+                    comm.barrier();
+                }
             }
         }
+        let mut steady_reached = false;
+        if phases.at {
+            steady_reached = self.solve_at_time(dt, transient, scanning, cmin, cmax, real_timestep, mesh, log, comm)?;
+        }
+        if phases.after {
+            log.info("SolveEquations", "Solvers after timestep", 12);
+            for ix in 0..self.slots.len() {
+                let s = &self.slots[ix];
+                if s.has_procedure() && s.exec_when == ExecWhen::AfterTimestep && !skip_first(s) {
+                    self.solver_activate(ix, dt, transient, mesh, log, comm)?;
+                    comm.barrier();
+                }
+            }
+        }
+        Ok(steady_reached)
+    }
+
+    /// The `AtTime` part of `SolveEquations`: the coupled loop over the
+    /// `Always` solvers. Returns `SteadyStateReached` (steady runs only).
+    #[allow(clippy::too_many_arguments)]
+    fn solve_at_time(
+        &mut self,
+        dt: f64,
+        transient: bool,
+        scanning: bool,
+        cmin: i32,
+        cmax: i32,
+        real_timestep: Option<usize>,
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+        comm: &dyn Communicator,
+    ) -> Result<bool, SolverError> {
 
         let test_divergence = self.model.simulation.logical("convergence control within iterations") == Some(true);
         let after_converged: Vec<bool> = self
@@ -1002,17 +1095,7 @@ impl Simulation {
             log,
             comm,
         )?;
-        let steady_reached = !transient && done.iter().all(|&d| d);
-
-        log.info("SolveEquations", "Solvers after timestep", 12);
-        for ix in 0..self.slots.len() {
-            let s = &self.slots[ix];
-            if s.has_procedure() && s.exec_when == ExecWhen::AfterTimestep && !skip_first(s) {
-                self.solver_activate(ix, dt, transient, mesh, log, comm)?;
-                comm.barrier();
-            }
-        }
-        Ok(steady_reached)
+        Ok(!transient && done.iter().all(|&d| d))
     }
 
     /// `SolveCoupled` (MainUtils.F90:3321-3538). Returns `DoneThis`.
@@ -1176,18 +1259,15 @@ impl Simulation {
         if self.is_scanning() {
             return Err(SolverError::Unsupported("Simulation Type = Scanning".into()));
         }
-        for k in [
-            "adaptive timestepping",
-            "timestep size",
-            "timestep function",
-            "timestep ratios",
-            "periodic time",
-            "timestep start zero",
-        ] {
+        for k in ["periodic time", "convergence control", "predictor-corrector control", "parallel timestepping"] {
             if simp.get(k).is_some_and(|v| *v != Value::Logical(false)) {
                 return Err(SolverError::Unsupported(format!("Simulation keyword {k}")));
             }
         }
+        let real_array = |k: &str| match simp.get(k) {
+            Some(Value::Real { data, .. }) => Some(data.clone()),
+            _ => None,
+        };
         let (intervals, sizes, coupled_max) = if transient {
             let iv = match simp.get("timestep intervals") {
                 Some(Value::Integer(v)) => v.clone(),
@@ -1198,9 +1278,11 @@ impl Simulation {
                     ))
                 }
             };
-            let sz = match simp.get("timestep sizes") {
-                Some(Value::Real { data, .. }) => data.clone(),
-                _ => {
+            // InitializeIntervals: unit sizes when a Timestep Size function gives them.
+            let sz = match real_array("timestep sizes") {
+                Some(d) => d,
+                None if simp.get("timestep size").is_some() => vec![1.0; iv.len()],
+                None => {
                     return Err(SolverError::fatal(
                         "MAIN",
                         "Keyword [Timestep Sizes] MUST be defined for time dependent simulations",
@@ -1215,6 +1297,8 @@ impl Simulation {
         } else {
             (vec![simp.integer("steady state max iterations").unwrap_or(1).max(1)], vec![1.0], 1)
         };
+        let ratios = real_array("timestep ratios");
+        let adaptive = transient && simp.logical("adaptive timestepping") == Some(true);
         let coupled_min = simp.integer("steady state min iterations").unwrap_or(1);
         let output_intervals = match simp.get("output intervals") {
             Some(Value::Integer(v)) => {
@@ -1234,14 +1318,20 @@ impl Simulation {
 
         let mut report = RunReport::default();
         let mut cum = 0;
-        let mut dt = 0.0;
+        let mut dt = 1.0;
+        let mut adapt = AdaptiveState::default();
         'outer: for (interval, &nsteps) in intervals.iter().enumerate() {
-            // Without adaptive stepping RealTimestep equals the step in the interval.
+            let mut real_timestep = 1usize;
             for timestep in 1..=nsteps {
                 cum += 1;
                 self.vars.set_scalar("timestep", cum as f64);
-                dt = sizes[interval];
-                let t = self.vars.scalar("time").unwrap_or(0.0) + dt;
+                dt = self.step_size(&simp, transient, cum, interval, timestep, &sizes, ratios.as_deref(), dt, mesh, log)?;
+                let mut t = self.vars.scalar("time").unwrap_or(0.0);
+                if cum == 1 && simp.logical("timestep start zero") == Some(true) {
+                    log.info("ExecSimulation", "Not advancing the 1st timestep!", 4);
+                } else {
+                    t += dt;
+                }
                 self.vars.set_scalar("time", t);
                 if timestep > 1 || interval > 0 {
                     self.prev_sizes.pop();
@@ -1266,16 +1356,24 @@ impl Simulation {
                     log.info("MAIN", "-------------------------------------", 3);
                     log.info("MAIN", " ", 3);
                 }
-                let reached = self.solve_equations(
-                    dt,
-                    transient,
-                    coupled_min,
-                    coupled_max,
-                    Some(timestep as usize),
-                    mesh,
-                    log,
-                    comm,
-                )?;
+                let reached = if adaptive {
+                    let rt = &mut real_timestep;
+                    self.adaptive_step(&simp, dt, coupled_min, coupled_max, rt, &mut adapt, mesh, log, comm)?;
+                    false
+                } else {
+                    let r = self.solve_equations(
+                        dt,
+                        transient,
+                        coupled_min,
+                        coupled_max,
+                        Some(real_timestep),
+                        mesh,
+                        log,
+                        comm,
+                    )?;
+                    real_timestep += 1;
+                    r
+                };
                 report.steps = cum as usize;
                 report.steady_state_reached = reached;
                 let oi = output_intervals[interval];
@@ -1296,6 +1394,202 @@ impl Simulation {
         self.exec_slots(ExecWhen::AfterAll, dt, transient, mesh, log, comm)?;
         crate::reference::compare_to_reference(self, mesh, log, comm)?;
         Ok(report)
+    }
+
+    /// The step size of step `timestep` of `interval` (ElmerSolver.F90:2934-2985):
+    /// `First Timestep Size` on the first step; then for a transient run
+    /// `Timestep Function` (obsolete) or `Timestep Size` (`ListGetCReal`,
+    /// so it may follow `time`), re-evaluated `Timestep Size Iterations`
+    /// times with `time` moved ahead by the last value; else `Timestep
+    /// Sizes(interval)`, times `Timestep Ratios(interval)^(timestep-1)`.
+    /// A steady run keeps `dt`.
+    #[allow(clippy::too_many_arguments)]
+    fn step_size(
+        &mut self,
+        simp: &ParamMap,
+        transient: bool,
+        cum: i32,
+        interval: usize,
+        timestep: i32,
+        sizes: &[f64],
+        ratios: Option<&[f64]>,
+        dt: f64,
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+    ) -> Result<f64, SolverError> {
+        if cum == 1 {
+            if let Some(x) = self.creal(simp, "first timestep size", mesh)? {
+                return Ok(x);
+            }
+        }
+        if !transient {
+            return Ok(dt);
+        }
+        let mut f = self.creal(simp, "timestep function", mesh)?;
+        if f.is_some() {
+            log.warn("ExecSimulation", "Obsolete keyword > Timestep Function < , use > Timestep Size < instead");
+        } else {
+            f = self.creal(simp, "timestep size", mesh)?;
+        }
+        let Some(mut f) = f else {
+            let mut dt = sizes[interval];
+            if let Some(q) = ratios.and_then(|r| r.get(interval)) {
+                if (1.0 - q).abs() > f64::EPSILON {
+                    dt *= q.powi(timestep - 1);
+                }
+            }
+            return Ok(dt);
+        };
+        let iters = simp.integer("timestep size iterations").unwrap_or(0);
+        if iters > 0 {
+            let t0 = self.vars.scalar("time").unwrap_or(0.0);
+            for _ in 0..iters {
+                self.vars.set_scalar("time", t0 + f);
+                f = self
+                    .creal(simp, "timestep size", mesh)?
+                    .ok_or_else(|| SolverError::fatal("ExecSimulation", "Timestep Size Iterations needs > Timestep Size <"))?;
+            }
+            self.vars.set_scalar("time", t0);
+        }
+        if f < f64::EPSILON {
+            return Err(SolverError::fatal(
+                "ExecSimulation",
+                format!("Timestep smaller than epsilon: {}", es(f, 12, 3)),
+            ));
+        }
+        Ok(f)
+    }
+
+    /// One step of `Adaptive Timestepping` (ElmerSolver.F90:3181-3330):
+    /// substeps of size `ddt` cover `dt`. Each substep is solved once with
+    /// `ddt` and again as two halves from the same start; the relative
+    /// change of the variable norms (or of `Adaptive Error Measure`)
+    /// between the two decides: below `Adaptive Time Error` (or at
+    /// `Adaptive Min Timestep`) the halves are kept, the after-timestep
+    /// solvers run and `ddt` may grow by `Adaptive Increase Coefficient`
+    /// after `Adaptive Keep Smallest` accepted substeps; otherwise the
+    /// values, norms and histories go back and `ddt` shrinks by `Adaptive
+    /// Decrease Coefficient`. As in the Fortran every `SolveEquations` call
+    /// advances the histories, and `Timestep` holds `ddt/2` from the halves
+    /// on.
+    #[allow(clippy::too_many_arguments)]
+    fn adaptive_step(
+        &mut self,
+        simp: &ParamMap,
+        dt: f64,
+        cmin: i32,
+        cmax: i32,
+        real_timestep: &mut usize,
+        st: &mut AdaptiveState,
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+        comm: &dyn Communicator,
+    ) -> Result<(), SolverError> {
+        let limit = simp
+            .real("adaptive time error")
+            .ok_or_else(|| SolverError::fatal("MAIN", "Adaptive Time Error must be given for adaptive stepping scheme."))?;
+        let keep_smallest = simp.integer("adaptive keep smallest").unwrap_or(0).max(0);
+        let max_dt = simp.real("adaptive max timestep").map_or(dt, |m| m.min(dt));
+        let min_dt = simp.real("adaptive min timestep").unwrap_or(1.0e-8 * max_dt);
+        let increase = simp.real("adaptive increase coefficient").unwrap_or(2.0);
+        let decrease = simp.real("adaptive decrease coefficient").unwrap_or(0.5);
+        let rough = simp.logical("adaptive rough timestep") == Some(true);
+        let smart = simp.logical("adaptive smart timestep") == Some(true);
+        let measure = |s: &Self| s.model.simulation.real("adaptive error measure");
+        let solvers: Vec<VarId> = self.slots.iter().filter_map(|s| s.variable).collect();
+        let at = Phases { before: true, at: true, after: false };
+        let after = Phases { before: false, at: false, after: true };
+
+        let mut cum_time = 0.0;
+        if st.ddt < 0.0 || st.ddt > max_dt {
+            st.ddt = max_dt;
+        }
+        let s0 = self.vars.scalar("time").unwrap_or(0.0) - dt;
+        let mut smallest = 0;
+        while cum_time < dt - 1.0e-12 {
+            if !rough {
+                st.ddt = st.ddt.min(dt - cum_time);
+                if smart && dt - cum_time - st.ddt > 1.0e-12 {
+                    log.info("ExecSimulation", "Splitted timestep into two equal parts", 12);
+                    st.ddt = st.ddt.min((dt - cum_time) / 2.0);
+                }
+            }
+            let ddt = st.ddt;
+            let saved: Vec<(Vec<f64>, f64, Vec<Vec<f64>>)> = solvers
+                .iter()
+                .map(|&id| {
+                    let v = self.vars.by_id(id);
+                    (v.values.clone(), v.conv.norm, v.prev_values.clone())
+                })
+                .collect();
+            self.vars.set_scalar("time", s0 + cum_time + ddt);
+            self.vars.set_scalar("timestep size", ddt);
+            let rt = Some(*real_timestep);
+            self.solve_equations_in(ddt, true, cmin, cmax, rt, at, mesh, log, comm)?;
+            let measure_full = measure(self);
+            let mut full_norms = Vec::with_capacity(solvers.len());
+            for (&id, (vals, _, prev)) in solvers.iter().zip(&saved) {
+                let v = self.vars.by_id_mut(id);
+                v.values.clone_from(vals);
+                full_norms.push(v.conv.norm);
+                v.prev_values.clone_from(prev);
+            }
+            self.vars.set_scalar("timestep", ddt / 2.0);
+            self.vars.set_scalar("time", s0 + cum_time + ddt / 2.0);
+            self.solve_equations_in(ddt / 2.0, true, cmin, cmax, rt, at, mesh, log, comm)?;
+            self.vars.set_scalar("time", s0 + cum_time + ddt);
+            self.solve_equations_in(ddt / 2.0, true, cmin, cmax, rt, at, mesh, log, comm)?;
+            let max_err = match (measure_full, measure(self)) {
+                (Some(a), Some(b)) => (a - b).abs(),
+                _ => {
+                    let mut e = 0.0_f64;
+                    for (&id, &full) in solvers.iter().zip(&full_norms) {
+                        let n = self.vars.by_id(id).conv.norm;
+                        if full != n {
+                            e = e.max((full - n).abs() / full);
+                        }
+                    }
+                    e
+                }
+            };
+            if max_err < limit || ddt <= min_dt {
+                cum_time += ddt;
+                *real_timestep += 1;
+                if smallest >= keep_smallest || st.step_control > 0 {
+                    st.ddt = (increase * ddt).min(max_dt);
+                    st.step_control = 1;
+                    smallest = 0;
+                } else {
+                    st.step_control = 0;
+                    smallest += 1;
+                }
+                let rt = Some(*real_timestep);
+                self.solve_equations_in(st.ddt / 2.0, true, cmin, cmax, rt, after, mesh, log, comm)?;
+            } else {
+                for (&id, (vals, norm, prev)) in solvers.iter().zip(&saved) {
+                    let v = self.vars.by_id_mut(id);
+                    v.conv.norm = *norm;
+                    v.values.clone_from(vals);
+                    v.prev_values.clone_from(prev);
+                }
+                st.ddt = decrease * ddt;
+                st.step_control = -1;
+            }
+            // WRITE(*,'(a,3e20.12)') 'Adaptive(cum,ddt,err): ', cumtime, ddt, maxerr
+            log.info(
+                "ExecSimulation",
+                &format!(
+                    "Adaptive(cum,ddt,err): {}{}{}",
+                    e_fmt(cum_time, 20, 12),
+                    e_fmt(st.ddt, 20, 12),
+                    e_fmt(max_err, 20, 12)
+                ),
+                4,
+            );
+        }
+        self.vars.set_scalar("timestep size", dt);
+        self.vars.set_scalar("time", s0 + dt);
+        Ok(())
     }
 
     /// Looks a slot up by 1-based solver id.

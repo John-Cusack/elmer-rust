@@ -1,0 +1,267 @@
+MAIN: Time: 1/3:   2.000E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.28064695      2.0000000     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.24179598     0.14872810     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.29835407     0.20941622     ) :: heat equation
+Adaptive(cum,ddt,err):   0.000000000000E+00  0.100000000000E+00  0.630939298065E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.24179598      2.0000000     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.21032836     0.13919895     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.25613241     0.19638968     ) :: heat equation
+Adaptive(cum,ddt,err):   0.000000000000E+00  0.500000000000E-01  0.592914157813E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.21032836      2.0000000     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.18530278     0.12650967     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.22169635     0.17883856     ) :: heat equation
+Adaptive(cum,ddt,err):   0.000000000000E+00  0.250000000000E-01  0.540487565246E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.18530278      2.0000000     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.16592713     0.11033031     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.19402865     0.15613875     ) :: heat equation
+Adaptive(cum,ddt,err):   0.000000000000E+00  0.125000000000E-01  0.470897887433E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.16592713      2.0000000     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15150234     0.90884975E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.17229801     0.12844748     ) :: heat equation
+Adaptive(cum,ddt,err):   0.000000000000E+00  0.625000000000E-02  0.383956823147E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15150234      2.0000000     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.14136279     0.69243835E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15580551     0.97202273E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.000000000000E+00  0.312500000000E-02  0.284032865754E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.14136279      2.0000000     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13481438     0.47421792E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.14393226     0.65420536E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.000000000000E+00  0.156250000000E-02  0.181764176216E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13481438      2.0000000     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13106604     0.28195672E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13608794     0.37595508E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.000000000000E+00  0.781250000000E-03  0.944673803045E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13106604      2.0000000     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.12922379     0.14155434E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13156498     0.17954709E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.000000000000E+00  0.390625000000E-03  0.380674875869E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.12922379      2.0000000     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.12845088     0.59990880E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.12938046     0.72107339E-02 ) :: heat equation
+Adaptive(cum,ddt,err):   0.390625000000E-03  0.390625000000E-03  0.121239348626E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13172738     0.17976661E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13056790     0.88410553E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13188607     0.10044994E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.781250000000E-03  0.781250000000E-03  0.120469045188E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13677213     0.36373778E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13451748     0.16621682E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13716273     0.19473254E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.781250000000E-03  0.390625000000E-03  0.285587426235E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13451748     0.19755081E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13326316     0.93682579E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13465629     0.10399592E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.117187500000E-02  0.390625000000E-03  0.103189129504E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13728165     0.19308498E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13603972     0.90876757E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13739842     0.99378768E-02 ) :: heat equation
+Adaptive(cum,ddt,err):   0.156250000000E-02  0.781250000000E-03  0.850581918558E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.14203122     0.33159005E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.13991545     0.15008325E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.14231080     0.16974721E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.234375000000E-02  0.156250000000E-02  0.196845635154E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.14982612     0.51450628E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.14651740     0.22330272E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15037018     0.25954441E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.234375000000E-02  0.781250000000E-03  0.363127513243E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.14651740     0.29128722E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.14457912     0.13317117E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.14672608     0.14740285E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.312500000000E-02  0.781250000000E-03  0.142425122378E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15053451     0.25623538E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.14876123     0.11849675E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15069490     0.12914514E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.390625000000E-02  0.156250000000E-02  0.106544705040E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15703072     0.41178403E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15416912     0.18390771E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15738877     0.20668077E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.390625000000E-02  0.781250000000E-03  0.228011868427E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15416912     0.22791947E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15253690     0.10643562E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15429613     0.11467007E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.468750000000E-02  0.781250000000E-03  0.823809335299E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15749358     0.20510292E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15598045     0.96538863E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.15759678     0.10308974E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.546875000000E-02  0.156250000000E-02  0.655318653706E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.16309087     0.34264407E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.16056316     0.15619860E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.16334661     0.17186582E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.703125000000E-02  0.312500000000E-02  0.156805552164E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.17220392     0.52792737E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.16825576     0.23193117E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.17274004     0.26301083E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.703125000000E-02  0.156250000000E-02  0.311327794189E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.16825576     0.29608683E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.16596980     0.13679151E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.16845179     0.14843463E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.859375000000E-02  0.156250000000E-02  0.116504935084E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.17289826     0.26052284E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.17080857     0.12159720E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.17305365     0.13058005E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.101562500000E-01  0.312500000000E-02  0.898724244017E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.18054110     0.42350471E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.17712629     0.19094924E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.18091070     0.21139808E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.101562500000E-01  0.156250000000E-02  0.204718376251E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.17712629     0.23260249E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.17519846     0.10943444E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.17725278     0.11657304E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.117187500000E-01  0.156250000000E-02  0.714137501723E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.18101715     0.21014161E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.17922499     0.99497658E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.18112234     0.10530713E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.132812500000E-01  0.312500000000E-02  0.581131742052E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.18765239     0.35414835E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.18462795     0.16248196E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.18792495     0.17699506E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.164062500000E-01  0.625000000000E-02  0.145246812540E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.19853558     0.54911864E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.19377752     0.24256445E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.19913109     0.27250957E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.164062500000E-01  0.312500000000E-02  0.299949943158E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.19377752     0.30665631E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.19103876     0.14234119E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.19399058     0.15332954E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.195312500000E-01  0.312500000000E-02  0.109949898531E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.19930520     0.27026083E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.19679819     0.12658369E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.19947663     0.13518085E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.226562500000E-01  0.625000000000E-02  0.860122722421E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20847258     0.44103281E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20435421     0.19952060E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20889102     0.21957008E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.226562500000E-01  0.312500000000E-02  0.200718045791E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20435421     0.24156536E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20203870     0.11395424E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20449537     0.12085940E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.257812500000E-01  0.312500000000E-02  0.690778621961E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20901074     0.21839407E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20685613     0.10362012E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.20912920     0.10928608E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.289062500000E-01  0.625000000000E-02  0.566771763706E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.21698886     0.36889577E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.21333922     0.16962124E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.21730117     0.18400274E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.351562500000E-01  0.125000000000E-01  0.143929734762E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.23010497     0.57235702E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.22435003     0.25326754E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.23079846     0.28335462E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.351562500000E-01  0.625000000000E-02  0.301378289171E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.22435003     0.31920516E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.22104508     0.14840558E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.22459596     0.15936056E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.414062500000E-01  0.625000000000E-02  0.109616355637E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.23100036     0.28114379E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.22797480     0.13184000E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.23119935     0.14045015E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.476562500000E-01  0.125000000000E-01  0.861426346672E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.24205799     0.45888938E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.23707941     0.20781448E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.24254885     0.22807014E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.476562500000E-01  0.625000000000E-02  0.202785955477E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.23707941     0.25113477E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.23428475     0.11857721E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.23724399     0.12551689E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.539062500000E-01  0.625000000000E-02  0.694234669711E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.24268885     0.22690065E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.24008831     0.10773261E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.24282746     0.11344225E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.601562500000E-01  0.125000000000E-01  0.571144908553E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.25231500     0.38322459E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.24790497     0.17632362E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.25268310     0.19090071E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.726562500000E-01  0.250000000000E-01  0.145889535334E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.26814477     0.59373459E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.26118940     0.26279726E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.26896757     0.29342930E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.726562500000E-01  0.125000000000E-01  0.306849486300E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.26118940     0.33106647E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.25719809     0.15398946E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.26148008     0.16511175E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.851562500000E-01  0.125000000000E-01  0.111291903749E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.26920664     0.29119121E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.26555437     0.13659453E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.26944236     0.14534635E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.976562500000E-01  0.250000000000E-01  0.875608939129E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.28254515     0.47474928E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.27653452     0.21501861E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.28312910     0.23566224E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.976562500000E-01  0.125000000000E-01  0.206675751309E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.27653452     0.25979697E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.27316229     0.12269414E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.27672982     0.12975375E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.110156250000E+00  0.125000000000E-01  0.706237776571E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.28329540     0.23447447E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.28015849     0.11134572E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.28346009     0.11715731E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.122656250000E+00  0.250000000000E-01  0.581346774342E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.29490098     0.39563115E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.28958118     0.18203445E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.29533962     0.19689626E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.147656250000E+00  0.500000000000E-01  0.148741912068E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.31397543     0.61169726E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.30559055     0.27066955E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.31495826     0.30191677E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.147656250000E+00  0.250000000000E-01  0.313025175775E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.30559055     0.34116893E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.30077944     0.15868571E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.30593725     0.17002380E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.172656250000E+00  0.250000000000E-01  0.113452859479E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.31524353     0.29963188E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.31084375     0.14054858E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.31552487     0.14946852E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.197656250000E+00  0.500000000000E-01  0.892438434454E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.31640302     0.27792943E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.31596643     0.13808165E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.31640595     0.13900784E-02 ) :: heat equation
+Adaptive(cum,ddt,err):   0.200000000000E+00  0.468750000000E-02  0.926188886013E-05
+MAIN: Time: 2/3:   4.000E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.31812750     0.54261855E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.31727610     0.26798633E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.31813849     0.27143899E-02 ) :: heat equation
+Adaptive(cum,ddt,err):   0.468750000000E-02  0.937500000000E-02  0.345273295940E-04
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.32145434     0.10368640E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.31983006     0.50657105E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.32149330     0.51869060E-02 ) :: heat equation
+Adaptive(cum,ddt,err):   0.140625000000E-01  0.187500000000E-01  0.121203601320E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.32769041     0.19092006E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.32470299     0.91583419E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.32781671     0.95436693E-02 ) :: heat equation
+Adaptive(cum,ddt,err):   0.328125000000E-01  0.375000000000E-01  0.385410093982E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.33887355     0.33169369E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.33366998     0.15474305E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.33923271     0.16533539E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.703125000000E-01  0.750000000000E-01  0.105986307391E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.35776143     0.53167483E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.34930915     0.23907856E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.35862755     0.26325505E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.703125000000E-01  0.375000000000E-01  0.242095661607E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.34930915     0.29268928E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.34453514     0.13761047E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.34960304     0.14601982E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.107812500000E+00  0.375000000000E-01  0.841330483700E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.35887544     0.26175531E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.35445852     0.12383880E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.35912068     0.13066990E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.145312500000E+00  0.750000000000E-01  0.683370861223E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.37123853     0.33183238E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.36553248     0.15489323E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.37162790     0.16537544E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.200000000000E+00  0.109375000000E+00  0.104883837609E-02
+MAIN: Time: 3/3:   6.000E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.39194812     0.53223845E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.38267601     0.23939637E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.39289377     0.26349047E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.000000000000E+00  0.546875000000E-01  0.241269670133E-02
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.38267601     0.29293539E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.37743958     0.13777978E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.38299534     0.14612059E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.546875000000E-01  0.546875000000E-01  0.834470616004E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.39316381     0.26202003E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.38831898     0.12399061E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.39343099     0.13078388E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.109375000000E+00  0.109375000000E+00  0.679585912794E-03
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.40831619     0.37131896E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.40135389     0.17197880E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.40884089     0.18481997E-01 ) :: heat equation
+Adaptive(cum,ddt,err):   0.200000000000E+00  0.181250000000E+00  0.128504435626E-02
