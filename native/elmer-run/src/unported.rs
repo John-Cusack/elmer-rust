@@ -36,14 +36,11 @@ const SIMULATION: &[Rule] = &[
 /// Read by the solver's own procedure; skipped for `Exec Solver = Never`.
 const SOLVER: &[Rule] = &[
     present("Mesh", "solver-specific meshes are not implemented"),
-    flag("Apply Integral BCs", "integral constraints are not implemented"),
     flag("Apply Conforming BCs", "conforming BCs are not implemented"),
     flag("Apply Mortar BCs", "mortar BCs are not implemented"),
     present("Namespace", "solver keyword namespaces are not implemented"),
     flag("Adaptive Mesh Refinement", "mesh refinement is not implemented"),
 ];
-
-const BODY_FORCE: &[Rule] = &[flag("Integral BC", "integral constraints are not implemented")];
 
 const BOUNDARY: &[Rule] = &[
     // MapBodiesAndBCs fallbacks `Model::bc_of_tag` does not apply.
@@ -56,17 +53,8 @@ const BOUNDARY: &[Rule] = &[
     flag("Discontinuous Boundary", "discontinuous boundaries (mesh splitting) are not implemented"),
     present("Mortar BC", "mortar BCs are not implemented"),
     present("Conforming BC", "conforming BCs are not implemented"),
-    flag("Integral BC", "integral constraints are not implemented"),
     present("Target Nodes", "point BCs (Target Nodes) are not implemented"),
     present("Target Coordinates", "point BCs (Target Coordinates) are not implemented"),
-];
-
-/// `<Variable> <suffix>` keywords of `DefaultDirichletBCs`
-/// (BoundaryConditionUtils.F90:842, 1013), read from BCs and body forces.
-const VARIABLE_SUFFIXES: &[(&str, &str)] = &[
-    ("single node", "single-node Dirichlet values"),
-    ("constant", "lumped constant values"),
-    ("profile", "lumped profile values"),
 ];
 
 /// `SetNormalizedKeywords` (MainUtils.F90:224): `<keyword> Normalize by
@@ -110,9 +98,6 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
     for (i, s) in model.solvers.iter().enumerate().filter(|(_, s)| runs(s)) {
         scan("Solver", i + 1, s, SOLVER)?;
     }
-    for (i, b) in model.body_forces.iter().enumerate() {
-        scan("Body Force", i + 1, b, BODY_FORCE)?;
-    }
     for (i, b) in model.boundary_conditions.iter().enumerate() {
         scan("Boundary Condition", i + 1, b, BOUNDARY)?;
     }
@@ -133,18 +118,6 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
                 "Body Force {}: {var}: body-force Dirichlet values are not implemented",
                 i + 1
             )));
-        }
-        for (suffix, what) in VARIABLE_SUFFIXES {
-            let key = format!("{var} {suffix}");
-            let sections = [("Boundary Condition", &model.boundary_conditions), ("Body Force", &model.body_forces)];
-            for (section, maps) in sections {
-                if let Some(i) = maps.iter().position(|m| m.0.contains_key(&key)) {
-                    return Err(SolverError::Unsupported(format!(
-                        "{section} {}: {key}: {what} (<Variable> {suffix}) are not implemented",
-                        i + 1
-                    )));
-                }
-            }
         }
     }
 
@@ -278,11 +251,8 @@ mod tests {
             refusal(&bf("temperature")),
             "Body Force 1: temperature: body-force Dirichlet values are not implemented"
         );
-        assert_eq!(
-            refusal(&bf("temperature single node")),
-            "Body Force 1: temperature single node: single-node Dirichlet values \
-             (<Variable> single node) are not implemented"
-        );
+        // Lumped Dirichlet conditions are elmer-solver's (#121).
+        assert!(check(&bf("temperature single node")).is_ok());
         assert!(check(&bf("heat source")).is_ok());
 
         let model = Model {
