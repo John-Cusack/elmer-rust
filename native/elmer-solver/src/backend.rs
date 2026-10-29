@@ -22,21 +22,56 @@ pub struct Perm {
 }
 
 /// Matrix structure and assembly (Elmer `CreateMatrix`, `DefaultUpdate*`,
-/// `DefaultDirichletBCs`). `elmer-assembly` provides the implementation.
+/// `DefaultDirichletBCs`). [`crate::assembly::ElmerAssembly`] implements it
+/// with `elmer-assembly` and is installed by default.
+///
+/// The framework calls [`build_perm_for`](Self::build_perm_for) and
+/// [`try_apply_dirichlet`](Self::try_apply_dirichlet). `build_perm` and
+/// `apply_dirichlet` are the first API's signatures, kept for one merge
+/// cycle (swarm plan 4.4) so existing implementations still compile; the
+/// provided methods fall back to them.
 pub trait AssemblyBackend: Send + Sync {
-    /// The permutation for the nodes of `active` (bulk) elements, with
+    /// The permutation for the nodes of the `active` bulk elements, with
     /// Elmer's `Optimize Bandwidth` decision applied when `optimize_bandwidth`.
     fn build_perm(&self, mesh: &dyn MeshView, active: &[ElemId], optimize_bandwidth: bool) -> Perm;
 
-    /// The CSR pattern (zero values) for `dofs` dofs per slot.
+    /// [`build_perm`](Self::build_perm) from the solver section: `Optimize
+    /// Bandwidth` (default true) and, where supported, `Optimize Bandwidth
+    /// Use Always`.
+    fn build_perm_for(&self, mesh: &dyn MeshView, active: &[ElemId], params: &ParamMap) -> Result<Perm, SolverError> {
+        use elmer_core::Params;
+        if params.logical("optimize bandwidth use always") == Some(true) {
+            return Err(SolverError::Unsupported(
+                "Optimize Bandwidth Use Always with this assembly backend".into(),
+            ));
+        }
+        Ok(self.build_perm(mesh, active, params.logical("optimize bandwidth").unwrap_or(true)))
+    }
+
+    /// The CSR pattern (zero values, diagonal index set) for `dofs` dofs per slot.
     fn create_matrix(&self, mesh: &dyn MeshView, active: &[ElemId], perm: &Perm, dofs: usize) -> CsrMatrix<f64>;
 
-    /// Adds `local.stiff` and `local.force` at the global `dof_index` rows/cols.
-    fn add_local(&self, a: &mut CsrMatrix<f64>, rhs: &mut [f64], dof_index: &[u32], local: &LocalSystem);
+    /// Adds `local.stiff` and `local.force`. `slots` holds one entry per
+    /// element node: its perm slot, or [`elmer_core::NO_DOF`] to skip it
+    /// (Elmer's `Perm(Indexes)`); local row `dofs * i + c` is component `c`
+    /// of node `i`.
+    fn add_local(&self, a: &mut CsrMatrix<f64>, rhs: &mut [f64], slots: &[u32], local: &LocalSystem);
 
-    /// Fixes each `(dof, value)` with Elmer's Dirichlet semantics (keeping
-    /// symmetry or eliminating rows per `params`).
+    /// Fixes each `(row, value)` with Elmer's Dirichlet semantics, read from
+    /// the solver section (`Linear System Symmetric`, Dirichlet scaling).
     fn apply_dirichlet(&self, a: &mut CsrMatrix<f64>, rhs: &mut [f64], fixed: &[(u32, f64)], params: &ParamMap);
+
+    /// Fallible [`apply_dirichlet`](Self::apply_dirichlet).
+    fn try_apply_dirichlet(
+        &self,
+        a: &mut CsrMatrix<f64>,
+        rhs: &mut [f64],
+        fixed: &[(u32, f64)],
+        params: &ParamMap,
+    ) -> Result<(), SolverError> {
+        self.apply_dirichlet(a, rhs, fixed, params);
+        Ok(())
+    }
 }
 
 /// The time-history context a local time discretisation needs.
@@ -44,10 +79,19 @@ pub struct TimeTerms<'a> {
     pub dt: f64,
     /// The solver section (`Timestepping Method`, `BDF Order`, ...).
     pub params: &'a ParamMap,
-    /// Previous values at the element's dofs, newest first.
+    /// The `Simulation` section (method and order fallbacks).
+    pub simulation: &'a ParamMap,
+    /// Committed previous values at the element's dofs, newest first
+    /// (`PrevValues(L, 1..)`), all the variable keeps.
     pub prev: &'a [Vec<f64>],
-    /// 1-based time step number (BDF start-up order).
-    pub timestep: usize,
+    /// The current iterate at the element's dofs (`Values(L)`).
+    pub cur: &'a [f64],
+    /// `Solver % DoneTime`: timesteps initialised so far (start-up order).
+    pub done_time: usize,
+    /// `Solver % Order` (BDF order, 1 otherwise).
+    pub order: usize,
+    /// Previous step sizes, newest first (`Timestep size` PrevValues).
+    pub dts: &'a [f64],
 }
 
 /// Local time discretisation (`Default1stOrderTime`, `Add1stOrderTime`).
@@ -152,10 +196,24 @@ impl LinearSolverRegistry {
     }
 }
 
-/// The installed backends of a [`crate::Simulation`].
-#[derive(Default)]
+/// The installed backends of a [`crate::Simulation`]. The default has
+/// [`crate::assembly::ElmerAssembly`], [`crate::time::ElmerTime`], an
+/// empty linear solver registry and no MATC engine.
 pub struct Backends {
     pub assembly: Option<Box<dyn AssemblyBackend>>,
     pub time: Option<Box<dyn TimeBackend>>,
     pub linear: LinearSolverRegistry,
+    /// MATC for `MATC` keyword values (the MATC binding, S1).
+    pub matc: Option<Box<dyn elmer_expr::MatcEngine>>,
+}
+
+impl Default for Backends {
+    fn default() -> Self {
+        Self {
+            assembly: Some(Box::new(crate::assembly::ElmerAssembly)),
+            time: Some(Box::new(crate::time::ElmerTime)),
+            linear: LinearSolverRegistry::default(),
+            matc: None,
+        }
+    }
 }

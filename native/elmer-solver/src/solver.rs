@@ -218,6 +218,39 @@ impl<'a> SolverCtx<'a> {
         }
     }
 
+    /// Perm slot of each element node, [`NO_DOF`] where the node is not in
+    /// the system (Elmer `Perm(Indexes)`), as the assembly glue takes it.
+    pub fn element_slots(&self, e: ElemId, out: &mut Vec<u32>) {
+        out.clear();
+        let Some(id) = self.sim.slots[self.slot].variable else {
+            return;
+        };
+        let v = self.sim.vars.by_id(id);
+        out.extend(
+            self.mesh
+                .element(e)
+                .nodes
+                .iter()
+                .map(|&n| v.slot(n).map_or(NO_DOF, |s| s as u32)),
+        );
+    }
+
+    /// The simulation's fields as `elmer-expr` reads them.
+    pub fn fields(&self) -> crate::expr::SimFields<'_> {
+        crate::expr::SimFields {
+            vars: &self.sim.vars,
+            mesh: self.mesh,
+        }
+    }
+
+    /// `ListGetReal(section, key, n, Indexes)`: a scalar keyword at the
+    /// nodes of element `e`, `None` when the section lacks it.
+    pub fn real_at_nodes(&self, section: &ParamMap, key: &str, e: ElemId) -> Result<Option<Vec<f64>>, SolverError> {
+        let Some(v) = section.get(key) else { return Ok(None) };
+        let nodes = self.mesh.element(e).nodes;
+        crate::expr::eval_at_nodes(v, nodes, &self.fields(), self.sim.backends.matc.as_deref()).map(Some)
+    }
+
     pub fn info(&self, caller: &str, msg: &str, level: u8) {
         self.log.info(caller, msg, level);
     }
@@ -274,17 +307,26 @@ impl<'a> SolverCtx<'a> {
             .iter()
             .map(|h| idx.iter().map(|&i| if i == NO_DOF { 0.0 } else { h[i as usize] }).collect())
             .collect();
+        let cur: Vec<f64> = idx
+            .iter()
+            .map(|&i| if i == NO_DOF { 0.0 } else { v.values[i as usize] })
+            .collect();
         let backend = self
             .sim
             .backends
             .time
             .as_ref()
             .ok_or_else(|| SolverError::NotWired("time backend (elmer-timeint)".into()))?;
+        let slot = &self.sim.slots[self.slot];
         let terms = TimeTerms {
             dt,
-            params: &self.sim.slots[self.slot].params,
+            params: &slot.params,
+            simulation: &self.sim.model.simulation,
             prev: &prev,
-            timestep: self.sim.slots[self.slot].done_time,
+            cur: &cur,
+            done_time: slot.done_time,
+            order: slot.order,
+            dts: &self.sim.prev_sizes,
         };
         backend.add_time_terms(local, &terms)
     }
@@ -292,7 +334,7 @@ impl<'a> SolverCtx<'a> {
     /// `DefaultUpdateEquations`: add a local system at element `e`'s dofs.
     pub fn default_update(&mut self, local: &LocalSystem, e: ElemId) -> Result<(), SolverError> {
         let mut idx = Vec::new();
-        self.element_dofs(e, &mut idx);
+        self.element_slots(e, &mut idx);
         let sim = &mut *self.sim;
         let backend = sim
             .backends
@@ -308,10 +350,11 @@ impl<'a> SolverCtx<'a> {
     }
 
     /// The Dirichlet values this solver's variable gets from boundary
-    /// conditions: for each boundary element with a BC that sets the
-    /// variable (or one of its `"<name> k"` components) to a constant, every
-    /// node's dof, in boundary-element order (later BCs overwrite earlier).
-    /// Non-constant values need the expression backend and are refused.
+    /// conditions: for each boundary element whose BC sets the variable (or
+    /// one of its `"<name> k"` components), the value at each node,
+    /// evaluated with `elmer-expr` (`ListGetReal(BC, name, n, Indexes)`),
+    /// in boundary-element order (a later element overwrites an earlier
+    /// one). `<name> Condition` masks are refused.
     pub fn dirichlet_values(&self) -> Result<Vec<(u32, f64)>, SolverError> {
         let Some(id) = self.sim.slots[self.slot].variable else {
             return Ok(Vec::new());
@@ -326,16 +369,11 @@ impl<'a> SolverCtx<'a> {
         for e in self.boundary_elements() {
             let bc = self.bc_params(e).expect("boundary_elements filters on BC");
             for (k, key) in &keys {
-                let Some(val) = bc.get(key) else { continue };
-                let x = match val {
-                    Value::Real { data, .. } if data.len() == 1 => data[0],
-                    _ => {
-                        return Err(SolverError::NotWired(format!(
-                            "non-constant Dirichlet value for {key} (elmer-expr)"
-                        )))
-                    }
-                };
-                for &n in self.mesh.element(e).nodes {
+                if bc.get(&format!("{key} condition")).is_some() {
+                    return Err(SolverError::Unsupported(format!("Dirichlet mask > {key} Condition <")));
+                }
+                let Some(vals) = self.real_at_nodes(bc, key, e)? else { continue };
+                for (&n, &x) in self.mesh.element(e).nodes.iter().zip(&vals) {
                     if let Some(s) = v.slot(n) {
                         fixed.insert((s * v.dofs + k) as u32, x);
                     }
@@ -345,7 +383,7 @@ impl<'a> SolverCtx<'a> {
         Ok(fixed.into_iter().collect())
     }
 
-    /// `DefaultDirichletBCs` for constant boundary values.
+    /// `DefaultDirichletBCs` + `EnforceDirichletConditions`.
     pub fn default_dirichlet(&mut self) -> Result<(), SolverError> {
         let fixed = self.dirichlet_values()?;
         let sim = &mut *self.sim;
@@ -359,8 +397,7 @@ impl<'a> SolverCtx<'a> {
             .system
             .as_mut()
             .ok_or_else(|| SolverError::fatal("DefaultDirichletBCs", "call default_initialize first"))?;
-        backend.apply_dirichlet(&mut sys.matrix, &mut sys.rhs, &fixed, &slot.params);
-        Ok(())
+        backend.try_apply_dirichlet(&mut sys.matrix, &mut sys.rhs, &fixed, &slot.params)
     }
 
     /// `DefaultSolve`: solve the assembled system into the primary variable

@@ -20,6 +20,10 @@ pub enum SolverError {
     #[error("unsupported: {0}")]
     Unsupported(String),
     #[error(transparent)]
+    Expr(#[from] elmer_expr::ExprError),
+    #[error(transparent)]
+    Time(#[from] elmer_timeint::TimeError),
+    #[error(transparent)]
     Io(#[from] std::io::Error),
 }
 

@@ -218,6 +218,8 @@ pub struct Simulation {
     pub slots: Vec<SolverSlot>,
     pub backends: Backends,
     pub reference: ReferenceTally,
+    /// Previous step sizes, newest first (`sPrevSizes`, ElmerSolver.F90:3064-3070).
+    pub prev_sizes: Vec<f64>,
 }
 
 /// The run outcome of [`Simulation::run`].
@@ -243,6 +245,7 @@ impl Simulation {
             slots: Vec::new(),
             backends: Backends::default(),
             reference: ReferenceTally::default(),
+            prev_sizes: vec![0.0; 5],
         }
     }
 
@@ -352,9 +355,8 @@ impl Simulation {
         if spec.kind != FieldKind::Nodal {
             return Err(SolverError::Unsupported(format!("{:?} solver variable", spec.kind)));
         }
-        let opt_bw = slot.params.logical("optimize bandwidth").unwrap_or(true);
         let perm = match &self.backends.assembly {
-            Some(b) => b.build_perm(mesh, &slot.active, opt_bw),
+            Some(b) => b.build_perm_for(mesh, &slot.active, &slot.params)?,
             None => node_order_perm(mesh, &slot.active),
         };
         let perm_arc: Arc<[u32]> = perm.perm.into();
@@ -371,8 +373,8 @@ impl Simulation {
         Ok(())
     }
 
-    /// Constant `Initial Condition` values for the variable (or its
-    /// components), node by node over the active elements.
+    /// `Initial Condition` values for the variable (or its components),
+    /// evaluated at each active element's nodes.
     fn apply_initial_conditions(
         &self,
         slot: &SolverSlot,
@@ -396,13 +398,11 @@ impl Simulation {
             else {
                 continue;
             };
+            let fields = crate::expr::SimFields { vars: &self.vars, mesh };
             for &(k, key) in &keys {
                 let Some(val) = ic.get(key) else { continue };
-                let x = match val {
-                    Value::Real { data, .. } if data.len() == 1 => data[0],
-                    _ => return Err(SolverError::NotWired(format!("non-constant initial condition {key} (elmer-expr)"))),
-                };
-                for &n in el.nodes {
+                let xs = crate::expr::eval_at_nodes(val, el.nodes, &fields, self.backends.matc.as_deref())?;
+                for (&n, &x) in el.nodes.iter().zip(&xs) {
                     let s = perm[n as usize];
                     if s != NO_DOF {
                         values[s as usize * spec.dofs + k] = x;
@@ -535,14 +535,10 @@ impl Simulation {
         if p.get("stop time").is_some() {
             return Err(SolverError::fatal("SolverActivate", "Use > Exec Condition = Real < instead of > Stop Time <"));
         }
-        match p.get("exec condition") {
-            Some(Value::Real { data, .. }) if data.len() == 1 => {
-                if data[0] < 0.0 {
-                    return Ok(());
-                }
+        if let Some(v) = p.get("exec condition") {
+            if crate::expr::eval_const(v, self.backends.matc.as_deref())? < 0.0 {
+                return Ok(());
             }
-            Some(_) => return Err(SolverError::NotWired("non-constant Exec Condition (elmer-expr)".into())),
-            None => {}
         }
         let intervals = match p.get("exec intervals").or_else(|| p.get("exec interval")) {
             Some(Value::Integer(v)) => Some(v.clone()),
@@ -908,6 +904,11 @@ impl Simulation {
                 dt = sizes[interval];
                 let t = self.vars.scalar("time").unwrap_or(0.0) + dt;
                 self.vars.set_scalar("time", t);
+                if timestep > 1 || interval > 0 {
+                    self.prev_sizes.pop();
+                    let old = self.vars.scalar("timestep size").unwrap_or(0.0);
+                    self.prev_sizes.insert(0, old);
+                }
                 self.vars.set_scalar("timestep size", dt);
                 self.vars.set_scalar("timestep interval", (interval + 1) as f64);
                 if !transient {

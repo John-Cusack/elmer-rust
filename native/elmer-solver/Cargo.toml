@@ -7,5 +7,8 @@ repository.workspace = true
 description = "Solver framework for the Rust-native Elmer: Simulation, SolverCtx, fields, norms, scheduling"
 
 [dependencies]
+elmer-assembly = { path = "../elmer-assembly" }
 elmer-core.workspace = true
+elmer-expr = { path = "../elmer-expr" }
+elmer-timeint = { path = "../elmer-timeint" }
 thiserror.workspace = true
