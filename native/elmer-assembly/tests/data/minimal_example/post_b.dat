@@ -1,0 +1,6 @@
+# Pristine ElmerSolver rhs after DefaultDirichletBCs
+# Binary: /home/john/runs/elmer-fork/orig_src/build/fem/src/ElmerSolver (Rev 9f6af2f85)
+# Case: case.sif with Linear System Save, Save Perm; default slot (solve)
+1 0.0
+2 0.0
+3   0.50000000000000000     

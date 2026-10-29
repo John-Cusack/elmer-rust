@@ -1,0 +1,6 @@
+# Pristine ElmerSolver Linear System Save Perm (node perm, 1-based, 0 = absent)
+# Binary: /home/john/runs/elmer-fork/orig_src/build/fem/src/ElmerSolver (Rev 9f6af2f85)
+# Case: case.sif with Linear System Save, Save Perm; slot assembly
+1 3
+2 2
+3 1
