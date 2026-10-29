@@ -8,9 +8,17 @@
 //!   (0, sqrt 3)): `TriangleSimplexRulePoints` (Integration.F90:1653) picks
 //!   a tabulated rule, mapped by `GaussPointsTriangle(n,
 //!   PReferenceElement=.TRUE.)` (Integration.F90:1742), and otherwise
-//!   `GaussPointsPTriangle` (Integration.F90:1689) collapses a quad rule.
+//!   `GaussPointsPTriangle` (Integration.F90:1689) collapses a quad rule;
+//! * wedges on the p reference element: `WedgeRulePoints`
+//!   (Integration.F90:2343), `GaussPointsWedge2` (triangle x line,
+//!   Integration.F90:2406), `GaussPointsWedgeEconomic`
+//!   (Integration.F90:2610) and `GaussPointsPWedge` (collapsed brick,
+//!   Integration.F90:2242), dispatched as `GaussPoints` does.
 
-use elmer_fe::quadrature::{gauss_points_quad, gauss_points_triangle, GaussRule};
+use elmer_fe::quadrature::{
+    gauss_points_1d, gauss_points_brick, gauss_points_quad, gauss_points_triangle,
+    gauss_points_wedge_economic, GaussRule,
+};
 
 use crate::Error;
 
@@ -67,6 +75,135 @@ pub fn triangle_simplex_rule_points(np: usize) -> usize {
         9 => 20,
         _ => 0,
     }
+}
+
+/// `WedgeRulePoints(np)`: the tabulated wedge rule for the degree an
+/// `np`-point tensor rule integrates (a triangle rule times a line rule, or
+/// a smaller economic rule), 0 when none is.
+pub fn wedge_rule_points(np: usize) -> usize {
+    let maxp = (np as f64).powf(1.0 / 3.0).round() as i64;
+    let deg = 2 * (maxp - 1).max(0) + 1;
+    let mtri = match deg {
+        i64::MIN..=1 => 1,
+        2 => 3,
+        3 => 4,
+        4 => 6,
+        5 => 7,
+        6 => 11,
+        7 => 12,
+        8 => 17,
+        9 => 20,
+        _ => 0,
+    };
+    if mtri == 0 {
+        return 0;
+    }
+    let nseg = ((deg + 1) / 2) as usize;
+    let m = mtri * nseg;
+    let mecon = match deg {
+        i64::MIN..=2 => 4,
+        3 => 7,
+        4 => 11,
+        5 => 15,
+        _ => 0,
+    };
+    if mecon > 0 {
+        m.min(mecon)
+    } else {
+        m
+    }
+}
+
+/// `GaussPointsPWedge(n)`: the `n`-point brick rule collapsed onto the p
+/// reference wedge.
+pub fn gauss_points_p_wedge(n: usize) -> Result<GaussRule, Error> {
+    let mut p = fe(gauss_points_brick(n))?;
+    let sqrt3 = 3.0f64.sqrt();
+    for i in 0..p.len() {
+        let (uh, vh, sh) = (p.u[i], p.v[i], p.s[i]);
+        p.u[i] = 1.0 / 2.0 * (uh - uh * vh);
+        p.v[i] = sqrt3 / 2.0 * (1.0 + vh);
+        p.s[i] = sh * sqrt3 * (1.0 - vh) / 4.0;
+    }
+    Ok(p)
+}
+
+/// `GaussPointsWedge2(m, n, PReferenceElement=.TRUE.)`: an `m`-point
+/// triangle rule times an `n`-point line rule on the p reference wedge, or
+/// the collapsed `n^3` brick rule when no `m`-point triangle rule exists.
+pub fn gauss_points_wedge2_p(m: usize, n: usize) -> Result<GaussRule, Error> {
+    if !triangle_rule_tabulated(m) {
+        return gauss_points_p_wedge(n * n * n);
+    }
+    // The raw triangle tables: elmer-fe halves the weights of the rules up
+    // to 7 points (exactly, a power of two).
+    let t = fe(gauss_points_triangle(m))?;
+    let line = fe(gauss_points_1d(n))?;
+    let sqrt3 = 3.0f64.sqrt();
+    let mut p = GaussRule::default();
+    for i in 0..m {
+        let (u, v) = (t.u[i], t.v[i]);
+        let uq = -1.0 + 2.0 * u + v;
+        let vq = sqrt3 * v;
+        let sq = if m <= 7 {
+            sqrt3 * (t.s[i] * 2.0)
+        } else {
+            sqrt3 * 2.0 * t.s[i]
+        };
+        for j in 0..n {
+            p.u.push(uq);
+            p.v.push(vq);
+            p.w.push(line.u[j]);
+            p.s.push(sq * line.s[j]);
+        }
+    }
+    Ok(p)
+}
+
+/// `GaussPointsWedgeEconomic(n, PReferenceElement=.TRUE.)`.
+pub fn gauss_points_wedge_economic_p(n: usize) -> Result<GaussRule, Error> {
+    // elmer-fe maps the raw tables with (x + 1) / 2 and s / 4 (exact).
+    let mut p = fe(gauss_points_wedge_economic(n))?;
+    let sqrt3 = 3.0f64.sqrt();
+    for i in 0..p.len() {
+        let (uq, vq, sq) = (p.u[i], p.v[i], p.s[i] * 4.0);
+        p.u[i] = -1.0 + 2.0 * uq + vq;
+        p.v[i] = sqrt3 * vq;
+        p.s[i] = sqrt3 * sq / 2.0;
+    }
+    Ok(p)
+}
+
+/// The rule `GaussPoints` gives a p wedge with `n` points: `np_given` is
+/// `GaussPoints(Element, np)` (the tabulated rules by `n` itself),
+/// otherwise `n = PDefs % GaussPoints` goes through `WedgeRulePoints`.
+pub fn p_wedge_rule(n: usize, np_given: bool) -> Result<GaussRule, Error> {
+    let mut n = n;
+    let mut tabulated = np_given;
+    if !tabulated {
+        let m = wedge_rule_points(n);
+        if m > 0 {
+            n = m;
+            tabulated = true;
+        }
+    }
+    if tabulated {
+        let nseg = match n {
+            1..=3 => n,
+            6 | 8 => 2,
+            12 | 18 | 21 => 3,
+            28 | 44 | 48 => 4,
+            85 | 100 => 5,
+            _ => 0,
+        };
+        if let Some(ntri) = n.checked_div(nseg) {
+            return gauss_points_wedge2_p(ntri, nseg);
+        }
+        if [4, 5, 7, 10, 11, 14, 15, 16, 24].contains(&n) {
+            return gauss_points_wedge_economic_p(n);
+        }
+    }
+    gauss_points_p_wedge(n)
 }
 
 /// `TriangleRuleTabulated(n)`: whether `n` is one of the tabulated
@@ -822,6 +959,52 @@ mod tests {
         assert_eq!(gauss_points_quad_p(16, false).unwrap().len(), 16);
         assert_eq!(gauss_points_quad_p(4, true).unwrap().len(), 4);
         assert!(gauss_points_quad_p(16, true).is_err());
+    }
+
+    /// Integral of `x^a y^b z^c` over a 3D rule.
+    fn moment3(r: &GaussRule, a: i32, b: i32, c: i32) -> f64 {
+        (0..r.len())
+            .map(|t| r.s[t] * r.u[t].powi(a) * r.v[t].powi(b) * r.w[t].powi(c))
+            .sum()
+    }
+
+    #[test]
+    fn p_wedge_rules_integrate_on_the_p_reference_wedge() {
+        // p reference wedge: the p triangle (area sqrt 3, centroid
+        // (0, 1/sqrt 3)) times [-1, 1].
+        let vol = 2.0 * 3.0f64.sqrt();
+        let counts = [
+            64, 44, 28, 27, 24, 21, 18, 16, 15, 14, 12, 11, 10, 8, 7, 6, 5,
+        ];
+        for np in counts {
+            let r = p_wedge_rule(np, true).unwrap();
+            assert!(
+                (moment3(&r, 0, 0, 0) - vol).abs() < 1e-12,
+                "np {np}: volume"
+            );
+            assert!(moment3(&r, 1, 0, 0).abs() < 1e-12, "np {np}: x");
+            assert!((moment3(&r, 0, 1, 0) - 2.0).abs() < 1e-12, "np {np}: y");
+            assert!(moment3(&r, 0, 0, 1).abs() < 1e-12, "np {np}: z");
+            // Every rule of 6 points or more integrates z^2 exactly.
+            if np >= 6 {
+                assert!(
+                    (moment3(&r, 0, 0, 2) - vol / 3.0).abs() < 1e-12,
+                    "np {np}: z^2"
+                );
+            }
+        }
+        // Without np, PDefs % GaussPoints goes through WedgeRulePoints.
+        // 27 points: degree 5, min(7 x 3, economic 15); 64: degree 7,
+        // 12 x 4; 125: degree 9, 20 x 5.
+        assert_eq!(wedge_rule_points(27), 15);
+        assert_eq!(wedge_rule_points(64), 48);
+        assert_eq!(wedge_rule_points(125), 100);
+        assert_eq!(p_wedge_rule(27, false).unwrap().len(), 15);
+        assert_eq!(p_wedge_rule(125, false).unwrap().len(), 100);
+        assert_eq!(
+            p_wedge_rule(13 * 13 * 13, false).unwrap().len(),
+            13 * 13 * 13
+        );
     }
 
     #[test]
