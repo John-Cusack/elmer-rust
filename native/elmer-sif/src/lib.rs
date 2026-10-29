@@ -14,9 +14,11 @@ pub mod lex;
 pub mod matc;
 pub mod model;
 pub mod parse;
+pub mod write;
 
 pub use adapters::section_to_param_map;
 pub use complete::complete;
 pub use error::SifError;
-pub use model::{Entry, Model, ProcNumeric, Section, Sif, Table, TableKind, Value};
+pub use model::{Entry, Model, NumberedSection, ProcNumeric, Section, Sif, Table, TableKind, Value};
 pub use parse::{ParseResult, parse_file};
+pub use write::{write_model, write_sif};
