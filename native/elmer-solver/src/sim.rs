@@ -270,6 +270,8 @@ pub struct Simulation {
     pub prev_sizes: Vec<f64>,
     /// The model view handed to user functions, once asked for.
     live: Option<Arc<LiveModel>>,
+    /// `SharedWarned` of `CalculateLoads`: warn about shared boundary dofs once.
+    pub(crate) flux_shared_warned: bool,
 }
 
 /// The run outcome of [`Simulation::run`].
@@ -314,6 +316,7 @@ impl Simulation {
             reference: ReferenceTally::default(),
             prev_sizes: vec![0.0; 5],
             live: None,
+            flux_shared_warned: false,
         }
     }
 
