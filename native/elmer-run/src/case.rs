@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use elmer_core::{normalize_key, Communicator, Logger, MeshView, ParamMap, Params, Value};
+use elmer_core::{normalize_key, Communicator, Logger, MeshView, ParamMap, Params, SerialComm, Value};
 use elmer_fe::{CoordinateKind, CoordinateSystem};
 use elmer_solver::{
     coupled::solver_for_mode, finalize_reference, solver::procedure_of, Model, RunReport, Simulation, SolverError, SolverRegistry,
@@ -373,7 +373,64 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
     if comm.size() > 1 {
         return Err(SolverError::Unsupported("more than one MPI rank".into()));
     }
+    run_case_with(case, log, &RunEnv { job: comm, globals: Vec::new() })
+}
+
+/// The parallel job a run belongs to when every rank solves its own copy of
+/// the whole mesh (`Single Mesh = True` under `ElmerSolver_mpi`): the
+/// `Simulation` itself stays serial, as Elmer's `Mesh % SingleMesh` makes
+/// it. From `job`'s rank and size, rank 0 writes `TEST.PASSED_<np>`, VTU
+/// output is named per partition with a `.pvtu` from rank 0 (`VtuFileNaming`
+/// with `Part`), and the `Partition` and `Parallel Slices` globals are set.
+/// `globals` are further global variables, set after those.
+pub struct RunEnv<'a> {
+    pub job: &'a dyn Communicator,
+    pub globals: Vec<(String, f64)>,
+}
+
+/// `ExecSimulation`'s run-time globals: `Partition` (ElmerSolver.F90:1774;
+/// only in a parallel job here, so serial cases keep their variable set)
+/// and, when `Parallel Slices` is given, one slice per rank: `slice`,
+/// `slice ratio` and `slice weight` (:2785-2875), with `Number Of Slices`
+/// and `Number Of Times` added to the Simulation section.
+fn job_globals(simulation: &mut ParamMap, rank: usize, size: usize) -> Result<Vec<(String, f64)>, SolverError> {
+    let mut out = Vec::new();
+    if size > 1 {
+        out.push(("partition".to_string(), rank as f64));
+    }
+    if simulation.get("parallel timestepping").is_some() {
+        return Err(SolverError::Unsupported("Simulation: Parallel Timestepping".into()));
+    }
+    if simulation.get("parallel slices").is_none() {
+        return Ok(out);
+    }
+    let slices = simulation.logical("parallel slices") == Some(true);
+    if slices && size > 1 && simulation.logical("single mesh") != Some(true) {
+        return Err(SolverError::fatal("ExecSimulation", "Parallel time and slices only available with \"Single Mesh\""));
+    }
+    let n = if slices { size } else { 1 };
+    if slices {
+        simulation.insert("Number Of Times", Value::Integer(vec![1]));
+        simulation.insert("Number Of Slices", Value::Integer(vec![n as i32]));
+    }
+    if n > 1 && simulation.get("extruded max coordinate").is_some() {
+        return Err(SolverError::Unsupported("Parallel Slices moved by Extruded Min/Max Coordinate".into()));
+    }
+    let (slice, ratio, weight) = if n <= 1 {
+        (0.0, 0.0, 1.0)
+    } else {
+        (rank as f64, (rank as f64 + 0.5) / n as f64 - 0.5, 1.0 / n as f64)
+    };
+    out.extend([("slice".to_string(), slice), ("slice ratio".to_string(), ratio), ("slice weight".to_string(), weight)]);
+    Ok(out)
+}
+
+/// [`run_case`] as one rank of `env.job`; see [`RunEnv`].
+pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Result<Outcome, SolverError> {
+    let (rank, size) = (env.job.rank(), env.job.size());
+    let comm: &dyn Communicator = if size == 1 { env.job } else { &SerialComm };
     let Case { mut model, reloads, mesh, case_dir, mesh_dir } = case;
+    let globals = job_globals(&mut model.simulation, rank, size)?;
     let fixture_case = fixture_case(&case_dir);
     let registry = solver_registry_for(&fixture_case);
     let transformed = transform_mesh(&mut model, mesh)?;
@@ -406,6 +463,9 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
         sim.backends.assembly = Some(Box::new(periodic));
     }
     sim.set_matc(Rc::new(SifMatc));
+    for (name, value) in globals.iter().chain(&env.globals) {
+        sim.vars.set_scalar(name, *value);
+    }
     elmer_fixtures::registry::install_live(&fixture_case, &mut sim, mesh);
     sim.setup(mesh, &registry, log, comm)?;
     check_mesh_velocity(&sim)?;
@@ -422,7 +482,7 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
             .iter_mut()
             .find(|s| s.id == id)
             .ok_or_else(|| SolverError::fatal("ResultOutputSolver", format!("no slot for Solver {id}")))?;
-        slot.set_instance(Box::new(out.into_solver(Arc::clone(&written))));
+        slot.set_instance(Box::new(out.into_solver(Arc::clone(&written)).in_job(rank, size)));
     }
     let mut report = sim.run(mesh, log, comm)?;
     for block in &reloads {
@@ -430,11 +490,55 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
         report = sim.run(mesh, log, comm)?;
     }
     let written = std::mem::take(&mut *written.lock().unwrap());
-    let passed = finalize_reference(&sim.reference, &case_dir, log, comm)?;
+    let passed = finalize_reference(&sim.reference, &case_dir, log, env.job)?;
     let norms = sim
         .slots
         .iter()
         .filter_map(|s| Some((s.id, sim.vars.by_id(s.variable?).conv.norm)))
         .collect();
     Ok(Outcome { report, norms, passed, written })
+}
+
+#[cfg(test)]
+mod job_globals_tests {
+    use super::*;
+
+    fn sim(entries: &[(&str, Value)]) -> ParamMap {
+        let mut p = ParamMap::new();
+        for (k, v) in entries {
+            p.insert(k, v.clone());
+        }
+        p
+    }
+
+    #[test]
+    fn serial_case_without_slices_gets_no_globals() {
+        let mut p = sim(&[]);
+        assert!(job_globals(&mut p, 0, 1).unwrap().is_empty());
+    }
+
+    #[test]
+    fn one_slice_per_rank() {
+        let mut p = sim(&[("Parallel Slices", Value::Logical(true)), ("Single Mesh", Value::Logical(true))]);
+        let g = job_globals(&mut p, 1, 4).unwrap();
+        let get = |n: &str| g.iter().find(|(k, _)| k == n).map(|(_, v)| *v);
+        assert_eq!(get("partition"), Some(1.0));
+        assert_eq!(get("slice"), Some(1.0));
+        assert_eq!(get("slice ratio"), Some(1.5 / 4.0 - 0.5));
+        assert_eq!(get("slice weight"), Some(0.25));
+        assert_eq!(p.integer("number of slices"), Some(4));
+    }
+
+    #[test]
+    fn serial_slices_are_slice_zero() {
+        let mut p = sim(&[("Parallel Slices", Value::Logical(true))]);
+        let g = job_globals(&mut p, 0, 1).unwrap();
+        assert_eq!(g, vec![("slice".into(), 0.0), ("slice ratio".into(), 0.0), ("slice weight".into(), 1.0)]);
+    }
+
+    #[test]
+    fn parallel_slices_need_single_mesh() {
+        let mut p = sim(&[("Parallel Slices", Value::Logical(true))]);
+        assert!(matches!(job_globals(&mut p, 0, 2), Err(SolverError::Fatal { .. })));
+    }
 }

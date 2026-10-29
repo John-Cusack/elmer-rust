@@ -26,6 +26,23 @@ At np=1 the binary reads the mesh DB itself, as `ElmerSolver_mpi` does.
 Rank 0 writes `TEST.PASSED_<np>` (`TEST.PASSED` at np=1). The exit codes
 are `elmer-cli`'s: 0 solved, 1 failed, 2 bad input, 78 refused.
 
+## Single Mesh
+
+With `Single Mesh = True`, every rank reads the whole mesh DB, and Elmer
+turns its parallel paths off (`Mesh % SingleMesh`). The case therefore runs
+on each rank through `elmer-run`'s serial composition, called with
+`elmer_run::run_case_with` and a `RunEnv` naming the job:
+
+- rank 0 writes `TEST.PASSED_<np>`;
+- VTU output is written per rank as `<base>_<np>np<rank+1>`, and rank 0
+  also writes a `.pvtu` that lists every piece;
+- the `Partition` global is set, and with `Parallel Slices` each rank gets
+  its own slice: `slice`, `slice ratio` and `slice weight`.
+
+Elmer also takes the maximum of the nonlinear change over the slices
+(`ComputeChange` when `Number Of Slices > 1`). That is not reproduced. It
+only matters when one slice would stop iterating earlier than another.
+
 ## Mesh Levels
 
 Each rank splits its own piece with `elmer-mesh-levels`. A new node is
@@ -49,9 +66,10 @@ elmer-mpi-run`.
 | Test | Verdict |
 |---|---|
 | AngleMetisLayer_np2, _np3, _np4 | match (`TEST.PASSED_N` = 1) |
+| ParallelSlices_np2 | match (`Single Mesh`, see above) |
 | HeatControlExplicit_np3 | error: its AlternatingSource plugin is not ported (the serial path stops the same way) |
 | poisson_transient_conforming_anti_np4 | refused: conforming BCs |
-| OtherMeshResults_np4, ParallelSlices_np2 | refused: ResultOutputSolver in parallel; serially also solver-specific meshes |
+| OtherMeshResults_np4 | refused: ResultOutputSolver in parallel; serially also solver-specific meshes |
 | passive_np3 | refused: passive elements |
 | radiation_np2, _np4 | refused: radiation |
 | CapacitanceMatrix3/4_np3, SD_CapacitanceMatrix3_np3 | refused: p-elements |

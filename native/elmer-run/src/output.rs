@@ -177,7 +177,7 @@ impl VtuOutput {
     /// The solver to install in this output's slot; it appends each file it
     /// writes to `written`.
     pub fn into_solver(self, written: Arc<Mutex<Vec<PathBuf>>>) -> VtuSolver {
-        VtuSolver { out: self, indexer: FileIndexer::new(), written }
+        VtuSolver { out: self, indexer: FileIndexer::new(), written, part: 0, parts: 1 }
     }
 }
 
@@ -186,18 +186,52 @@ pub struct VtuSolver {
     out: VtuOutput,
     indexer: FileIndexer,
     written: Arc<Mutex<Vec<PathBuf>>>,
+    /// This rank and the number of ranks writing pieces (`Part`, `ParEnv % PEs`).
+    part: usize,
+    parts: usize,
+}
+
+impl VtuSolver {
+    /// The pieces of rank `part` of `parts` ranks that each hold a whole
+    /// mesh (`Single Mesh`): `<base>_<np>np<part+1>.vtu`, and rank 0 also
+    /// writes the `.pvtu` listing every piece (`WritePvtuFile` with all
+    /// partitions active). One rank keeps the serial names.
+    pub fn in_job(mut self, part: usize, parts: usize) -> Self {
+        self.part = part;
+        self.parts = parts;
+        self
+    }
 }
 
 impl Solver for VtuSolver {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
         let opts = &self.out.opts;
         let index = self.indexer.advance(opts);
-        let naming = VtuNaming { no_fileindex: opts.no_fileindex, ..VtuNaming::default() };
-        let name = naming.file_name(&opts.output_file_name, ".vtu", index, None, false);
+        let naming = VtuNaming {
+            pes: self.parts,
+            no_fileindex: opts.no_fileindex,
+            parallel_base: opts.partition_numbering,
+            ..VtuNaming::default()
+        };
         std::fs::create_dir_all(&self.out.dir)?;
+        let variables = ElmerVariables::new(&ctx.sim.vars);
+        let part = if self.parts > 1 {
+            // VtuOutputSolver.F90:622-627 then :633: the .pvtu first.
+            if self.part == 0 {
+                let pvtu = self.out.dir.join(naming.file_name(&opts.output_file_name, ".pvtu", index, None, false));
+                let pieces: Vec<String> =
+                    (1..=self.parts).map(|p| naming.file_name(&opts.output_file_name, ".vtu", index, Some(p), true)).collect();
+                elmer_vtu::write_pvtu(&pvtu, &variables, opts, &pieces)?;
+                self.written.lock().unwrap().push(pvtu);
+            }
+            Some(self.part + 1)
+        } else {
+            None
+        };
+        let name = naming.file_name(&opts.output_file_name, ".vtu", index, part, false);
         let path = self.out.dir.join(name);
         let mapped = MappedTags { mesh: ctx.mesh, model: &ctx.sim.model };
-        elmer_vtu::write_vtu(&path, &mapped, &ElmerVariables::new(&ctx.sim.vars), opts)?;
+        elmer_vtu::write_vtu(&path, &mapped, &variables, opts)?;
         self.written.lock().unwrap().push(path);
         Ok(())
     }
