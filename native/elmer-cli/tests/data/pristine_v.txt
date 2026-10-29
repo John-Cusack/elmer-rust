@@ -1,0 +1,18 @@
+ELMER SOLVER (v 26.2) STARTED AT: 2026/10/29 10:32:11
+ Started inside library code
+ Going parallel initialization
+ParCommInit: Initialize #PEs: 1
+ Back from parallel initialization
+MAIN: 
+MAIN: =============================================================
+MAIN: ElmerSolver finite element software, Welcome!
+MAIN: This program is free software licensed under (L)GPL
+MAIN: Copyright April 1st 1995 -> , CSC - IT Center for Science Ltd.
+MAIN: Repository https://www.github.org/elmerCSC/elmerfem
+MAIN: Homepage https://www.elmerfem.org/,  Email elmeradm@csc.fi
+MAIN: Version: 26.2-devel (Rev: 9f6af2f85, Compiled: 2026-09-23)
+MAIN:  Running one task without MPI parallelization.
+MAIN:  Running with just one thread per task.
+MAIN: =============================================================
+SOLVER TOTAL TIME(CPU,REAL):         0.02        0.39
+ELMER SOLVER FINISHED AT: 2026/10/29 10:32:11
