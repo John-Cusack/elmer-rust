@@ -10,6 +10,7 @@ description = "Rust ports of Elmer quick-test local Fortran plugins (swarm decis
 elmer-core.workspace = true
 elmer-expr = { path = "../elmer-expr" }
 elmer-fe = { path = "../elmer-fe" }
+elmer-fe-hp = { path = "../elmer-fe-hp" }
 elmer-solver = { path = "../elmer-solver" }
 thiserror.workspace = true
 

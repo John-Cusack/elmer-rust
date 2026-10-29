@@ -5,6 +5,8 @@
 
 mod case;
 
+use std::path::Path;
+
 #[test]
 fn extruded_mesh_matches_pristine() {
     let dir = case::stage("ExtrudedMesh", None);
@@ -36,4 +38,22 @@ fn element_unit_test_h1_passes_all_twelve_runs() {
     let out = case::run("ElementUnitTest_h1", &dir, "case.sif").unwrap_or_else(|e| panic!("ElementUnitTest_h1: {e}"));
     assert!(out.log.contains("PASSED all 12 tests"), "{}", out.log);
     assert_eq!(out.passed, Some(true));
+}
+
+/// `ElementUnitTest_edge`, `_edge_piola` and `_edge_quadratic`: the
+/// Whitney, lowest-order Piola and second-order Piola edge bases on one
+/// element per visit, twelve `RUN` blocks each against the `.sif`'s
+/// reference values (the pristine runs with `SingleEdgeElements.so` pass
+/// all 12; `elmer-fe-hp`'s `edge_unit_norms` test checks the 17-digit
+/// values those runs print).
+#[test]
+fn element_unit_test_edge_cases_pass_all_twelve_runs() {
+    for name in ["ElementUnitTest_edge", "ElementUnitTest_edge_piola", "ElementUnitTest_edge_quadratic"] {
+        let dir = case::stage(name, None);
+        let mesh = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/meshes/unitelems_edge");
+        case::copy_dir(&mesh, &dir.join("unitelems"));
+        let out = case::run(name, &dir, "case.sif").unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(out.log.contains("PASSED all 12 tests"), "{name}\n{}", out.log);
+        assert_eq!(out.passed, Some(true), "{name}");
+    }
 }

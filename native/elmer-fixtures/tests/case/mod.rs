@@ -38,7 +38,7 @@ pub fn stage(case: &str, shared_mesh: Option<&str>) -> PathBuf {
     dst
 }
 
-fn copy_dir(src: &Path, dst: &Path) {
+pub fn copy_dir(src: &Path, dst: &Path) {
     std::fs::create_dir_all(dst).unwrap();
     for e in std::fs::read_dir(src).unwrap() {
         let e = e.unwrap();
