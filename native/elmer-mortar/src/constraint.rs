@@ -52,10 +52,12 @@ fn flag(p: &dyn Params, k: &str) -> bool {
 /// `GenerateConstraintMatrix` for the solver's mortar projectors
 /// (`projectors[i]` from boundary condition `i + 1`, as
 /// [`crate::generate_mortar_projectors`] returns them). Ported: a scalar
-/// field, each projector its own block of rows (no `Mortar BCs Additive`),
-/// `Minimum Projector Value`, nodal (`[D - P]`) and Galerkin projectors,
-/// and `Mortar BC <var> = False` to skip a boundary. Returns `None` when
-/// there is nothing to constrain.
+/// field, `Minimum Projector Value`, nodal (`[D - P]`) and Galerkin
+/// projectors, `Mortar BC <var> = False` to skip a boundary, and `Mortar
+/// BCs Additive`: one row per constrained node across all projectors, the
+/// contributions of every projector summed (`CRS_PackMatrix`), with
+/// `Projector Priority` deciding which boundary owns a shared node. Returns
+/// `None` when there is nothing to constrain.
 pub fn generate_constraint_matrix(
     bcs: &[&dyn Params],
     projectors: &[Option<Projector>],
@@ -81,45 +83,61 @@ pub fn generate_constraint_matrix(
             "Skip Already Constrained Dofs".into(),
         ));
     }
-    let additive = match s.logical("mortar bcs additive") {
+    let summed = match s.logical("mortar bcs additive") {
         Some(a) => a,
         None => {
             (bcount > 1 && flag(s, "eliminate linear constraints"))
                 || flag(s, "apply conforming bcs")
         }
     };
-    if additive {
-        return Err(MortarError::Unsupported(
-            "Mortar BCs Additive (summed projectors)".into(),
-        ));
-    }
     if t.dofs != 1 {
         return Err(MortarError::Unsupported(format!(
             "mortar constraints on a {}-component field",
             t.dofs
         )));
     }
-    if bcs.iter().any(|bc| bc.get("projector priority").is_some()) {
+    let mut any_priority = bcs.iter().any(|bc| bc.get("projector priority").is_some());
+    if any_priority && !summed {
         log.warn(CALLER, "Priority has effect only in additive mode!");
+        any_priority = false;
     }
     let eps = s.real("minimum projector value").unwrap_or(1.0e-8);
 
-    let mut c = ConstraintMatrix {
-        rows: vec![0],
-        cols: Vec::new(),
-        values: Vec::new(),
-        rhs: Vec::new(),
-        inv_perm: Vec::new(),
-    };
+    // The order the Fortran adds the projectors in: from the last boundary
+    // condition down, or by descending `Projector Priority * NumberOfBCs -
+    // bc` (`SortI` of BCPriority, read from the end).
+    let mut order: Vec<usize> = (0..projectors.len()).collect();
+    if any_priority {
+        let n = bcs.len() as i64;
+        let key = |i: usize| {
+            -(i as i64 + 1) + bcs[i].integer("projector priority").unwrap_or(0) as i64 * n
+        };
+        let (mut by_bc, rest): (Vec<usize>, Vec<usize>) =
+            order.into_iter().partition(|&i| i < bcs.len());
+        by_bc.sort_by_key(|&i| key(i));
+        order = by_bc;
+        order.extend(rest);
+    }
+
+    let mut rows: Vec<Vec<(u32, f64)>> = Vec::new();
+    let mut inv_perm: Vec<usize> = Vec::new();
+    let mut sum_perm: Vec<i64> = vec![0; t.n_rows];
+    let (mut eliminated, mut neglected) = (0usize, 0usize);
     let mut rowoffset = 0usize;
-    for (i, p) in projectors.iter().enumerate().rev() {
-        let Some(p) = p else { continue };
+    let mut prev_priority = -1i64;
+    for &i in order.iter().rev() {
+        let Some(p) = &projectors[i] else { continue };
         let bc = *bcs.get(i).ok_or_else(|| {
             MortarError::Unsupported(format!(
                 "mortar projector of body force {}",
                 i + 1 - bcs.len()
             ))
         })?;
+        let priority = if any_priority {
+            bc.integer("projector priority").unwrap_or(0) as i64
+        } else {
+            -1
+        };
         if flag(bc, "integral bc") {
             return Err(MortarError::Unsupported("Integral BC".into()));
         }
@@ -138,16 +156,134 @@ pub fn generate_constraint_matrix(
             &format!("Adding projector rows: {}", p.n_rows()),
             12,
         );
-        // A skipped boundary does not advance the row offset either.
+        // A skipped boundary does not advance the row offset or the
+        // previous priority either.
         if !bc.logical(&format!("mortar bc {}", t.name)).unwrap_or(true) {
             continue;
         }
-        add_scalar(&mut c, p, t, rowoffset, eps)?;
-        rowoffset += t.n_rows;
+        // MasterScale and SlaveScale keep their defaults (1).
+        let create_self = !p.galerkin;
+        if summed && create_self {
+            return Err(MortarError::Fatal(format!(
+                "{CALLER}: It is impossible to sum up nodal projectors!"
+            )));
+        }
+        let slot = |i: usize| -> Option<usize> {
+            if p.rows[i] == p.rows[i + 1] {
+                return None;
+            }
+            let k = p.inv_perm[i];
+            if k == NO_DOF {
+                return None;
+            }
+            let kk = t.perm[k as usize];
+            (kk != NO_DOF).then_some(kk as usize)
+        };
+
+        // Number the summed rows.
+        if summed {
+            for kk in (0..p.n_rows()).filter_map(slot) {
+                if sum_perm[kk] == 0 {
+                    rows.push(Vec::new());
+                    inv_perm.push(0);
+                    sum_perm[kk] = rows.len() as i64;
+                } else if priority != prev_priority && sum_perm[kk] < 0 {
+                    neglected += 1;
+                } else {
+                    eliminated += 1;
+                }
+            }
+        }
+
+        for i in 0..p.n_rows() {
+            let Some(kk) = slot(i) else { continue };
+            let row = if summed {
+                let row = sum_perm[kk];
+                if any_priority {
+                    if row < 0 {
+                        continue;
+                    }
+                    if priority != prev_priority {
+                        sum_perm[kk] = -row;
+                    }
+                }
+                if row <= 0 {
+                    return Err(MortarError::Fatal(format!(
+                        "{CALLER}: Invalid row index: {row}"
+                    )));
+                }
+                row as usize - 1
+            } else {
+                rows.push(Vec::new());
+                inv_perm.push(0);
+                rows.len() - 1
+            };
+            inv_perm[row] = rowoffset + kk;
+            let mut valsum = 0.0;
+            for v in &p.values[p.rows[i]..p.rows[i + 1]] {
+                valsum += v.abs();
+            }
+            let mut wsum = 0.0;
+            for (col, val) in p.row(i) {
+                if val.abs() < eps * valsum {
+                    continue;
+                }
+                let col2 = *t.perm.get(col as usize).ok_or_else(|| {
+                    MortarError::Fatal(format!(
+                        "{CALLER}: col index too large: {} vs {}",
+                        col + 1,
+                        t.perm.len()
+                    ))
+                })?;
+                if col2 == NO_DOF {
+                    continue;
+                }
+                wsum += val;
+                rows[row].push((col2, val));
+            }
+            if create_self {
+                rows[row].push((kk as u32, wsum));
+            }
+        }
+        if !summed {
+            rowoffset += t.n_rows;
+        }
+        prev_priority = priority;
     }
-    if c.cols.is_empty() {
+
+    if rows.iter().all(Vec::is_empty) {
         log.info(CALLER, "No entries in constraint matrix!", 8);
         return Ok(None);
+    }
+    if summed {
+        log.info(
+            CALLER,
+            &format!("Number of eliminated rows: {eliminated}"),
+            6,
+        );
+        if eliminated > 0 {
+            for r in &mut rows {
+                pack_row(r);
+            }
+        }
+    }
+    if neglected > 0 {
+        log.info(CALLER, &format!("Number of neglected rows: {neglected}"), 6);
+    }
+
+    let mut c = ConstraintMatrix {
+        rows: vec![0],
+        cols: Vec::new(),
+        values: Vec::new(),
+        rhs: vec![0.0; rows.len()],
+        inv_perm,
+    };
+    for r in rows {
+        for (col, v) in r {
+            c.cols.push(col);
+            c.values.push(v);
+        }
+        c.rows.push(c.cols.len());
     }
     log.info(
         CALLER,
@@ -157,59 +293,15 @@ pub fn generate_constraint_matrix(
     Ok(Some(c))
 }
 
-/// `AddScalarConstraint` without summing, diagonal, rhs or activity mask.
-fn add_scalar(
-    c: &mut ConstraintMatrix,
-    p: &Projector,
-    t: &ConstraintTarget<'_>,
-    rowoffset: usize,
-    eps: f64,
-) -> Result<(), MortarError> {
-    // MasterScale and SlaveScale keep their defaults (1).
-    let create_self = !p.galerkin;
-    for i in 0..p.n_rows() {
-        let r = p.rows[i]..p.rows[i + 1];
-        if r.is_empty() {
-            continue;
+/// `CRS_PackMatrix` on one row: repeated columns merged into their first
+/// occurrence, summed in order.
+fn pack_row(r: &mut Vec<(u32, f64)>) {
+    let mut out: Vec<(u32, f64)> = Vec::with_capacity(r.len());
+    for &(c, v) in r.iter() {
+        match out.iter_mut().find(|e| e.0 == c) {
+            Some(e) => e.1 += v,
+            None => out.push((c, v)),
         }
-        let k = p.inv_perm[i];
-        if k == NO_DOF {
-            continue;
-        }
-        let kk = t.perm[k as usize];
-        if kk == NO_DOF {
-            continue;
-        }
-        c.inv_perm.push(rowoffset + kk as usize);
-        let mut valsum = 0.0;
-        for v in &p.values[r.clone()] {
-            valsum += v.abs();
-        }
-        let mut wsum = 0.0;
-        for (col, val) in p.row(i) {
-            if val.abs() < eps * valsum {
-                continue;
-            }
-            let col2 = *t.perm.get(col as usize).ok_or_else(|| {
-                MortarError::Fatal(format!(
-                    "{CALLER}: col index too large: {} vs {}",
-                    col + 1,
-                    t.perm.len()
-                ))
-            })?;
-            if col2 == NO_DOF {
-                continue;
-            }
-            wsum += val;
-            c.cols.push(col2);
-            c.values.push(val);
-        }
-        if create_self {
-            c.cols.push(kk);
-            c.values.push(wsum);
-        }
-        c.rhs.push(0.0);
-        c.rows.push(c.cols.len());
     }
-    Ok(())
+    *r = out;
 }

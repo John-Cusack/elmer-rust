@@ -11,7 +11,11 @@
 //! elements (non-trivial weights from `GlobalToLocal`). `mortar_poisson2d`
 //! (MortarPoisson2D) has Galerkin projectors between nonmatching meshes,
 //! and its `Save Constraint Matrix` output (`cm*.dat`) checks the
-//! constraint matrix built from them.
+//! constraint matrix built from them. `mortar_sum2d` and
+//! `mortar_priority2d` are MortarPoisson2Dsum and MortarPoisson2Dpriority
+//! without `Plane Projector` (generic Galerkin projectors, rerun in pristine):
+//! four projectors summed into one constraint matrix (`Mortar BCs Additive`),
+//! the second with `Projector Priority`.
 
 mod support;
 
@@ -155,4 +159,14 @@ fn periodic_nonconforming_weights() {
 #[test]
 fn mortar_poisson2d_galerkin() {
     check_kind("mortar_poisson2d", Kind::Mortar);
+}
+
+#[test]
+fn mortar_sum2d_additive() {
+    check_kind("mortar_sum2d", Kind::Mortar);
+}
+
+#[test]
+fn mortar_priority2d_additive_priority() {
+    check_kind("mortar_priority2d", Kind::Mortar);
 }
