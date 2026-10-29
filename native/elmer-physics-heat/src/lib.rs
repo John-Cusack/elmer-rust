@@ -14,7 +14,9 @@
 //! time-integration lane forms `M/dt` itself (Elmer's `Default1stOrderTime`).
 //!
 //! [`HeatSolver`] wires the kernels into `elmer-solver`'s `Solver` trait and
-//! [`register`] binds it to `Procedure = "HeatSolve" "HeatSolver"`.
+//! [`register`] binds it to `Procedure = "HeatSolve" "HeatSolver"`; it
+//! evaluates properties with `elmer-expr` each nonlinear iteration, so
+//! temperature-dependent properties converge by Picard iteration.
 //!
 //! Supported: scalar, diagonal and full-tensor conductivity, constant or
 //! computed convection velocity (given at nodes) with plain Galerkin or SUPG

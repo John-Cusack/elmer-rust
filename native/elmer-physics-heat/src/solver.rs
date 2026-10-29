@@ -66,31 +66,35 @@ impl HeatSolver {
     }
 }
 
-/// A keyword that must be a constant scalar.
-fn const_real(p: &dyn Params, key: &str) -> Result<Option<f64>, SolverError> {
-    match p.get(key) {
+/// `ListGetElementReal` of a scalar keyword at the nodes of element `e`:
+/// constants, tables, MATC and procedures through `elmer-expr`, evaluated at
+/// the current iterate of the fields they depend on.
+fn real_at_nodes(
+    ctx: &SolverCtx<'_>,
+    p: Option<&ParamMap>,
+    key: &str,
+    e: ElemId,
+) -> Result<Option<Vec<f64>>, SolverError> {
+    match p {
+        Some(p) => ctx.real_at_nodes(p, key, e),
         None => Ok(None),
-        Some(Value::Real {
-            rows: 1,
-            cols: 1,
-            data,
-        }) => Ok(Some(data[0])),
-        Some(_) => Err(SolverError::Unsupported(format!(
-            "\"{key}\" must be a constant scalar (property evaluation is not wired)"
-        ))),
     }
 }
 
 /// `Heat Conductivity` by shape: 1x1 scalar, n x 1 diagonal, n x n full.
-fn conductivity(p: &dyn Params, n: usize) -> Result<Option<Conductivity>, SolverError> {
+/// A scalar may depend on fields; a tensor must be constant.
+fn conductivity(
+    ctx: &SolverCtx<'_>,
+    p: &ParamMap,
+    e: ElemId,
+    n: usize,
+) -> Result<Option<Conductivity>, SolverError> {
     let key = "Heat Conductivity";
     match p.get(key) {
         None => Ok(None),
-        Some(Value::Real { rows, cols, data }) => {
+        Some(Value::Real { rows, cols, data }) if rows * cols > 1 => {
             let (r, c) = (*rows, *cols);
-            if r == 1 && c == 1 {
-                Ok(Some(Conductivity::Scalar(vec![data[0]; n])))
-            } else if (2..=3).contains(&r) && c == 1 {
+            if (2..=3).contains(&r) && c == 1 {
                 let mut d = [0.0; 3];
                 d[..r].copy_from_slice(&data[..r]);
                 Ok(Some(Conductivity::Diagonal(vec![d; n])))
@@ -108,14 +112,11 @@ fn conductivity(p: &dyn Params, n: usize) -> Result<Option<Conductivity>, Solver
                 )))
             }
         }
-        Some(_) => Err(SolverError::Unsupported(format!(
-            "\"{key}\" must be constant (property evaluation is not wired)"
+        Some(Value::Dependent(d)) if d.rows * d.cols > 1 => Err(SolverError::Unsupported(format!(
+            "\"{key}\": a non-constant tensor"
         ))),
+        Some(_) => Ok(ctx.real_at_nodes(p, key, e)?.map(Conductivity::Scalar)),
     }
-}
-
-fn nodal(v: Option<f64>, n: usize) -> Option<Vec<f64>> {
-    v.map(|x| vec![x; n])
 }
 
 fn axisymmetric(ctx: &SolverCtx<'_>) -> Result<bool, SolverError> {
@@ -174,7 +175,10 @@ impl Solver for HeatSolver {
                 .is_some_and(|c| !c.eq_ignore_ascii_case("none"))
             {
                 return Err(SolverError::Unsupported(
-                    "Convection: element size hK for SUPG is not available from MeshView".into(),
+                    "Convection: SUPG needs Element % hK and Element % StabilizationMK \
+                     (StabParam, Stabilize.F90), which neither MeshView nor the element \
+                     basis provides yet"
+                        .into(),
                 ));
             }
         }
@@ -225,22 +229,27 @@ impl Solver for HeatSolver {
                     let bp = ctx.body_params(e).ok_or_else(|| {
                         SolverError::fatal(CALLER, format!("element {} has no body", e.0))
                     })?;
-                    let m = bp.material;
-                    let bf = bp.body_force;
-                    let get = |p: Option<&ParamMap>, key: &str| match p {
-                        Some(p) => const_real(p, key),
-                        None => Ok(None),
-                    };
+                    let (m, bf) = (bp.material, bp.body_force);
                     HeatMaterialAtNodes {
                         conductivity: match m {
-                            Some(m) => conductivity(m, n)?,
+                            Some(m) => conductivity(ctx, m, e, n)?,
                             None => None,
                         },
-                        density: nodal(get(m, "Density")?, n),
-                        heat_capacity: nodal(get(m, "Heat Capacity")?, n),
-                        heat_transfer_multiplier: nodal(get(m, "Heat Transfer Multiplier")?, n),
-                        heat_source: nodal(get(bf, "Heat Source")?, n),
-                        volumetric_heat_source: nodal(get(bf, "Volumetric Heat Source")?, n),
+                        density: real_at_nodes(ctx, m, "Density", e)?,
+                        heat_capacity: real_at_nodes(ctx, m, "Heat Capacity", e)?,
+                        heat_transfer_multiplier: real_at_nodes(
+                            ctx,
+                            m,
+                            "Heat Transfer Multiplier",
+                            e,
+                        )?,
+                        heat_source: real_at_nodes(ctx, bf, "Heat Source", e)?,
+                        volumetric_heat_source: real_at_nodes(
+                            ctx,
+                            bf,
+                            "Volumetric Heat Source",
+                            e,
+                        )?,
                         convection_velocity: None,
                     }
                 };
@@ -265,15 +274,16 @@ impl Solver for HeatSolver {
                     continue;
                 }
                 let bc = {
-                    let p = ctx.bc_params(e).expect("boundary_elements filters on BC");
-                    let n = dofs.len();
+                    let p = ctx.bc_params(e);
                     HeatBcAtNodes {
-                        heat_flux: nodal(const_real(p, "Heat Flux")?, n),
-                        heat_transfer_coefficient: nodal(
-                            const_real(p, "Heat Transfer Coefficient")?,
-                            n,
-                        ),
-                        external_temperature: nodal(const_real(p, "External Temperature")?, n),
+                        heat_flux: real_at_nodes(ctx, p, "Heat Flux", e)?,
+                        heat_transfer_coefficient: real_at_nodes(
+                            ctx,
+                            p,
+                            "Heat Transfer Coefficient",
+                            e,
+                        )?,
+                        external_temperature: real_at_nodes(ctx, p, "External Temperature", e)?,
                     }
                 };
                 if bc.heat_flux.is_none() && bc.heat_transfer_coefficient.is_none() {

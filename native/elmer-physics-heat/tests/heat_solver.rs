@@ -1,78 +1,24 @@
-//! `HeatSolver` end to end through `elmer-solver`'s `Simulation`, with
-//! test-local assembly, time-integration and direct-solver backends and the
-//! pristine ElmerSolver's solution as reference.
+//! `HeatSolver` end to end through `elmer-solver`'s `Simulation` (see
+//! `support::cases`), with the pristine ElmerSolver's solution as reference.
 
 mod support;
 
-use std::path::PathBuf;
-
-use elmer_core::{NullLogger, ParamMap, SerialComm, Value};
-use elmer_physics_heat::{install_fe, register};
-use elmer_solver::{Model, Simulation, SolverError, SolverRegistry};
-use support::backends::{BackwardEuler, DenseLu, SimMesh, TestAssembly};
+use elmer_core::{NullLogger, SerialComm, Value};
+use elmer_solver::Model;
+use support::backends::SimMesh;
+use support::cases::{data, direct, heat_solver, ints, max_diff, nodal, run, sec, simulation, st};
 use support::glue::{read_perm, read_vector};
 use support::meshio::read_elmer_mesh;
-use support::{TestBasis, TestQuadrature};
 
-fn data(case: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/data")
-        .join(case)
-}
-
-fn sec(entries: &[(&str, Value)]) -> ParamMap {
-    let mut p = ParamMap::new();
-    for (k, v) in entries {
-        p.insert(k, v.clone());
-    }
-    p
-}
-
-fn ints(v: &[i32]) -> Value {
-    Value::Integer(v.to_vec())
-}
-
-fn st(s: &str) -> Value {
-    Value::Str(s.into())
-}
-
-fn install() {
-    // Idempotent across tests in this binary.
-    let _ = install_fe(|| (Box::new(TestBasis), Box::new(TestQuadrature)));
-}
-
-fn run(model: Model, mesh: &SimMesh) -> Result<Simulation, SolverError> {
-    install();
-    let mut reg = SolverRegistry::new();
-    register(&mut reg);
-    let mut sim = Simulation::new(model);
-    sim.backends.assembly = Some(Box::new(TestAssembly));
-    sim.backends.time = Some(Box::new(BackwardEuler));
-    sim.backends
-        .linear
-        .register_direct("umfpack", |_| Ok(Box::new(DenseLu::default())));
-    sim.setup(mesh, &reg, &NullLogger, &SerialComm)?;
-    sim.run(mesh, &NullLogger, &SerialComm)?;
-    Ok(sim)
-}
-
-fn solver_section(extra: &[(&str, Value)]) -> ParamMap {
-    let mut v = vec![
-        ("Equation", st("heat equation")),
-        ("Procedure", st("\"HeatSolve\" \"HeatSolver\"")),
-        ("Variable", st("Temperature")),
-        ("Linear System Solver", st("Direct")),
-    ];
+fn solver_section(extra: &[(&str, Value)]) -> elmer_core::ParamMap {
+    let mut v = direct();
     v.extend(extra.iter().cloned());
-    sec(&v)
+    heat_solver("Temperature", &v)
 }
 
 /// Temperature by node.
-fn temperature(sim: &Simulation, n_nodes: usize) -> Vec<f64> {
-    let v = sim.vars.get("temperature").unwrap();
-    (0..n_nodes)
-        .map(|n| v.values[v.slot(n as u32).unwrap()])
-        .collect()
+fn temperature(sim: &elmer_solver::Simulation, n_nodes: usize) -> Vec<f64> {
+    nodal(sim, "temperature", n_nodes)
 }
 
 /// Fortran's solution dump, by node.
@@ -80,12 +26,6 @@ fn reference(case: &str) -> Vec<f64> {
     let perm = read_perm(&data(case).join("linsys_perm.dat"));
     let sol = read_vector(&data(case).join("linsys_sol.dat"));
     perm.iter().map(|&p| sol[p]).collect()
-}
-
-fn max_diff(a: &[f64], b: &[f64]) -> f64 {
-    a.iter()
-        .zip(b)
-        .fold(0.0, |m, (x, y)| f64::max(m, (x - y).abs()))
 }
 
 fn minimal_model() -> Model {
@@ -201,13 +141,9 @@ fn transient_step_applies_dt_once() {
 
 #[test]
 fn unsupported_cases_are_refused_at_setup() {
-    install();
     let mesh = SimMesh::new(read_elmer_mesh(&data("minimal_example"), 2));
     let try_model = |m: Model| {
-        let mut reg = SolverRegistry::new();
-        register(&mut reg);
-        let mut sim = Simulation::new(m);
-        sim.backends.assembly = Some(Box::new(TestAssembly));
+        let (mut sim, reg) = simulation(m);
         sim.setup(&mesh, &reg, &NullLogger, &SerialComm)
             .unwrap_err()
             .to_string()
@@ -220,5 +156,9 @@ fn unsupported_cases_are_refused_at_setup() {
     let mut m = minimal_model();
     m.equations[0].insert("Convection", st("Constant"));
     m.solvers[0].insert("Stabilize", Value::Logical(true));
-    assert!(try_model(m).contains("hK"));
+    assert!(try_model(m).contains("StabilizationMK"));
+
+    let mut m = minimal_model();
+    m.materials[0].insert("Heat Conductivity At IP", Value::Logical(true));
+    assert!(try_model(m).contains("At IP"));
 }
