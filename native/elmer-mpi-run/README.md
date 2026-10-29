@@ -12,6 +12,7 @@ code, this crate installs `elmer-solver` backends that do the parallel step:
 | `ParMesh` (partition reader `elmer-mpi`, ghost-first node order) | `LoadMesh` with `ParallelInfo` |
 | `ParAssembly::try_apply_dirichlet` | `EnforceDirichletConditions` parallel branch: `CommunicateDirichletBCs`, then rows scaled by the diagonal summed over ranks (`ScaleLinearSystem(ApplyScaling=.FALSE.)`) |
 | `linear_registry` → `elmer_dist::dist_solve` | `ParallelIter`: `ScaleLinearSystem` with `ParallelSumVector`, `SplitMatrix`, block-local preconditioner, HUTI on owned dofs |
+| `linear_registry` → `itermethod_solve` | the same, with BiCGStab(l), GCR or IDR(s) from `elmer-itermethods` in place of HUTI |
 | `levels::split` (`elmer-mesh-levels` per rank, then a collective numbering) | `SplitMeshEqual` with `SParEdgeNumbering` / `SParFaceNumbering` |
 | `prepare_slot` + `Norm Permutation` | `ComputeNorm` with `Nonlinear System Consistent Norm` (owned dofs only) |
 | `run_partitioned`, `MpiEngine`, `elmer-mpi-run` binary | `ElmerSolver_mpi` |
@@ -48,7 +49,8 @@ elmer-mpi-run`.
 | Test | Verdict |
 |---|---|
 | AngleMetisLayer_np2, _np3, _np4 | match (`TEST.PASSED_N` = 1) |
-| HeatControlExplicit_np3, poisson_transient_conforming_anti_np4 | refused: BiCGStab(l) in parallel; serially also AlternatingSource / conforming BCs |
+| HeatControlExplicit_np3 | error: its AlternatingSource plugin is not ported (the serial path stops the same way) |
+| poisson_transient_conforming_anti_np4 | refused: conforming BCs |
 | OtherMeshResults_np4, ParallelSlices_np2 | refused: ResultOutputSolver in parallel; serially also solver-specific meshes |
 | passive_np3 | refused: passive elements |
 | radiation_np2, _np4 | refused: radiation |
@@ -78,6 +80,29 @@ quick test's own command, `ElmerGrid 1 2 angle.grd -partdual -metis N 3
 0.16133448050272817 (taken from the full-precision `Output File`), to 1e-12
 relative. It must do the same with `Mesh Levels` 2 and 3; level 3 splits
 the new nodes of level 2 again.
+
+The same fixture is also solved with the IterativeMethods.F90 methods,
+each checked against a pristine serial run with that method:
+
+| Method | Preconditioner | np | Tolerance | Measured |
+|---|---|---|---:|---:|
+| BiCGStab(l), l = 4 | none | 1-4 | 1e-13 | ≤ 1.6e-15 |
+| GCR | diagonal | 2, 3 | 1e-13 | 1.7e-16 |
+| IDR(s) | none | 2, 3 | 1e-8 | ≤ 1.3e-9 |
+| BiCGStab(l), l = 4 | ILU(0) | 2, 4 | 1e-8 | ≤ 1.7e-9 |
+
+Without a preconditioner, or with the diagonal one, the parallel iterates
+equal the serial ones up to rounding. IDR(s) draws its random shadow space
+per rank. ILU(0) is factored on each rank's own block, so in parallel it
+acts as block Jacobi, as Elmer's parallel ILU does. Those two meet the
+serial norm only to about the linear tolerance.
+
+`tests/partitioned.rs` calls `mpirun --bind-to none`. With OpenMPI's
+default binding, every rank of an np ≤ 2 run, and every singleton's
+`orted`, is pinned to the same core. On a shared host that core can be
+saturated, and the run then never progresses. Set
+`OMPI_MCA_ess_singleton_isolated=1` when running a pristine serial
+ElmerSolver next to other MPI jobs.
 
 Measured without `Mesh Levels` on the quick test's own 2700-element mesh, against the pristine
 serial norm 0.16480021253114105:
@@ -122,7 +147,7 @@ Two additive hooks would remove these workarounds:
   partition: `SplitMeshEqual` drops boundary elements without a parent,
   serially as well.
 - Halo partitions (`-halo`), `Post File`/`ResultOutputSolver`, `RUN` blocks,
-  direct solvers, IterativeMethods.F90 methods (BiCGStab(l), GCR, IDR(s)),
+  direct solvers, the stationary methods (Jacobi, Richardson, SGS),
   complex, coupled and block systems, `Coordinate Mapping` other than
   `1 2 3`, and the `Mesh Levels` options `elmer-mesh-levels` refuses.
 - The other quick MPI tests at np ≤ 4 are refused by the serial path for

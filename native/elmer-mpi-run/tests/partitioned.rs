@@ -34,7 +34,7 @@ fn stage(name: &str) -> PathBuf {
 
 fn mpirun(np: usize, dir: &Path, sif: &str) -> Option<Output> {
     let mut cmd = Command::new("mpirun");
-    cmd.args(["--oversubscribe", "-np", &np.to_string(), RUN, sif])
+    cmd.args(["--oversubscribe", "--bind-to", "none", "-np", &np.to_string(), RUN, sif])
         .current_dir(dir)
         .env("HWLOC_COMPONENTS", "-gl")
         .env("OMP_NUM_THREADS", "1");
@@ -130,4 +130,57 @@ fn direct_solver_is_refused() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("Linear System Solver = direct in parallel"));
     assert!(!dir.join("TEST.PASSED_2").exists());
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// `case.sif` solved with another `Linear System Iterative Method` and
+/// preconditioner, against the pristine serial norm of that run.
+fn with_method(dir: &Path, method: &str, precond: &str, norm: &str, tol: &str) -> String {
+    let sif = std::fs::read_to_string(dir.join("case.sif")).unwrap()
+        .replace("Linear System Iterative Method = CG", &format!("Linear System Iterative Method = {method}"))
+        .replace("Linear System Preconditioning = none", &format!("Linear System Preconditioning = {precond}"))
+        .replace("Bicgstabl Polynomial Degree = 2", "Bicgstabl Polynomial Degree = 4")
+        .replace("Real 0.16133448050272817", &format!("Real {norm}"))
+        .replace("Tolerance = Real 1e-12", &format!("Tolerance = Real {tol}"));
+    let name = format!("{method}-{precond}.sif");
+    std::fs::write(dir.join(&name), sif).unwrap();
+    name
+}
+
+/// The IterativeMethods.F90 methods on the split matrix. Without a
+/// preconditioner (or with the diagonal one) the iterates are the serial
+/// ones up to rounding; IDR(s) draws its shadow space per rank and ILU(0)
+/// becomes block-local across ranks, so those meet the serial norm to the
+/// linear tolerance only, as Elmer's parallel runs do.
+fn method_passes(method: &str, precond: &str, norm: &str, tol: &str, nps: &[usize]) {
+    for &np in nps {
+        let dir = stage(&format!("{method}-{precond}-np{np}"));
+        let sif = with_method(&dir, method, precond, norm, tol);
+        let Some(out) = mpirun(np, &dir, &sif) else { return };
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "np={np}:\n{stdout}\n{}", String::from_utf8_lossy(&out.stderr));
+        let name = if np > 1 { format!("TEST.PASSED_{np}") } else { "TEST.PASSED".into() };
+        let verdict = std::fs::read_to_string(dir.join(&name)).unwrap_or_else(|e| panic!("{name}: {e}\n{stdout}"));
+        assert_eq!(verdict.trim(), "1", "{method}/{precond} np={np}:\n{stdout}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[test]
+fn bicgstabl() {
+    method_passes("BiCGStabl", "none", "0.16133448028182268", "1e-13", &[1, 2, 3, 4]);
+}
+
+#[test]
+fn gcr_diagonal() {
+    method_passes("GCR", "diagonal", "0.1613344805040867", "1e-13", &[2, 3]);
+}
+
+#[test]
+fn idrs() {
+    method_passes("IDRS", "none", "0.1613344806328535", "1e-8", &[2, 3]);
+}
+
+#[test]
+fn bicgstabl_block_ilu0() {
+    method_passes("BiCGStabl", "ILU0", "0.16133448045348997", "1e-8", &[2, 4]);
 }
