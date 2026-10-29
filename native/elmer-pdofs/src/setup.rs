@@ -86,6 +86,18 @@ pub fn global_bubbles_with(solver: &dyn Params, facts: &ModelFacts<'_>) -> bool 
     gb
 }
 
+/// Another solver on the same mesh: Elmer sizes the mesh's p tables
+/// (`inDofs`, `NonNodalElements`) from the definitions of every solver.
+pub struct OtherSolver<'a> {
+    /// 1-based solver id (`Solver % SolverId`).
+    pub id: usize,
+    pub section: &'a dyn Params,
+    /// `Element{id}` of equation `q`.
+    pub equation_element: &'a dyn Fn(usize) -> Option<String>,
+    /// `Solver id: Element` of body `b`.
+    pub body_element: &'a dyn Fn(usize) -> Option<String>,
+}
+
 /// The model facts [`PSetup::new`] needs besides the keywords.
 pub struct ModelFacts<'a> {
     /// Number of bodies.
@@ -111,6 +123,12 @@ pub struct ModelFacts<'a> {
     pub boundary_body: &'a dyn Fn(usize) -> i32,
     /// MATC evaluation for `p:%function` degrees.
     pub matc_degree: &'a mut MatcDegree<'a>,
+    /// This solver's 1-based id (0 when unknown), which orders it among
+    /// [`ModelFacts::other_solvers`].
+    pub solver_id: usize,
+    /// The other solvers on the mesh (those without their own `Mesh`); empty
+    /// sizes the mesh from this solver alone.
+    pub other_solvers: &'a [OtherSolver<'a>],
 }
 
 /// A solver's p mesh, element definitions and system pattern.
@@ -129,8 +147,10 @@ impl PSetup {
     /// The setup of one solver with `dofs` components on `mesh`, from its
     /// own `Element`, the equations' `Element` / `Element{id}` and the
     /// bodies' `Solver id: Element` with Elmer's precedence
-    /// (`NonNodalElements`). Only this solver's definitions shape the mesh
-    /// tables (Elmer takes the maximum over all solvers on the mesh).
+    /// (`NonNodalElements`). The mesh tables (edge and face DOF counts,
+    /// bubbles, Gauss points) take the maximum over this solver and
+    /// [`ModelFacts::other_solvers`], as Elmer's `inDofs`; the Perm and the
+    /// basis use this solver's own definitions.
     pub fn new(
         mesh: &dyn MeshView,
         solver: &dyn Params,
@@ -142,22 +162,62 @@ impl PSetup {
             return Err(Error::Unsupported("Discontinuous Galerkin".into()));
         }
         let def = solver.string("element");
-        let mut max = initial_max_defs();
-        let mut defs = ElementDefs::from_solver_element(def, facts.n_bodies, false, &mut max)?;
         let need_edges = match mesh.dim() {
             2 => simulation.logical("need edges 2d"),
             3 => simulation.logical("need edges 3d"),
             _ => None,
         };
         let gb = global_bubbles_with(solver, &facts);
-        let mut pm = {
-            let mut solvers = [SolverElements {
-                defs: &mut defs,
-                element: def,
-                dg: false,
-                body_element: facts.body_solver_element,
-                equation_element: facts.equation_solver_element,
-            }];
+        // LoadModel's Def_Dofs of every solver, in solver order, and the
+        // maximum over them; this solver is the one at `me`.
+        struct Entry<'s> {
+            id: usize,
+            me: bool,
+            element: Option<&'s str>,
+            dg: bool,
+            body_element: &'s dyn Fn(usize) -> Option<String>,
+            equation_element: &'s dyn Fn(usize) -> Option<String>,
+        }
+        let mut entries = vec![Entry {
+            id: facts.solver_id,
+            me: true,
+            element: def,
+            dg: false,
+            body_element: facts.body_solver_element,
+            equation_element: facts.equation_solver_element,
+        }];
+        for o in facts.other_solvers {
+            entries.push(Entry {
+                id: o.id,
+                me: false,
+                element: o.section.string("element"),
+                dg: o.section.logical("discontinuous galerkin") == Some(true),
+                body_element: o.body_element,
+                equation_element: o.equation_element,
+            });
+        }
+        entries.sort_by_key(|e| e.id);
+        let me = entries
+            .iter()
+            .position(|e| e.me)
+            .expect("this solver is listed");
+        let mut max = initial_max_defs();
+        let mut all_defs = entries
+            .iter()
+            .map(|e| ElementDefs::from_solver_element(e.element, facts.n_bodies, e.dg, &mut max))
+            .collect::<Result<Vec<_>, _>>()?;
+        let pm = {
+            let mut solvers: Vec<SolverElements<'_>> = entries
+                .iter()
+                .zip(all_defs.iter_mut())
+                .map(|(e, defs)| SolverElements {
+                    defs,
+                    element: e.element,
+                    dg: e.dg,
+                    body_element: e.body_element,
+                    equation_element: e.equation_element,
+                })
+                .collect();
             PMesh::new(
                 mesh,
                 &mut solvers,
@@ -174,6 +234,8 @@ impl PSetup {
                 },
             )?
         };
+        let mut pm = pm;
+        let defs = all_defs.swap_remove(me);
         let bubbles = solver.logical("bubbles").unwrap_or(false);
         let opts = PermOptions {
             optimize_bandwidth: solver.logical("optimize bandwidth").unwrap_or(true),

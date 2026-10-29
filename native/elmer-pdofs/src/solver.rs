@@ -21,7 +21,7 @@ use elmer_solver::{
     DofsBackend, Model, Perm, Solver, SolverCtx, SolverDofs, SolverError, SolverRegistry,
 };
 
-use crate::setup::{is_p_section, ModelFacts, PSetup};
+use crate::setup::{is_p_section, ModelFacts, OtherSolver, PSetup};
 use crate::Error;
 
 fn unsupported(e: Error) -> SolverError {
@@ -268,6 +268,39 @@ impl PDofsBackend {
                 ))),
             }
         };
+        // The other solvers on this mesh (LoadModel's Def_Dofs of each feed
+        // NonNodalElements' inDofs); solvers with their own `Mesh` are not.
+        let others: Vec<(usize, OtherDefs<'_>)> = model
+            .solvers
+            .iter()
+            .enumerate()
+            .map(|(i, _)| i + 1)
+            .filter(|&id| id != other.id && model.solvers[id - 1].get("mesh").is_none())
+            .map(|id| (id, OtherDefs { model, id }))
+            .collect();
+        let eq_fns: Vec<Box<dyn Fn(usize) -> Option<String> + '_>> = others
+            .iter()
+            .map(|(_, o)| {
+                Box::new(move |q| o.equation_solver_element(q))
+                    as Box<dyn Fn(usize) -> Option<String>>
+            })
+            .collect();
+        let body_fns: Vec<Box<dyn Fn(usize) -> Option<String> + '_>> = others
+            .iter()
+            .map(|(_, o)| {
+                Box::new(move |b| o.body_solver_element(b)) as Box<dyn Fn(usize) -> Option<String>>
+            })
+            .collect();
+        let other_solvers: Vec<OtherSolver<'_>> = others
+            .iter()
+            .zip(eq_fns.iter().zip(&body_fns))
+            .map(|((id, _), (eq, body))| OtherSolver {
+                id: *id,
+                section: &model.solvers[id - 1],
+                equation_element: &**eq,
+                body_element: &**body,
+            })
+            .collect();
         let setup = PSetup::new(
             mesh,
             solver,
@@ -283,6 +316,8 @@ impl PDofsBackend {
                 active: &|e: ElemId| is_active[e.0 as usize],
                 boundary_body: &|_| 0,
                 matc_degree: &mut matc_degree,
+                solver_id: other.id,
+                other_solvers: &other_solvers,
             },
             dofs,
         )
