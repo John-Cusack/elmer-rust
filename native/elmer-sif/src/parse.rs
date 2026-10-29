@@ -1152,8 +1152,12 @@ mod tests {
     use super::*;
 
     fn parse_text(sif: &str) -> Result<ParseResult, SifError> {
+        // One file per call: the test harness runs these in parallel threads
+        // of one process, so the process id alone is shared.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut p = std::env::temp_dir();
-        p.push(format!("elmer_sif_test_{}.sif", std::process::id()));
+        p.push(format!("elmer_sif_test_{}_{n}.sif", std::process::id()));
         std::fs::write(&p, sif).unwrap();
         let r = parse_file(p.to_str().unwrap());
         let _ = std::fs::remove_file(&p);
