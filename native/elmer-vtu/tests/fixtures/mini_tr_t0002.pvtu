@@ -1,0 +1,14 @@
+<VTKFile type="PUnstructuredGrid" version="0.1" byte_order="LittleEndian">
+  <PUnstructuredGrid>
+    <PPointData Scalars="temperature">
+      <PDataArray type="Float64" Name="temperature" NumberOfComponents="1" format="ascii"/>
+    </PPointData>
+    <PCellData>
+      <PDataArray type="Int32" Name="GeometryIds" format="ascii"/>
+    </PCellData>
+    <PPoints>
+      <DataArray type="Float64" NumberOfComponents="3" format="ascii"/>
+    </PPoints>
+    <Piece Source="case_t0002.vtu"/>
+  </PUnstructuredGrid>
+</VTKFile>

@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<VTKFile type="UnstructuredGrid" version="0.1" byte_order="LittleEndian">
+  <UnstructuredGrid>
+    <Piece NumberOfPoints="3" NumberOfCells="4">
+      <PointData>
+        <DataArray type="Float64" Name="temperature" NumberOfComponents="1" format="ascii">
+  4.6875000E-001 0.0 0.0
+        </DataArray>
+      </PointData>
+      <CellData>
+        <DataArray type="Int32" Name="GeometryIds" format="ascii">
+ 1 100 101 102
+        </DataArray>
+      </CellData>
+      <Points>
+        <DataArray type="Float64" NumberOfComponents="3" format="ascii">
+ 0.0 0.0 0.0  1.0000000E+000 0.0 0.0 0.0  1.0000000E+000 0.0
+        </DataArray>
+      </Points>
+      <Cells>
+        <DataArray type="Int32" Name="connectivity" format="ascii">
+ 0 1 2 0 1 1 2 2 0
+        </DataArray>
+        <DataArray type="Int32" Name="offsets" format="ascii">
+ 3 5 7 9
+        </DataArray>
+        <DataArray type="Int32" Name="types" FORMAT="ascii">
+ 5 3 3 3
+        </DataArray>
+      </Cells>
+    </Piece>
+  </UnstructuredGrid>
+</VTKFile>
