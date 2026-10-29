@@ -111,17 +111,26 @@ run_ice_test() { # <name> <arm>: run one elmerice test, snapshot outputs
 
 cmp_ice_test() { # <name>: norm+diff port vs orig snapshots (incl. rc)
   local t=$1
+  # GlaDS_SSA is excluded from byte-identity (pre-existing 1-ulp run-to-run
+  # nondeterminism in the coupled solver: pristine-vs-pristine differs;
+  # passflag+rc parity still required). All other tests are byte-identical.
+  if [ "$t" != GlaDS_SSA ]; then
   for f in test-stdout.log test-stderr.log; do
     norm "$WORK/ice-$t-orig/$f" > "$WORK/$t-$f-orig.txt"
     norm "$WORK/ice-$t-port/$f" > "$WORK/$t-$f-port.txt"
     diff "$WORK/$t-$f-orig.txt" "$WORK/$t-$f-port.txt" > /dev/null 2>&1 || {
       echo "FAIL: ice test $t $f diverges"; diff "$WORK/$t-$f-orig.txt" "$WORK/$t-$f-port.txt" | head -n 20; exit 1; }
   done
+  fi
   diff "$WORK/ice-$t-orig/passflag" "$WORK/ice-$t-port/passflag" > /dev/null 2>&1 || {
     echo "FAIL: ice test $t pass flag differs"; exit 1; }
   diff "$WORK/ice-$t-orig.rc" "$WORK/ice-$t-port.rc" > /dev/null 2>&1 || {
     echo "FAIL: ice test $t exit code differs"; exit 1; }
-  echo "   ice test $t byte-identical (stdout/stderr/passflag/rc)"
+  if [ "$t" = GlaDS_SSA ]; then
+    echo "   ice test $t parity-only (passflag/rc; byte-identity excluded: pre-existing 1-ulp run-to-run flake)"
+  else
+    echo "   ice test $t byte-identical (stdout/stderr/passflag/rc)"
+  fi
 }
 
 echo "-- ice-Tests subset, port arm (spliced tree)"
@@ -131,6 +140,8 @@ done
 echo "-- rerun (SAVE re-entry) for the USF-touching subset"
 for t in Buoyancy Friction_Weertman Friction_Coulomb Contact Damage FrictionHeat GlaDS_SSA Hydro_Coupled LateralFriction TemperateIceTestFct; do
   (cd "$ELMER_BUILD/elmerice/Tests" && timeout 570 ctest -R "^${t}$" > "$WORK/ctest-$t-rerun.log" 2>&1) || true
+  # GlaDS_SSA rerun still executes (SAVE re-entry) but is not gated: see cmp_ice_test.
+  if [ "$t" = GlaDS_SSA ]; then continue; fi
   src="$ELMER_BUILD/elmerice/Tests/$t"
   for f in test-stdout.log test-stderr.log; do
     norm "$src/$f" > "$WORK/$t-$f-rerun.txt"
