@@ -11,3 +11,10 @@ elmer-core.workspace = true
 thiserror.workspace = true
 elmer-solver = { path = "../elmer-solver" }
 elmer-expr = { path = "../elmer-expr" }
+
+[dev-dependencies]
+# The p-element end-to-end check: p dofs (Backends::dofs), the nodal
+# Lagrange basis for install_fe, and the case's .sif.
+elmer-pdofs = { path = "../elmer-pdofs" }
+elmer-fe = { path = "../elmer-fe" }
+elmer-sif = { path = "../elmer-sif" }
