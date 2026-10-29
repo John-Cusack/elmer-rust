@@ -9,7 +9,10 @@ pub enum LinalgError {
     #[error("unsupported: {0}")]
     Unsupported(String),
     #[error("breakdown in {method}: {detail}")]
-    Breakdown { method: &'static str, detail: String },
+    Breakdown {
+        method: &'static str,
+        detail: String,
+    },
     #[error("singular matrix at row {0}")]
     Singular(usize),
     #[error("dimension mismatch: {0}")]

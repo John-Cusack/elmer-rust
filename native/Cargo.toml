@@ -26,7 +26,3 @@ proptest = "1"
 quick-xml = "0.39"
 base64 = "0.22"
 bytemuck = "1"
-
-# `elmer-core` above is consumed by lanes that are not merged yet.
-[workspace.lints.cargo]
-unused_workspace_dependencies = "allow"

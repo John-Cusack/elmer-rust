@@ -40,9 +40,16 @@ pub struct Dependent {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum DependentKind {
-    Table { x: Vec<f64>, y: Vec<f64>, cubic: bool },
+    Table {
+        x: Vec<f64>,
+        y: Vec<f64>,
+        cubic: bool,
+    },
     Matc(String),
-    Procedure { library: String, entry: String },
+    Procedure {
+        library: String,
+        entry: String,
+    },
     Lua(String),
 }
 
