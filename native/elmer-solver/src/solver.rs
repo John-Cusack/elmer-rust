@@ -472,6 +472,10 @@ impl<'a> SolverCtx<'a> {
 
     /// `DefaultUpdateEquations`: add a local system at element `e`'s dofs.
     pub fn default_update(&mut self, local: &LocalSystem, e: ElemId) -> Result<(), SolverError> {
+        // UpdateGlobalEquations: a passive element adds nothing.
+        if self.is_passive(e)? {
+            return Ok(());
+        }
         let mut idx = Vec::new();
         self.element_slots(e, &mut idx);
         let sim = &mut *self.sim;
@@ -606,10 +610,87 @@ impl<'a> SolverCtx<'a> {
         Ok(fixed.into_iter().collect())
     }
 
+    /// `CheckPassiveElement` (ElementGeometry.F90:341): a bulk element whose
+    /// body force gives `<var> Passive` is passive when the value is
+    /// positive at all of its nodes; at some of them, when `Passive Element
+    /// Min Nodes` or `Active Element Min Nodes` (solver, else body force)
+    /// says so, else when at more than half.
+    pub fn is_passive(&self, e: ElemId) -> Result<bool, SolverError> {
+        let Some(id) = self.sim.slots[self.slot].variable else { return Ok(false) };
+        if (e.0 as usize) >= self.mesh.n_bulk() {
+            return Ok(false);
+        }
+        let key = format!("{} passive", self.sim.vars.by_id(id).name);
+        if !self.sim.model.body_forces.iter().any(|b| b.get(&key).is_some()) {
+            return Ok(false);
+        }
+        let Some(bf) = self.body_params(e).and_then(|b| b.body_force) else { return Ok(false) };
+        let Some(vals) = self.real_at_nodes(bf, &key, e)? else { return Ok(false) };
+        let n = vals.len();
+        let pass = vals.iter().filter(|&&v| v > 0.0).count();
+        let min = |k: &str| self.params().integer(k).or_else(|| bf.integer(k)).filter(|&m| m > 0);
+        Ok(if pass == 0 {
+            false
+        } else if pass == n {
+            true
+        } else if let Some(m) = min("passive element min nodes") {
+            pass >= m as usize
+        } else if let Some(m) = min("active element min nodes") {
+            pass > n - (m as usize).min(n)
+        } else {
+            2 * pass > n
+        })
+    }
+
+    /// `DefaultDirichletBCs`' passive part (BoundaryConditionUtils.F90:941):
+    /// a node of a passive element that no other active element has keeps
+    /// its current value, unless a condition already fixes it.
+    fn passive_values(&self, fixed: &mut BTreeMap<u32, f64>) -> Result<(), SolverError> {
+        let Some(id) = self.sim.slots[self.slot].variable else { return Ok(()) };
+        let v = self.sim.vars.by_id(id);
+        let key = format!("{} passive", v.name);
+        if !self.sim.model.body_forces.iter().any(|b| b.get(&key).is_some()) {
+            return Ok(());
+        }
+        if self.sim.model.boundary_conditions.iter().any(|b| b.logical("passive target") == Some(true)) {
+            return Err(SolverError::Unsupported("Passive Target (GetPassiveBoundary)".into()));
+        }
+        let active: Vec<ElemId> = self.active_elements().collect();
+        let mut passive = Vec::with_capacity(active.len());
+        let mut used = vec![false; self.mesh.n_nodes()];
+        for &e in &active {
+            let p = self.is_passive(e)?;
+            if !p {
+                for &k in self.mesh.element(e).nodes {
+                    used[k as usize] = true;
+                }
+            }
+            passive.push(p);
+        }
+        for (&e, &p) in active.iter().zip(&passive) {
+            if !p {
+                continue;
+            }
+            for &k in self.mesh.element(e).nodes {
+                if used[k as usize] {
+                    continue;
+                }
+                let Some(s) = v.slot(k) else { continue };
+                for l in 0..v.dofs {
+                    let d = (s * v.dofs + l) as u32;
+                    fixed.entry(d).or_insert(v.values[d as usize]);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// `DefaultDirichletBCs` + `EnforceDirichletConditions`.
     pub fn default_dirichlet(&mut self) -> Result<(), SolverError> {
         self.default_finish_boundary_assembly()?;
-        let fixed = self.dirichlet_values()?;
+        let mut fixed: BTreeMap<u32, f64> = self.dirichlet_values()?.into_iter().collect();
+        self.passive_values(&mut fixed)?;
+        let fixed: Vec<(u32, f64)> = fixed.into_iter().collect();
         self.lumped_rows()?;
         let sim = &mut *self.sim;
         let backend = sim

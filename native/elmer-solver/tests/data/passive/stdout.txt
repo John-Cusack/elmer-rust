@@ -1,0 +1,25 @@
+ComputeChange: NS (ITER=1) (NRM,RELC): (  6.2087250      2.0000000     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  6.2087250      2.0000000     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): (  6.2087250     0.30754450E-10 ) :: heat equation
+ComputeChange: SS (ITER=2) (NRM,RELC): (  6.2087250     0.30754450E-10 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): (  8.1368949     0.26881653     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  8.1368949     0.26881653     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): (  8.1368949     0.12076850E-11 ) :: heat equation
+ComputeChange: SS (ITER=2) (NRM,RELC): (  8.1368949     0.12076850E-11 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): (  8.4643633     0.39451030E-01 ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  8.4643633     0.39451030E-01 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): (  8.4643633     0.14456834E-10 ) :: heat equation
+ComputeChange: SS (ITER=2) (NRM,RELC): (  8.4643633     0.14456834E-10 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): (  8.3847046     0.94555598E-02 ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  8.3847046     0.94555598E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): (  8.3847046     0.64371211E-10 ) :: heat equation
+ComputeChange: SS (ITER=2) (NRM,RELC): (  8.3847046     0.64371211E-10 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): (  8.3031089     0.97790775E-02 ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  8.3031089     0.97790775E-02 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): (  8.3031089     0.77242590E-11 ) :: heat equation
+ComputeChange: SS (ITER=2) (NRM,RELC): (  8.3031089     0.77242590E-11 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): (  7.2422576     0.13648456     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  7.2422576     0.13648456     ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): (  7.2422576     0.49264678E-10 ) :: heat equation
+ComputeChange: SS (ITER=2) (NRM,RELC): (  7.2422576     0.49264678E-10 ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 7.24225765E+00  RefNorm = 7.24225765E+00
