@@ -51,10 +51,10 @@ fn sif_model(path: &std::path::Path) -> Model {
 
 /// Runs `case` (`tests/data/<case>/case.sif` on the `mesh` directory's
 /// mesh) and checks dofs, norm and the `case.result` values.
-fn run_case(case: &str, mesh: &str, n_dofs: usize, run_norm: f64, reference: f64) {
+fn run_case(case: &str, (mesh, dim): (&str, usize), n_dofs: usize, run_norm: f64, reference: f64) {
     let dir = data_dir(case);
     let model = sif_model(&dir.join("case.sif"));
-    let mesh = TestMesh::read(&data_dir(mesh), 2);
+    let mesh = TestMesh::read(&data_dir(mesh), dim);
     let mut reg = SolverRegistry::new();
     register_poisson_pfem(&mut reg);
     let mut sim = Simulation::new(model);
@@ -92,7 +92,7 @@ fn run_case(case: &str, mesh: &str, n_dofs: usize, run_norm: f64, reference: f64
 fn poisson_pfem_runs_through_the_solver_framework() {
     run_case(
         "poisson_pfem",
-        "poisson_pfem",
+        ("poisson_pfem", 2),
         441,
         1.96743752e-2,
         0.19674375e-1,
@@ -105,7 +105,7 @@ fn poisson_pfem_runs_through_the_solver_framework() {
 fn sd_poisson_pfem_runs_through_the_solver_framework() {
     run_case(
         "sd_poisson_pfem",
-        "poisson_pfem",
+        ("poisson_pfem", 2),
         341,
         2.23542169e-2,
         0.223544023689e-1,
@@ -119,5 +119,40 @@ fn sd_poisson_pfem_runs_through_the_solver_framework() {
 #[test]
 fn triangles_p3_run_through_the_solver_framework() {
     // The run printed 0.13356115E-01; this is the norm of its case.result.
-    run_case("tri_p3", "tri_p3", 961, 0.013356115428399276, 0.13356115e-1);
+    run_case(
+        "tri_p3",
+        ("tri_p3", 2),
+        961,
+        0.013356115428399276,
+        0.13356115e-1,
+    );
+}
+
+/// The same plugin on 3x3x3 bricks with `p:3` (full elements; a lane-made
+/// variant, see `tests/data/README.md`): 64 nodes + 144 edges x 2 + 108
+/// faces x 4 + 27 bubbles x 8, faces oriented by `getSquareFaceDirection`.
+#[test]
+fn bricks_p3_run_through_the_solver_framework() {
+    // The run printed 0.23399267E-01; this is the norm of its case.result.
+    run_case(
+        "brick_p3",
+        ("brick_p3", 3),
+        1000,
+        0.023399266709645154,
+        0.23399267e-1,
+    );
+}
+
+/// Serendipity bricks with `p:4` on the `brick_p3` mesh: 64 nodes + 144
+/// edges x 3 + 108 faces x 1 (the serendipity face function), no bubbles.
+#[test]
+fn serendipity_bricks_p4_run_through_the_solver_framework() {
+    // The run printed 0.59520241E-02; this is the norm of its case.result.
+    run_case(
+        "brick_sd_p4",
+        ("brick_p3", 3),
+        604,
+        0.005952024123915765,
+        0.59520241e-2,
+    );
 }

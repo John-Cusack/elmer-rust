@@ -44,29 +44,41 @@ pub fn perm_size(pm: &PMesh, global_bubbles: bool) -> usize {
         .max()
         .unwrap_or(0);
     let mut max_edofs = pm.edges.iter().map(|e| e.bdofs).max().unwrap_or(0);
+    let mut max_fdofs = pm.faces.iter().map(|f| f.bdofs).max().unwrap_or(0);
     let mut ndeg = dofs_per_node * pm.n_nodes();
     if global_bubbles {
         ndeg += max_bdofs * pm.n_bulk;
         for el in &pm.elements[pm.n_bulk..] {
-            if el.code < 300 {
+            if el.code >= 300 {
+                max_fdofs = max_fdofs.max(el.bdofs);
+            } else {
                 max_edofs = max_edofs.max(el.bdofs);
             }
         }
     }
-    ndeg + max_edofs * pm.edges.len()
+    ndeg + max_edofs * pm.edges.len() + max_fdofs * pm.faces.len()
 }
 
 /// The mesh maxima as `CreateMatrix` resets them before numbering.
 pub fn update_mesh_maxima(pm: &mut PMesh, global_bubbles: bool) {
     let mut min_e = usize::MAX;
     let mut max_e = 0;
+    let mut min_f = usize::MAX;
+    let mut max_f = 0;
     for e in &pm.edges {
         min_e = min_e.min(e.bdofs);
         max_e = max_e.max(e.bdofs);
     }
+    for f in &pm.faces {
+        min_f = min_f.min(f.bdofs);
+        max_f = max_f.max(f.bdofs);
+    }
     if global_bubbles {
         for el in &pm.elements[pm.n_bulk..] {
-            if el.code < 300 {
+            if el.code >= 300 {
+                min_f = min_f.min(el.bdofs);
+                max_f = max_f.max(el.bdofs);
+            } else {
                 min_e = min_e.min(el.bdofs);
                 max_e = max_e.max(el.bdofs);
             }
@@ -74,7 +86,8 @@ pub fn update_mesh_maxima(pm: &mut PMesh, global_bubbles: bool) {
     }
     pm.max_edge_dofs = max_e;
     pm.min_edge_dofs = if min_e <= max_e { min_e } else { max_e };
-    pm.max_face_dofs = 0;
+    pm.max_face_dofs = max_f;
+    pm.min_face_dofs = if min_f <= max_f { min_f } else { max_f };
     pm.max_bdofs = pm.elements[..pm.n_bulk]
         .iter()
         .map(|e| e.bdofs)
@@ -106,18 +119,26 @@ pub fn initial_permutation(
     let body = |e: usize| pm.elements[e].body.max(1) as usize;
 
     let mut edge_dofs = vec![0usize; pm.edges.len()];
+    let mut face_dofs = vec![0usize; pm.faces.len()];
     if defs.any_p() {
         for e in (0..n_all).filter(|&e| active(e)) {
             let el = &pm.elements[e];
+            let p = defs.get(el.family(), body(e), Kind::P);
             if el.code >= 300 {
-                let p = defs.get(el.family(), body(e), Kind::P);
                 for &g in &el.edges {
                     let d = &mut edge_dofs[g as usize];
                     *d = (*d).max(pm.edge_dofs_of(e, p));
                 }
             }
+            if el.code >= 500 {
+                for (i, &g) in el.faces.iter().enumerate() {
+                    let d = &mut face_dofs[g as usize];
+                    *d = (*d).max(pm.face_dofs_of(e, p, i + 1));
+                }
+            }
         }
     }
+    let face_base = lay.nodal_offset() + lay.edge_offset();
 
     let bubble_base = lay.nodal_offset() + lay.edge_offset() + lay.face_offset();
     for e in (0..n_all).filter(|&e| active(e)) {
@@ -145,6 +166,32 @@ pub fn initial_permutation(
             };
             for i in 1..=n {
                 number(&mut perm, lay.edge_slot(g, i) as usize);
+            }
+        }
+        for &g in &el.faces {
+            let face = &pm.faces[g as usize];
+            if el.code == face.code && !gb {
+                continue;
+            }
+            let mut l = row[Kind::Face as usize - 1].max(0);
+            let fam = usize::from(face.code / 100) + 6;
+            if l == 0 {
+                if let Some(left) = face.left {
+                    l = defs.get(fam, body(left as usize), Kind::Bubble).max(0);
+                }
+                if let Some(right) = face.right {
+                    l = l.max(defs.get(fam, body(right as usize), Kind::Bubble));
+                }
+            }
+            let n = if l > 0 {
+                l as usize
+            } else if row[Kind::P as usize - 1] > 1 {
+                face_dofs[g as usize]
+            } else {
+                0
+            };
+            for i in 0..n {
+                number(&mut perm, face_base + pm.max_face_dofs * g as usize + i);
             }
         }
         if gb && el.bubble_base > 0 {
@@ -194,6 +241,12 @@ pub fn list_matrix(lay: &DofLayout<'_>, active: &dyn Fn(usize) -> bool, perm: &P
     };
     let nodal_offset = lay.nodal_offset();
     let bubble_base = nodal_offset + lay.edge_offset() + lay.face_offset();
+    let fdofs = if pm.faces.is_empty() {
+        0
+    } else {
+        pm.max_face_dofs
+    };
+    let face_base = nodal_offset + edofs * pm.edges.len();
     let mut list = ListMatrix::new(perm.n_dofs);
     let mut ind: Vec<u32> = Vec::new();
     let at = |s: usize| perm.perm[s];
@@ -216,6 +269,19 @@ pub fn list_matrix(lay: &DofLayout<'_>, active: &dyn Fn(usize) -> bool, perm: &P
                 let g = el.edges[0] as usize;
                 for i in 0..el.bdofs {
                     ind.push(at(nodal_offset + edofs * g + i));
+                }
+            }
+        }
+        if fdofs > 0 && !el.faces.is_empty() {
+            for &g in &el.faces {
+                for i in 0..pm.faces[g as usize].bdofs {
+                    ind.push(at(face_base + fdofs * g as usize + i));
+                }
+            }
+            if gb && el.code == pm.faces[el.faces[0] as usize].code {
+                let g = el.faces[0] as usize;
+                for i in 0..el.bdofs {
+                    ind.push(at(face_base + fdofs * g + i));
                 }
             }
         }

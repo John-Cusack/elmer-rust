@@ -27,10 +27,12 @@
 //! row indices [`dofs::DofLayout::element_rows`] gives; `elmer-solver`
 //! reaches all of it through `Backends::dofs`.
 //!
-//! Supported: first-order 1D and 2D meshes (`202`, `303`, `404` bulk
-//! elements), global bubbles or none, scalar or multi-component fields.
-//! Refused or not covered: 3D meshes (faces), DG, radiation, periodic and
-//! mortar couplings, and element definitions in equation sections.
+//! Supported: first-order meshes; the p basis and rules for lines,
+//! triangles, quadrilaterals (also serendipity) and bricks; global
+//! bubbles or none; scalar or multi-component fields. Refused or not
+//! covered: p tetrahedra, pyramids and wedges (DOF tables only), boundary
+//! integrals on 3D faces, DG, radiation, periodic and mortar couplings, and
+//! element definitions in equation sections.
 #![forbid(unsafe_code)]
 
 pub mod basis;

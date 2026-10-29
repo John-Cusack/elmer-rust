@@ -15,9 +15,11 @@
 //! different order).
 
 use elmer_core::ElementType;
-use elmer_fe::quadrature::{gauss_points, gauss_points_1d, gauss_points_quad, GaussRule};
-use elmer_fe_hp::maps::{bubble_dofs, edge_direction};
-use elmer_fe_hp::{PElementBasis, PElementSpec, MAX_EDGES};
+use elmer_fe::quadrature::{
+    gauss_points, gauss_points_1d, gauss_points_brick, gauss_points_quad, GaussRule,
+};
+use elmer_fe_hp::maps::{bubble_dofs, edge_direction, face_direction};
+use elmer_fe_hp::{PElementBasis, PElementSpec, MAX_EDGES, MAX_FACES};
 
 use crate::defs::Kind;
 use crate::dofs::DofLayout;
@@ -74,6 +76,7 @@ impl DofLayout<'_> {
         let mut spec = PElementSpec::uniform(el.code, 1, None, None).map_err(Error::Unsupported)?;
         spec.serendipity = sd;
         spec.edge_degree = [0; MAX_EDGES];
+        spec.face_degree = [0; MAX_FACES];
         spec.bubble_p = 0;
         let gind: Vec<i64> = el.nodes.iter().map(|&n| i64::from(n)).collect();
         let bdofs = bubble_dofs(el.code, p, sd).max(nb.max(0) as usize);
@@ -97,6 +100,22 @@ impl DofLayout<'_> {
                 spec.edge_dir = edge_direction(el.code, ne, &gind).expect("2D edge map");
                 if bdofs > 0 {
                     spec.bubble_p = effective_bubble_p(el.code, p, bdofs, sd);
+                }
+            }
+            808 => {
+                // Edges: `p - 1` functions each; faces: the degree-`p` face
+                // functions, oriented by `getSquareFaceDirection`.
+                let edofs = pm.edge_dofs_of(e, p);
+                if !el.edges.is_empty() && edofs > 0 {
+                    spec.edge_degree[..12].fill(edofs as i32 + 1);
+                }
+                spec.edge_dir = edge_direction(808, 12, &gind).expect("brick edge map");
+                if !el.faces.is_empty() {
+                    spec.face_degree[..6].fill(p);
+                }
+                spec.face_dir = face_direction(808, 6, &gind).expect("brick face map");
+                if bdofs > 0 {
+                    spec.bubble_p = effective_bubble_p(808, p, bdofs, sd);
                 }
             }
             _ => return unsupported("p basis"),
@@ -143,6 +162,7 @@ impl DofLayout<'_> {
                 }
             }
             3 => p_triangle_rule(n),
+            8 => fe(gauss_points_brick(n)),
             _ => Err(Error::Unsupported(format!(
                 "p integration rule for type {}",
                 el.code

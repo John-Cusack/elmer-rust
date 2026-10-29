@@ -60,6 +60,30 @@ impl<'a> DofLayout<'a> {
         (self.nodal_offset() + self.mesh.max_edge_dofs * edge as usize + i - 1) as u32
     }
 
+    /// Slot of face DOF `i` (1-based) of global face `face`.
+    pub fn face_slot(&self, face: u32, i: usize) -> u32 {
+        (self.nodal_offset() + self.edge_offset() + self.mesh.max_face_dofs * face as usize + i - 1)
+            as u32
+    }
+
+    /// `b:` of the face's family (`Def_Dofs(face_type + 6, body, 5)`) for
+    /// the left parent's body, else the right one's; 0 when neither sets it.
+    fn face_bubble_def(&self, face: usize) -> i32 {
+        let pm = self.mesh;
+        let f = &pm.faces[face];
+        let fam = usize::from(f.code / 100) + 6;
+        let body = |p: u32| pm.elements[p as usize].body.max(1) as usize;
+        let mut k = f
+            .left
+            .map_or(0, |l| self.defs.get(fam, body(l), Kind::Bubble).max(0));
+        if k == 0 {
+            if let Some(r) = f.right {
+                k = k.max(self.defs.get(fam, body(r), Kind::Bubble));
+            }
+        }
+        k
+    }
+
     /// `isActivePElement`: the element has p definitions and some body
     /// gives its family a degree.
     pub fn is_active_p(&self, e: usize) -> bool {
@@ -140,8 +164,15 @@ impl<'a> DofLayout<'a> {
 
         let row = defs.row(fam, id);
         let mut need_edges = row[1..].iter().any(|&v| v >= 0);
-        if !need_edges && (fam == 3 || fam == 4) {
-            need_edges = defs.get(6 + fam, id, Kind::Bubble) >= 0;
+        if !need_edges {
+            if fam == 3 || fam == 4 {
+                need_edges = defs.get(6 + fam, id, Kind::Bubble) >= 0;
+            } else {
+                need_edges = el
+                    .faces
+                    .iter()
+                    .any(|&g| self.face_bubble_def(g as usize) > 0);
+            }
         }
         if !need_edges {
             return;
@@ -174,6 +205,45 @@ impl<'a> DofLayout<'a> {
             }
         }
 
+        // Bulk faces: `f:`, else the face family's `b:`, else the degree.
+        // The parent's face of a boundary element checks the parent's
+        // degree first (`p_first`).
+        let face_count =
+            |elem: usize, face: usize, local: usize, p_fam: usize, p_first: bool| -> usize {
+                let p = defs.get(p_fam, id, Kind::P);
+                if p_first && p > 1 {
+                    return pm.face_dofs_of(elem, p, local);
+                }
+                let k = defs.get(fam, id, Kind::Face).max(0);
+                let k = if k == 0 {
+                    self.face_bubble_def(face)
+                } else {
+                    k
+                };
+                if k > 0 {
+                    k as usize
+                } else if !p_first && p > 1 {
+                    pm.face_dofs_of(elem, p, local)
+                } else {
+                    0
+                }
+            };
+        let mut faces_done = false;
+        if !el.faces.is_empty() {
+            faces_done = true;
+            for (j, &g) in el.faces.iter().enumerate() {
+                if pm.faces[g as usize].code == el.code
+                    && !(self.global_bubbles && el.body > 0 && boundary)
+                {
+                    faces_done = false;
+                    continue;
+                }
+                for i in 1..=face_count(e, g as usize, j + 1, fam, false) {
+                    out.push(self.face_slot(g, i));
+                }
+            }
+        }
+
         if boundary {
             let parent = if self.is_active_p(e) {
                 el.pdefs.as_ref().and_then(|pd| pd.local_parent)
@@ -202,6 +272,39 @@ impl<'a> DofLayout<'a> {
                 for i in 1..=edge_count(parent as usize, par.family()) {
                     out.push(self.edge_slot(edge, i));
                 }
+            } else if (fam == 3 || fam == 4) && !faces_done && !par.faces.is_empty() {
+                let ind = if self.is_active_p(e) {
+                    el.pdefs.as_ref().map_or(0, |pd| pd.local_number)
+                } else {
+                    par.faces
+                        .iter()
+                        .position(|&g| {
+                            let n = &pm.faces[g as usize].nodes;
+                            n.iter().filter(|x| el.nodes.contains(x)).count() == n.len()
+                        })
+                        .map_or(0, |k| k + 1)
+                };
+                if ind == 0 || ind > par.faces.len() {
+                    return;
+                }
+                let face = par.faces[ind - 1];
+                // `Face => Mesh % Faces(...)` for an active p element, else
+                // the element itself; its edges either way.
+                let face_edges: &[u32] = if !el.faces.is_empty() && self.is_active_p(e) {
+                    &pm.faces[face as usize].edges
+                } else {
+                    &el.edges
+                };
+                if !edges_done {
+                    for &g in face_edges {
+                        for i in 1..=edge_count(e, fam) {
+                            out.push(self.edge_slot(g, i));
+                        }
+                    }
+                }
+                for i in 1..=face_count(parent as usize, face as usize, ind, par.family(), true) {
+                    out.push(self.face_slot(face, i));
+                }
             }
         } else if el.bdofs > 0 && self.global_bubbles {
             let base = self.nodal_offset() + self.edge_offset() + self.face_offset();
@@ -221,9 +324,10 @@ impl<'a> DofLayout<'a> {
         }
     }
 
-    /// `mGetBoundaryIndexesFromParent` for a boundary element of a 1D or
-    /// 2D mesh: its nodes, then the edge DOF slots of the parent's local
-    /// edge (`Element % BDOFs` of them). Empty when the element has no p
+    /// `mGetBoundaryIndexesFromParent`: a boundary element's nodes, then
+    /// the edge DOF slots of the parent's local edge (`Element % BDOFs` of
+    /// them, 2D parents) or of the parent's local face's edges and the
+    /// face itself (3D parents). Empty when the element has no p
     /// definitions or no local parent.
     ///
     /// Note the Fortran offsets the edge slots by `NumberOfNodes`, not by
@@ -242,6 +346,20 @@ impl<'a> DofLayout<'a> {
             let edge = par.edges[pd.local_number - 1] as usize;
             for i in 1..=el.bdofs {
                 out.push((pm.n_nodes() + edge * pm.max_edge_dofs + i - 1) as u32);
+            }
+        }
+        if par.dim() == 3 && !pm.faces.is_empty() && !pm.edges.is_empty() && pd.local_number > 0 {
+            let face = par.faces[pd.local_number - 1] as usize;
+            let f = &pm.faces[face];
+            for &g in &f.edges {
+                let ed = &pm.edges[g as usize];
+                for j in 1..=ed.bdofs {
+                    out.push((pm.n_nodes() + g as usize * pm.max_edge_dofs + j - 1) as u32);
+                }
+            }
+            let base = pm.n_nodes() + pm.edges.len() * pm.max_edge_dofs + face * pm.max_face_dofs;
+            for i in 1..=f.bdofs {
+                out.push((base + i - 1) as u32);
             }
         }
     }
