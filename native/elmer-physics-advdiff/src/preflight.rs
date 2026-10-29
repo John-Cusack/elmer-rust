@@ -170,6 +170,13 @@ const MODEL_PDE_SOLVER: &[Rule] = &[
     ),
 ];
 
+/// [`check_model_pde_supported`] for a solver whose dofs come from
+/// `elmer-solver`'s `Backends::dofs` (`SolverCtx::solver_dofs`): any
+/// `Element` definition the backend accepted is allowed.
+pub fn check_model_pde_supported_p(sections: &ModelPdeSections<'_>) -> Result<(), AdvDiffError> {
+    scan(sections.solver, "solver", MODEL_PDE_SOLVER)
+}
+
 /// Fails with the first unsupported keyword found in `sections`. A solver
 /// `Element` keyword other than the linear `n:1` asks for p-elements, whose
 /// edge and bubble degrees of freedom the nodal basis cannot carry.

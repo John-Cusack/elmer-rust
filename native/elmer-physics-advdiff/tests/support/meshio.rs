@@ -21,6 +21,9 @@ pub struct Mesh {
     pub coords: Vec<[f64; 3]>,
     pub bulk: Vec<Elem>,
     pub boundary: Vec<Elem>,
+    /// Parent bulk elements (0-based) of each boundary element, from
+    /// `mesh.boundary`; empty for the generated meshes.
+    pub parents: Vec<[Option<u32>; 2]>,
 }
 
 impl Mesh {
@@ -62,6 +65,14 @@ pub fn read_elmer_mesh(dir: &Path, dim: usize) -> Mesh {
                 .collect(),
         })
         .collect();
+    let parent = |s: &str| match s.parse::<u32>().unwrap() {
+        0 => None,
+        id => Some(id - 1),
+    };
+    let parents = lines(&dir.join("mesh.boundary"))
+        .iter()
+        .map(|l| [parent(&l[2]), parent(&l[3])])
+        .collect();
     let boundary = lines(&dir.join("mesh.boundary"))
         .iter()
         .map(|l| Elem {
@@ -78,6 +89,7 @@ pub fn read_elmer_mesh(dir: &Path, dim: usize) -> Mesh {
         coords,
         bulk,
         boundary,
+        parents,
     }
 }
 

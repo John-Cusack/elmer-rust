@@ -40,8 +40,8 @@ pub use model_pde::{
 };
 pub use model_pde_solver::{model_pde_factory, register_model_pde, ModelPdeSolver};
 pub use preflight::{
-    check_advdiff_supported, check_model_pde_supported, AdvDiffSections, ModelPdeSections,
-    ADVDIFF_PROCEDURE, MODEL_PDE_PROCEDURE,
+    check_advdiff_supported, check_model_pde_supported, check_model_pde_supported_p,
+    AdvDiffSections, ModelPdeSections, ADVDIFF_PROCEDURE, MODEL_PDE_PROCEDURE,
 };
 
 use elmer_solver::SolverRegistry;

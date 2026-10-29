@@ -31,3 +31,10 @@ test's `runtest.cmake` does. The `.result` values are in node order
   `evol_solution.dat` add `Simulation Type = Transient` (BDF2, 6 steps of
   0.05), `time derivative coefficient = 2.0` and `reaction coefficient = 0.5`
   (norm 1.7550196309497508).
+  The quick tests themselves, with their `Element = "p:2"`: `p2.sif` is
+  `fem/tests/ModelPDE` and `sd_p2.sif` `fem/tests/SD_ModelPDE` (serendipity),
+  each with the post-file line replaced by `Output File`. `p2_solution.dat` /
+  `sd_p2_solution.dat` hold `slot value` per line, the value of every Perm
+  slot (nodes, edges, bubbles) in slot order, and `p2_perm.dat` /
+  `sd_p2_perm.dat` the `slot row` Perm (1681 dofs, norm 0.9234860388553119;
+  1281 dofs, norm 1.057859263392748).

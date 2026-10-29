@@ -3,7 +3,7 @@
 //! `rho du/dt + div(C a u) - div(D grad u) + R u = f` of the Elmer tutorials,
 //! for one scalar degree of freedom per node.
 
-use elmer_core::{BasisEval, ElementType, LocalSystem};
+use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, QuadPoint};
 
 use crate::error::{check_len, interp, AdvDiffError};
 use crate::fe::Fe;
@@ -50,6 +50,27 @@ pub fn model_pde_bulk_local(
     out: &mut LocalSystem,
 ) -> Result<(), AdvDiffError> {
     let n = xyz.len();
+    let ips = fe.quad.gauss_points(etype, quad_points);
+    model_pde_bulk_local_with(fe.basis, &ips, etype, xyz, nodal, dim, n, out)
+}
+
+/// [`model_pde_bulk_local`] for `nd >= n` basis functions (the nodal ones
+/// first, then edge, face and bubble functions of a p element) on the
+/// given rule: `LocalMatrix(Element, n, nd)`, coefficients interpolated
+/// with the nodal functions only. `out` is reset to `nd x nd`; bubbles are
+/// not condensed here.
+#[allow(clippy::too_many_arguments)]
+pub fn model_pde_bulk_local_with(
+    basis: &dyn ElementBasis,
+    ips: &[QuadPoint],
+    etype: ElementType,
+    xyz: &[[f64; 3]],
+    nodal: &ModelPdeNodal,
+    dim: usize,
+    nd: usize,
+    out: &mut LocalSystem,
+) -> Result<(), AdvDiffError> {
+    let n = xyz.len();
     check_len("diffusion coefficient", n, nodal.diffusion.len())?;
     check_len("convection coefficient", n, nodal.convection.len())?;
     check_len("reaction coefficient", n, nodal.reaction.len())?;
@@ -59,49 +80,62 @@ pub fn model_pde_bulk_local(
     if !(1..=3).contains(&dim) {
         return Err(AdvDiffError::Invalid(format!("dim {dim} not in 1..=3")));
     }
+    if nd < n {
+        return Err(AdvDiffError::Invalid(format!("{nd} dofs for {n} nodes")));
+    }
 
-    out.n = n;
+    out.n = nd;
     out.stiff.clear();
-    out.stiff.resize(n * n, 0.0);
+    out.stiff.resize(nd * nd, 0.0);
     out.force.clear();
-    out.force.resize(n, 0.0);
+    out.force.resize(nd, 0.0);
     out.damp = None;
     let mut mass = out.mass.take().unwrap_or_default();
     mass.clear();
-    mass.resize(n * n, 0.0);
+    mass.resize(nd * nd, 0.0);
 
-    let ips = fe.quad.gauss_points(etype, quad_points);
     if ips.is_empty() {
         return Err(AdvDiffError::NoQuadrature(etype.0));
     }
     let mut be = BasisEval::default();
-    for qp in &ips {
-        fe.basis
+    for qp in ips {
+        basis
             .eval(etype, xyz, qp.uvw, &mut be)
             .map_err(AdvDiffError::Basis)?;
-        let phi = &be.basis[..n];
-        let dphi = &be.dbasis_dx[..n];
+        if be.basis.len() < nd {
+            return Err(AdvDiffError::Invalid(format!(
+                "{} basis functions for {nd} dofs",
+                be.basis.len()
+            )));
+        }
+        let phi = &be.basis[..nd];
+        let dphi = &be.dbasis_dx[..nd];
 
-        let load = interp(phi, &nodal.source);
-        let rho = interp(phi, &nodal.time);
+        let nphi = &phi[..n];
+        let load = interp(nphi, &nodal.source);
+        let rho = interp(nphi, &nodal.time);
         let mut a = [0.0; 3];
         for (i, ai) in a.iter_mut().enumerate().take(dim) {
-            *ai = phi.iter().zip(&nodal.velocity).map(|(b, v)| b * v[i]).sum();
+            *ai = nphi
+                .iter()
+                .zip(&nodal.velocity)
+                .map(|(b, v)| b * v[i])
+                .sum();
         }
-        let d = interp(phi, &nodal.diffusion);
-        let c = interp(phi, &nodal.convection);
-        let r = interp(phi, &nodal.reaction);
+        let d = interp(nphi, &nodal.diffusion);
+        let c = interp(nphi, &nodal.convection);
+        let r = interp(nphi, &nodal.reaction);
         let w = qp.weight * be.det_j;
 
-        for p in 0..n {
-            for q in 0..n {
+        for p in 0..nd {
+            for q in 0..nd {
                 let grad: f64 = (0..3).map(|i| dphi[p][i] * dphi[q][i]).sum();
                 let adv: f64 = (0..dim).map(|i| a[i] * dphi[q][i]).sum();
-                let st = &mut out.stiff[p * n + q];
+                let st = &mut out.stiff[p * nd + q];
                 *st += w * d * grad;
                 *st += w * c * adv * phi[p];
                 *st += w * r * phi[q] * phi[p];
-                mass[p * n + q] += w * rho * phi[q] * phi[p];
+                mass[p * nd + q] += w * rho * phi[q] * phi[p];
             }
             out.force[p] += w * load * phi[p];
         }
@@ -121,35 +155,59 @@ pub fn model_pde_boundary_local(
     bc: &ModelPdeBcNodal,
     out: &mut LocalSystem,
 ) -> Result<(), AdvDiffError> {
+    let ips = fe.quad.gauss_points(etype, None);
+    model_pde_boundary_local_with(fe.basis, &ips, etype, xyz, bc, xyz.len(), out)
+}
+
+/// [`model_pde_boundary_local`] for `nd >= n` basis functions on the given
+/// rule (`LocalMatrixBC(Element, n, nd)`); `out` is reset to `nd x nd`.
+pub fn model_pde_boundary_local_with(
+    basis: &dyn ElementBasis,
+    ips: &[QuadPoint],
+    etype: ElementType,
+    xyz: &[[f64; 3]],
+    bc: &ModelPdeBcNodal,
+    nd: usize,
+    out: &mut LocalSystem,
+) -> Result<(), AdvDiffError> {
     let n = xyz.len();
     check_len("field flux", n, bc.flux.len())?;
     check_len("robin coefficient", n, bc.robin.len())?;
     check_len("external field", n, bc.external.len())?;
-    out.n = n;
+    if nd < n {
+        return Err(AdvDiffError::Invalid(format!("{nd} dofs for {n} nodes")));
+    }
+    out.n = nd;
     out.stiff.clear();
-    out.stiff.resize(n * n, 0.0);
+    out.stiff.resize(nd * nd, 0.0);
     out.force.clear();
-    out.force.resize(n, 0.0);
+    out.force.resize(nd, 0.0);
     out.mass = None;
     out.damp = None;
 
-    let ips = fe.quad.gauss_points(etype, None);
     if ips.is_empty() {
         return Err(AdvDiffError::NoQuadrature(etype.0));
     }
     let mut be = BasisEval::default();
-    for qp in &ips {
-        fe.basis
+    for qp in ips {
+        basis
             .eval(etype, xyz, qp.uvw, &mut be)
             .map_err(AdvDiffError::Basis)?;
-        let phi = &be.basis[..n];
+        if be.basis.len() < nd {
+            return Err(AdvDiffError::Invalid(format!(
+                "{} basis functions for {nd} dofs",
+                be.basis.len()
+            )));
+        }
+        let phi = &be.basis[..nd];
+        let nphi = &phi[..n];
         let w = qp.weight * be.det_j;
-        let f = interp(phi, &bc.flux);
-        let c = interp(phi, &bc.robin);
-        let ext = interp(phi, &bc.external);
-        for p in 0..n {
-            for q in 0..n {
-                out.stiff[p * n + q] += w * c * phi[q] * phi[p];
+        let f = interp(nphi, &bc.flux);
+        let c = interp(nphi, &bc.robin);
+        let ext = interp(nphi, &bc.external);
+        for p in 0..nd {
+            for q in 0..nd {
+                out.stiff[p * nd + q] += w * c * phi[q] * phi[p];
             }
             out.force[p] += w * (f + c * ext) * phi[p];
         }

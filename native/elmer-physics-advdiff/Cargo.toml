@@ -18,3 +18,5 @@ elmer-fe = { path = "../elmer-fe" }
 elmer-krylov = { path = "../elmer-krylov" }
 elmer-sparse = { path = "../elmer-sparse" }
 elmer-physics-heat = { path = "../elmer-physics-heat" }
+# p-element dofs (Backends::dofs) for the quick test's own `Element = "p:2"`.
+elmer-pdofs = { path = "../elmer-pdofs" }

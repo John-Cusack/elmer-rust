@@ -40,16 +40,21 @@ impl MeshView for SimMesh {
     }
     fn element(&self, e: ElemId) -> ElementRef<'_> {
         let i = e.0 as usize;
-        let el = if i < self.mesh.bulk.len() {
+        let nb = self.mesh.bulk.len();
+        let el = if i < nb {
             &self.mesh.bulk[i]
         } else {
-            &self.mesh.boundary[i - self.mesh.bulk.len()]
+            &self.mesh.boundary[i - nb]
+        };
+        let parents = match i.checked_sub(nb).and_then(|b| self.mesh.parents.get(b)) {
+            Some(p) => p.map(|p| p.map(ElemId)),
+            None => [None, None],
         };
         ElementRef {
             etype: ElementType(el.etype.0),
             nodes: &self.nodes[i],
             tag: el.tag,
-            parents: [None, None],
+            parents,
         }
     }
 }
