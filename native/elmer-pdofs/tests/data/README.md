@@ -1,0 +1,37 @@
+# Pristine Elmer captures for `elmer-pdofs`
+
+Each directory holds one case: the mesh as ElmerSolver read it
+(`mesh.*`), the case's `case.sif`, and dumps from the pristine solver
+(Rev 9f6af2f85, `/home/john/runs/elmer-fork/orig_src/build/fem/src/ElmerSolver`,
+serial, `OMP_NUM_THREADS=1`). Every `.dat` file starts with a `#`
+provenance header; the rest is Elmer's own output, unchanged.
+
+| Case | Source | Solver | Notes |
+|---|---|---|---|
+| `poisson_pfem` | `fem/tests/PoissonPFEM` (`ElmerGrid 1 2 square.grd`) | the test's `Poisson.f90`, `Element = "p:2"` | 10x10 quads, 2 bodies; 441 DOFs = 121 nodes + 220 edges + 100 global bubbles; bandwidth 342 -> 85 |
+| `varying_p` | `fem/tests/p-FEM_with_varying_p` (`ElmerGrid 1 2 eighth.grd`) | `BenchmarkShell`, 5 DOFs, `Element = "p:%bodywisep"` | 2x2 quads, p = 4 (body 1) and 8 (body 2); 189 of 289 slots; bandwidth 187 -> 187 (identity kept) |
+
+`poisson_pfem` was run twice with these lines added to `Solver 1`:
+
+```
+Linear System Save = True
+Linear System Save Perm = True
+Linear System Save Prefix = String "pre"      ! or "post"
+Linear System Save Slot = String "assembly"   ! "pre" run only
+```
+
+The `assembly` slot (DefaultFinishAssembly) dumps the system before
+Dirichlet conditions; the default `solve` slot (start of DefaultSolve)
+dumps it after `DefaultDirichletBCs`. Files:
+
+* `pre_a.dat`, `pre_b.dat`: matrix (`row col value`, 1-based, CSR order)
+  and right-hand side before Dirichlet conditions;
+* `post_a.dat`, `post_b.dat`: the same after them;
+* `perm.dat`: `Perm` (slot -> row, 1-based; identical in both runs);
+* `solution.dat`: the solution from `Output File = "case.result"` (17
+  digits), one value per slot, `x(Perm(i))`.
+
+`varying_p` was run once (the `pre` run). Its matrix dump is 12 MB, so
+only `perm.dat` and `pattern.dat`, the list-matrix pattern derived from
+it (rows and columns of the 5x5 blocks, as ranges), are kept; the
+shell kernel itself is not ported here.
