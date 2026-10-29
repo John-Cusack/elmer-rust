@@ -1,0 +1,23 @@
+[package]
+name = "elmer-mpi-run"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Partitioned (ElmerSolver_mpi) runs of the Rust-native Elmer: partition mesh, parallel Dirichlet and distributed Krylov behind elmer-solver"
+
+[dependencies]
+elmer-core.workspace = true
+elmer-assembly = { path = "../elmer-assembly" }
+elmer-cli = { path = "../elmer-cli" }
+elmer-mesh = { path = "../elmer-mesh" }
+elmer-fe = { path = "../elmer-fe" }
+elmer-dist = { path = "../elmer-dist" }
+elmer-krylov = { path = "../elmer-krylov" }
+elmer-mpi = { path = "../elmer-mpi" }
+elmer-run = { path = "../elmer-run" }
+elmer-solver = { path = "../elmer-solver" }
+
+[[bin]]
+name = "elmer-mpi-run"
+path = "src/bin/elmer-mpi-run.rs"
