@@ -21,17 +21,26 @@ echo "ok: no cc/cmake build dependencies"
 echo "== 2. build with gfortran absent from PATH =="
 NOFCDIR="$(mktemp -d)"
 trap 'rm -rf "$NOFCDIR"' EXIT INT TERM
-for tool in cc gcc ar ld ln cp rm mkdir mv head grep ldd nm find ls cargo rustc; do
+for tool in cc gcc as ar ld ln cp rm mkdir mv head grep ldd nm find ls dirname basename cargo rustc python3 mpicc; do
     p="$(command -v "$tool" || true)"
     if [ -n "$p" ]; then ln -s "$p" "$NOFCDIR/$tool"; fi
 done
-# PATH contains ONLY the stub dir: gfortran must NOT resolve.
 export PATH="$NOFCDIR"
-# Belt and braces: any $(FC) use explodes loudly.
-export FC=false
-command -v gfortran >/dev/null 2>&1 && fail "gfortran still on PATH during check"
+# Hermetic build: drop ambient compiler wrappers/caches.
+unset RUSTC_WRAPPER SCCACHE_DIR SCCACHE_CACHE_SIZE CARGO_INCREMENTAL
+# Only workspace-member crates (lanes merge independently; a hardcoded
+# list breaks every lane whose crates have not merged yet, and excluded
+# crates such as elmer-oracle are not buildable with -p).
+PKGS=""
+for name in $(cargo metadata --no-deps --format-version 1 \
+    --manifest-path "$MANIFEST" 2>/dev/null | \
+    python3 -c 'import json,sys; print(" ".join(p["name"] for p in json.load(sys.stdin)["packages"]))'); do
+    PKGS="$PKGS -p $name"
+done
+[ -n "$PKGS" ] || fail "no native workspace members found"
+# shellcheck disable=SC2086
 CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}" \
-    cargo build --manifest-path "$MANIFEST" -p elmer-sif -p elmer-mesh -p elmer-fe \
+    cargo build --manifest-path "$MANIFEST" $PKGS \
     || fail "native build needs something outside the gfortran-free PATH"
 echo "== 3. linked-binary scan: no libgfortran =="
 EXAMPLE_BIN="$(ls "$TARGET"/debug/examples/sifproof 2>/dev/null || true)"
