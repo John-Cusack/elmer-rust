@@ -114,3 +114,21 @@ fn calc_fields_through_the_simulation() {
     assert!((norm - reference).abs() / reference < 1e-5, "norm {norm}");
     assert_eq!(passed, 2, "CompareToReferenceSolution for Solvers 1 and 2");
 }
+
+#[test]
+fn mgdyn2d_harmonic_induction_heating3() {
+    // fem/tests/InductionHeating3, Solver 1 (MagnetoDynamics2DHarmonic,
+    // axisymmetric). The section's `Variable = Potential[Potential Re:1
+    // Potential Im:1]` is the solver's default, which `init` creates; it is
+    // dropped here because elmer-solver's variable-spec parser takes
+    // one-word component names only.
+    let (norm, n, passed) = run("InductionHeating3", "crucible.sif", |m| {
+        m.solvers[0].0.remove("variable");
+    });
+    assert_eq!(n, 2 * 5194);
+    // Pristine: Solver 1 Norm = 8.88220240E-06 (RefNorm 0.88822024E-05).
+    let reference = 8.88220240e-06;
+    eprintln!("InductionHeating3: norm {norm:.9e}, rel err {:.3e}", (norm - reference).abs() / reference);
+    assert!((norm - reference).abs() / reference < 1e-5, "norm {norm}");
+    assert_eq!(passed, 1, "CompareToReferenceSolution for Solver 1");
+}

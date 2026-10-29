@@ -26,11 +26,12 @@ pub const HARMONIC: (&str, &str) = ("MagnetoDynamics", "WhitneyAVHarmonicSolver"
 /// `MagnetoDynamicsCalcFields`' `(library, entry)`.
 pub const CALC_FIELDS: (&str, &str) = ("MagnetoDynamics", "MagnetoDynamicsCalcFields");
 
-/// Registers the three procedures.
+/// Registers the procedures of this crate.
 pub fn register(registry: &mut SolverRegistry) {
     registry.register(STEADY.0, STEADY.1, steady_factory);
     registry.register(HARMONIC.0, HARMONIC.1, harmonic_factory);
     registry.register(CALC_FIELDS.0, CALC_FIELDS.1, calc_fields_factory);
+    crate::mgdyn2d::register(registry);
 }
 
 pub fn calc_fields_factory(_params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {

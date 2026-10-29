@@ -4,7 +4,8 @@
 //! [`harmonic`]) for the lowest-order (non-Piola) Whitney basis, and the
 //! nodal-field part of `MagnetoDynamicsCalcFields` (`CalcFields.F90`,
 //! [`calcfields`]) for a real potential. [`register`] installs all three
-//! under their `.sif` procedure names.
+//! under their `.sif` procedure names, together with the nodal 2D
+//! `MagnetoDynamics2DHarmonic` ([`mgdyn2d`], `MagnetoDynamics2D.F90`).
 //!
 //! The solver couples the vector potential `A` (one DOF per mesh edge) with
 //! the electric scalar potential `V` (one DOF per node, only with `Static
@@ -36,6 +37,7 @@ pub mod harmonic;
 pub mod layout;
 pub mod local;
 pub mod material;
+pub mod mgdyn2d;
 pub mod solver;
 pub mod steady;
 pub mod topology;

@@ -36,3 +36,9 @@ verbatim; that test uses the same `airgap` mesh, so it sits here instead of
 copying the mesh again. The pristine run prints `Norm = 1.22780296E-03`
 (reference 1.22780252E-03); with `Linear System Convergence Tolerance =
 1.0e-10` it prints `Norm = 1.22780291E-03`.
+
+`InductionHeating3/` holds `fem/tests/InductionHeating3/crucible.sif`
+verbatim and the mesh `ElmerGrid 1 2 crucible` makes from its
+`crucible.grd` (as the test's `runtest.cmake` does). The pristine run
+prints `Norm = 8.88220240E-06` for Solver 1 (`MagnetoDynamics2DHarmonic`,
+BiCGStab(l) with ILU to 1e-10 on a nonsingular system).
