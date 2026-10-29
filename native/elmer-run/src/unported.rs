@@ -5,7 +5,7 @@
 //! and missed its reference norm, and confirmed by running the pristine
 //! ElmerSolver without the keyword, which then reproduced the native norm.
 
-use elmer_core::{normalize_key, Params, ParamMap, Value};
+use elmer_core::{Params, ParamMap};
 use elmer_solver::sim::parse_variable_spec;
 use elmer_solver::{Model, SolverError};
 
@@ -37,12 +37,12 @@ const SIMULATION: &[Rule] = &[
 /// Read by the solver's own procedure; skipped for `Exec Solver = Never`.
 const SOLVER: &[Rule] = &[
     present("Mesh", "solver-specific meshes are not implemented"),
-    present("Slave Solvers", "slave solvers are not implemented"),
-    flag("Monolithic Slave", "monolithic slave solvers are not implemented"),
     flag("Apply Integral BCs", "integral constraints are not implemented"),
     flag("Apply Source Control", "source control (Control Target Value) is not implemented"),
     flag("Apply Conforming BCs", "conforming BCs are not implemented"),
     flag("Apply Mortar BCs", "mortar BCs are not implemented"),
+    present("Namespace", "solver keyword namespaces are not implemented"),
+    flag("Adaptive Mesh Refinement", "mesh refinement is not implemented"),
 ];
 
 const BODY_FORCE: &[Rule] = &[flag("Integral BC", "integral constraints are not implemented")];
@@ -60,7 +60,21 @@ const BOUNDARY: &[Rule] = &[
     present("Mortar BC", "mortar BCs are not implemented"),
     present("Conforming BC", "conforming BCs are not implemented"),
     flag("Integral BC", "integral constraints are not implemented"),
+    present("Target Nodes", "point BCs (Target Nodes) are not implemented"),
+    present("Target Coordinates", "point BCs (Target Coordinates) are not implemented"),
 ];
+
+/// `<Variable> <suffix>` keywords of `DefaultDirichletBCs`
+/// (BoundaryConditionUtils.F90:842, 1013), read from BCs and body forces.
+const VARIABLE_SUFFIXES: &[(&str, &str)] = &[
+    ("single node", "single-node Dirichlet values"),
+    ("constant", "lumped constant values"),
+    ("profile", "lumped profile values"),
+];
+
+/// `SetNormalizedKeywords` (MainUtils.F90:224): `<keyword> Normalize by
+/// Area|Volume` divides the keyword by the area or volume it acts on.
+const NORMALIZE_SUFFIXES: &[&str] = &[" normalize by area", " normalize by volume"];
 
 fn scan(section: &str, i: usize, params: &ParamMap, rules: &[Rule]) -> Result<(), SolverError> {
     for r in rules {
@@ -79,33 +93,18 @@ fn runs(solver: &ParamMap) -> bool {
     !solver.0.is_empty() && !solver.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never"))
 }
 
-/// The name a `Variable` / `Exported Variable` value declares.
-fn declared(spec: &str) -> Option<String> {
-    let spec = parse_variable_spec(&spec.replace('"', " "), None).ok()?;
-    Some(spec.name).filter(|n| !n.is_empty())
-}
-
-/// Solver variables and their components, and the exported variables no
-/// solver section declares as its own.
-fn variables(model: &Model) -> (Vec<String>, Vec<(usize, String)>) {
+/// Solver variables and their components.
+fn variables(model: &Model) -> Vec<String> {
     let mut primary = Vec::new();
-    let mut exported = Vec::new();
-    for (i, s) in model.solvers.iter().enumerate() {
+    for s in &model.solvers {
         if let Some(v) = s.string("variable") {
             if let Ok(spec) = parse_variable_spec(&v.replace('"', " "), s.integer("variable dofs")) {
                 primary.push(spec.name);
                 primary.extend(spec.components);
             }
         }
-        for (key, value) in &s.0 {
-            let numbered = key.strip_prefix("exported variable ").is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit()));
-            if let (true, Value::Str(v)) = (numbered, value) {
-                exported.extend(declared(v).map(|n| (i + 1, n)));
-            }
-        }
     }
-    exported.retain(|(_, n)| !primary.contains(n));
-    (primary, exported)
+    primary
 }
 
 /// Refuses the first unimplemented feature `model` names.
@@ -121,7 +120,7 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
         scan("Boundary Condition", i + 1, b, BOUNDARY)?;
     }
 
-    let (primary, exported) = variables(model);
+    let primary = variables(model);
     // CheckPassiveElement reads `<Variable> Passive` from body forces.
     for var in &primary {
         let passive = format!("{var} passive");
@@ -131,30 +130,41 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
                 i + 1
             )));
         }
+        // SetDirichletBoundaries' body-force pass (Dirichlet values on bodies).
+        if let Some(i) = model.body_forces.iter().position(|b| b.0.contains_key(var)) {
+            return Err(SolverError::Unsupported(format!(
+                "Body Force {}: {var}: body-force Dirichlet values are not implemented",
+                i + 1
+            )));
+        }
+        for (suffix, what) in VARIABLE_SUFFIXES {
+            let key = format!("{var} {suffix}");
+            let sections = [("Boundary Condition", &model.boundary_conditions), ("Body Force", &model.body_forces)];
+            for (section, maps) in sections {
+                if let Some(i) = maps.iter().position(|m| m.0.contains_key(&key)) {
+                    return Err(SolverError::Unsupported(format!(
+                        "{section} {}: {key}: {what} (<Variable> {suffix}) are not implemented",
+                        i + 1
+                    )));
+                }
+            }
+        }
     }
 
-    // A dependency on an exported variable reads a variable that
-    // `Simulation` never creates.
     let sections: [(&str, &[ParamMap]); 4] = [
         ("Material", &model.materials),
         ("Body Force", &model.body_forces),
-        ("Initial Condition", &model.initial_conditions),
         ("Boundary Condition", &model.boundary_conditions),
+        ("Initial Condition", &model.initial_conditions),
     ];
     for (section, maps) in sections {
-        for (i, p) in maps.iter().enumerate() {
-            for (key, value) in &p.0 {
-                let Value::Dependent(d) = value else { continue };
-                let args = d.variables.iter().flat_map(|v| v.split(',')).map(normalize_key);
-                for arg in args {
-                    if let Some((solver, name)) = exported.iter().find(|(_, n)| *n == arg) {
-                        return Err(SolverError::Unsupported(format!(
-                            "{section} {}: {key} depends on Exported Variable {name} of Solver {solver}: \
-                             exported variables are not implemented",
-                            i + 1
-                        )));
-                    }
-                }
+        for (i, m) in maps.iter().enumerate() {
+            let normalized = m.0.keys().find(|k| NORMALIZE_SUFFIXES.iter().any(|s| k.ends_with(s)) && m.logical(k) == Some(true));
+            if let Some(key) = normalized {
+                return Err(SolverError::Unsupported(format!(
+                    "{section} {}: {key}: keyword normalisation by area or volume is not implemented",
+                    i + 1
+                )));
             }
         }
     }
@@ -164,7 +174,7 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elmer_core::{Dependent, DependentKind};
+    use elmer_core::{Dependent, DependentKind, Value};
 
     fn pm(entries: &[(&str, Value)]) -> ParamMap {
         let mut p = ParamMap::new();
@@ -223,8 +233,11 @@ mod tests {
             "Simulation 1: Increase Element Order: quadratic element generation is not implemented"
         );
 
-        let model = Model { solvers: vec![heat(&[("slave solvers", Value::Integer(vec![1]))])], ..Model::default() };
-        assert_eq!(refusal(&model), "Solver 1: Slave Solvers: slave solvers are not implemented");
+        let model = Model { solvers: vec![heat(&[("apply source control", Value::Logical(true))])], ..Model::default() };
+        assert_eq!(
+            refusal(&model),
+            "Solver 1: Apply Source Control: source control (Control Target Value) is not implemented"
+        );
 
         let model = Model {
             solvers: vec![heat(&[]), heat(&[("exec solver", st("never")), ("mesh", st("local"))])],
@@ -263,19 +276,40 @@ mod tests {
     }
 
     #[test]
-    fn dependency_on_exported_variable() {
+    fn dirichlet_variants() {
+        let real = Value::Real { rows: 1, cols: 1, data: vec![1.0] };
+        let bf = |k: &str| Model {
+            solvers: vec![heat(&[])],
+            body_forces: vec![pm(&[(k, real.clone())])],
+            ..Model::default()
+        };
+        assert_eq!(
+            refusal(&bf("temperature")),
+            "Body Force 1: temperature: body-force Dirichlet values are not implemented"
+        );
+        assert_eq!(
+            refusal(&bf("temperature single node")),
+            "Body Force 1: temperature single node: single-node Dirichlet values \
+             (<Variable> single node) are not implemented"
+        );
+        assert!(check(&bf("heat source")).is_ok());
+
         let model = Model {
-            solvers: vec![heat(&[("exported variable 1", st("-ip \"ip x\"")), ("exported variable 2", st("temperature"))])],
-            boundary_conditions: vec![
-                pm(&[("heat flux", equals("temperature"))]),
-                pm(&[("heat flux", equals("IP X"))]),
-            ],
+            solvers: vec![heat(&[])],
+            boundary_conditions: vec![pm(&[("target nodes", Value::Integer(vec![100])), ("temperature", real.clone())])],
+            ..Model::default()
+        };
+        assert_eq!(refusal(&model), "Boundary Condition 1: Target Nodes: point BCs (Target Nodes) are not implemented");
+
+        let model = Model {
+            solvers: vec![heat(&[])],
+            materials: vec![pm(&[("heat conductivity normalize by volume", Value::Logical(true))])],
             ..Model::default()
         };
         assert_eq!(
             refusal(&model),
-            "Boundary Condition 2: heat flux depends on Exported Variable ip x of Solver 1: \
-             exported variables are not implemented"
+            "Material 1: heat conductivity normalize by volume: keyword normalisation by area or volume \
+             is not implemented"
         );
     }
 }

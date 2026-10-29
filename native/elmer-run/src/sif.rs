@@ -23,22 +23,53 @@ pub struct SifFrontend {
 }
 
 /// Sections by their 1-based id (`Body 3` at index 2); missing ids are
-/// empty, as an unset section is in Elmer. A section without a number
-/// (`elmer-sif` gives it id 0) has no place and is refused.
+/// empty, as an unset section is in Elmer. `elmer-sif` leaves an empty
+/// id-0 section for each gap in the numbering (`Solver 1`, `Solver 3`);
+/// those are skipped, and an id-0 section with content is refused.
 fn numbered(kind: &str, sections: &[Section]) -> Result<Vec<ParamMap>, String> {
     let n = sections.iter().map(|s| s.id as usize).max().unwrap_or(0);
     let mut out = vec![ParamMap::new(); n];
     for s in sections {
-        let Some(i) = (s.id as usize).checked_sub(1) else {
-            return Err(format!("{kind} section without a number"));
-        };
-        out[i] = section_to_param_map(s);
+        match (s.id as usize).checked_sub(1) {
+            Some(i) => out[i] = section_to_param_map(s),
+            None if s.entries.is_empty() => {}
+            None => return Err(format!("{kind} section without a number")),
+        }
     }
     Ok(out)
 }
 
 fn single(section: &Option<Section>) -> ParamMap {
     section.as_ref().map(section_to_param_map).unwrap_or_default()
+}
+
+/// `-distribute` (SetNormalizedKeywords, MainUtils.F90:224) divides the
+/// value by the area or volume it acts on. The tag lives only on
+/// `elmer-sif`'s entries, so it is refused here.
+fn refuse_distribute(m: &elmer_sif::Model) -> Result<(), String> {
+    let numbered: [(&str, &[Section]); 7] = [
+        ("Solver", &m.solvers),
+        ("Equation", &m.equations),
+        ("Body", &m.bodies),
+        ("Material", &m.materials),
+        ("Body Force", &m.body_forces),
+        ("Initial Condition", &m.ics),
+        ("Boundary Condition", &m.bcs),
+    ];
+    let singles = [("Simulation", &m.simulation), ("Constants", &m.constants)];
+    let all = numbered
+        .iter()
+        .flat_map(|(kind, v)| v.iter().map(move |s| (*kind, s)))
+        .chain(singles.iter().filter_map(|(kind, s)| s.as_ref().map(|s| (*kind, s))));
+    for (kind, s) in all {
+        if let Some(e) = s.entries.iter().find(|e| e.distribute) {
+            return Err(format!(
+                "{kind} {}: {} = -distribute: keyword normalisation by area or volume is not implemented",
+                s.id, e.name
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// `elmer-solver`'s view of a parsed and completed model. Sections it has
@@ -53,6 +84,7 @@ pub fn to_model(m: &elmer_sif::Model) -> Result<Model, String> {
     if m.control.is_some() {
         return Err("Control section".into());
     }
+    refuse_distribute(m)?;
     Ok(Model {
         header: ParamMap::new(),
         simulation: single(&m.simulation),
@@ -96,5 +128,29 @@ impl Frontend for SifFrontend {
         let mesh_dir = case_dir.join(db).join(name);
         let mesh = (self.mesh)(&mesh_dir, &model.simulation)?;
         Ok(LoadedCase { model, mesh, case_dir, mesh_dir })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elmer_core::Params;
+
+    #[test]
+    fn numbering_gaps_are_empty_sections() {
+        let dir = std::env::temp_dir().join(format!("elmer-run-sif-gaps-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sif = dir.join("case.sif");
+        std::fs::write(
+            &sif,
+            "Header\n  Mesh DB \".\" \"m\"\nEnd\nSolver 1\n  Equation = \"a\"\nEnd\nSolver 3\n  Equation = \"b\"\nEnd\n",
+        )
+        .unwrap();
+        let parsed = elmer_sif::parse_file(sif.to_str().unwrap()).unwrap();
+        let model = to_model(&parsed.sif.merged()).unwrap();
+        assert_eq!(model.solvers.len(), 3);
+        assert!(model.solvers[1].0.is_empty());
+        assert_eq!(model.solvers[2].string("equation"), Some("b"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
