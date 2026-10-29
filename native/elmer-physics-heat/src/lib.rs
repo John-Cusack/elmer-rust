@@ -22,13 +22,18 @@
 //! computed convection velocity (given at nodes) with plain Galerkin or SUPG
 //! weighting, volumetric and per-mass heat source, heat transfer multiplier,
 //! axisymmetric weighting, heat flux and Robin (heat transfer coefficient and
-//! external temperature) boundary terms. Everything else HeatSolve can do is
-//! refused by [`check_supported`] instead of being approximated.
+//! external temperature) boundary terms. With `Legacy Assembly = True` (the
+//! HeatSolveLegacy path, see `legacy`) also `Smart Heater Control` and
+//! `Radiation = Idealized`. Everything else HeatSolve can do is refused by
+//! [`check_supported`] instead of being approximated; `Convection = Computed`
+//! and `Compressibility Model` wait for the solve, so a solver with `Exec
+//! Solver = Never` passes setup as it does in Elmer.
 #![forbid(unsafe_code)]
 
 mod boundary;
 mod bulk;
 mod error;
+mod legacy;
 mod material;
 mod preflight;
 mod solver;

@@ -156,10 +156,18 @@ fn unsupported_cases_are_refused_at_setup() {
     m.boundary_conditions[1].insert("Radiation", st("Idealized"));
     assert!(try_model(m).contains("Radiation"));
 
+    // Reading the flow solution is refused when the solver runs, not at
+    // setup: Elmer's own init accepts it, and `Exec Solver = Never` skips it.
     let mut m = minimal_model();
     m.equations[0].insert("Convection", st("Computed"));
     m.solvers[0].insert("Stabilize", Value::Logical(true));
-    assert!(try_model(m).contains("Convection = Computed"));
+    let err = run(m, &mesh).err().expect("refused").to_string();
+    assert!(err.contains("Convection = Computed"), "{err}");
+
+    let mut m = minimal_model();
+    m.materials[0].insert("Compressibility Model", st("Thermal"));
+    let err = run(m, &mesh).err().expect("refused").to_string();
+    assert!(err.contains("Compressibility Model"), "{err}");
 
     // Convection without SUPG would need Elmer's residual-free bubble.
     let mut m = minimal_model();
