@@ -12,6 +12,7 @@ use crate::material::{
 };
 use crate::preflight::stabilized;
 use crate::radiation::{is_diffuse_gray, temps4, DiffuseGray};
+use crate::radiators::{is_radiator_bc, Radiators};
 use crate::{
     check_supported, heat_boundary_local, heat_bulk_local, HeatError, HeatMaterialAtNodes,
     HeatSections, PROCEDURE,
@@ -60,6 +61,8 @@ pub struct HeatSolver {
     pub(crate) local: LocalSystem,
     /// The diffuse gray radiation, found and factored on the first solve.
     diffuse: Option<Option<DiffuseGray>>,
+    /// The point radiators, likewise.
+    radiators: Option<Option<Radiators>>,
 }
 
 impl HeatSolver {
@@ -69,6 +72,7 @@ impl HeatSolver {
             quad,
             local: LocalSystem::zeros(0),
             diffuse: None,
+            radiators: None,
         }
     }
 }
@@ -316,6 +320,9 @@ impl Solver for HeatSolver {
         if self.diffuse.is_none() {
             self.diffuse = Some(DiffuseGray::setup(ctx, &bnd, axisym)?);
         }
+        if self.radiators.is_none() {
+            self.radiators = Some(Radiators::setup(ctx, &bnd)?);
+        }
         let stefan = ctx.constants().real("Stefan Boltzmann");
         if self.diffuse.as_ref().is_some_and(Option::is_some) && stefan.is_none() {
             return Err(SolverError::fatal(
@@ -370,12 +377,14 @@ impl Solver for HeatSolver {
                 ctx.default_update(&self.local, e)?;
             }
 
+            ctx.default_finish_bulk_assembly()?;
+
             for &e in &bnd {
                 ctx.element_dofs(e, &mut dofs);
                 if dofs.contains(&NO_DOF) {
                     continue;
                 }
-                let bc = {
+                let mut bc = {
                     let p = ctx.bc_params(e);
                     HeatBcAtNodes {
                         heat_flux: real_at_nodes(ctx, p, "Heat Flux", e)?,
@@ -388,6 +397,17 @@ impl Solver for HeatSolver {
                         external_temperature: real_at_nodes(ctx, p, "External Temperature", e)?,
                     }
                 };
+                // Radiator BC: the radiators' power adds to the flux, unless
+                // the element is a diffuse gray one.
+                if let Some(Some(r)) = &self.radiators {
+                    if is_radiator_bc(ctx, e) && !is_diffuse_gray(ctx, e) {
+                        if let Some(q) = r.flux(e) {
+                            let n = ctx.mesh.element(e).nodes.len();
+                            let flux = bc.heat_flux.get_or_insert_with(|| vec![0.0; n]);
+                            flux.iter_mut().for_each(|x| *x += q);
+                        }
+                    }
+                }
                 if bc.heat_flux.is_some() || bc.heat_transfer_coefficient.is_some() {
                     let el = ctx.mesh.element(e);
                     let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();

@@ -40,6 +40,7 @@ mod legacy;
 mod material;
 mod preflight;
 mod radiation;
+mod radiators;
 mod solver;
 
 pub use boundary::heat_boundary_local;

@@ -127,3 +127,33 @@ fn convection_needs_supg() {
         "Convection"
     );
 }
+
+#[test]
+fn radiators_need_the_default_assembly() {
+    let mut s = solver();
+    let mut bc = ParamMap::new();
+    bc.insert("Radiator BC", Value::Logical(true));
+    check_supported(&sections(&s, None, None, vec![&bc])).unwrap();
+
+    let mut bf = ParamMap::new();
+    bf.insert(
+        "Radiator Coordinates",
+        Value::Real {
+            rows: 1,
+            cols: 3,
+            data: vec![0.0, 0.0, 0.0],
+        },
+    );
+    let mut with_bf = sections(&s, None, None, vec![]);
+    with_bf.body_force = Some(&bf);
+    check_supported(&with_bf).unwrap();
+
+    // HeatSolveLegacy: "For radiative point sources use HeatSolveVec".
+    s.insert("Legacy Assembly", Value::Logical(true));
+    let mut with_bf = sections(&s, None, None, vec![]);
+    with_bf.body_force = Some(&bf);
+    assert_eq!(
+        keyword(check_supported(&with_bf).unwrap_err()),
+        "Radiator Coordinates"
+    );
+}

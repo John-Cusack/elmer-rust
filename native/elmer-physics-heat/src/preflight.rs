@@ -61,7 +61,6 @@ const SOLVER: &[Rule] = &[
         "Calculate Conductance Matrix",
         "constraint modes are not implemented",
     ),
-    present("Radiator Coordinates", "radiators are not implemented"),
     flag(
         "Nonlinear System Linesearch",
         "DefaultLinesearch is not implemented",
@@ -97,7 +96,6 @@ const BODY_FORCE: &[Rule] = &[
     present("Friction Heat", "not implemented"),
     flag("Joule Heat", "coupled Joule heating is not implemented"),
     present("Perfusion Rate", "perfusion is not implemented"),
-    present("Radiator Coordinates", "radiators are not implemented"),
     flag("Heat Source At IP", AT_IP),
     flag("Volumetric Heat Source At IP", AT_IP),
 ];
@@ -112,7 +110,6 @@ const BOUNDARY: &[Rule] = &[
         "far-field condition is not implemented",
     ),
     present("Phase Change", "phase change is not implemented"),
-    present("Radiator BC", "radiators are not implemented"),
     present("Heat Gap", "DG heat gap is not implemented"),
     present("Temperature Nitsche", "weak conditions are not implemented"),
 ];
@@ -181,6 +178,20 @@ pub(crate) fn stabilized(solver: &dyn Params) -> bool {
 pub fn check_supported(sections: &HeatSections<'_>) -> Result<(), HeatError> {
     let legacy = sections.solver.logical("Legacy Assembly") == Some(true);
     scan(sections.solver, "solver", SOLVER)?;
+    if legacy {
+        // HeatSolveLegacy: "For radiative point sources use HeatSolveVec".
+        let radiators = sections.solver.get("Radiator Coordinates").is_some()
+            || sections
+                .body_force
+                .is_some_and(|b| b.get("Radiator Coordinates").is_some());
+        if radiators {
+            return Err(HeatError::Unsupported {
+                section: "solver",
+                keyword: "Radiator Coordinates".into(),
+                reason: "the legacy assembly has no radiative point sources",
+            });
+        }
+    }
     if let Some(e) = sections.equation {
         scan(e, "equation", EQUATION)?;
         if let Some(c) = e.string("Convection") {
