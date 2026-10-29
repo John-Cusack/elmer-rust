@@ -141,3 +141,45 @@ fn body_wise_solver_elements_set_each_body() {
         .for_solver(&mesh, &m, &m.solvers[0], &active, 5)
         .is_none());
 }
+
+/// `p-FEM_two_solvers`: solver 1 body-wise p:4 / p:8, solver 2 body-wise
+/// p:2 on the same mesh. Elmer sizes the mesh tables from both solvers
+/// (`inDofs`), so solver 2's Perm spans solver 1's slot space (289 slots,
+/// 25 used) in the pristine run.
+#[test]
+fn other_solvers_size_the_mesh_tables() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let p = |s: &str| st(s);
+    let mut m = model(
+        &[],
+        &[],
+        [
+            &[
+                ("Solver 1: Element", p("p:4")),
+                ("Solver 2: Element", p("p:2")),
+            ],
+            &[
+                ("Solver 1: Element", p("p:8")),
+                ("Solver 2: Element", p("p:2")),
+            ],
+        ],
+    );
+    m.equations[0].insert("Active Solvers", Value::Integer(vec![1, 2]));
+    let mesh = TestMesh::read(&data_dir("varying_p"), 2);
+    let active: Vec<ElemId> = (0..mesh.n_bulk() as u32).map(ElemId).collect();
+    let layout = backend(seen)
+        .for_solver_id(&mesh, &m, 2, &m.solvers[1], &active, 1)
+        .unwrap()
+        .unwrap();
+    let ours: Vec<u32> = layout
+        .perm()
+        .perm
+        .iter()
+        .map(|&p| if p == NO_DOF { 0 } else { p + 1 })
+        .collect();
+    assert_eq!(
+        ours,
+        read_perm(&data_dir("varying_p").join("two_solvers_s2_perm.dat"))
+    );
+    assert_eq!(layout.perm().n_slots, 25);
+}

@@ -32,6 +32,8 @@ fn setup(def: &str, serendipity: bool) -> (TestMesh, PSetup) {
             active: &active,
             boundary_body: &|_| 0,
             matc_degree: &mut matc,
+            solver_id: 1,
+            other_solvers: &[],
         },
         1,
     )

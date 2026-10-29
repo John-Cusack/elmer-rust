@@ -51,7 +51,7 @@ pub use defs::{initial_max_defs, ElementDefs, Kind, MaxDefs};
 pub use dofs::DofLayout;
 pub use perm::{create_p_system, PSystem};
 pub use pmesh::{MatcDegree, PMesh, PMeshOptions, SolverElements};
-pub use setup::{global_bubbles, is_p_section, ModelFacts, PSetup};
+pub use setup::{global_bubbles, is_p_section, ModelFacts, OtherSolver, PSetup};
 pub use solver::{register_poisson_pfem, PDofsBackend, PoissonPfem};
 
 /// Errors of the p-element setup.

@@ -270,6 +270,8 @@ fn psetup_from_keywords_runs_end_to_end() {
             active: &active,
             boundary_body: &|_| 0,
             matc_degree: &mut matc,
+            solver_id: 1,
+            other_solvers: &[],
         },
         1,
     )
