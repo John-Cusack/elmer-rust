@@ -20,6 +20,7 @@
 //!   [`model_pde_handle`]: `ModelPDEhandle`'s `AdvDiffSolver`;
 //!   [`model_pde_splitted`]: ModelPDE as `_bulk`/`_boundary` steps;
 //!   [`poisson_ml`]: the matrix-free p-element Poisson of `PoissonML`;
+//!   [`benchmark_shell`]: the p-element cylindrical shell of the shell cases;
 //!   [`stokes_proj`]: `StokesProj`'s velocity and pressure solvers;
 //!   [`bentonite`]: the `bentonite` case's coupled 3-dof solver;
 //!   [`l2nd_derivatives`]: the basis and second-derivative check of
@@ -34,6 +35,7 @@
 //! The README lists every other quick-test plugin with its blockers.
 #![forbid(unsafe_code)]
 
+pub mod benchmark_shell;
 pub mod bentonite;
 pub mod hooks;
 pub mod l2nd_derivatives;

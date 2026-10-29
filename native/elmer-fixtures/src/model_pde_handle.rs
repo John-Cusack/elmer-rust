@@ -149,6 +149,7 @@ fn local_matrix_bc(
 
 impl Solver for ModelPdeHandle {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        crate::hooks::check_element_definitions(ctx)?;
         if ctx.primary().is_none_or(|v| v.dofs != 1) {
             return Err(SolverError::Unsupported("ModelPDEhandle AdvDiffSolver: a scalar Variable".into()));
         }

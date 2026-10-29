@@ -109,6 +109,7 @@ pub fn pressure_local(
 
 impl Solver for PressureSolver {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        crate::hooks::check_element_definitions(ctx)?;
         if ctx.primary().is_none_or(|v| v.dofs != 1) {
             return Err(SolverError::Unsupported("StokesProj PressureSolver: a scalar Variable".into()));
         }
@@ -233,6 +234,10 @@ pub fn velocity_local(
 }
 
 impl Solver for VelocitySolver {
+    fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        crate::hooks::check_element_definitions(ctx)
+    }
+
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
         let basis = lagrange_basis(ctx)?;
         let dim = basis.cdim;

@@ -18,74 +18,13 @@
 //! counts come from the solver's dof layout (`elmer-pdofs`, through
 //! `SolverCtx::solver_dofs`); without one the element is nodal Lagrange.
 
-use elmer_core::{BasisEval, ElemId, ElementBasis, ElementType, LocalSystem, ParamMap, Params, QuadPoint, Quadrature, NO_DOF};
-use elmer_fe::ElmerQuadrature;
+use elmer_core::{BasisEval, ElemId, ElementBasis, ElementType, LocalSystem, ParamMap, Params, QuadPoint, NO_DOF};
 use elmer_solver::{Solver, SolverCtx, SolverError};
 
-use crate::hooks::{coordinate_system, lagrange_basis};
+use crate::hooks::{coordinate_system, element, nodal};
 use crate::linalg::condensate;
 
 const CALLER: &str = "AdvDiffSolver";
-
-/// One element as the routines see it.
-struct Elem {
-    etype: ElementType,
-    /// Mesh nodes in the order the basis expects.
-    nodes: Vec<u32>,
-    basis: Box<dyn ElementBasis>,
-    rule: Vec<QuadPoint>,
-    /// `GetElementNOFDOFs()`: dofs in the global system.
-    nd: usize,
-    /// `GetElementNOFBDOFs()`: local bubbles.
-    nb: usize,
-}
-
-fn element(ctx: &SolverCtx<'_>, e: ElemId) -> Result<Elem, SolverError> {
-    let el = ctx.mesh.element(e);
-    let etype = el.etype;
-    match ctx.solver_dofs() {
-        Some(d) => {
-            let fatal = |m: String| SolverError::fatal(CALLER, m);
-            let mut slots = Vec::new();
-            d.element_slots(e, &mut slots);
-            Ok(Elem {
-                etype,
-                nodes: d.element_nodes(e),
-                basis: d.element_basis(e).map_err(fatal)?,
-                rule: d.element_rule(e).map_err(fatal)?,
-                nd: slots.len(),
-                nb: d.local_bubbles(e),
-            })
-        }
-        None => Ok(Elem {
-            etype,
-            nodes: el.nodes.to_vec(),
-            basis: Box::new(lagrange_basis(ctx)?),
-            rule: ElmerQuadrature.gauss_points(etype, None),
-            nd: el.nodes.len(),
-            nb: 0,
-        }),
-    }
-}
-
-/// `GetReal(list, key)` at the element's nodes, in the basis's node order;
-/// zeros when absent.
-fn nodal(ctx: &SolverCtx<'_>, list: Option<&ParamMap>, key: &str, e: ElemId, order: &[u32]) -> Result<Vec<f64>, SolverError> {
-    let mesh_nodes = ctx.mesh.element(e).nodes;
-    let Some(values) = list.map(|p| ctx.real_at_nodes(p, key, e)).transpose()?.flatten() else {
-        return Ok(vec![0.0; order.len()]);
-    };
-    order
-        .iter()
-        .map(|n| {
-            mesh_nodes
-                .iter()
-                .position(|m| m == n)
-                .map(|i| values[i])
-                .ok_or_else(|| SolverError::fatal(CALLER, "basis node order is not the element's node set"))
-        })
-        .collect()
-}
 
 /// `SUM(Basis(1:n) * values(1:n))`.
 fn interp(basis: &[f64], values: &[f64]) -> f64 {
@@ -271,6 +210,7 @@ impl ModelPdeSplitted {
 
 impl Solver for ModelPdeSplitted {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        crate::hooks::check_element_definitions(ctx)?;
         if ctx.primary().is_none_or(|v| v.dofs != 1) {
             return Err(SolverError::Unsupported("ModelPDEsplitted AdvDiffSolver: a scalar Variable".into()));
         }

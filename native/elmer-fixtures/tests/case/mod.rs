@@ -21,6 +21,7 @@ use elmer_core::{ElemId, ElementRef, MeshView, ParamMap, Params, SerialComm, Val
 use elmer_mesh_levels::{extrude, mesh_levels, ExtrudeOptions, MeshLevelsError};
 use elmer_physics_meshtools::motion::{self, MeshMotion, SharedCoords};
 use elmer_run::output::is_result_output;
+use elmer_expr::MatcEngine;
 use elmer_run::{Frontend, LoadedCase, SifFrontend, SifMatc};
 use elmer_solver::solver::procedure_of;
 use elmer_solver::{finalize_reference, Model, Simulation, SolverError, SolverRegistry};
@@ -302,8 +303,12 @@ pub fn run(case: &str, dir: &Path, sif: &str) -> Result<Outcome, SolverError> {
     let comm = SerialComm;
     let mut sim = Simulation::new(model);
     sim.backends.fe = Some(elmer_run::fe_backend(coords.dim));
-    // Solver sections with a non-nodal `Element`, as `elmer-run` installs it.
-    sim.backends.dofs = Some(Box::new(elmer_pdofs::PDofsBackend::new()));
+    // Solver sections with a non-nodal `Element`, as `elmer-run` installs it;
+    // `p:%f` degrees are `GetMatcReal(f, 4, [body, x, y, z], 'cx')`.
+    let degree: Arc<elmer_pdofs::solver::MatcFn> = Arc::new(|f: &str, cx: [f64; 4]| {
+        SifMatc.eval_with("cx", f, &cx)?.first().copied().ok_or_else(|| format!("MATC {f}: no value"))
+    });
+    sim.backends.dofs = Some(Box::new(elmer_pdofs::PDofsBackend::new().with_matc(degree)));
     sim.set_matc(Rc::new(SifMatc));
     elmer_fixtures::registry::install_live(case, &mut sim, mesh);
     sim.setup(mesh, &registry, &log, &comm)?;

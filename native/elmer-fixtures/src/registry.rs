@@ -23,6 +23,7 @@ use elmer_expr::{Udf, UdfRegistry};
 use elmer_solver::solver::procedure_of;
 use elmer_solver::{ElementAssembly, Model, Simulation, SolverFactory, SolverRegistry};
 
+use crate::benchmark_shell;
 use crate::bentonite;
 use crate::hooks::{PoissonBoundary, PoissonBulk};
 use crate::l2nd_derivatives;
@@ -133,6 +134,12 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("ModelPDEsplitted", "ModelPDEsplitted", "AdvDiffSolver", Hook::Solver(model_pde_splitted::factory)),
     ("SD_ModelPDEsplitted", "ModelPDEsplitted", "AdvDiffSolver", Hook::Solver(model_pde_splitted::factory)),
     ("PoissonML", "PoissonML", "PoissonSolver", Hook::Solver(poisson_ml::factory)),
+    // One `BenchmarkShell.F90` in all five shell cases.
+    ("p-FEM_two_solvers", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
+    ("SD_p-FEM_two_solvers", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
+    ("p-FEM_with_varying_p", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
+    ("SD_p-FEM_with_varying_p", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
+    ("SD_Classical2DShell", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
     ("L2ndDerivatives", "L2ndDerivativesTest", "TestSolver", Hook::Solver(l2nd_derivatives::factory)),
     ("StokesProj", "Pressure", "PressureSolver", Hook::Solver(stokes_proj::pressure_factory)),
     ("StokesProj", "Velocity", "VelocitySolver", Hook::Solver(stokes_proj::velocity_factory)),
