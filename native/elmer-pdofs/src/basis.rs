@@ -22,6 +22,7 @@ use elmer_fe_hp::{PElementBasis, PElementSpec, MAX_EDGES};
 use crate::defs::Kind;
 use crate::dofs::DofLayout;
 use crate::pmesh::effective_bubble_p;
+use crate::quadrature::{gauss_points_quad_p, p_triangle_rule};
 use crate::Error;
 
 impl DofLayout<'_> {
@@ -109,9 +110,9 @@ impl DofLayout<'_> {
     }
 
     /// `GaussPoints(Element)` for an active p element: `PDefs %
-    /// GaussPoints` points (the type default when 0) of the tensor rule.
-    /// Triangles (`GaussPointsPTriangle`) and the economic serendipity
-    /// quad rules are not ported.
+    /// GaussPoints` points (the type default when 0) of the line rule, the
+    /// quad rule (economic for serendipity elements of degree 2 to 7
+    /// without low-degree bubbles) or the p reference triangle rule.
     pub fn gauss_rule(&self, e: usize) -> Result<GaussRule, Error> {
         let el = &self.mesh.elements[e];
         let etype = ElementType(el.code);
@@ -121,24 +122,27 @@ impl DofLayout<'_> {
         let Some(pd) = el.pdefs.as_ref().filter(|_| self.is_active_p(e)) else {
             return fe(gauss_points(etype, None));
         };
-        let n = pd.gauss_points;
-        if n == 0 {
-            return fe(gauss_points(etype, None));
-        }
+        // `IF (n == 0) n = elmt % GaussPoints`, still on the p reference element.
+        let n = match pd.gauss_points {
+            0 => {
+                elmer_fe::element_type(el.code)
+                    .map_err(|err| Error::Unsupported(err.to_string()))?
+                    .gauss_points
+            }
+            n => n,
+        };
         match el.family() {
             2 => fe(gauss_points_1d(n)),
             4 => {
                 let economic =
                     pd.serendipity && pd.p > 1 && pd.p <= 7 && !(el.bdofs > 0 && pd.p < 4);
-                if economic {
-                    Err(Error::Unsupported("economic serendipity quad rules".into()))
+                if economic && n == 12 {
+                    fe(gauss_points_quad(16))
                 } else {
-                    fe(gauss_points_quad(n))
+                    gauss_points_quad_p(n, economic)
                 }
             }
-            3 => Err(Error::Unsupported(
-                "p-reference triangle rules (GaussPointsPTriangle)".into(),
-            )),
+            3 => p_triangle_rule(n),
             _ => Err(Error::Unsupported(format!(
                 "p integration rule for type {}",
                 el.code

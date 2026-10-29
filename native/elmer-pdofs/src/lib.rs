@@ -14,7 +14,8 @@
 //!    (`InitialPermutation`, `MakeListMatrix`, `CreateMatrix`), reusing
 //!    `elmer-assembly`'s bandwidth optimisation and CSR setup;
 //! 5. [`basis`]: the `elmer-fe-hp` basis and Gauss rule of one element as
-//!    `ElementInfo` / `GaussPoints` build them for p elements;
+//!    `ElementInfo` / `GaussPoints` build them for p elements, with the
+//!    p-only rules of [`quadrature`];
 //! 6. [`dirichlet`]: the edge-DOF part of `DefaultDirichletBCs`;
 //! 7. [`setup`]: all of it for one solver section from its keywords
 //!    ([`PSetup`]), the object a solver framework adapter holds;
@@ -38,6 +39,7 @@ pub mod dirichlet;
 pub mod dofs;
 pub mod perm;
 pub mod pmesh;
+pub mod quadrature;
 pub mod setup;
 pub mod solver;
 

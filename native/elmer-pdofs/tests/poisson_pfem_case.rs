@@ -1,4 +1,4 @@
-//! PoissonPFEM end to end through `elmer-solver`: the case's own
+//! PoissonPFEM and SD_PoissonPFEM end to end through `elmer-solver`: the case's own
 //! `case.sif` (parsed with `elmer-sif`), [`PDofsBackend`] in
 //! `Backends::dofs` and the case's `Poisson.f90` plugin as
 //! [`elmer_pdofs::PoissonPfem`]. The solver norm must be the pristine run's
@@ -10,7 +10,7 @@ mod support;
 use elmer_core::{NullLogger, ParamMap, SerialComm, Value};
 use elmer_pdofs::{register_poisson_pfem, PDofsBackend};
 use elmer_solver::{Model, Simulation, SolverRegistry};
-use support::{data_dir, read_values, TestMesh};
+use support::{data_dir, read_perm, read_values, TestMesh};
 
 /// `elmer-solver`'s view of the parsed case. Elmer's `ListAddString`
 /// lowercases string values; `elmer-sif` keeps quoted text as written.
@@ -49,11 +49,12 @@ fn sif_model(path: &std::path::Path) -> Model {
     }
 }
 
-#[test]
-fn poisson_pfem_runs_through_the_solver_framework() {
-    let dir = data_dir("poisson_pfem");
+/// Runs `case` (`tests/data/<case>/case.sif` on the `mesh` directory's
+/// mesh) and checks dofs, norm and the `case.result` values.
+fn run_case(case: &str, mesh: &str, n_dofs: usize, run_norm: f64, reference: f64) {
+    let dir = data_dir(case);
     let model = sif_model(&dir.join("case.sif"));
-    let mesh = TestMesh::read(&dir, 2);
+    let mesh = TestMesh::read(&data_dir(mesh), 2);
     let mut reg = SolverRegistry::new();
     register_poisson_pfem(&mut reg);
     let mut sim = Simulation::new(model);
@@ -62,21 +63,61 @@ fn poisson_pfem_runs_through_the_solver_framework() {
     sim.run(&mesh, &NullLogger, &SerialComm).unwrap();
 
     let u = sim.vars.get("potential").unwrap();
-    // 121 nodes + 220 edges + 100 global bubbles.
-    assert_eq!(u.values.len(), 441);
+    assert_eq!(u.values.len(), n_dofs);
     let norm = u.conv.norm;
-    assert!((norm - 1.96743752e-2).abs() < 1e-10, "norm {norm:e}");
-    assert!((norm - 0.19674375e-1).abs() / 0.19674375e-1 < 1e-5);
+    assert!((norm - run_norm).abs() < 1e-10, "{case}: norm {norm:e}");
+    assert!(
+        (norm - reference).abs() / reference < 1e-5,
+        "{case}: norm {norm:e}"
+    );
 
-    // case.result lists x(Perm(i)) slot by slot.
     let perm = u.perm.as_deref().unwrap();
+    let elmer_perm = read_perm(&dir.join("perm.dat"));
+    let ours: Vec<u32> = perm.iter().map(|&p| p + 1).collect();
+    assert_eq!(ours, elmer_perm, "{case}: Perm");
+    // case.result lists x(Perm(i)) slot by slot.
     let elmer = read_values(&dir.join("solution.dat"));
     let scale = elmer.iter().fold(0.0f64, |m, v| m.max(v.abs()));
     for (slot, &v) in elmer.iter().enumerate() {
         let ours = u.values[perm[slot] as usize];
         assert!(
             (ours - v).abs() <= 1e-11 * scale,
-            "slot {slot}: {ours:e} vs {v:e}"
+            "{case}: slot {slot}: {ours:e} vs {v:e}"
         );
     }
+}
+
+/// `p:2` on full quads: 121 nodes + 220 edges + 100 global bubbles.
+#[test]
+fn poisson_pfem_runs_through_the_solver_framework() {
+    run_case(
+        "poisson_pfem",
+        "poisson_pfem",
+        441,
+        1.96743752e-2,
+        0.19674375e-1,
+    );
+}
+
+/// `SD_PoissonPFEM`: the same case with the default serendipity elements,
+/// so no bubbles (121 nodes + 220 edges) and the 8-point economic rule.
+#[test]
+fn sd_poisson_pfem_runs_through_the_solver_framework() {
+    run_case(
+        "sd_poisson_pfem",
+        "poisson_pfem",
+        341,
+        2.23542169e-2,
+        0.223544023689e-1,
+    );
+}
+
+/// PoissonPFEM's case on triangles with `p:3` (a lane-made variant, see
+/// `tests/data/README.md`): edge functions of degree 2 and 3 with their
+/// orientation, one bubble per triangle, and the 12-point simplex rule on
+/// the p reference triangle. 121 nodes + 320 edges x 2 + 200 bubbles.
+#[test]
+fn triangles_p3_run_through_the_solver_framework() {
+    // The run printed 0.13356115E-01; this is the norm of its case.result.
+    run_case("tri_p3", "tri_p3", 961, 0.013356115428399276, 0.13356115e-1);
 }
