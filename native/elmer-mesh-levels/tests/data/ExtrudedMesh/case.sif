@@ -1,0 +1,13 @@
+Header
+  Mesh DB "." "mesh"
+End
+
+Simulation
+
+  Extruded Mesh Layers = 3
+
+End
+
+Boundary Condition 1
+  Target Boundaries(1) = 1
+End

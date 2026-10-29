@@ -1,0 +1,25 @@
+Header
+  Mesh DB "." "mesh"
+End
+
+Simulation
+
+  Extruded Mesh Levels = Integer 3
+
+  Extruded Mesh Ratio = Real 0.5
+
+End
+
+Boundary Condition 1
+  Target Boundaries(2) = 1 3
+End
+
+Boundary Condition 2
+  Target Boundaries(2) = 2 4
+End
+
+Boundary Condition 3
+End
+
+Boundary Condition 4
+End
