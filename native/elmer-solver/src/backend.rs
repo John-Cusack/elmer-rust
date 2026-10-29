@@ -50,6 +50,13 @@ pub trait SolverDofs: Send + Sync {
     fn element_basis(&self, e: ElemId) -> Result<Box<dyn ElementBasis + Send + Sync>, String>;
     /// `GaussPoints(Element)` of element `e`.
     fn element_rule(&self, e: ElemId) -> Result<Vec<QuadPoint>, String>;
+    /// `GaussPoints(Element, np)`: the `np`-point rule of element `e` on its
+    /// p reference element (`Number of Integration Points` through
+    /// `GaussPointsAdapt`). The default refuses.
+    fn element_rule_np(&self, e: ElemId, np: usize) -> Result<Vec<QuadPoint>, String> {
+        let _ = e;
+        Err(format!("GaussPoints with {np} points on non-nodal elements is not provided"))
+    }
     /// The node order the basis of `e` expects (Elmer reorders p boundary
     /// elements to their parent edge, `AssignLocalNumber`).
     fn element_nodes(&self, e: ElemId) -> Vec<u32>;
