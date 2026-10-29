@@ -16,29 +16,62 @@ impl<'a> MeshViewAdapter<'a> {
 
 impl MeshView for MeshViewAdapter<'_> {
     fn dim(&self) -> usize {
-        self.mesh.dim
+        self.mesh.dim()
     }
 
     fn n_nodes(&self) -> usize {
-        self.mesh.nodes.len()
+        self.mesh.n_nodes()
     }
 
     fn coord(&self, node: u32) -> [f64; 3] {
-        self.mesh.nodes[node as usize]
+        self.mesh.coord(node)
     }
 
     fn n_bulk(&self) -> usize {
-        self.mesh.bulk.len()
+        self.mesh.n_bulk()
     }
 
     fn n_boundary(&self) -> usize {
-        self.mesh.boundary.len()
+        self.mesh.n_boundary()
+    }
+
+    fn element(&self, e: ElemId) -> ElementRef<'_> {
+        self.mesh.element(e)
+    }
+
+    fn element_edges(&self, e: ElemId) -> Option<&[u32]> {
+        self.mesh.element_edges(e)
+    }
+}
+
+/// `Mesh` itself is a [`MeshView`]: bulk elements come first, then boundary
+/// elements, with Elmer's 1-based file order mapped to 0-based [`ElemId`].
+/// This is the form the swarm's `s1_adapters` check asserts.
+impl MeshView for Mesh {
+    fn dim(&self) -> usize {
+        self.dim
+    }
+
+    fn n_nodes(&self) -> usize {
+        self.nodes.len()
+    }
+
+    fn coord(&self, node: u32) -> [f64; 3] {
+        self.nodes[node as usize]
+    }
+
+    fn n_bulk(&self) -> usize {
+        self.bulk.len()
+    }
+
+    fn n_boundary(&self) -> usize {
+        self.boundary.len()
     }
 
     fn element(&self, e: ElemId) -> ElementRef<'_> {
         let i = e.0 as usize;
-        if i < self.mesh.bulk.len() {
-            let el = &self.mesh.bulk[i];
+        if i < self.bulk.len() {
+            let el = &self.bulk[i];
             ElementRef {
                 etype: ElementType(el.code),
                 nodes: &el.nodes,
@@ -46,7 +79,7 @@ impl MeshView for MeshViewAdapter<'_> {
                 parents: [None, None],
             }
         } else {
-            let b = &self.mesh.boundary[i - self.mesh.bulk.len()];
+            let b = &self.boundary[i - self.bulk.len()];
             ElementRef {
                 etype: ElementType(b.code),
                 nodes: &b.nodes,
@@ -61,10 +94,10 @@ impl MeshView for MeshViewAdapter<'_> {
 
     fn element_edges(&self, e: ElemId) -> Option<&[u32]> {
         let i = e.0 as usize;
-        if i < self.mesh.bulk.len() {
-            Some(&self.mesh.bulk[i].edges)
+        if i < self.bulk.len() {
+            Some(&self.bulk[i].edges)
         } else {
-            Some(&self.mesh.boundary[i - self.mesh.bulk.len()].edges)
+            Some(&self.boundary[i - self.bulk.len()].edges)
         }
     }
 }
@@ -73,5 +106,58 @@ impl Mesh {
     /// Borrow this mesh as an `elmer_core::MeshView`.
     pub fn view(&self) -> MeshViewAdapter<'_> {
         MeshViewAdapter::new(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mesh::{BoundElem, Elem};
+
+    fn two_tri() -> Mesh {
+        Mesh {
+            dim: 2,
+            max_dim: 2,
+            nodes: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+            ],
+            node_tags: vec![1, 2, 3, 4],
+            bulk: vec![
+                Elem { code: 303, body: 1, nodes: vec![0, 1, 2], tag: 1, edges: vec![0, 1, 2] },
+                Elem { code: 303, body: 1, nodes: vec![0, 2, 3], tag: 2, edges: vec![3, 4, 5] },
+            ],
+            boundary: vec![BoundElem {
+                code: 202,
+                constraint: 1,
+                parents: [Some(0), None],
+                nodes: vec![0, 1],
+                tag: 1,
+                edges: vec![0],
+            }],
+            edges: None,
+        }
+    }
+
+    fn check_view<V: MeshView>(v: &V) {
+        assert_eq!(v.n_bulk(), 2);
+        assert_eq!(v.n_boundary(), 1);
+        assert_eq!(v.coord(2), [1.0, 1.0, 0.0]);
+        // Bulk elements come first, then boundary elements.
+        let b = v.element(ElemId(2));
+        assert_eq!(b.tag, 1);
+        assert_eq!(b.nodes, &[0, 1]);
+        assert_eq!(b.parents, [Some(ElemId(0)), None]);
+        assert_eq!(v.element_edges(ElemId(0)), Some(&[0, 1, 2][..]));
+    }
+
+    /// The swarm's `s1_adapters` check asserts these bounds verbatim.
+    #[test]
+    fn mesh_and_adapter_are_views() {
+        let m = two_tri();
+        check_view(&m);
+        check_view(&m.view());
     }
 }
