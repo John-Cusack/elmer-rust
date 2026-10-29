@@ -16,8 +16,8 @@
 //!   Integration.F90:2242), dispatched as `GaussPoints` does.
 
 use elmer_fe::quadrature::{
-    gauss_points_1d, gauss_points_brick, gauss_points_quad, gauss_points_triangle,
-    gauss_points_wedge_economic, GaussRule,
+    gauss_points_1d, gauss_points_brick, gauss_points_quad, gauss_points_tetra,
+    gauss_points_triangle, gauss_points_wedge_economic, GaussRule,
 };
 
 use crate::Error;
@@ -204,6 +204,114 @@ pub fn p_wedge_rule(n: usize, np_given: bool) -> Result<GaussRule, Error> {
         }
     }
     gauss_points_p_wedge(n)
+}
+
+/// `GaussPointsPBrick(nx, ny, nz)`: the tensor rule with `u` outermost.
+fn gauss_points_p_brick(nx: usize, ny: usize, nz: usize) -> Result<GaussRule, Error> {
+    let (x, y, z) = (
+        fe(gauss_points_1d(nx))?,
+        fe(gauss_points_1d(ny))?,
+        fe(gauss_points_1d(nz))?,
+    );
+    let mut p = GaussRule::default();
+    for i in 0..nx {
+        for j in 0..ny {
+            for k in 0..nz {
+                p.u.push(x.u[i]);
+                p.v.push(y.u[j]);
+                p.w.push(z.u[k]);
+                p.s.push(x.s[i] * y.s[j] * z.s[k]);
+            }
+        }
+    }
+    Ok(p)
+}
+
+/// `n = DBLE(np)**(1.0D0/3.0D0) + 0.5D0`, truncated.
+fn cube_root_points(np: usize) -> usize {
+    ((np as f64).powf(1.0 / 3.0) + 0.5) as usize
+}
+
+/// `TetraSimplexRulePoints(np)`: the tabulated tetra rule for the degree an
+/// `np`-point tensor rule integrates, 0 when none is.
+pub fn tetra_simplex_rule_points(np: usize) -> usize {
+    let maxp = (np as f64).powf(1.0 / 3.0).round() as i64;
+    let deg = 2 * (maxp - 1).max(0) + 1;
+    match deg {
+        i64::MIN..=1 => 1,
+        2 => 4,
+        3 => 5,
+        4 => 11,
+        5 | 6 => 24,
+        _ => 0,
+    }
+}
+
+/// `TetraRuleTabulated(n)`.
+pub fn tetra_rule_tabulated(n: usize) -> bool {
+    [1, 4, 5, 11, 24].contains(&n)
+}
+
+/// `GaussPointsTetra(n, PReferenceElement=.TRUE.)`.
+pub fn gauss_points_tetra_p(n: usize) -> Result<GaussRule, Error> {
+    let mut p = fe(gauss_points_tetra(n))?;
+    for i in 0..p.len() {
+        let (uq, vq, wq, sq) = (p.u[i], p.v[i], p.w[i], p.s[i]);
+        p.u[i] = -1.0 + 2.0 * uq + vq + wq;
+        p.v[i] = 3.0f64.sqrt() * vq + 1.0 / 3.0f64.sqrt() * wq;
+        p.w[i] = 8.0f64.sqrt() / 3.0f64.sqrt() * wq;
+        p.s[i] = 8.0f64.sqrt() * 2.0 * sq;
+    }
+    Ok(p)
+}
+
+/// `GaussPointsPTetra(np)`: a collapsed `n x n x (n+1)` brick rule on the
+/// p reference tetrahedron.
+pub fn gauss_points_p_tetra(np: usize) -> Result<GaussRule, Error> {
+    let n = cube_root_points(np);
+    let mut p = gauss_points_p_brick(n, n, n + 1)?;
+    for i in 0..p.len() {
+        let (uh, vh, wh, sh) = (p.u[i], p.v[i], p.w[i], p.s[i]);
+        p.u[i] = 1.0 / 4.0 * (uh - uh * vh - uh * wh + uh * vh * wh);
+        p.v[i] = 3.0f64.sqrt() / 4.0 * (5.0 / 3.0 + vh - wh / 3.0 - vh * wh);
+        p.w[i] = 6.0f64.sqrt() / 3.0 * (1.0 + wh);
+        p.s[i] = -sh * 2.0f64.sqrt() / 16.0 * (1.0 - vh - wh + vh * wh) * (-1.0 + wh);
+    }
+    Ok(p)
+}
+
+/// `GaussPointsPPyramid(np)`: a collapsed `n x n x (n+1)` brick rule on the
+/// p reference pyramid.
+pub fn gauss_points_p_pyramid(np: usize) -> Result<GaussRule, Error> {
+    let n = cube_root_points(np);
+    let mut p = gauss_points_p_brick(n, n, n + 1)?;
+    for i in 0..p.len() {
+        let (uh, vh, wh, sh) = (p.u[i], p.v[i], p.w[i], p.s[i]);
+        p.u[i] = 1.0 / 2.0 * uh * (1.0 - wh);
+        p.v[i] = 1.0 / 2.0 * vh * (1.0 - wh);
+        p.w[i] = 2.0f64.sqrt() / 2.0 * (1.0 + wh);
+        p.s[i] = sh * 2.0f64.sqrt() / 8.0 * (-1.0 + wh).powi(2);
+    }
+    Ok(p)
+}
+
+/// The rule `GaussPoints` gives a p tetrahedron with `n` points
+/// (`np_given`: `GaussPoints(Element, np)`).
+pub fn p_tetra_rule(n: usize, np_given: bool) -> Result<GaussRule, Error> {
+    let m = if np_given {
+        if tetra_rule_tabulated(n) {
+            n
+        } else {
+            0
+        }
+    } else {
+        tetra_simplex_rule_points(n)
+    };
+    if m > 0 {
+        gauss_points_tetra_p(m)
+    } else {
+        gauss_points_p_tetra(n)
+    }
 }
 
 /// `TriangleRuleTabulated(n)`: whether `n` is one of the tabulated
@@ -1005,6 +1113,54 @@ mod tests {
             p_wedge_rule(13 * 13 * 13, false).unwrap().len(),
             13 * 13 * 13
         );
+    }
+
+    #[test]
+    fn p_tetra_and_pyramid_rules_cover_their_reference_elements() {
+        // p tetrahedron: the p triangle base (area sqrt 3) under the apex
+        // (0, 1/sqrt 3, sqrt(8/3)); volume 2 sqrt 2 / 3, centroid height
+        // sqrt(8/3) / 4.
+        let vol = 2.0 * 2.0f64.sqrt() / 3.0;
+        for (n, np_given) in [
+            (1, true),
+            (4, true),
+            (5, true),
+            (11, true),
+            (24, true),
+            (27, true),
+            (8, false),
+            (27, false),
+            (64, false),
+            (343, false),
+        ] {
+            let r = p_tetra_rule(n, np_given).unwrap();
+            assert!(
+                (moment3(&r, 0, 0, 0) - vol).abs() < 1e-13,
+                "tetra {n} {np_given}: volume"
+            );
+            assert!(moment3(&r, 1, 0, 0).abs() < 1e-13, "tetra {n}: x");
+            let zc = (8.0f64 / 3.0).sqrt() / 4.0;
+            assert!(
+                (moment3(&r, 0, 0, 1) - vol * zc).abs() < 1e-13,
+                "tetra {n}: z"
+            );
+        }
+        assert_eq!(tetra_simplex_rule_points(27), 24);
+        assert_eq!(p_tetra_rule(343, false).unwrap().len(), 7 * 7 * 8);
+        // p pyramid: base [-1, 1]^2, apex at height sqrt 2; volume
+        // 4 sqrt 2 / 3, centroid height sqrt 2 / 4.
+        let vol = 4.0 * 2.0f64.sqrt() / 3.0;
+        for n in [1, 8, 27, 64] {
+            let r = gauss_points_p_pyramid(n).unwrap();
+            assert!(
+                (moment3(&r, 0, 0, 0) - vol).abs() < 1e-13,
+                "pyramid {n}: volume"
+            );
+            assert!(
+                (moment3(&r, 0, 0, 1) - vol * 2.0f64.sqrt() / 4.0).abs() < 1e-13,
+                "pyramid {n}: z"
+            );
+        }
     }
 
     #[test]

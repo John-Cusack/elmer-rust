@@ -60,16 +60,18 @@ fn element_unit_test_edge_cases_pass_all_twelve_runs() {
 
 /// `ElementUnitTest_p1` and `SD_ElementUnitTest_p1`: `SingleElements` on
 /// `Element = "p:1"`, with each element's p basis and Gauss rule from
-/// `elmer-pdofs`. Its p layout does not cover tetrahedra yet (the unit mesh
-/// has a 504), so the solver refuses by name before the run.
+/// `elmer-pdofs` (p tetrahedra through `ConvertToACTetra`, p pyramids,
+/// wedges and bricks; the parentless 404 and 303 boundary elements of the
+/// unit mesh take the Lagrange basis, as in Elmer). The pristine runs pass
+/// all 12 and 10 reference norms; the norms agree with their 17-digit
+/// values to rounding (`elmer-fe-hp` is not bitwise `ElementInfo`).
 #[test]
-fn element_unit_test_p1_cases_are_refused_until_p_tetrahedra() {
-    for name in ["ElementUnitTest_p1", "SD_ElementUnitTest_p1"] {
+fn element_unit_test_p1_cases_pass_all_runs() {
+    for (name, runs) in [("ElementUnitTest_p1", 12), ("SD_ElementUnitTest_p1", 10)] {
         let dir = case::stage(name, None);
-        let err = case::run(name, &dir, "case.sif").err().unwrap_or_else(|| panic!("{name}: ran"));
-        assert!(matches!(err, elmer_solver::SolverError::Unsupported(_)), "{name}: {err}");
-        assert!(err.to_string().contains("tetrahedral p elements"), "{name}: {err}");
-        assert!(!dir.join("TEST.PASSED").exists(), "{name}: refused before any output");
+        let out = case::run(name, &dir, "case.sif").unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(out.log.contains(&format!("PASSED all {runs} tests")), "{name}\n{}", out.log);
+        assert_eq!(out.passed, Some(true), "{name}");
     }
 }
 

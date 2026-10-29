@@ -28,9 +28,10 @@
 //! reaches all of it through `Backends::dofs`.
 //!
 //! Supported: first-order meshes; the p basis and rules for lines,
-//! triangles, quadrilaterals (also serendipity), wedges and bricks; global
-//! bubbles or none; scalar or multi-component fields. Refused or not
-//! covered: p tetrahedra and pyramids (DOF tables only), DG,
+//! triangles, quadrilaterals (also serendipity), tetrahedra
+//! (`ConvertToACTetra`), pyramids (full elements only, as in Elmer), wedges
+//! and bricks; global bubbles or none; scalar or multi-component fields.
+//! Refused or not covered: DG,
 //! radiation, periodic and mortar couplings, and element definitions in
 //! equation sections.
 #![forbid(unsafe_code)]

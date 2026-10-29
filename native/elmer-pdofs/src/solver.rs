@@ -70,7 +70,13 @@ impl SolverDofs for PSetup {
         PSetup::boundary_extra_slots(self, e, out);
     }
 
+    /// The p basis of an active p element; for any other element (a
+    /// boundary element without a p parent, say) `ElementInfo`'s nodal
+    /// Lagrange basis, as Elmer evaluates it there.
     fn element_basis(&self, e: ElemId) -> Result<Box<dyn ElementBasis + Send + Sync>, String> {
+        if !self.is_p_element(e) {
+            return Ok(Box::new(elmer_fe::LagrangeBasis::new(self.mesh.dim.max(1))));
+        }
         PSetup::element_basis(self, e)
             .map(|b| Box::new(b) as Box<dyn ElementBasis + Send + Sync>)
             .map_err(|err| err.to_string())

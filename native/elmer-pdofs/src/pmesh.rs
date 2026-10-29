@@ -18,15 +18,17 @@
 //!   the bubble index blocks.
 //!
 //! Supported: meshes of first-order elements; DOF tables for every type,
-//! the p basis (see [`crate::basis`]) for `202`, `303`, `404` and `808`.
-//! Tetrahedral p elements (`ConvertToACTetra`) are refused with
-//! [`Error::Unsupported`]. Element definitions given in
+//! the p basis (see [`crate::basis`]) for `202`, `303`, `404`, `504`, `605`,
+//! `706` and `808`.
+//! p tetrahedra are reordered by `ConvertToACTetra` (MeshBasics.F90:5747),
+//! which sets their `TetraType`. Element definitions given in
 //! equation sections are not handled (the caller must refuse them); solver
 //! sections and body-wise `Solver i: Element` keywords are.
 
 use elmer_core::{ElemId, MeshView};
 use elmer_fe_hp::maps::{
     bubble_dofs, bubble_max_degree_1d, edge_map, face_dofs, face_edge_map, face_map,
+    pelement_edge_map, tetra_face_direction,
 };
 
 use crate::defs::{is_mesh_dependent, ElementDefs, MaxDefs};
@@ -211,6 +213,58 @@ fn first_order(code: u16) -> bool {
 /// An element's edge map (1-based end nodes) and face edge map (1-based
 /// local edges per face).
 type EdgeMaps = (Vec<[usize; 2]>, Vec<Vec<usize>>);
+
+/// `GetElementFaceMap` / `getElementBoundaryMap` of a p element: the
+/// tetra-type tables for tetrahedra.
+fn p_face_map(el: &PElement) -> Result<elmer_fe_hp::FaceDir, Error> {
+    if el.code == 504 {
+        return Ok(tetra_face_direction(pd_tetra_type(el)));
+    }
+    face_map(el.code).ok_or_else(|| Error::Unsupported(format!("face map of type {}", el.code)))
+}
+
+/// `ConvertToACTetra` (MeshBasics.F90:5747): reorders a p tetrahedron's
+/// nodes so that face 1 (face 2 when node 4 is the lowest) starts at the
+/// lowest node and face 3 ends at the highest, and returns the resulting
+/// `TetraType` (1 when node 2 < node 3, else 2).
+pub fn convert_to_ac_tetra(nodes: &mut [u32]) -> Result<i32, Error> {
+    let type1 = tetra_face_direction(1);
+    let face = |k: usize| [type1[k][0] - 1, type1[k][1] - 1, type1[k][2] - 1];
+    let mut gmin = nodes[0];
+    let mut gmin_i = 0;
+    let mut gmax = nodes[0];
+    for (i, &n) in nodes.iter().enumerate().take(4).skip(1) {
+        if gmin > n {
+            gmin = n;
+            gmin_i = i;
+        } else if gmax < n {
+            gmax = n;
+        }
+    }
+    let f = if gmin_i == 3 { face(1) } else { face(0) };
+    let mut g = f.map(|l| nodes[l]);
+    while g[0] != gmin {
+        g.rotate_left(1);
+    }
+    for (k, &l) in f.iter().enumerate() {
+        nodes[l] = g[k];
+    }
+    let f = face(2);
+    let mut g = f.map(|l| nodes[l]);
+    while g[2] != gmax {
+        g.rotate_left(1);
+    }
+    for (k, &l) in f.iter().enumerate() {
+        nodes[l] = g[k];
+    }
+    match nodes[1].cmp(&nodes[2]) {
+        std::cmp::Ordering::Less => Ok(1),
+        std::cmp::Ordering::Greater => Ok(2),
+        std::cmp::Ordering::Equal => Err(Error::BadDefinition(
+            "ConvertToACTetra: Corrupt element type".into(),
+        )),
+    }
+}
 
 fn pd_tetra_type(el: &PElement) -> i32 {
     el.pdefs.as_ref().map_or(1, |pd| pd.tetra_type.max(1))
@@ -488,9 +542,8 @@ impl PMesh {
                     bubble_dofs(el.code, pd.p, pd.serendipity)
                 };
                 if el.code == 504 {
-                    return Err(Error::Unsupported(
-                        "tetrahedral p elements (ConvertToACTetra)".into(),
-                    ));
+                    // The Ainsworth & Coyle trick.
+                    pd.tetra_type = convert_to_ac_tetra(&mut el.nodes)?;
                 }
                 el.pdefs = Some(pd);
             } else {
@@ -635,13 +688,7 @@ impl PMesh {
             return Ok(vec![(1..=n).collect()]);
         }
         let rows: Vec<Vec<usize>> = if el.pdefs.is_some() {
-            if code / 100 == 5 {
-                return Err(Error::Unsupported(
-                    "tetrahedral p elements (ConvertToACTetra)".into(),
-                ));
-            }
-            let map = face_map(code)
-                .ok_or_else(|| Error::Unsupported(format!("face map of type {code}")))?;
+            let map = p_face_map(el)?;
             (0..n_faces(code))
                 .map(|k| map[k][..face_node_count(code, k)].to_vec())
                 .collect()
@@ -751,7 +798,7 @@ impl PMesh {
         let code = el.code;
         let ne = n_edges(code);
         if el.pdefs.is_some() {
-            let em = edge_map(code)
+            let em = pelement_edge_map(code, pd_tetra_type(el))
                 .ok_or_else(|| Error::Unsupported(format!("edge map of type {code}")))?;
             let fem = if code >= 500 {
                 let m = face_edge_map(code, pd_tetra_type(el))
@@ -1046,8 +1093,7 @@ impl PMesh {
     fn assign_local_number_face(&mut self, i: usize, parent: usize) -> Result<(), Error> {
         let pel = &self.elements[parent];
         let code = pel.code;
-        let map =
-            face_map(code).ok_or_else(|| Error::Unsupported(format!("face map of type {code}")))?;
+        let map = p_face_map(pel)?;
         let fem = face_edge_map(code, pd_tetra_type(pel))
             .ok_or_else(|| Error::Unsupported(format!("face edge map of type {code}")))?;
         let nodes = self.elements[i].nodes.clone();
@@ -1429,6 +1475,26 @@ mod tests {
         assert_eq!(pm.edges[0].bdofs, 1);
         assert_eq!(pm.max_edge_dofs, 3);
         assert_eq!(pm.elements[0].pdefs.as_ref().unwrap().gauss_points, 25);
+    }
+
+    #[test]
+    fn ac_tetra_orders_faces_by_global_index() {
+        // Face 1 (nodes 1 2 3) starts at the lowest node; face 3 (2 3 4)
+        // ends at the highest.
+        // [5, 9, 2, 7]: face 1 rotates to [2, 5, 9], then face 3 (5, 9, 7)
+        // to [7, 5, 9]; node 2 > node 3 gives type 2.
+        let mut n = [5, 9, 2, 7];
+        assert_eq!(convert_to_ac_tetra(&mut n).unwrap(), 2);
+        assert_eq!(n, [2, 7, 5, 9]);
+        let mut n = [5, 9, 2, 7];
+        n.swap(1, 3);
+        // [5, 7, 2, 9]: face 1 rotates to [2, 5, 7], then face 3 to [5, 7, 9].
+        assert_eq!(convert_to_ac_tetra(&mut n).unwrap(), 1);
+        assert_eq!(n, [2, 5, 7, 9]);
+        // Lowest node in position 4: face 2 (1 2 4) is rotated instead.
+        let mut n = [5, 9, 7, 1];
+        convert_to_ac_tetra(&mut n).unwrap();
+        assert_eq!(n[0], 1);
     }
 
     #[test]
