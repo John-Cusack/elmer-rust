@@ -699,6 +699,7 @@ impl<'a> SolverCtx<'a> {
         let (mesh, log, comm, slot_ix) = (self.mesh, self.log, self.comm, self.slot);
         let sim = &mut *self.sim;
         let nonlin_iter = sim.vars.scalar("nonlin iter");
+        let schur = schur_matrix(sim, &sim.slots[slot_ix].params);
         // SolveCore.F90:3150-3163 (ListGetCReal).
         let relaxation = crate::expr::eval_creal(
             &sim.slots[slot_ix].params,
@@ -823,7 +824,8 @@ impl<'a> SolverCtx<'a> {
             || (p.logical("linear system nullify first guess") == Some(true) && nonlin_iter.is_some_and(|i| i.round() <= 1.0));
         if let (Some(a), Some(x)) = (&mut ca, &mut cx) {
             log.info("SolveWithLinearRestriction", "Now solving the linear system with constraints!", 10);
-            solve_linear(&sim.backends.linear, p, a, b, x, bnorm, nullify, log, comm)?;
+            let env = BlockEnv { dofs: var.dofs, simulation: &sim.model.simulation, schur: schur.as_ref() };
+            solve_linear(&sim.backends.linear, &env, p, a, b, x, bnorm, nullify, log, comm)?;
             // ComputeChange over the collection solution, multipliers
             // included; then 'Picking solution from collection solution'.
             // Without NonlinValues the Fortran's x0 is the variable's own
@@ -845,7 +847,8 @@ impl<'a> SolverCtx<'a> {
             log.info("SolveWithLinearRestriction", "All done", 10);
         } else {
             let x = &mut var.values[..n];
-            solve_linear(&sim.backends.linear, p, &mut sys.matrix, b, x, bnorm, nullify, log, comm)?;
+            let env = BlockEnv { dofs: var.dofs, simulation: &sim.model.simulation, schur: schur.as_ref() };
+            solve_linear(&sim.backends.linear, &env, p, &mut sys.matrix, b, x, bnorm, nullify, log, comm)?;
             var.values_changed = true;
             // SolveCore.F90:1727-1741, then the change, then :1763-1771.
             sim.calculate_loads(slot_ix, n, true, mesh, log)?;
@@ -886,13 +889,43 @@ impl<'a> SolverCtx<'a> {
     }
 }
 
+/// What `Linear System Solver = Block` needs beyond the section
+/// (`BlockSolveExt`): the variable's components, the Simulation section and
+/// the matrix of the `Block Matrix Schur Variable` solver.
+pub(crate) struct BlockEnv<'a> {
+    pub dofs: usize,
+    pub simulation: &'a ParamMap,
+    pub schur: Option<&'a elmer_core::CsrMatrix<f64>>,
+}
+
+/// The matrix of the solver whose variable `Block Matrix Schur Variable`
+/// names (`BlockPrecMatrix`, BlockSolve.F90:2523), if any.
+pub(crate) fn schur_matrix(sim: &Simulation, p: &ParamMap) -> Option<elmer_core::CsrMatrix<f64>> {
+    let name = p.string("block matrix schur variable")?;
+    let id = sim.vars.id(name)?;
+    let slot = sim.slots.iter().find(|s| s.variable == Some(id))?;
+    slot.system.as_ref().map(|s| s.matrix.clone())
+}
+
+/// `BlockError` as the framework's error, one to one.
+fn block_error(e: elmer_block::BlockError) -> SolverError {
+    match e {
+        elmer_block::BlockError::Fatal { caller, msg } => SolverError::Fatal { caller, msg },
+        elmer_block::BlockError::Numerical { caller, msg } => SolverError::Numerical { caller, msg },
+        elmer_block::BlockError::Unsupported(m) => SolverError::Unsupported(m),
+        elmer_block::BlockError::Linalg(e) => SolverError::Linalg(e),
+    }
+}
+
 /// `SolveLinearSystem`'s scaling, solve and back-scaling of `A x = b`
 /// (SolveCore.F90:1254-1700): `Linear System Scaling` (with the complex
 /// form for `Linear System Complex`), the nullify-guess flag, the solver
-/// the section selects. `bnorm` is `|b|`, which turns the rhs scaling on.
+/// the section selects (`block` through `elmer-block`, after the scaling
+/// as in Elmer). `bnorm` is `|b|`, which turns the rhs scaling on.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn solve_linear(
     linear: &crate::LinearSolverRegistry,
+    block: &BlockEnv<'_>,
     p: &ParamMap,
     matrix: &mut elmer_core::CsrMatrix<f64>,
     b: &mut [f64],
@@ -906,6 +939,9 @@ pub(crate) fn solve_linear(
         && p.logical("linear system skip complex") != Some(true);
     if complex {
         log.info("SolveLinearSystem", "Assuming complex valued linear system", 6);
+        if p.string("linear system solver").is_some_and(|s| elmer_core::normalize_key(s) == "block") {
+            return Err(SolverError::Unsupported("Linear System Solver = Block with Linear System Complex".into()));
+        }
     }
     let scale = p.logical("linear system skip scaling") != Some(true)
         && p.logical("linear system scaling").unwrap_or(true);
@@ -952,7 +988,24 @@ pub(crate) fn solve_linear(
         if nullify {
             x.iter_mut().for_each(|v| *v = 0.0);
         }
-        let solved = match linear.select_for(p, matrix, log) {
+        let is_block = p
+            .string("linear system solver")
+            .is_some_and(|s| elmer_core::normalize_key(s) == "block");
+        let solved = if is_block {
+            let opts = elmer_block::BlockOptions {
+                additive_namespaces: block.simulation.logical("additive namespaces") == Some(true),
+                outer_scaling: scaling.as_ref().map(|rs| elmer_block::OuterScaling {
+                    diag: rs.diag(),
+                    rhs_scaling: rs.rhs_scaling(),
+                }),
+                global_abort: block.simulation.logical("global abort not converged").unwrap_or(true),
+                schur: block.schur,
+            };
+            elmer_block::block_solve(p, block.dofs, matrix, b, x, &opts, log, comm)
+                .map(|_| ())
+                .map_err(block_error)
+        } else {
+            match linear.select_for(p, matrix, log) {
             Err(e) => Err(e),
             Ok(LinearSolverChoice::Direct(mut d)) => d
                 .factor(matrix)
@@ -972,6 +1025,7 @@ pub(crate) fn solve_linear(
                         .map(|_| ())
                         .map_err(SolverError::from)
                 })
+            }
             }
         };
         // BackScaleLinearSystem before anything else reads the system.

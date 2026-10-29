@@ -280,6 +280,7 @@ pub(crate) fn solve_controlled(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverErr
     let mut sens = vec![0.0; nc * nc];
     let mut cval = vec![0.0; nc];
     let mut dx = Vec::new();
+    let schur = crate::solver::schur_matrix(ctx.sim, ctx.params());
     for i in 0..nc {
         let (log, comm) = (ctx.log, ctx.comm);
         let sim = &mut *ctx.sim;
@@ -290,7 +291,12 @@ pub(crate) fn solve_controlled(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverErr
         dx = vec![0.0; sys.matrix.nrows];
         let bnorm = b.iter().map(|x| x * x).sum::<f64>().sqrt();
         if bnorm > f64::MIN_POSITIVE {
-            solve_linear(&sim.backends.linear, &slot.params, &mut sys.matrix, &mut b, &mut dx, bnorm, false, log, comm)?;
+            let env = crate::solver::BlockEnv {
+                dofs: sim.vars.by_id(id).dofs,
+                simulation: &sim.model.simulation,
+                schur: schur.as_ref(),
+            };
+            solve_linear(&sim.backends.linear, &env, &slot.params, &mut sys.matrix, &mut b, &mut dx, bnorm, false, log, comm)?;
         }
         let y0 = &sim.vars.by_id(id).values;
         if extremum {
