@@ -5,7 +5,7 @@
 //! and missed its reference norm, and confirmed by running the pristine
 //! ElmerSolver without the keyword, which then reproduced the native norm.
 
-use elmer_core::{Params, ParamMap};
+use elmer_core::{normalize_key, FieldKind, ParamMap, Params, Value};
 use elmer_solver::sim::parse_variable_spec;
 use elmer_solver::{Model, SolverError};
 
@@ -102,16 +102,35 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
         scan("Boundary Condition", i + 1, b, BOUNDARY)?;
     }
 
-    let primary = variables(model);
-    // CheckPassiveElement reads `<Variable> Passive` from body forces.
-    for var in &primary {
-        let passive = format!("{var} passive");
-        if let Some(i) = model.body_forces.iter().position(|b| b.0.contains_key(&passive)) {
-            return Err(SolverError::Unsupported(format!(
-                "Body Force {}: {passive}: passive elements (<Variable> Passive) are not implemented",
-                i + 1
-            )));
+    // An `-ip` exported variable read by a boundary condition: Elmer
+    // evaluates it at the boundary element's own Gauss points; the
+    // composition does not (IpVariable4 differs by 0.5%).
+    let ip_vars: Vec<String> = model
+        .solvers
+        .iter()
+        .flat_map(|s| s.0.iter())
+        .filter(|(k, _)| k.starts_with("exported variable") && k.split(' ').count() == 3)
+        .filter_map(|(_, v)| match v {
+            Value::Str(t) => parse_variable_spec(&t.replace('"', " "), None).ok(),
+            _ => None,
+        })
+        .filter(|spec| spec.kind == FieldKind::Ip)
+        .map(|spec| spec.name)
+        .collect();
+    for (i, bc) in model.boundary_conditions.iter().enumerate() {
+        for (key, v) in &bc.0 {
+            let Value::Dependent(d) = v else { continue };
+            if let Some(var) = d.variables.iter().find(|x| ip_vars.contains(&normalize_key(x))) {
+                return Err(SolverError::Unsupported(format!(
+                    "Boundary Condition {}: {key} depends on the -ip variable {var}: boundary evaluation of integration-point variables is not implemented",
+                    i + 1
+                )));
+            }
         }
+    }
+
+    let primary = variables(model);
+    for var in &primary {
         // SetDirichletBoundaries' body-force pass (Dirichlet values on bodies).
         if let Some(i) = model.body_forces.iter().position(|b| b.0.contains_key(var)) {
             return Err(SolverError::Unsupported(format!(
@@ -233,10 +252,8 @@ mod tests {
             body_forces: vec![pm(&[]), pm(&[("temperature passive", Value::Logical(true))])],
             ..Model::default()
         };
-        assert_eq!(
-            refusal(&model),
-            "Body Force 2: temperature passive: passive elements (<Variable> Passive) are not implemented"
-        );
+        // Passive elements are elmer-solver's (CheckPassiveElement).
+        assert!(check(&model).is_ok());
     }
 
     #[test]
