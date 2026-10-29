@@ -1,0 +1,17 @@
+CoupledSolver: ---------------------------------------
+CoupledSolver: Inheriting matrix from procedure
+CoupledSolver: ---------------------------------------
+CoupledSolver: Using existing variable and matrix
+CoupledSolver: -------------------------------------------------
+CoupledSolver: Coupled iteration:                    1
+DefaultSolve: Solver disabled, exiting early!
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.77824031E-01  2.0000000     ) :: heateq
+CoupledSolver: -------------------------------------------------
+CoupledSolver: Coupled iteration:                    2
+DefaultSolve: Solver disabled, exiting early!
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.77824031E-01 0.71989747E-10 ) :: heateq
+CoupledSolver: -------------------------------------------------
+CoupledSolver: All done
+CoupledSolver: -------------------------------------------------
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.77824031E-01  2.0000000     ) :: heateq
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 7.78240309E-02  RefNorm = 7.78240310E-02

@@ -39,12 +39,12 @@ pub fn solver_for_mode(params: &ParamMap, registry: &SolverRegistry) -> Result<O
         Some("assembly solver") if params.get("procedure").is_none() => {
             Ok(Some(Box::new(AssemblySolver::from_section(params, registry)?)))
         }
-        Some("assembly solver") => Err(SolverError::Unsupported(
-            "Assembly Solver with a Procedure (CoupledSolver inheriting the matrix)".into(),
-        )),
         Some("coupled solver") if params.get("procedure").is_none() => {
             Ok(Some(Box::new(CoupledSystem::from_section(params, registry)?)))
         }
+        // The procedure runs under CoupledSolver
+        // (`block_driver::coupled_with_procedure`).
+        Some("assembly solver") | Some("coupled solver") => Ok(None),
         // The procedure runs under BlockSolver (`block_driver`).
         Some("block solver") if params.get("procedure").is_some() => Ok(None),
         Some("block solver") => Ok(Some(Box::new(crate::block_system::BlockAssembled::from_section(
