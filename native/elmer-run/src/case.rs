@@ -13,7 +13,8 @@ use elmer_solver::{
 
 use crate::compose::{coordinate_system, install_fe, solver_registry};
 use crate::matc::SifMatc;
-use crate::output::{is_result_output, prepare_vtu_output};
+use crate::output::{is_result_output, prepare_vtu_output, MappedTags};
+use elmer_mesh_levels::{extrude, mesh_levels, ExtrudeOptions, Mesh as LevelsMesh, MeshLevelsError};
 
 /// A parsed case and its mesh.
 pub struct Case<'a> {
@@ -193,11 +194,16 @@ fn check_reloads(model: &Model, reloads: &[Model], registry: &SolverRegistry) ->
     Ok(())
 }
 
-/// Mesh-load transforms and element definitions no provider applies yet:
-/// the mesh reader delivers the mesh as stored (after `Coordinate Scaling`),
-/// and `elmer-fe` evaluates the Lagrange (`n:1`) basis only.
+/// Inputs no provider applies yet: restart files, mesh-load transforms
+/// beyond `Coordinate Scaling`, `Mesh Levels` and extrusion, and element
+/// definitions other than the Lagrange (`n:1`) basis `elmer-fe` evaluates.
 fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
     let sim = &model.simulation;
+    // `Restart File` sets initial fields from a .result file; nothing reads
+    // it yet, and running without it is a different case.
+    if sim.get("restart file").is_some() {
+        return Err(SolverError::Unsupported("Simulation: Restart File (restart from a .result file)".into()));
+    }
     if sim.get("coordinate transformation").is_some() {
         return Err(SolverError::Unsupported("Simulation: Coordinate Transformation".into()));
     }
@@ -220,6 +226,35 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
     Ok(())
 }
 
+/// Elmer's mesh-load transforms, in Elmer's order: `Mesh Levels` splits
+/// (`LoadModel`, ModelDescription.F90:3049), then `Extruded Mesh *`
+/// extrusion (`CreateExtrudedMesh`, ElmerSolver.F90:897). Extrusion works on
+/// the `MapBodiesAndBCs` tags and leaves body and BC indices as the new
+/// mesh's tags, so the model's `Target Bodies` / `Target Boundaries` become
+/// the identity. `None` when the mesh is used as loaded.
+fn transform_mesh(model: &mut Model, mesh: &dyn MeshView) -> Result<Option<LevelsMesh>, SolverError> {
+    let err = |e: MeshLevelsError| match e {
+        MeshLevelsError::Unsupported(m) => SolverError::Unsupported(m),
+        MeshLevelsError::Invalid(m) => SolverError::fatal("LoadModel", m),
+    };
+    let split = mesh_levels(mesh, &model.simulation, &model.boundary_conditions).map_err(err)?;
+    let current: &dyn MeshView = match &split {
+        Some(m) => m,
+        None => mesh,
+    };
+    let Some(opts) = ExtrudeOptions::from_params(&model.simulation, current.dim(), None).map_err(err)? else {
+        return Ok(split);
+    };
+    let extruded = extrude(&MappedTags::new(current, model), &opts).map_err(err)?;
+    for (i, body) in model.bodies.iter_mut().enumerate() {
+        body.insert("Target Bodies", Value::Integer(vec![i as i32 + 1]));
+    }
+    for (i, bc) in model.boundary_conditions.iter_mut().enumerate() {
+        bc.insert("Target Boundaries", Value::Integer(vec![i as i32 + 1]));
+    }
+    Ok(Some(extruded))
+}
+
 /// Runs `case` serially. Unsupported input comes back as
 /// [`SolverError::Unsupported`] or [`SolverError::NotWired`] before any
 /// file is written.
@@ -229,6 +264,11 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
     }
     let Case { mut model, reloads, mesh, case_dir, mesh_dir } = case;
     let registry = solver_registry();
+    let transformed = transform_mesh(&mut model, mesh)?;
+    let mesh: &dyn MeshView = match &transformed {
+        Some(m) => m,
+        None => mesh,
+    };
     let mut outputs = prepare_vtu_output(&mut model, &case_dir, &mesh_dir)?;
     let coords = coordinate_system(&model, mesh)?;
     legacy_solvers(&mut model, coords);

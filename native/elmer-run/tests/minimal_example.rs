@@ -191,6 +191,29 @@ fn run_block_changing_physics_is_refused_before_running() {
     assert!(!dir.join("TEST.PASSED").exists());
 }
 
+/// Runs MinimalExample with `edit` applied and returns its VTU.
+fn run_minimal_with(tag: &str, edit: impl FnOnce(&mut elmer_solver::Model)) -> String {
+    let dir = scratch_case("minimal_example", tag);
+    let mesh = FileMesh::read(&dir.join("triangle"), 2);
+    let mut model = minimal_example();
+    model.solvers[0].0.remove("reference norm");
+    model.simulation.insert("Ascii Output", Value::Logical(true));
+    edit(&mut model);
+    let (log, buf) = logger();
+    let case = Case { model, reloads: vec![], mesh: &mesh, case_dir: dir.clone(), mesh_dir: dir.join("triangle") };
+    let out = run_case(case, &log, &SerialComm).unwrap_or_else(|e| panic!("{e}\n{}", buf.text()));
+    std::fs::read_to_string(&out.written[0]).unwrap()
+}
+
+#[test]
+fn mesh_levels_split_the_mesh_before_solving() {
+    // One SplitMeshEqual of the triangle: 6 nodes, 4 triangles.
+    let vtu = run_minimal_with("levels", |m| {
+        m.simulation.insert("Mesh Levels", Value::Integer(vec![2]));
+    });
+    assert!(vtu.contains("NumberOfPoints=\"6\""), "{vtu}");
+}
+
 #[test]
 fn transient_post_file_writes_each_output_step() {
     // The Post File solver runs `after saving`, i.e. at every output step.

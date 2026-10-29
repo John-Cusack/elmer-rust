@@ -76,7 +76,6 @@ fn section_features(kind: &str, p: &ParamMap, out: &mut Vec<String>) {
             "harmonic analysis" if is_true(v) => feature("harmonic analysis"),
             "linear system complex" if is_true(v) => feature("complex linear system"),
             "discontinuous galerkin" if is_true(v) => feature("discontinuous Galerkin"),
-            "mesh levels" | "extruded mesh levels" => feature("mesh levels / extrusion"),
             "element" if t.contains("p:") => feature("p-hierarchic elements"),
             "element" if t.contains("e:") => feature("edge elements"),
             "linear system solver" if t == "multigrid" => feature("multigrid linear solver"),

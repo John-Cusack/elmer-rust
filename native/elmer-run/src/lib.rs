@@ -6,7 +6,9 @@
 //!
 //! * [`compose`]: the solver registry (HeatSolve, FluxSolver, StressSolver,
 //!   ElasticSolve, FlowSolve, IncompressibleNS, StatElecSolve, StatCurrentSolve, HelmholtzSolve,
-//!   AdvectionDiffusion, ModelPDE, SaveScalars, SaveLine) and `elmer-fe` as
+//!   AdvectionDiffusion, ModelPDE, the mesh tools (MeshChecksum,
+//!   RigidMeshMapper, StructuredMeshMapper, StructuredProjectToPlane),
+//!   SaveScalars, SaveLine) and `elmer-fe` as
 //!   their shared element library;
 //!   assembly, time and linear solvers are `elmer-solver`'s default backends.
 //! * [`matc`]: [`SifMatc`], run-time MATC on `elmer-sif`'s binding.

@@ -20,6 +20,8 @@ elmer-physics-scalar = { path = "../elmer-physics-scalar" }
 elmer-physics-advdiff = { path = "../elmer-physics-advdiff" }
 elmer-fe = { path = "../elmer-fe" }
 elmer-savedata = { path = "../elmer-savedata" }
+elmer-physics-meshtools = { path = "../elmer-physics-meshtools" }
+elmer-mesh-levels = { path = "../elmer-mesh-levels" }
 elmer-expr = { path = "../elmer-expr" }
 elmer-vtu = { path = "../elmer-vtu" }
 elmer-cli = { path = "../elmer-cli" }
