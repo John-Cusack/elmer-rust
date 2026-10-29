@@ -58,3 +58,24 @@ fn wildcardsize() {
     let (out, dir) = run("wildcardsize", "square", cases::wildcardsize(), 1.0);
     check_norm("wildcardsize", &out, 3.50844423e-2, &dir);
 }
+
+#[test]
+fn heateq_bdf2() {
+    let (out, dir) = run("heateq_bdf", "angle", cases::heateq_bdf(2, 5.214225320136149e-2), 1.0);
+    check_norm("heateq_bdf2", &out, 5.214225320136149e-2, &dir);
+    assert_eq!(out.report.steps, 8);
+}
+
+#[test]
+fn heateq_bdf3() {
+    let (out, dir) = run("heateq_bdf", "angle", cases::heateq_bdf(3, 5.193298434405153e-2), 1.0);
+    check_norm("heateq_bdf3", &out, 5.193298434405153e-2, &dir);
+    assert_eq!(out.report.steps, 8);
+}
+
+#[test]
+fn heateq_spline_table() {
+    let model = cases::heateq_spline_table(&cases::data("heateq_spline_table"));
+    let (out, dir) = run("heateq_spline_table", "angle", model, 1.0);
+    check_norm("heateq_spline_table", &out, 1.5131, &dir);
+}

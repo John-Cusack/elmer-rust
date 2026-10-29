@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use elmer_core::{ParamMap, Value};
+use elmer_core::{Dependent, DependentKind, ParamMap, Value};
 use elmer_physics_heat::FeProvider;
 use elmer_run::{Frontend, LoadedCase};
 use elmer_solver::Model;
@@ -286,4 +286,127 @@ pub fn wildcardsize() -> Model {
         ])],
         ..Model::default()
     }
+}
+
+/// The `Solver 2` SaveScalars section of the heateq_* tests: never executed.
+fn save_scalars_never() -> ParamMap {
+    sec(&[
+        ("Exec Solver", st("never")),
+        ("Equation", st("save scalars")),
+        ("Procedure", st("\"SaveData\" \"SaveScalars\"")),
+        ("Variable 1", st("temp")),
+        ("Operator 1", st("int mean")),
+        ("Variable 2", st("temp")),
+        ("Operator 2", st("max")),
+        ("Variable 3", st("time")),
+        ("Filename", st("f.dat")),
+    ])
+}
+
+/// The `Solver 1` of the heateq_* tests: direct (UMFPACK), up to
+/// `max_nonlinear` Picard iterations.
+fn heateq_solver(max_nonlinear: i32, extra: &[(&'static str, Value)]) -> ParamMap {
+    let mut v = vec![
+        ("Equation", st("heat")),
+        ("Variable", st("temp")),
+        ("Procedure", st("\"HeatSolve\" \"HeatSolver\"")),
+        ("Linear System Solver", st("direct")),
+        ("Linear System Direct Method", st("umfpack")),
+        ("Steady State Convergence Tolerance", Value::real(1.0e-5)),
+        ("Stabilize", Value::Logical(true)),
+        ("Nonlinear System Convergence Tolerance", Value::real(1.0e-5)),
+        ("Nonlinear System Max Iterations", ints(&[max_nonlinear])),
+        ("Nonlinear System Relaxation Factor", Value::real(1.0)),
+        ("Nonlinear System Newton After Iterations", ints(&[3])),
+        ("Nonlinear System Newton After Tolerance", Value::real(1.0e-2)),
+    ];
+    v.extend_from_slice(extra);
+    sec(&v)
+}
+
+fn heateq_common(simulation: ParamMap, solver: ParamMap, material: ParamMap, heat_source: f64) -> Model {
+    Model {
+        header: sec(&[("Check Keywords", st("warn")), ("Mesh DB", st("\".\" \"angle\""))]),
+        simulation,
+        constants: sec(&[
+            ("Gravity", real_vec(&[0.0, -1.0, 0.0, 9.82])),
+            ("Stefan Boltzmann", Value::real(5.67e-08)),
+        ]),
+        solvers: vec![solver, save_scalars_never()],
+        equations: vec![sec(&[("Name", Value::Str("Equation1".into())), ("Active Solvers", ints(&[1]))])],
+        bodies: vec![sec(&[
+            ("Name", Value::Str("Body1".into())),
+            ("Body Force", ints(&[1])),
+            ("Equation", ints(&[1])),
+            ("Material", ints(&[1])),
+        ])],
+        body_forces: vec![sec(&[("Heat Source", Value::real(heat_source))])],
+        materials: vec![material],
+        boundary_conditions: vec![sec(&[("Target Boundaries", ints(&[1])), ("Temp", Value::real(0.0))])],
+        ..Model::default()
+    }
+}
+
+/// `heateq_bdf2/TempDist.sif` (`order` 2) and `heateq_bdf3/TempDist.sif`
+/// (`order` 3): BDF over 5 steps of 0.1 then 3 of 0.2.
+pub fn heateq_bdf(order: i32, reference: f64) -> Model {
+    let simulation = sec(&[
+        ("Max Output Level", ints(&[5])),
+        ("Coordinate System", st("cartesian 2d")),
+        ("Coordinate Mapping", ints(&[1, 2, 3])),
+        ("Steady State Max Iterations", ints(&[1])),
+        ("Simulation Type", st("transient")),
+        ("Timestepping Method", st("bdf")),
+        ("BDF Order", ints(&[order])),
+        ("Timestep Sizes", real_vec(&[0.1, 0.2])),
+        ("Timestep Intervals", ints(&[5, 3])),
+        // `Output Intervals = 1` is given first; the later `(2) = 1 1` wins.
+        ("Output Intervals", ints(&[1, 1])),
+    ]);
+    let solver = heateq_solver(
+        10,
+        &[("Optimize Bandwidth", Value::Logical(false)), ("Reference Norm", Value::real(reference))],
+    );
+    let material = sec(&[
+        ("Name", Value::Str("Material1".into())),
+        ("Density", Value::real(1.0)),
+        ("Heat Conductivity", Value::real(1.0)),
+        ("Heat Capacity", Value::real(10.0)),
+    ]);
+    heateq_common(simulation, solver, material, 1.0)
+}
+
+/// `heateq_spline_table/TempDist.sif`: `Heat Conductivity = Variable Temp,
+/// Real Cubic` with the `include cond.dat` table read from `dir`.
+pub fn heateq_spline_table(dir: &Path) -> Model {
+    let (mut x, mut y) = (Vec::new(), Vec::new());
+    for line in std::fs::read_to_string(dir.join("cond.dat")).unwrap().lines() {
+        let v: Vec<f64> = line.split_whitespace().map(|t| t.parse().unwrap()).collect();
+        if let [a, b] = v[..] {
+            x.push(a);
+            y.push(b);
+        }
+    }
+    let conductivity = Value::Dependent(Dependent {
+        variables: vec!["temp".into()],
+        kind: DependentKind::Table { x, y, cubic: true },
+        rows: 1,
+        cols: 1,
+    });
+    let simulation = sec(&[
+        ("Max Output Level", ints(&[5])),
+        ("Coordinate System", st("cartesian")),
+        ("Coordinate Mapping", ints(&[1, 2, 3])),
+        ("Steady State Max Iterations", ints(&[1])),
+        ("Output Intervals", ints(&[1])),
+        ("Simulation Type", st("steady state")),
+    ]);
+    let solver = heateq_solver(100, &[("Reference Norm", Value::real(1.5131))]);
+    let material = sec(&[
+        ("Name", Value::Str("Material".into())),
+        ("Density", Value::real(1.0)),
+        ("Heat Conductivity", conductivity),
+        ("Heat Capacity", Value::real(1.0)),
+    ]);
+    heateq_common(simulation, solver, material, 10.0)
 }

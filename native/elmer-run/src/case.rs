@@ -35,9 +35,11 @@ pub struct Outcome {
 
 /// Refuses solver sections this build cannot run: `Simulation` skips a
 /// procedure missing from the registry, which would drop a solver silently.
+/// `Exec Solver = Never` sections are exempt.
 fn preflight(model: &Model, registry: &SolverRegistry) -> Result<(), SolverError> {
     for (i, params) in model.solvers.iter().enumerate() {
-        if params.0.is_empty() {
+        // A section that never runs needs no implementation (heateq_bdf2's SaveScalars).
+        if params.0.is_empty() || params.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never")) {
             continue;
         }
         let Some((lib, entry)) = procedure_of(params) else {
