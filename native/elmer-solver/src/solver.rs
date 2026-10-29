@@ -321,6 +321,7 @@ impl<'a> SolverCtx<'a> {
     /// matrix values and the right-hand side.
     pub fn default_initialize(&mut self) -> Result<(), SolverError> {
         self.sim.publish_live();
+        self.sim.slots[self.slot].asm = Default::default();
         let sim = &mut *self.sim;
         let slot = &mut sim.slots[self.slot];
         if slot.system.is_none() {
@@ -454,6 +455,46 @@ impl<'a> SolverCtx<'a> {
             .as_mut()
             .ok_or_else(|| SolverError::fatal("DefaultUpdateEquations", "call default_initialize first"))?;
         backend.add_local(&mut sys.matrix, &mut sys.rhs, &idx, local);
+        if e.0 as usize >= self.mesh.n_bulk() && crate::loads::is_nonzero(local) {
+            sim.slots[self.slot].asm.boundary_touched = true;
+        }
+        Ok(())
+    }
+
+    /// `DefaultFinishBulkAssembly`: keeps the bulk system for `Calculate
+    /// Loads`. Call it between the bulk and the boundary element loops; when
+    /// a solver does not, [`default_dirichlet`](Self::default_dirichlet)
+    /// keeps it there instead, which is the same system unless boundary
+    /// elements added something (then it refuses).
+    pub fn default_finish_bulk_assembly(&mut self) -> Result<(), SolverError> {
+        let slot = &mut self.sim.slots[self.slot];
+        if !slot.asm.bulk_done && crate::loads::keeps_bulk(&slot.params)? {
+            if let Some(sys) = slot.system.as_ref() {
+                slot.asm.bulk = Some((sys.matrix.values.clone(), sys.rhs.clone()));
+            }
+        }
+        slot.asm.bulk_done = true;
+        Ok(())
+    }
+
+    /// `DefaultFinishBoundaryAssembly`: adds the `<var> Load` nodal loads of
+    /// boundary conditions and body forces to the right-hand side
+    /// (`SetNodalLoads`). [`default_dirichlet`](Self::default_dirichlet)
+    /// does it when the solver has not.
+    pub fn default_finish_boundary_assembly(&mut self) -> Result<(), SolverError> {
+        if !self.sim.slots[self.slot].asm.bulk_done {
+            if self.sim.slots[self.slot].asm.boundary_touched && crate::loads::keeps_bulk(self.params())? {
+                return Err(SolverError::Unsupported(
+                    "Calculate Loads after boundary contributions: call default_finish_bulk_assembly after the bulk loop"
+                        .into(),
+                ));
+            }
+            self.default_finish_bulk_assembly()?;
+        }
+        if !self.sim.slots[self.slot].asm.boundary_done {
+            self.sim.set_nodal_loads(self.slot, self.mesh)?;
+            self.sim.slots[self.slot].asm.boundary_done = true;
+        }
         Ok(())
     }
 
@@ -500,6 +541,7 @@ impl<'a> SolverCtx<'a> {
 
     /// `DefaultDirichletBCs` + `EnforceDirichletConditions`.
     pub fn default_dirichlet(&mut self) -> Result<(), SolverError> {
+        self.default_finish_boundary_assembly()?;
         let fixed = self.dirichlet_values()?;
         let sim = &mut *self.sim;
         let backend = sim
@@ -672,7 +714,10 @@ impl<'a> SolverCtx<'a> {
         }
         solved?;
         var.values_changed = true;
+        // SolveCore.F90:1727-1741, then the change, then :1763-1771.
+        sim.calculate_loads(slot_ix, n, true)?;
         sim.compute_change(slot_ix, false, Some(n), true, mesh, log, comm)?;
+        sim.calculate_loads(slot_ix, n, false)?;
         sim.update_2nd_order(slot_ix, n)?;
         sim.publish_live();
         Ok(sim.vars.by_id(id).conv.norm)
