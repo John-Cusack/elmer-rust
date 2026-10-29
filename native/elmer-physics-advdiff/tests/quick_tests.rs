@@ -458,17 +458,17 @@ fn sd_model_pde_p2_matches_elmer() {
     check_model_pde_p(true, "sd_p2", 1281, 1.057859263392748);
 }
 
-/// The quick test `QuadraturesBrick`: ModelPDE with `Element = "p:2"` on
-/// a 2x2x2 brick mesh, a flux BC on 3D boundary faces, run (as its three RUN
-/// blocks do) with the default rule and with `Number of Integration Points`
-/// 27 and 64. The solution is linear, so every run gives the pristine
-/// values and the reference norm 0.3.
-#[test]
-fn quadratures_brick_matches_elmer() {
+/// The quick tests `QuadraturesBrick` and `SD_QuadraturesBrick`: ModelPDE
+/// with `Element = "p:2"` (full or serendipity) on a 2x2x2 brick mesh, a
+/// flux BC on 3D boundary faces, run as their RUN blocks do with the default
+/// rule and the listed `Number of Integration Points`. Each run gives the
+/// pristine values (`<prefix>perm.dat`, `<prefix>solution.dat`) and norm.
+fn check_quadratures_brick(serendipity: bool, nps: &[Option<i32>], n_dofs: usize, norm: f64) {
+    let prefix = if serendipity { "sd_" } else { "" };
     let mesh = SimMesh::new(read_elmer_mesh(&data("quadratures_brick"), 3));
-    let want_perm = read_solution(&data("quadratures_brick").join("perm.dat"));
-    let want = read_solution(&data("quadratures_brick").join("solution.dat"));
-    for np in [None, Some(27), Some(64)] {
+    let want_perm = read_solution(&data("quadratures_brick").join(format!("{prefix}perm.dat")));
+    let want = read_solution(&data("quadratures_brick").join(format!("{prefix}solution.dat")));
+    for &np in nps {
         let mut solver = vec![
             ("Equation", st("ModelPDE")),
             ("Variable", st("Field")),
@@ -480,14 +480,17 @@ fn quadratures_brick_matches_elmer() {
         if let Some(n) = np {
             solver.push(("Number of Integration Points", ints(&[n])));
         }
+        let mut simulation = vec![
+            ("Coordinate System", st("Cartesian")),
+            ("Simulation Type", st("steady")),
+            ("Steady State Max Iterations", ints(&[1])),
+            ("Output Intervals", ints(&[0])),
+        ];
+        if !serendipity {
+            simulation.push(("Serendipity P Elements", Value::Logical(false)));
+        }
         let model = Model {
-            simulation: sec(&[
-                ("Coordinate System", st("Cartesian")),
-                ("Simulation Type", st("steady")),
-                ("Steady State Max Iterations", ints(&[1])),
-                ("Output Intervals", ints(&[0])),
-                ("Serendipity P Elements", Value::Logical(false)),
-            ]),
+            simulation: sec(&simulation),
             solvers: vec![sec(&solver)],
             equations: vec![sec(&[("Active Solvers", ints(&[1]))])],
             bodies: vec![sec(&[
@@ -517,8 +520,7 @@ fn quadratures_brick_matches_elmer() {
         sim.run(&mesh, &elmer_core::NullLogger, &elmer_core::SerialComm)
             .unwrap();
         let v = sim.vars.get("field").unwrap();
-        // 27 nodes + 54 edges + 36 faces + 8 bubbles.
-        assert_eq!(v.values.len(), 125, "{np:?}");
+        assert_eq!(v.values.len(), n_dofs, "{np:?}");
         let perm = v.perm.as_deref().unwrap();
         let ours: Vec<f64> = perm.iter().map(|&p| f64::from(p + 1)).collect();
         assert_eq!(ours, want_perm, "{np:?}: Perm");
@@ -529,11 +531,28 @@ fn quadratures_brick_matches_elmer() {
             max_diff(&got, &want)
         );
         assert!(
-            (v.conv.norm - 0.3).abs() < 1e-12,
+            (v.conv.norm - norm).abs() < 1e-12,
             "{np:?}: norm {}",
             v.conv.norm
         );
     }
+}
+
+#[test]
+fn quadratures_brick_matches_elmer() {
+    // 27 nodes + 54 edges + 36 faces + 8 bubbles; the solution is linear.
+    check_quadratures_brick(false, &[None, Some(27), Some(64)], 125, 0.3);
+}
+
+#[test]
+fn sd_quadratures_brick_matches_elmer() {
+    // Serendipity p:2: 27 nodes + 54 edges; Reference Norm 0.37267800.
+    check_quadratures_brick(
+        true,
+        &[None, Some(27), Some(64), Some(8)],
+        81,
+        0.37267799624996323,
+    );
 }
 
 fn setup_error(model: Model, mesh: &SimMesh) -> String {
