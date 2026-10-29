@@ -32,10 +32,12 @@ pub mod harmonic;
 pub mod layout;
 pub mod local;
 pub mod material;
+pub mod solver;
 pub mod steady;
 pub mod topology;
 
 pub use case::Case;
 pub use error::MagnetoError;
 pub use harmonic::{solve_harmonic, HarmonicSolution};
+pub use solver::register;
 pub use steady::{solve_steady, AvSolution};
