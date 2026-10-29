@@ -1,0 +1,57 @@
+ComputeChange: NS (ITER=1) (NRM,RELC): (  1.0000000      2.0000000     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  1.0000000      2.0000000     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 1.00000000E+00  RefNorm = 1.00000000E+00
+CompareToReferenceSolution: Relative Error to reference norm: 0.000000E+00
+ComputeChange: NS (ITER=1) (NRM,RELC): (  2.0000000     0.66666667     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  2.0000000     0.66666667     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 2.00000000E+00  RefNorm = 2.00000000E+00
+CompareToReferenceSolution: Relative Error to reference norm: 0.000000E+00
+ComputeChange: NS (ITER=1) (NRM,RELC): (  3.0000000     0.40000000     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  3.0000000     0.40000000     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 3.00000000E+00  RefNorm = 3.00000000E+00
+CompareToReferenceSolution: Relative Error to reference norm: 9.630075E-12
+ComputeChange: NS (ITER=1) (NRM,RELC): (  4.0000000     0.28571429     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  4.0000000     0.28571429     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 4.00000000E+00  RefNorm = 4.00000000E+00
+CompareToReferenceSolution: Relative Error to reference norm: 2.148837E-12
+ComputeChange: NS (ITER=1) (NRM,RELC): (  5.0000000     0.22222222     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  5.0000000     0.22222222     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 5.00000000E+00  RefNorm = 5.00000000E+00
+CompareToReferenceSolution: Relative Error to reference norm: 6.561862E-13
+ComputeChange: NS (ITER=1) (NRM,RELC): (  6.0000000     0.18181818     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  6.0000000     0.18181818     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 6.00000000E+00  RefNorm = 6.00000000E+00
+CompareToReferenceSolution: Relative Error to reference norm: 4.677740E-14
+ComputeChange: NS (ITER=1) (NRM,RELC): (  7.0000000     0.15384615     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  7.0000000     0.15384615     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 7.00000000E+00  RefNorm = 7.00000000E+00
+CompareToReferenceSolution: Relative Error to reference norm: 1.096520E-12
+ComputeChange: NS (ITER=1) (NRM,RELC): (  8.0000000     0.13333333     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  8.0000000     0.13333333     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 8.00000000E+00  RefNorm = 8.00000000E+00
+CompareToReferenceSolution: Relative Error to reference norm: 8.881784E-16
+ComputeChange: NS (ITER=1) (NRM,RELC): (  9.0000000     0.11764706     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  9.0000000     0.11764706     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 9.00000000E+00  RefNorm = 9.00000000E+00
+CompareToReferenceSolution: Relative Error to reference norm: 2.960595E-15
+ComputeChange: NS (ITER=1) (NRM,RELC): (  10.000000     0.10526316     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  10.000000     0.10526316     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 1.00000000E+01  RefNorm = 1.00000000E+01
+CompareToReferenceSolution: Relative Error to reference norm: 7.815970E-13
+ComputeChange: NS (ITER=1) (NRM,RELC): (  11.000000     0.95238095E-01 ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  11.000000     0.95238095E-01 ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 1.10000000E+01  RefNorm = 1.10000000E+01
+CompareToReferenceSolution: Relative Error to reference norm: 4.392446E-14
+ComputeChange: NS (ITER=1) (NRM,RELC): (  12.000000     0.86956522E-01 ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  12.000000     0.86956522E-01 ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 1.20000000E+01  RefNorm = 1.20000000E+01
+CompareToReferenceSolution: Relative Error to reference norm: 3.335110E-13
+ComputeChange: NS (ITER=1) (NRM,RELC): (  13.000000     0.80000000E-01 ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  13.000000     0.80000000E-01 ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 1.30000000E+01  RefNorm = 1.30000000E+01
+CompareToReferenceSolution: Relative Error to reference norm: 2.855835E-14
+ComputeChange: NS (ITER=1) (NRM,RELC): (  14.000000     0.74074074E-01 ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  14.000000     0.74074074E-01 ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 1.40000000E+01  RefNorm = 1.40000000E+01
+CompareToReferenceSolution: Relative Error to reference norm: 9.846092E-14
+CompareToReferenceSolution: PASSED all 14 tests!

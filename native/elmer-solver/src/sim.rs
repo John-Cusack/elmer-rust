@@ -339,48 +339,151 @@ impl Simulation {
         log: &dyn Logger,
         comm: &dyn Communicator,
     ) -> Result<(), SolverError> {
-        let transient = self.is_transient();
         for i in 0..self.model.solvers.len() {
-            let params = self.model.solvers[i].clone();
-            if params.0.is_empty() {
-                continue;
+            if let Some(slot) = self.build_slot(i, mesh, registry, true)? {
+                self.slots.push(slot);
             }
-            let mut slot = SolverSlot::new(i + 1, params)?;
-            if let Some((lib, entry)) = procedure_of(&slot.params) {
-                if let Some(f) = registry.get(&lib, &entry) {
-                    slot.instance = Some(f(&slot.params)?);
-                }
-            }
-            if let Some(s) = crate::coupled::solver_for_mode(&slot.params, registry)? {
-                slot.instance = Some(s);
-            }
-            slot.active = (0..mesh.n_bulk() as u32)
-                .map(ElemId)
-                .filter(|&e| {
-                    self.model
-                        .body_of_tag(mesh.element(e).tag)
-                        .is_some_and(|b| self.model.solver_active_on_body(i + 1, b))
-                })
-                .collect();
-            if transient {
-                self.set_time_order(&mut slot)?;
-            }
-            let coupled = crate::coupled::is_coupled_system(&slot.params);
-            if let Some(vs) = slot.params.string("variable").filter(|_| !coupled).map(str::to_string) {
-                let spec = parse_variable_spec(&vs, slot.params.integer("variable dofs"))?;
-                self.publish_live();
-                self.add_solver_variable(&mut slot, &spec, mesh)?;
-            }
-            self.slots.push(slot);
         }
         for ix in 0..self.slots.len() {
-            if let Some(mut inst) = self.slots[ix].instance.take() {
-                let r = inst.init(&mut SolverCtx::new(self, ix, mesh, log, comm));
-                self.slots[ix].instance = Some(inst);
-                r?;
-            }
+            self.init_slot(ix, mesh, log, comm)?;
         }
         self.initialize_dirichlet(mesh)
+    }
+
+    /// The slot of `Solver i+1` (`AddEquationBasics`): procedure from the
+    /// registry or the solver mode, active elements, time order and primary
+    /// variable, with initial conditions when `apply_ics`. `None` for an
+    /// empty section.
+    fn build_slot(
+        &mut self,
+        i: usize,
+        mesh: &dyn MeshView,
+        registry: &SolverRegistry,
+        apply_ics: bool,
+    ) -> Result<Option<SolverSlot>, SolverError> {
+        let params = self.model.solvers[i].clone();
+        if params.0.is_empty() {
+            return Ok(None);
+        }
+        let mut slot = SolverSlot::new(i + 1, params)?;
+        if let Some((lib, entry)) = procedure_of(&slot.params) {
+            if let Some(f) = registry.get(&lib, &entry) {
+                slot.instance = Some(f(&slot.params)?);
+            }
+        }
+        if let Some(s) = crate::coupled::solver_for_mode(&slot.params, registry)? {
+            slot.instance = Some(s);
+        }
+        slot.active = (0..mesh.n_bulk() as u32)
+            .map(ElemId)
+            .filter(|&e| {
+                self.model
+                    .body_of_tag(mesh.element(e).tag)
+                    .is_some_and(|b| self.model.solver_active_on_body(i + 1, b))
+            })
+            .collect();
+        if self.is_transient() {
+            self.set_time_order(&mut slot)?;
+        }
+        let coupled = crate::coupled::is_coupled_system(&slot.params);
+        if let Some(vs) = slot.params.string("variable").filter(|_| !coupled).map(str::to_string) {
+            let spec = parse_variable_spec(&vs, slot.params.integer("variable dofs"))?;
+            self.publish_live();
+            self.add_solver_variable(&mut slot, &spec, mesh, apply_ics)?;
+        }
+        Ok(Some(slot))
+    }
+
+    /// `<Proc>_init` of slot `ix`, if it has a procedure.
+    fn init_slot(&mut self, ix: usize, mesh: &dyn MeshView, log: &dyn Logger, comm: &dyn Communicator) -> Result<(), SolverError> {
+        if let Some(mut inst) = self.slots[ix].instance.take() {
+            let r = inst.init(&mut SolverCtx::new(self, ix, mesh, log, comm));
+            self.slots[ix].instance = Some(inst);
+            r?;
+        }
+        Ok(())
+    }
+
+    /// The next `RUN` block of the `.sif` (ElmerSolver.F90:396-598): `block`
+    /// holds only that block's entries (`elmer-sif`'s `Sif::runs[k]`).
+    ///
+    /// - `ReloadInputFile`: every entry is added to the model's sections and
+    ///   to the running solvers' sections, replacing a same-name entry;
+    ///   sections the block introduces are appended.
+    /// - `AddSolvers`: `Exec Solver` is read again for every solver; a
+    ///   solver that had no section before is set up and its `init` called.
+    ///   Initial conditions are not applied again (`SetInitialConditions`
+    ///   runs on the first load only), so fields keep their values and
+    ///   serve as the next run's initial guess; matrices are kept.
+    /// - `InitializeIntervals`: `Time`, `Timestep`, `Timestep Size`,
+    ///   `Timestep Interval`, `Coupled Iter`, `Nonlin Iter` and the previous
+    ///   step sizes start from zero again.
+    ///
+    /// Then [`run`](Self::run) runs the block; the reference tally carries
+    /// on across blocks until [`crate::finalize_reference`].
+    pub fn reload(
+        &mut self,
+        block: &Model,
+        mesh: &dyn MeshView,
+        registry: &SolverRegistry,
+        log: &dyn Logger,
+        comm: &dyn Communicator,
+    ) -> Result<(), SolverError> {
+        fn merge(into: &mut ParamMap, from: &ParamMap) {
+            for (k, v) in &from.0 {
+                into.0.insert(k.clone(), v.clone());
+            }
+        }
+        fn merge_vec(into: &mut Vec<ParamMap>, from: &[ParamMap]) {
+            if into.len() < from.len() {
+                into.resize_with(from.len(), ParamMap::new);
+            }
+            for (a, b) in into.iter_mut().zip(from) {
+                merge(a, b);
+            }
+        }
+        let m = &mut self.model;
+        merge(&mut m.header, &block.header);
+        merge(&mut m.simulation, &block.simulation);
+        merge(&mut m.constants, &block.constants);
+        merge_vec(&mut m.solvers, &block.solvers);
+        merge_vec(&mut m.equations, &block.equations);
+        merge_vec(&mut m.bodies, &block.bodies);
+        merge_vec(&mut m.materials, &block.materials);
+        merge_vec(&mut m.body_forces, &block.body_forces);
+        merge_vec(&mut m.initial_conditions, &block.initial_conditions);
+        merge_vec(&mut m.boundary_conditions, &block.boundary_conditions);
+
+        let mut added = Vec::new();
+        for i in 0..self.model.solvers.len() {
+            match self.slot_ix(i + 1) {
+                Some(ix) => {
+                    let slot = &mut self.slots[ix];
+                    if let Some(b) = block.solvers.get(i) {
+                        merge(&mut slot.params, b);
+                    }
+                    slot.exec_when = ExecWhen::from_params(&slot.params)?;
+                }
+                None => {
+                    if let Some(slot) = self.build_slot(i, mesh, registry, false)? {
+                        let at = self.slots.partition_point(|s| s.id < slot.id);
+                        self.slots.insert(at, slot);
+                        added.push(i + 1);
+                    }
+                }
+            }
+        }
+        for id in added {
+            let ix = self.slot_ix(id).expect("inserted above");
+            self.init_slot(ix, mesh, log, comm)?;
+        }
+
+        for g in ["time", "timestep", "timestep size", "timestep interval", "coupled iter", "nonlin iter"] {
+            self.vars.set_scalar(g, 0.0);
+        }
+        self.prev_sizes.iter_mut().for_each(|s| *s = 0.0);
+        self.publish_live();
+        Ok(())
     }
 
     /// The end of `SetInitialConditions` (ElmerSolver.F90:1862-2052): unless
@@ -509,7 +612,13 @@ impl Simulation {
         Ok(())
     }
 
-    fn add_solver_variable(&mut self, slot: &mut SolverSlot, spec: &VarSpec, mesh: &dyn MeshView) -> Result<(), SolverError> {
+    fn add_solver_variable(
+        &mut self,
+        slot: &mut SolverSlot,
+        spec: &VarSpec,
+        mesh: &dyn MeshView,
+        apply_ics: bool,
+    ) -> Result<(), SolverError> {
         if spec.kind == FieldKind::Global {
             let mut v = Variable::new(&spec.name, FieldKind::Global, spec.dofs, None, vec![0.0; spec.dofs]);
             v.output = spec.output;
@@ -525,7 +634,9 @@ impl Simulation {
         };
         let perm_arc: Arc<[u32]> = perm.perm.into();
         let mut values = vec![0.0; perm.n_slots * spec.dofs];
-        self.apply_initial_conditions(slot, spec, mesh, &perm_arc, &mut values)?;
+        if apply_ics {
+            self.apply_initial_conditions(slot, spec, mesh, &perm_arc, &mut values)?;
+        }
         let mut v = Variable::new(&spec.name, FieldKind::Nodal, spec.dofs, Some(perm_arc.clone()), values);
         v.output = spec.output;
         if slot.time_order > 0 {
