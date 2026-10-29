@@ -141,6 +141,41 @@ pub fn grade_variable(
     }
 }
 
+/// Grade every saved step of a candidate `.result` file against a golden
+/// one: variables matched by exact name, steps by index. `allowed` is
+/// the Tier bar applied uniformly; per-field tables refine it later.
+pub fn grade_results(
+    golden: &crate::result::ResultFile,
+    candidate: &crate::result::ResultFile,
+    allowed: f64,
+) -> Vec<Mismatch> {
+    use std::collections::HashMap;
+    let mut out = Vec::new();
+    if golden.steps.len() != candidate.steps.len() {
+        out.push(Mismatch {
+            variable: String::from("<steps>"),
+            step: golden.steps.len().min(candidate.steps.len()),
+            kind: MismatchKind::LengthDiffers {
+                golden: golden.steps.len(),
+                candidate: candidate.steps.len(),
+            },
+        });
+    }
+    for (step, (g_step, c_step)) in golden.steps.iter().zip(candidate.steps.iter()).enumerate() {
+        let c_vars: HashMap<&str, &VariableData> =
+            c_step.vars.iter().map(|v| (v.name.as_str(), v)).collect();
+        for g_var in &g_step.vars {
+            out.extend(grade_variable(
+                &g_var.name,
+                step,
+                g_var,
+                c_vars.get(g_var.name.as_str()).copied(),
+                allowed,
+            ));
+        }
+    }
+    out
+}
 /// Perturbations for the mutation suite (§4.3 item 3): every mutated golden
 /// copy must fail grading.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -253,5 +288,48 @@ mod tests {
             grade_variable("t", 0, &v, Some(&v), 1e-10)[0].kind,
             MismatchKind::CorruptFile { .. }
         ));
+    }
+
+    fn result_file(vars: Vec<VariableData>) -> crate::result::ResultFile {
+        crate::result::ResultFile {
+            steps: vec![crate::result::TimeStep {
+                saves_done: 1,
+                ntime: 1,
+                sim_time: 1.0,
+                vars,
+            }],
+        }
+    }
+
+    #[test]
+    fn grade_results_matches_by_name_and_step() {
+        let golden = result_file(vec![var(vec![1.0, 2.0])]);
+        let same = result_file(vec![var(vec![1.0, 2.0])]);
+        assert!(grade_results(&golden, &same, 1e-10).is_empty());
+        let mut drifted = var(vec![1.0, 2.0 + 1e-3]);
+        drifted.name = "t".to_string();
+        let bad = result_file(vec![drifted]);
+        let mm = grade_results(&golden, &bad, 1e-10);
+        assert_eq!(mm.len(), 1);
+        assert!(matches!(
+            mm[0].kind,
+            MismatchKind::ExceedsTolerance { .. }
+        ));
+    }
+
+    #[test]
+    fn grade_results_flags_missing_variables_and_steps() {
+        let golden = result_file(vec![var(vec![1.0])]);
+        let empty = crate::result::ResultFile { steps: vec![] };
+        let mm = grade_results(&golden, &empty, 1e-10);
+        assert!(!mm.is_empty());
+        let other = result_file(vec![VariableData {
+            name: "u".to_string(),
+            perm: None,
+            perm_size: 1,
+            values: vec![1.0],
+        }]);
+        let mm = grade_results(&golden, &other, 1e-10);
+        assert!(matches!(mm[0].kind, MismatchKind::MissingVariable));
     }
 }

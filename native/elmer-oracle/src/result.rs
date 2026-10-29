@@ -128,12 +128,14 @@ pub fn parse_result_bytes(buf: &[u8], origin: &str) -> Result<ResultFile> {
             "{origin}: endian marker {marker} does not match host; refusing cross-endian read"
         )));
     }
-    cur.pos = header_end + 1;
-    // Single NUL byte from `SwitchToBinary`.
-    let nul = cur.take(1, "binary marker")?;
-    if nul[0] != 0 {
-        return Err(cur.fail("missing binary marker NUL"));
-    }
+    // `InitializeFile` writes an ASCII preamble (date, dof count, vector
+    // section names) before `SwitchToBinary` appends the binary marker:
+    // the first NUL byte ends the preamble.
+    let nul_at = buf[header_end..]
+        .iter()
+        .position(|&b| b == 0)
+        .ok_or_else(|| cur.fail("missing binary marker NUL"))?;
+    cur.pos = header_end + nul_at + 1;
 
     let mut steps = Vec::new();
     let mut prev_offsets: Vec<(usize, usize)> = Vec::new();
@@ -262,9 +264,13 @@ mod tests {
         out.extend_from_slice(&v.to_ne_bytes());
     }
 
-    fn sample_file() -> Vec<u8> {
+    fn sample_file_with(preamble: &[u8]) -> Vec<u8> {
         let mut b = Vec::new();
         b.extend_from_slice(b" BINARY 3.L\n");
+        // Offset of the first Perm block: header + preamble + NUL +
+        // Time tag + two int32s + one double + variable name.
+        let perm_at = b.len() + preamble.len() + 1 + 6 + 4 + 4 + 8 + 12;
+        b.extend_from_slice(preamble);
         b.push(0);
         w_string(&mut b, "Time:");
         w_i32(&mut b, 1);
@@ -285,10 +291,14 @@ mod tests {
         w_f64(&mut b, 1.0);
         w_string(&mut b, "temperature");
         w_i32(&mut b, -1);
-        w_i64(&mut b, 47);
+        w_i64(&mut b, perm_at as i64);
         w_f64(&mut b, 301.0);
         w_f64(&mut b, 311.5);
         b
+    }
+
+    fn sample_file() -> Vec<u8> {
+        sample_file_with(b"")
     }
 
     #[test]
@@ -329,5 +339,16 @@ mod tests {
     #[test]
     fn rejects_garbage_header() {
         assert!(parse_result_bytes(b"hello\n\0", "test").is_err());
+    }
+
+    #[test]
+    fn skips_ascii_preamble_before_binary_marker() {
+        // Real files carry InitializeFile's text preamble between the
+        // header line and the NUL marker.
+        let file = sample_file_with(b"!File started at: 2026-10-29\n Degrees of freedom: \n");
+        let f = parse_result_bytes(&file, "test").unwrap();
+        assert_eq!(f.steps.len(), 2);
+        assert_eq!(f.steps[0].vars[0].values, vec![300.0, 310.5]);
+        assert_eq!(f.steps[1].vars[0].values, vec![301.0, 311.5]);
     }
 }
