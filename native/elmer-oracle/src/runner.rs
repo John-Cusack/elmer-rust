@@ -476,8 +476,14 @@ fn inject_text(text: &str, inj: &SifInject) -> String {
             out.push_str(line);
             out.push('\n');
         } else if section.is_empty() && !trimmed.is_empty() && !trimmed.starts_with('!') && !trimmed.contains('=') && !trimmed.starts_with('$') {
+            // Lines outside any section (leading comments, `Solver 1 ::`
+            // prefixes, the `RUN` trailer) pass through verbatim; only
+            // then does the new section start.
+            for pending in block.drain(..) {
+                out.push_str(&pending);
+                out.push('\n');
+            }
             section = trimmed.to_string();
-            block.clear();
             out.push_str(line);
             out.push('\n');
         } else {
@@ -883,5 +889,19 @@ mod tests {
         let sif = "Header\n  Mesh DB = \".\" \"m\"\nEnd\n";
         let inj = SifInject { o2: true, o2m: true };
         assert_eq!(inject_text(sif, &inj), sif);
+    }
+
+    #[test]
+    fn trailing_prefix_and_run_lines_survive() {
+        // `Solver 1 ::` prefixes and the `RUN` trailer live outside any
+        // section; a bare word like RUN must not eat them (HeatControl2
+        // lost its Reference Norm this way and graded vacuous).
+        let sif = "Solver 1\n  Equation = \"Heat Equation\"\nEnd\n\nSolver 1 :: Reference Norm = 428.79\nRUN\n";
+        let idle = SifInject { o2: false, o2m: false };
+        assert_eq!(inject_text(sif, &idle), sif);
+        let inj = SifInject { o2: true, o2m: true };
+        let once = inject_text(sif, &inj);
+        assert!(once.contains("Solver 1 :: Reference Norm = 428.79"));
+        assert!(once.contains("\nRUN\n"));
     }
 }
