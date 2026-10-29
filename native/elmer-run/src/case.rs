@@ -122,7 +122,27 @@ fn preflight(model: &Model, registry: &SolverRegistry) -> Result<(), SolverError
             return Err(SolverError::Unsupported(format!("Solver {}: Procedure \"{lib}\" \"{entry}\"", i + 1)));
         }
     }
+    check_calcfields_scalars(model)?;
     crate::unported::check(model)
+}
+
+/// `MagnetoDynamicsCalcFields` also stores its integral results (field
+/// energies, losses) as `res:` Simulation values, which a SaveScalars
+/// section without its own `Variable 1` saves. `elmer-physics-magneto`
+/// computes the nodal fields only, so such a SaveScalars would report zeros
+/// (mgdyn_airgap's Solver 3).
+fn check_calcfields_scalars(model: &Model) -> Result<(), SolverError> {
+    let runs = |p: &&ParamMap| !p.0.is_empty() && !p.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never"));
+    let entry = |p: &ParamMap, name: &str| procedure_of(p).is_some_and(|(_, e)| e.eq_ignore_ascii_case(name));
+    let calc = model.solvers.iter().filter(runs).any(|p| entry(p, "magnetodynamicscalcfields"));
+    let default_scalars =
+        model.solvers.iter().filter(runs).any(|p| entry(p, "savescalars") && p.get("variable 1").is_none());
+    if calc && default_scalars {
+        return Err(SolverError::Unsupported(
+            "SaveScalars of MagnetoDynamicsCalcFields' integral results (res: energies) is not implemented".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// HeatSolve convects relative to the mesh (`U - MU` with the `Mesh
