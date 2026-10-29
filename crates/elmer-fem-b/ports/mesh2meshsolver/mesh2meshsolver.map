@@ -1,0 +1,5 @@
+{
+  global: mesh2meshsolver_init0_;
+  global: mesh2meshsolver_;
+  local: *;
+};

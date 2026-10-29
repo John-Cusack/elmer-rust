@@ -1,0 +1,6 @@
+{
+  global:
+    wavesolver_;
+    wavesolver_init_;
+  local: *;
+};

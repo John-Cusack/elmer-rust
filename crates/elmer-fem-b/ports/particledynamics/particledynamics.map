@@ -1,0 +1,9 @@
+{
+  global:
+    particledynamics_;
+    particledynamics_init_;
+    __particledynamicsstuff_MOD_particleparticlecollision;
+    __particledynamicsstuff_MOD_particleparticlecontact;
+    __particledynamicsstuff_MOD_particlewallproc;
+  local: *;
+};

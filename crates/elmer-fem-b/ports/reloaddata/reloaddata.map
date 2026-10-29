@@ -1,0 +1,4 @@
+{
+  global: reloadsolution_;
+  local: *;
+};

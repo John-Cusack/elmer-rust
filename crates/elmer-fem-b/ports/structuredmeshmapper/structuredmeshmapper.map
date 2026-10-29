@@ -1,0 +1,6 @@
+{
+  global:
+    structuredmeshmapper_;
+    structuredmeshmapper_init_;
+  local: *;
+};

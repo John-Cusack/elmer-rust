@@ -1,0 +1,4 @@
+{
+  global: scannedfieldsolver_; scannedfieldsolver_init_;
+  local: *;
+};

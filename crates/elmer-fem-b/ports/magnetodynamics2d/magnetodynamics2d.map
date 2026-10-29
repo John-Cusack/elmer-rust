@@ -1,0 +1,11 @@
+{
+  global:
+    magnetodynamics2d_;
+    magnetodynamics2d_init_;
+    magnetodynamics2dharmonic_;
+    magnetodynamics2dharmonic_init_;
+    magnetodynamics2dharmonic_init0_;
+    bsolver_;
+    bsolver_init_;
+  local: *;
+};

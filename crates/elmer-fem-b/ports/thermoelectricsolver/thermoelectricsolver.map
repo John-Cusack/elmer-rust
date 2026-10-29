@@ -1,0 +1,5 @@
+{
+  global: thermoelectricsolver_;
+  global: thermoelectricsolver_init_;
+  local: *;
+};

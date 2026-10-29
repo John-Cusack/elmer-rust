@@ -1,0 +1,5 @@
+{
+  global: particleadvector_;
+  global: particleadvector_init_;
+  local: *;
+};

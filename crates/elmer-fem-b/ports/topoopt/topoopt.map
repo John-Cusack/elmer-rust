@@ -1,0 +1,6 @@
+{
+  global: topoopt_;
+  global: topoopt_init_;
+  global: topoopt_init0_;
+  local: *;
+};

@@ -1,0 +1,6 @@
+{
+global:
+vectorhelmholtznodal_;
+vectorhelmholtznodal_init_;
+local: *;
+};

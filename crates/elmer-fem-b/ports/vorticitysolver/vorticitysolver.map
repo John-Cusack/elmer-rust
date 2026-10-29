@@ -1,0 +1,5 @@
+{
+  global: vorticitysolver_;
+  global: vorticitysolver_init_;
+  local: *;
+};
