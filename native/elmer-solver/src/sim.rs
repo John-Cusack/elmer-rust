@@ -234,19 +234,26 @@ pub fn parse_variable_spec(s: &str, dofs_kw: Option<i32>) -> Result<VarSpec, Sol
     let name = normalize_key(name);
     let mut components = Vec::new();
     if let Some(c) = comps {
-        for item in c.split_whitespace() {
-            let (cn, k) = item
-                .split_once(':')
-                .ok_or_else(|| SolverError::fatal("VariableSpec", format!("bad component {item}")))?;
-            let k: usize = k
-                .parse()
-                .map_err(|_| SolverError::fatal("VariableSpec", format!("bad component {item}")))?;
-            let cn = normalize_key(cn);
+        // ComponentNameStr (GeneralUtils.F90:1478): a component name runs
+        // up to its ':' and may hold spaces (`Potential Re:1`); the count
+        // follows the colon.
+        let bad = || SolverError::fatal("ComponentName", format!("Syntax error in variable definition: {s}"));
+        let mut rest = c;
+        while !rest.trim().is_empty() {
+            let colon = rest.find(':').ok_or_else(bad)?;
+            let cn = normalize_key(rest[..colon].trim());
+            let after = &rest[colon + 1..];
+            let digits = after.len() - after.trim_start_matches(|ch: char| ch.is_ascii_digit()).len();
+            let k: usize = after[..digits].parse().map_err(|_| bad())?;
+            if cn.is_empty() {
+                return Err(bad());
+            }
             if k == 1 {
                 components.push(cn);
             } else {
                 components.extend((1..=k).map(|j| format!("{cn} {j}")));
             }
+            rest = &after[digits..];
         }
         let n = components.len();
         if dofs.is_some_and(|d| d != n) {
@@ -1852,6 +1859,14 @@ mod tests {
         assert_eq!(s.name, "flow solution");
         assert_eq!(s.dofs, 3);
         assert_eq!(s.components, vec!["velocity 1", "velocity 2", "pressure"]);
+        // Component names with spaces (MagnetoDynamics2DHarmonic's default).
+        let s = parse_variable_spec("Potential[Potential Re:1 Potential Im:1]", None).unwrap();
+        assert_eq!((s.name.as_str(), s.dofs), ("potential", 2));
+        assert_eq!(s.components, vec!["potential re", "potential im"]);
+        let s = parse_variable_spec("-dofs 4 E[E Field Re:2  E Field Im:2]", None).unwrap();
+        assert_eq!(s.components, vec!["e field re 1", "e field re 2", "e field im 1", "e field im 2"]);
+        assert!(parse_variable_spec("P[A:1 B]", None).is_err());
+        assert!(parse_variable_spec("P[:1]", None).is_err());
         let s = parse_variable_spec("-nooutput -global Energy", None).unwrap();
         assert!(!s.output && s.kind == FieldKind::Global);
         assert_eq!(parse_variable_spec("U", Some(3)).unwrap().dofs, 3);
