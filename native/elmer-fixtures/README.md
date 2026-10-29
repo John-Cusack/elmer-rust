@@ -100,11 +100,10 @@ Refused with a named reason:
   variable is a global, so `elmer-solver` builds no dof layout for it, and
   `SingleElements` builds `elmer-pdofs`' layout for its own section in
   `init`. That layout has no tetrahedral p elements yet (the unit meshes
-  have a 504), so both are refused by name before the run. With
-  https://github.com/John-Cusack/elmer-rust/pull/162's 3D p layer, the brick
-  of the unit mesh gives the pristine p:1 values (`tests/data/ElementUnitTest_p1_brick`,
-  an ignored test until that lands; the stiffness sum differs in the last
-  place, as for `_h1`). Its parentless 404 boundary face is "not an active p
+  have a 504), so both are refused by name before the run. On the brick of
+  the unit mesh alone (`tests/data/ElementUnitTest_p1_brick`), the p:1 sums
+  match the pristine values to 1e-15 (the stiffness sum differs in the last
+  place, as for `_h1`). Wedges have no p basis in `elmer-pdofs` yet either. Its parentless 404 boundary face is "not an active p
   element" for `elmer-pdofs`, while the pristine run gives it a p basis (its
   stiffness sum differs from `_h1`'s).
 - `BlockPoisson1`, `BlockPoisson2`: registered, but `Block Solver = True` is

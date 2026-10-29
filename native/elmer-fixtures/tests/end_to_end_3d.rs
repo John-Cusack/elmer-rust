@@ -76,11 +76,8 @@ fn element_unit_test_p1_cases_are_refused_until_p_tetrahedra() {
 /// The p path of `SingleElements` where `elmer-pdofs` has a layout: the
 /// brick of ElementUnitTest_p1's unit mesh (`tests/data/ElementUnitTest_p1_brick`),
 /// its mass and stiffness sums checked against the pristine run's 17-digit
-/// values to 1e-15. Needs the 3D p
-/// layer of elmer-pdofs (https://github.com/John-Cusack/elmer-rust/pull/162);
-/// checked against that branch.
+/// values to 1e-15.
 #[test]
-#[ignore = "needs elmer-pdofs' 3D p layout (PR #162)"]
 fn element_unit_test_p1_brick_matches_pristine_digits() {
     let dir = case::stage("ElementUnitTest_p1_brick", None);
     let out = case::run("ElementUnitTest_p1", &dir, "case.sif").unwrap_or_else(|e| panic!("p1 brick: {e}"));
