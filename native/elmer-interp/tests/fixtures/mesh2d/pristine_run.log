@@ -1,0 +1,455 @@
+ELMER SOLVER (v 26.2) STARTED AT: 2026/10/29 11:09:14
+ Started inside library code
+ Going parallel initialization
+ParCommInit: Initialize #PEs: 1
+ Back from parallel initialization
+MAIN: 
+MAIN: =============================================================
+MAIN: ElmerSolver finite element software, Welcome!
+MAIN: This program is free software licensed under (L)GPL
+MAIN: Copyright April 1st 1995 -> , CSC - IT Center for Science Ltd.
+MAIN: Repository https://www.github.org/elmerCSC/elmerfem
+MAIN: Homepage https://www.elmerfem.org/,  Email elmeradm@csc.fi
+MAIN: Version: 26.2-devel (Rev: 9f6af2f85, Compiled: 2026-09-23)
+MAIN:  Running one task without MPI parallelization.
+MAIN:  Running with just one thread per task.
+MAIN: =============================================================
+MAIN: 
+MAIN: 
+MAIN: -------------------------------------
+MAIN: Reading Model: case.sif
+LoadInputFile: Scanning input file: case.sif
+LoadInputFile: Scanning only size info
+LoadInputFile: First time visiting
+LoadInputFile: Reading base load of sif file
+LoadInputFile: Loading input file: case.sif
+LoadInputFile: Reading base load of sif file
+CheckKeyword:  Unlisted keyword: [tempa] in section: [initial condition 1]
+CheckKeyword:  Unlisted keyword: [tempa] in section: [initial condition 2]
+WARNING:: LoadInputFile: There are no BCs in the system!
+LoadInputFile: Number of Body Forces: 0
+LoadInputFile: Number of Initial Conditions: 2
+LoadInputFile: Number of Materials: 0
+LoadInputFile: Number of Equations: 2
+LoadInputFile: Number of Solvers: 4
+LoadInputFile: Number of Bodies: 2
+ListTagKeywords: Setting weight for keywords!
+ListTagKeywords: No parameters width suffix: normalize by area
+ListTagKeywords: Setting weight for keywords!
+ListTagKeywords: No parameters width suffix: normalize by volume
+Loading user function library: [Mesh2MeshSolver]...[Mesh2MeshSolver_Init0]
+Loading user function library: [HeatSolve]...[HeatSolver_Init0]
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_Init0]
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_Init0]
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_Init0]
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_Init0]
+LoadMesh: Loading serial mesh!
+ElmerMeshReader: Performing step: 1
+ElmerMeshReader: Base mesh name: ./dst
+ReadHeaderFile: Reading header info from file: ./dst/mesh.header
+InitializeMesh: Number of nodes in mesh: 90
+InitializeMesh: Number of bulk elements in mesh: 144
+InitializeMesh: Number of boundary elements in mesh: 0
+InitializeMesh: Initial number of max element nodes: 3
+ElmerMeshReader: Performing step: 2
+ReadNodesFile: Reading nodes from file: ./dst/mesh.nodes
+SetMeshDimension: Dimension of mesh is: 2
+SetMeshDimension: Max dimension of mesh is: 2
+ElmerMeshReader: Performing step: 3
+ReadElementsFile: Reading bulk elements from file: ./dst/mesh.elements
+ElmerMeshReader: Performing step: 4
+ReadBoundaryFile: Reading boundary elements from file: ./dst/mesh.boundary
+PermuteNodeNumbering: Performing node mapping
+MapBodiesAndBCs: Skipping remapping of bodies
+ElmerMeshReader: Performing step: 5
+ElmerMeshReader: Performing step: 6
+LoadMesh: Loading mesh done
+PrepareMesh: Preparing mesh for the future
+NonNodalElements: Element dofs max: 3
+PrintMeshSize: Number of serial mesh entities
+PrintMeshSize:   Bulk elements:                    144
+PrintMeshSize:   Boundary elements:                  0
+PrintMeshSize:   Element nodes:                     90
+LoadMesh: Preparing mesh done
+LoadMesh: Elapsed REAL time:     0.0005 (s)
+LoadModel: Loading solver specific mesh > src < for solver 1
+LoadModel: Skipping tests whether the mesh with same name exists!
+LoadMesh: Loading serial mesh!
+ElmerMeshReader: Performing step: 1
+ElmerMeshReader: Base mesh name: src
+ReadHeaderFile: Reading header info from file: src/mesh.header
+InitializeMesh: Number of nodes in mesh: 42
+InitializeMesh: Number of bulk elements in mesh: 45
+InitializeMesh: Number of boundary elements in mesh: 0
+InitializeMesh: Initial number of max element nodes: 4
+ElmerMeshReader: Performing step: 2
+ReadNodesFile: Reading nodes from file: src/mesh.nodes
+SetMeshDimension: Dimension of mesh is: 2
+SetMeshDimension: Max dimension of mesh is: 2
+ElmerMeshReader: Performing step: 3
+ReadElementsFile: Reading bulk elements from file: src/mesh.elements
+ElmerMeshReader: Performing step: 4
+ReadBoundaryFile: Reading boundary elements from file: src/mesh.boundary
+PermuteNodeNumbering: Performing node mapping
+MapBodiesAndBCs: Skipping remapping of bodies
+ElmerMeshReader: Performing step: 5
+ElmerMeshReader: Performing step: 6
+LoadMesh: Loading mesh done
+PrepareMesh: Preparing mesh for the future
+NonNodalElements: Element dofs max: 4
+PrintMeshSize: Number of serial mesh entities
+PrintMeshSize:   Bulk elements:                     45
+PrintMeshSize:   Boundary elements:                  0
+PrintMeshSize:   Element nodes:                     42
+LoadMesh: Preparing mesh done
+LoadModel: Loading solver specific mesh > src < for solver 4
+LoadModel: Mesh with the same name has already been loaded, cycling.
+MeshStabParams: Computing stabilization parameters
+MeshStabParams: Elapsed REAL time:     0.0000 (s)
+MeshStabParams: Computing stabilization parameters
+MeshStabParams: Elapsed REAL time:     0.0000 (s)
+LoadModel: Defined radiation solver by Procedure containing "HeatSolver"
+CompleteModelKeywords: Completing keywords for mortars and mechanics!
+MAIN: -------------------------------------
+AddMeshCoordinates: Setting mesh coordinates and time
+VariableAdd: Adding variable > Coordinate 1 < of size 90
+VariableAdd: Adding variable > Coordinate 2 < of size 90
+VariableAdd: Adding variable > Coordinate 3 < of size 90
+VariableAdd: Adding variable > Coordinate 1 < of size 42
+VariableAdd: Adding variable > Coordinate 2 < of size 42
+VariableAdd: Adding variable > Coordinate 3 < of size 42
+AddSolvers: Setting up 4 solvers
+AddSolvers: Setting up solver 1: interp
+AddEquationBasics: Using procedure: Mesh2MeshSolver Mesh2MeshSolver
+AddEquationBasics: Setting up solver: interp
+Loading user function library: [Mesh2MeshSolver]...[Mesh2MeshSolver_Init]
+Loading user function library: [Mesh2MeshSolver]...[Mesh2MeshSolver_Init]
+AddEquationBasics: Checking for _init solver
+Loading user function library: [Mesh2MeshSolver]...[Mesh2MeshSolver_bulk]
+Loading user function library: [Mesh2MeshSolver]...[Mesh2MeshSolver_bulk]
+AddEquationBasics: Checking for _bulk solver
+Loading user function library: [Mesh2MeshSolver]...[Mesh2MeshSolver]
+AddEquationBasics: Creating null variable with no name
+AddEquationBasics: Creating exported variable: -nodal tempa
+AddEquationBasics: Creating exported variable: tempa
+CreateNodalPerm: Creating simple permutation for nodal variable
+CreateNodalPerm: Number of active nodes in NodalPerm: 42
+VariableAdd: Adding variable > tempa < of size 42
+AddEquationBasics: Succesfully created variable: tempa
+AddSolvers: Setting up solver 2: holder
+AddEquationBasics: Using procedure: HeatSolve HeatSolver
+AddEquationBasics: Setting up solver: holder
+Loading user function library: [HeatSolve]...[HeatSolver_Init]
+AddEquationBasics: Checking for _init solver
+Loading user function library: [HeatSolve]...[HeatSolver_bulk]
+Loading user function library: [HeatSolve]...[HeatSolver_bulk]
+AddEquationBasics: Checking for _bulk solver
+Loading user function library: [HeatSolve]...[HeatSolver]
+AddEquationBasics: Treating variable string: holder
+AddEquationBasics: Creating standard variable: holder
+AddEquationBasics: Computing size of permutation vector
+AddEquationBasics: Maximum size of permutation vector is: 90
+AddEquationBasics: Creating solver matrix topology
+CreateMatrix: Creating initial permutation
+CreateMatrix: Creating inverse of initial order of size: 90
+CreateMatrix: Creating list matrix for equation: holder
+MakeListMatrix: Creating list matrix
+OptimizeBandwidth: ---------------------------------------------------------
+OptimizeBandwidth: Computing matrix structure for: holder
+OptimizeBandwidth: Initial bandwidth for holder: 12
+OptimizeBandwidth: Optimized bandwidth for holder: 11
+OptimizeBandwidth: ---------------------------------------------------------
+CreateMatrix: Initializing list matrix for equation
+CRS_CreateMatrix: Creating CRS Matrix of size: 90
+CRS_CreateMatrix: Creating CRS Matrix with nofs: 556
+CreateMatrix: Sparse matrix created
+AddEquationBasics: Number of rows in CRS matrix: 90
+AddEquationBasics: Creating solver variable
+VariableAdd: Adding variable > holder < of size 90
+AddEquationBasics: Creating exported variable: -nodal tempa
+VariableAdd: Adding variable > tempa < of size 90
+VariableGet: Performing interpolation with projector
+InterpolateMeshToMeshQ: Creating quadrant tree for faster interpolation!
+BuildQuandrantTree: Start
+BuildQuandrantTree: Ready
+WARNING:: InterpolateMeshToMesh: Points not found: 27 (found 63)
+InterpolateMeshToMesh: Number of unfound nodes in serial: 27
+ Interpolation range:tempa   0.0000000000000000        0.0000000000000000     
+VariableGet: Interpolation time for > tempa < :   7.630E-04
+AddSolvers: Setting up solver 3: out
+AddEquationBasics: Using procedure: ResultOutputSolve ResultOutputSolver
+AddEquationBasics: Setting up solver: out
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_Init]
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_Init]
+AddEquationBasics: Checking for _init solver
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_bulk]
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_bulk]
+AddEquationBasics: Checking for _bulk solver
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver]
+AddEquationBasics: Creating null variable with no name
+AddSolvers: Setting up solver 4: srcout
+AddEquationBasics: Using procedure: ResultOutputSolve ResultOutputSolver
+AddEquationBasics: Setting up solver: srcout
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_Init]
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_Init]
+AddEquationBasics: Checking for _init solver
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_bulk]
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_bulk]
+AddEquationBasics: Checking for _bulk solver
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver]
+AddEquationBasics: Creating null variable with no name
+AddSolvers: Setting up solvers done
+AddTimeEtc: Setting time and other global variables
+VariableAdd: Adding variable > Time < of size 1
+VariableAdd: Adding variable > Timestep < of size 1
+VariableAdd: Adding variable > Timestep size < of size 1
+VariableAdd: Adding variable > Timestep interval < of size 1
+VariableAdd: Adding variable > nonlin iter < of size 1
+VariableAdd: Adding variable > coupled iter < of size 1
+VariableAdd: Adding variable > Partition < of size 1
+VariableAdd: Adding variable > Time < of size 1
+VariableAdd: Adding variable > Timestep < of size 1
+VariableAdd: Adding variable > Timestep size < of size 1
+VariableAdd: Adding variable > Timestep interval < of size 1
+VariableAdd: Adding variable > nonlin iter < of size 1
+VariableAdd: Adding variable > coupled iter < of size 1
+VariableAdd: Adding variable > Partition < of size 1
+MAIN: Random seed initialized to: 314159265
+SetInitialConditions: Setting up initial conditions (if any)
+InitCond: Trying to initialize variable: coordinate 1
+InitCond: Trying to initialize variable: coordinate 2
+InitCond: Trying to initialize variable: coordinate 3
+InitCond: Trying to initialize variable: holder
+InitCond: Trying to initialize variable: tempa
+InitCond: Trying to initialize variable: time
+InitCond: Trying to initialize variable: timestep
+InitCond: Trying to initialize variable: timestep size
+InitCond: Trying to initialize variable: timestep interval
+InitCond: Trying to initialize variable: nonlin iter
+InitCond: Trying to initialize variable: coupled iter
+InitCond: Trying to initialize variable: partition
+ListInitElementKeyword: Treating keyword: tempa
+ListInitElementKeyword: Initiated handle for: > tempa < of type: 7
+VectorValuesRange:  [size,min,max,sum] for PostInit: tempa: 90   -1000.0000000000000       -1000.0000000000000       -90000.000000000000
+InitCond: Trying to initialize variable: coordinate 1
+InitCond: Trying to initialize variable: coordinate 2
+InitCond: Trying to initialize variable: coordinate 3
+InitCond: Trying to initialize variable: tempa
+InitCond: Trying to initialize variable: time
+InitCond: Trying to initialize variable: timestep
+InitCond: Trying to initialize variable: timestep size
+InitCond: Trying to initialize variable: timestep interval
+InitCond: Trying to initialize variable: nonlin iter
+InitCond: Trying to initialize variable: coupled iter
+InitCond: Trying to initialize variable: partition
+ListInitElementKeyword: Treating keyword: tempa
+ListInitElementKeyword: Initiated handle for: > tempa < of type: 7
+VectorValuesRange:  [size,min,max,sum] for PostInit: tempa: 42   -2.5000000000000000        8.5000000000000000        129.62239788893561
+SetInitialConditions: Initial conditions set
+SetInitialConditions: Initial values for boundaries set
+MAIN: Number of timesteps to be saved: 1
+ListTagCount: Counting tags for keyword normalization!
+SetActiveElementsTable: Creating active element table for: interp
+SetActiveElementsTable: Number of active elements found : 45
+SingleSolver: Attempting to call solver: 1
+SingleSolver: Solver Equation string is: interp
+Mesh2MeshSolver: Mapping result between meshes
+Mesh2MeshSolver: This mesh dimension is 2 and name: src
+Mesh2MeshSolver: Using target mesh as the first mesh different from this mesh
+Mesh2MeshSolver: Target mesh name is: dst
+Mesh2MeshSolver: Mapping 1 hand-picked fields as requested
+Mesh2MeshSolver: Mapping all fields in primary mesh to target mesh!
+WARNING:: InterpolateMeshToMesh: Points not found: 27 (found 63)
+InterpolateMeshToMesh: Number of unfound nodes in serial: 27
+Mesh2MeshSolver: Done mapping all fields in primary mesh to target mesh!
+ FromRange0: tempa   8.5000000000000000     
+ ToRange0: tempa   8.5743948344872809     
+Mesh2MeshSolver: Interpolated variables between meshes
+UpdateDependentObjects: Updating objects depending on primary field in steady state
+DerivateExportedVariables: Derivating variables, if any!
+DerivateExportedVariables: Derivating done for variables: 0
+MAIN: 
+MAIN: -------------------------------------
+MAIN:  Steady state iteration:            1
+MAIN: -------------------------------------
+MAIN: 
+SolveEquations: Solvers before timestep
+SolveEquations: Solvers in main iteration loop
+SolveEquations: Performing set of solvers in sequence
+ListPopNameSpace: No namespace entry to delete
+SolveEquations: Solvers after timestep
+ListPopNameSpace: No namespace entry to delete
+ListPopNameSpace: No namespace entry to delete
+SetActiveElementsTable: Creating active element table for: out
+SetActiveElementsTable: Number of active elements found : 144
+SingleSolver: Attempting to call solver: 3
+SingleSolver: Solver Equation string is: out
+ResultOutputSolver: -------------------------------------
+ResultOutputSolver: Saving with prefix: case
+ResultOutputSolver: Number of output meshes: 1
+ResultOutputSolver: Dimension of mesh is: 2
+ResultOutputSolver: Working on mesh 1: dst with 90 nodes
+ResultOutputSolver: Creating list for saving - if not present
+CreateListForSaving: Scalar Field 1 exists, creating no list!
+ResultOutputSolver: Saving in unstructured VTK XML (.vtu) format
+VtuOutputSolver: Saving results in VTK XML format with prefix: case
+VtuOutputSolver: Saving number of partitions: 1
+SolverOutputDirectory: Creating directory: dst
+VtuOutputSolver: Full filename base is: dst/case
+GenerateSaveMask: Allocating NodePerm of size: 90
+GenerateSaveMask: Allocating ActiveElem of size: 144
+GenerateSaveMask: Number of active elements 144 out of 144
+GenerateSaveMask: Number of geometry nodes 90 out of 90
+VtuOutputSolver: Total number of elements to save: 144
+VtuOutputSolver: Total number of geometry nodes to save: 90
+VtuOutputSolver: Total number of dof nodes to save: 90
+VtuOutputSolver: Writing the vtu file: dst/case_t0001.vtu
+AscBinWriteInit: Initializing buffered ascii/binary writing
+AscBinWriteInit: Writing in binary
+AscBinWriteInit: Writing in double precision
+AscBinWriteInit: Writing to unit number: 58
+AscBinWriteInit: Size of buffer is: 1000
+WriteVtuFile: Writing nodal fields
+WriteVtuFile: Saving 1-component variable: tempa
+WriteVtuFile: Number of nodal fields written: 1
+WriteVtuFile: Writing elemental fields
+WriteVtuFile: Number of elemental fields written: 0
+WriteVtuFile: Writing coordinates for each used node
+WriteVtuFile: Writing the elemental connectivity data
+WriteVtuFile: Writing nodal fields
+WriteVtuFile: Saving 1-component variable: tempa
+WriteVtuFile: Number of nonzeros for "tempa" is 90 of 90
+WriteVtuFile: Writing elemental fields
+AscBinWriteFree: Terminating buffered ascii/binary writing
+WriteVtuFile: Finished writing file
+VtuOutputSolver: Finished writing vtu file
+VtuOutputSolver: All done for now
+ResultOutputSolver: -------------------------------------
+ResultOutputSolver: Skipping inactive mesh: src
+UpdateDependentObjects: Updating objects depending on primary field in steady state
+DerivateExportedVariables: Derivating variables, if any!
+DerivateExportedVariables: Derivating done for variables: 0
+SetActiveElementsTable: Creating active element table for: srcout
+SetActiveElementsTable: Number of active elements found : 45
+SingleSolver: Attempting to call solver: 4
+SingleSolver: Solver Equation string is: srcout
+ResultOutputSolver: -------------------------------------
+ResultOutputSolver: Number of output meshes: 2
+ResultOutputSolver: Dimension of mesh is: 2
+ResultOutputSolver: Working on mesh 1: dst with 90 nodes
+ResultOutputSolver: Saving in unstructured VTK XML (.vtu) format
+SolverOutputDirectory: Creating directory: dst
+VtuOutputSolver: Full filename base is: dst/dst_case
+GenerateSaveMask: Allocating NodePerm of size: 90
+GenerateSaveMask: Allocating ActiveElem of size: 144
+GenerateSaveMask: Number of active elements 144 out of 144
+GenerateSaveMask: Number of geometry nodes 90 out of 90
+VtuOutputSolver: Writing the vtu file: dst/dst_case_t0002.vtu
+AscBinWriteInit: Initializing buffered ascii/binary writing
+AscBinWriteInit: Writing in binary
+AscBinWriteInit: Writing in double precision
+AscBinWriteInit: Writing to unit number: 58
+AscBinWriteInit: Size of buffer is: 1000
+WriteVtuFile: Writing nodal fields
+WriteVtuFile: Saving 1-component variable: tempa
+WriteVtuFile: Number of nodal fields written: 1
+WriteVtuFile: Writing elemental fields
+WriteVtuFile: Number of elemental fields written: 0
+WriteVtuFile: Writing coordinates for each used node
+WriteVtuFile: Writing the elemental connectivity data
+WriteVtuFile: Writing nodal fields
+WriteVtuFile: Saving 1-component variable: tempa
+WriteVtuFile: Number of nonzeros for "tempa" is 90 of 90
+WriteVtuFile: Writing elemental fields
+AscBinWriteFree: Terminating buffered ascii/binary writing
+WriteVtuFile: Finished writing file
+VtuOutputSolver: Finished writing vtu file
+VtuOutputSolver: All done for now
+ResultOutputSolver: -------------------------------------
+ResultOutputSolver: Dimension of mesh is: 2
+ResultOutputSolver: Working on mesh 2: src with 42 nodes
+ResultOutputSolver: Mesh name changed - recreating list for saving
+CreateListForSaving: Field Variables for Saving
+CreateListForSaving: Scalar Field 1: tempa
+ResultOutputSolver: Saving in unstructured VTK XML (.vtu) format
+SolverOutputDirectory: Creating directory: src
+VtuOutputSolver: Full filename base is: src/src_case
+GenerateSaveMask: Allocating NodePerm of size: 42
+GenerateSaveMask: Allocating ActiveElem of size: 45
+GenerateSaveMask: Number of active elements 45 out of 45
+GenerateSaveMask: Number of geometry nodes 42 out of 42
+VtuOutputSolver: Writing the vtu file: src/src_case_t0002.vtu
+AscBinWriteInit: Initializing buffered ascii/binary writing
+AscBinWriteInit: Writing in binary
+AscBinWriteInit: Writing in double precision
+AscBinWriteInit: Writing to unit number: 58
+AscBinWriteInit: Size of buffer is: 1000
+WriteVtuFile: Writing nodal fields
+WriteVtuFile: Saving 1-component variable: tempa
+WriteVtuFile: Number of nodal fields written: 1
+WriteVtuFile: Writing elemental fields
+WriteVtuFile: Number of elemental fields written: 0
+WriteVtuFile: Writing coordinates for each used node
+WriteVtuFile: Writing the elemental connectivity data
+WriteVtuFile: Writing nodal fields
+WriteVtuFile: Saving 1-component variable: tempa
+WriteVtuFile: Number of nonzeros for "tempa" is 42 of 42
+WriteVtuFile: Writing elemental fields
+AscBinWriteFree: Terminating buffered ascii/binary writing
+WriteVtuFile: Finished writing file
+VtuOutputSolver: Finished writing vtu file
+VtuOutputSolver: All done for now
+ResultOutputSolver: -------------------------------------
+UpdateDependentObjects: Updating objects depending on primary field in steady state
+DerivateExportedVariables: Derivating variables, if any!
+DerivateExportedVariables: Derivating done for variables: 0
+SaveCurrent: Saving information on current step
+ReloadInputFile: Reloading input file
+LoadInputFile: Loading input file:
+MAIN: Reporting unused list entries for sif improvement!
+MAIN: If you do not want these lines undefine > DEVEL_LISTUSAGE < !
+   Unused keywords:
+       Simulation            max output level
+       Constants             gravity
+       Constants             stefan boltzmann
+MAIN: *** Elmer Solver: ALL DONE ***
+FreeModel: Freeing meshes
+ReleaseMesh: Releasing mesh variables
+ReleaseMesh: Releasing mesh nodes
+ReleaseMesh: Releasing mesh quadrant tree
+ReleaseMesh: Releasing mesh finished
+ReleaseMesh: Releasing mesh variables
+ReleaseMesh: Releasing mesh nodes
+ReleaseMesh: Releasing mesh projector
+ReleaseMesh: Releasing mesh finished
+FreeModel: Freeing constants list
+FreeModel: Freeing simulation list
+FreeModel: Freeing solvers
+FreeModel: Solver: 1
+Loading user function library: [Mesh2MeshSolver]...[Mesh2MeshSolver_Finalize]
+Loading user function library: [Mesh2MeshSolver]...[Mesh2MeshSolver_Finalize]
+FreeSolver: Free solver matrix
+FreeSolver: Free solver miscellaneous
+FreeModel: Solver: 2
+Loading user function library: [HeatSolve]...[HeatSolver_Finalize]
+Loading user function library: [HeatSolve]...[HeatSolver_Finalize]
+FreeSolver: Free solver matrix
+FreeSolver: Free solver miscellaneous
+FreeModel: Solver: 3
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_Finalize]
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_Finalize]
+FreeSolver: Free solver matrix
+FreeSolver: Free solver miscellaneous
+FreeModel: Solver: 4
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_Finalize]
+Loading user function library: [ResultOutputSolve]...[ResultOutputSolver_Finalize]
+FreeSolver: Free solver matrix
+FreeSolver: Free solver miscellaneous
+FreeModel: Freeing initial conditions lists
+FreeModel: Freeing body lists
+FreeModel: Freeing equations lists
+FreeModel: Freeing body forces lists
+ParallelFinalize: Final synchronization of the MPI system!
+MAIN: The end
+SOLVER TOTAL TIME(CPU,REAL):         0.11        0.53
+ELMER SOLVER FINISHED AT: 2026/10/29 11:09:14

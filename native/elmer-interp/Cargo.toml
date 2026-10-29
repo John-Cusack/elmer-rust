@@ -1,0 +1,14 @@
+[package]
+name = "elmer-interp"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Mesh-to-mesh interpolation for the Rust-native Elmer rewrite: quadrant-tree point location, GlobalToLocal, nodal and DG field transfer, interpolation projectors"
+
+[dependencies]
+elmer-core.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+approx.workspace = true

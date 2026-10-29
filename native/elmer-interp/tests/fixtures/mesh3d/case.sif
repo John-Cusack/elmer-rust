@@ -1,0 +1,97 @@
+! Mesh-to-mesh interpolation oracle: Mesh2MeshSolver maps TempA from the
+! solver mesh "src" onto the main mesh "dst" with InterpolateMeshToMesh.
+Header
+  Mesh DB "." "dst"
+  Include Path ""
+  Results Directory ""
+End
+
+Simulation
+  Max Output Level = 20
+  Coordinate System = Cartesian 3D
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 0
+  Initialize Dirichlet Conditions = False
+End
+
+Constants
+  Gravity(4) = 0 -1 0 9.82
+  Stefan Boltzmann = 5.67e-8
+End
+
+Body 1
+  Name = "Src"
+  Equation = 1
+  Initial Condition = 1
+End
+
+Body 2
+  Name = "Dst"
+  Equation = 2
+  Initial Condition = 2
+End
+
+Initial Condition 1
+  Name = "Source field"
+  TempA = Variable Coordinate
+    Real MATC "1.0 + 2.0*tx(0) - 3.0*tx(1) + 1.5*tx(2) + 4.0*tx(0)*tx(1) + 5.0*tx(0)*tx(0) - 0.5*tx(2)*tx(1)"
+End
+
+Initial Condition 2
+  Name = "Target marker"
+  TempA = Real -1000.0
+End
+
+Equation 1
+  Name = "SrcEq"
+  Active Solvers(2) = 1 4
+End
+
+Equation 2
+  Name = "DstEq"
+  Active Solvers(2) = 2 3
+End
+
+Solver 1
+  Equation = "Interp"
+  Exec Solver = Before All
+  Procedure = "Mesh2MeshSolver" "Mesh2MeshSolver"
+  Mesh = "src"
+  Exported Variable 1 = -nodal TempA
+  Variable 1 = "TempA"
+End
+
+Solver 2
+  Equation = "Holder"
+  Exec Solver = Never
+  Procedure = "HeatSolve" "HeatSolver"
+  Variable = "Holder"
+  Exported Variable 1 = -nodal TempA
+End
+
+Solver 3
+  Equation = "Out"
+  Exec Solver = After All
+  Procedure = "ResultOutputSolve" "ResultOutputSolver"
+  Output File Name = "case"
+  Output Format = String "vtu"
+  Ascii Output = Logical False
+  Vtu Format = Logical True
+  Scalar Field 1 = TempA
+  Save Geometry Ids = Logical False
+End
+
+! Dumps the source field on the source mesh, as the Fortran sees it.
+Solver 4
+  Equation = "SrcOut"
+  Mesh = "src"
+  Exec Solver = After All
+  Procedure = "ResultOutputSolve" "ResultOutputSolver"
+  Output File Name = "case"
+  Output Format = String "vtu"
+  Ascii Output = Logical False
+  Vtu Format = Logical True
+  Scalar Field 1 = TempA
+  Save Geometry Ids = Logical False
+End
