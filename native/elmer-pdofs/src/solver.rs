@@ -103,7 +103,8 @@ impl SolverDofs for PSetup {
     }
 }
 
-/// MATC evaluation of `function(body, x, y, z)` for `p:%function`.
+/// MATC for `p:%function` degrees: evaluates the command (`function(cx)`)
+/// with the MATC variable `cx` = `[body, x, y, z]`.
 pub type MatcFn = dyn Fn(&str, [f64; 4]) -> Result<f64, String> + Send + Sync;
 
 /// The [`DofsBackend`] serving every solver section with a non-nodal

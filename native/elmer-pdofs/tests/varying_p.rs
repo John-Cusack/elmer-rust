@@ -37,7 +37,7 @@ fn setup() -> (PMesh, ElementDefs, PSystem) {
                 body_has_equation: &|_| true,
                 // $ function bodywisep(cx) { if (cx(0)>1) {_bodywisep=8;} else {_bodywisep=4;} }
                 matc_degree: &mut |f, cx| {
-                    assert_eq!(f, "bodywisep");
+                    assert_eq!(f, "bodywisep(cx)");
                     Ok(if cx[0] > 1.0 { 8.0 } else { 4.0 })
                 },
                 boundary_body: &|_| 0,

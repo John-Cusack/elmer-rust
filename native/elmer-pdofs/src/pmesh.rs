@@ -296,7 +296,9 @@ pub struct SolverElements<'a> {
     pub body_element: &'a dyn Fn(usize) -> Option<String>,
 }
 
-/// A MATC degree function `p_of(function, [body, x, y, z])`.
+/// MATC for `p:%function` degrees: `p_of(command, [body, x, y, z])`
+/// evaluates `command` (`function(cx)`) with the MATC variable `cx` set to
+/// the body id and element midpoint, as `GetMatcReal(command, 4, cx, 'cx')`.
 pub type MatcDegree<'a> = dyn FnMut(&str, [f64; 4]) -> Result<f64, Error> + 'a;
 
 /// Mesh-level keywords and model facts that [`PMesh::new`] needs.
@@ -310,8 +312,8 @@ pub struct PMeshOptions<'a> {
     pub n_bodies: usize,
     /// Whether body `b` (1-based) has an `Equation` keyword.
     pub body_has_equation: &'a dyn Fn(usize) -> bool,
-    /// MATC degree function: `p_of(function, [body, x, y, z])` with the
-    /// element midpoint, as `GetMatcReal(function//'(cx)', 4, ...)`.
+    /// MATC degree evaluation (see [`MatcDegree`]); called with the
+    /// command `function(cx)`.
     pub matc_degree: &'a mut MatcDegree<'a>,
     /// `BodyId` of boundary element `i` (0-based among boundary elements);
     /// Elmer leaves it 0 unless the BC gives a `Body Id`.
@@ -462,9 +464,10 @@ impl PMesh {
             .map(|s| s.element.is_some_and(is_mesh_dependent))
             .collect();
 
+        // str = TRIM(ElementDef(j+3:))//'(cx)'; x = GetMatcReal(str, 4,
+        // [BodyId, x, y, z], 'cx'); NINT(x).
         let mut matc = |f: &str, cx: [f64; 4]| -> Result<i32, Error> {
-            // NINT
-            Ok((opts.matc_degree)(f, cx)?.round() as i32)
+            Ok((opts.matc_degree)(&format!("{f}(cx)"), cx)?.round() as i32)
         };
 
         if !mesh_deps {
@@ -1463,7 +1466,7 @@ mod tests {
     #[test]
     fn matc_degree_is_a_running_maximum() {
         let (pm, defs) = prepare("p:%f", &mut |f, cx| {
-            assert_eq!(f, "f");
+            assert_eq!(f, "f(cx)");
             Ok(if cx[0] > 1.0 { 4.0 } else { 2.0 })
         });
         assert_eq!(defs.get(4, 1, Kind::P), 2);

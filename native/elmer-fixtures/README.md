@@ -124,9 +124,9 @@ Refused with a named reason:
   `SD_p-FEM_with_varying_p` in its Equation section. `elmer-pdofs` lays out a
   solver from its own section only, so the plugins that have a nodal path
   refuse such definitions (`hooks::check_element_definitions`) rather than
-  run on nodal elements. `p-FEM_with_varying_p`'s `p:%bodywisep` degree
-  function fails in MATC (`Undeclared identifier: [cx]`), and
-  `SD_Classical2DShell` needs SaveLine polylines.
+  run on nodal elements. `p-FEM_with_varying_p` (`p:%bodywisep`, the
+  degree from MATC `bodywisep(cx)`) matches the pristine norm
+  9.50681481E-03, and `SD_Classical2DShell` needs SaveLine polylines.
 - `BlockPoisson1`, `BlockPoisson2`: registered, but `Block Solver = True` is
   refused by `elmer-solver` (`coupled.rs`).
 
