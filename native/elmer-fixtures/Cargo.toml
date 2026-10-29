@@ -12,6 +12,7 @@ elmer-expr = { path = "../elmer-expr" }
 elmer-fe = { path = "../elmer-fe" }
 elmer-fe-hp = { path = "../elmer-fe-hp" }
 elmer-solver = { path = "../elmer-solver" }
+elmer-pdofs = { path = "../elmer-pdofs" }
 thiserror.workspace = true
 
 [dev-dependencies]
