@@ -219,6 +219,22 @@ fn legacy_heat(model: &mut Model) {
     }
 }
 
+/// `StressSolver_Init0` (StressSolve.F90:292) names the variable of a
+/// section that has none: `Variable = -dofs <dim> Displacement`. Neither
+/// `elmer-run` nor `elmer-physics-elastic` does yet (the `tresca` case needs
+/// it), so this stands in for that step.
+fn stress_solver_variable(model: &mut Model, dim: usize) {
+    for p in &mut model.solvers {
+        let stress = procedure_of(p).is_some_and(|(lib, entry)| {
+            lib.eq_ignore_ascii_case("stresssolve") && entry.eq_ignore_ascii_case("stresssolver")
+        });
+        if stress && p.get("variable").is_none() {
+            p.insert("Variable", Value::Str("Displacement".into()));
+            p.insert("Variable Dofs", Value::Integer(vec![dim as i32]));
+        }
+    }
+}
+
 /// A later `RUN` block may only change reference norms, as `elmer-run`
 /// requires.
 fn check_reloads(reloads: &[Model]) -> Result<(), SolverError> {
@@ -272,9 +288,11 @@ pub fn run(case: &str, dir: &Path, sif: &str) -> Result<Outcome, SolverError> {
 
     let mut registry = elmer_run::solver_registry();
     elmer_fixtures::registry::register(case, &mut registry);
+    elmer_fixtures::registry::init_sections(case, &mut model);
     preflight(&model, &registry)?;
     check_reloads(&reloads)?;
     let coords = elmer_run::coordinate_system(&model, mesh)?;
+    stress_solver_variable(&mut model, coords.dim);
     elmer_run::install_fe(coords.dim)?;
 
     let buf = Buf::default();

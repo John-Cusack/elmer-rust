@@ -13,16 +13,21 @@
 //! Scalar functions go into an [`UdfRegistry`] ([`install`], or
 //! [`install_live`] for a [`Simulation`]); solver procedures and element
 //! assembly routines into a [`SolverRegistry`] ([`register`]). A composition
-//! running case `case` calls both before `Simulation::setup`.
+//! running case `case` calls both, and [`init_sections`], before
+//! `Simulation::setup`.
 
 use std::sync::Arc;
 
-use elmer_core::MeshView;
+use elmer_core::{MeshView, ParamMap};
 use elmer_expr::{Udf, UdfRegistry};
-use elmer_solver::{ElementAssembly, Simulation, SolverFactory, SolverRegistry};
+use elmer_solver::solver::procedure_of;
+use elmer_solver::{ElementAssembly, Model, Simulation, SolverFactory, SolverRegistry};
 
 use crate::hooks::{PoissonBoundary, PoissonBulk};
+use crate::model_pde_handle;
 use crate::poisson_solver;
+use crate::single_elements;
+use crate::tresca;
 use crate::udf::{init_dist_fn, my_source_fn, OneDSource, OneDTolerances};
 use crate::ModelView;
 
@@ -112,7 +117,18 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("1dtests_MeshLevels", "Poisson", "PoissonSolver", Hook::Solver(poisson_solver::nodal_factory)),
     ("ExtrudedMesh", "Poisson", "PoissonSolver", Hook::Solver(poisson_solver::condensing_factory)),
     ("ExtrudedMeshBaseline1", "Poisson", "PoissonSolver", Hook::Solver(poisson_solver::condensing_factory)),
+    ("tresca", "Tresca", "TrescaSolver", Hook::Solver(tresca::factory)),
+    ("ElementUnitTest_h1", "SingleElements", "SingleElements", Hook::Solver(single_elements::factory)),
+    ("ModelPDEhandle", "ModelPDEhandle", "AdvDiffSolver", Hook::Solver(model_pde_handle::factory)),
 ];
+
+/// Edits a solver section.
+type SectionInit = fn(&mut ParamMap);
+
+/// `<Proc>_init` routines that only edit their solver section, before its
+/// variable exists: `(case, library, entry, edit)`.
+const SECTION_INITS: &[(&str, &str, &str, SectionInit)] =
+    &[("ElementUnitTest_h1", "SingleElements", "SingleElements", single_elements::init_section)];
 
 fn hooks(case: &str) -> impl Iterator<Item = (&'static str, &'static str, Hook)> + '_ {
     let assembly = POISSON_ASSEMBLY_CASES.contains(&case).then_some([
@@ -144,6 +160,26 @@ pub fn register(case: &str, registry: &mut SolverRegistry) -> usize {
             Hook::Assembly(build) => registry.register_assembly(lib, entry, Arc::new(move |_| Ok(build()))),
         }
         n += 1;
+    }
+    n
+}
+
+/// Runs the `<Proc>_init` section edits of `case`'s plugins on the solver
+/// sections that name them (Elmer calls `_init` before it creates the
+/// solver's variable). Call it on the model before `Simulation::new`.
+/// Returns how many sections were edited.
+pub fn init_sections(case: &str, model: &mut Model) -> usize {
+    let mut n = 0;
+    for p in &mut model.solvers {
+        let Some((lib, entry)) = procedure_of(p) else { continue };
+        let lib = lib.rsplit('/').next().unwrap_or(&lib).to_string();
+        let found = SECTION_INITS
+            .iter()
+            .find(|i| i.0 == case && i.1.eq_ignore_ascii_case(&lib) && i.2.eq_ignore_ascii_case(&entry));
+        if let Some(init) = found {
+            (init.3)(p);
+            n += 1;
+        }
     }
     n
 }

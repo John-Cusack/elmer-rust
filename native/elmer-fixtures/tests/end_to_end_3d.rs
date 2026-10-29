@@ -25,3 +25,15 @@ fn extruded_baseline_poisson_is_refused_by_name() {
     assert!(err.to_string().contains("Boundary Condition 5 Body ID"), "{err}");
     assert!(!dir.join("TEST.PASSED").exists(), "refused before any output");
 }
+
+/// `ElementUnitTest_h1`: twelve `RUN` blocks, one element per visit
+/// (808, 706, 605, 504, then the boundary 404 and 303), first the element
+/// measure `SUM(MASS)`, then `SUM(ABS(STIFF))`, each against the `.sif`'s
+/// reference value (the pristine run with `SingleElements.so` passes all 12).
+#[test]
+fn element_unit_test_h1_passes_all_twelve_runs() {
+    let dir = case::stage("ElementUnitTest_h1", None);
+    let out = case::run("ElementUnitTest_h1", &dir, "case.sif").unwrap_or_else(|e| panic!("ElementUnitTest_h1: {e}"));
+    assert!(out.log.contains("PASSED all 12 tests"), "{}", out.log);
+    assert_eq!(out.passed, Some(true));
+}
