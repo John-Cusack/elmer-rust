@@ -22,7 +22,7 @@ pub use axisym::view_factors_axis;
 pub use gebhart::{gebhart_factors, Gebhart, GebhartInput};
 pub use normalize::{normalize_factors, saved_rows};
 pub use orient::{line_direction, surface_direction, ParentInfo};
-pub use radiator::{radiator_factors, surface_areas, RadiatorParams, RadiatorSurface};
+pub use radiator::{radiator_factors, surface_areas, Radiator, RadiatorParams, RadiatorSurface};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

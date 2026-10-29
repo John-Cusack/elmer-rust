@@ -6,15 +6,15 @@
 //!
 //! The factors are computed on the first solve. Point radiators on triangle
 //! and quad surfaces of a 3D mesh are supported, with the `Viewfactor
-//! Symmetry` mirror planes; line radiators are not.
+//! Symmetry` mirror planes, and line radiators.
 
 use std::collections::HashMap;
 
 use elmer_core::{ElemId, Params, Value};
 use elmer_solver::{SolverCtx, SolverError};
 use elmer_viewfactors::{
-    radiator_factors, saved_rows, surface_areas, surface_direction, ParentInfo, RadiatorParams,
-    RadiatorSurface,
+    radiator_factors, saved_rows, surface_areas, surface_direction, ParentInfo, Radiator,
+    RadiatorParams, RadiatorSurface,
 };
 
 const CALLER: &str = "RadiatorFactors";
@@ -172,14 +172,22 @@ impl Radiators {
                 "No radiators present, quitting".to_string(),
             ));
         };
-        if *cols != 3 {
-            return Err(SolverError::Unsupported(
-                "line radiators (Radiator Coordinates with six columns)".into(),
-            ));
-        }
-        let sources: Vec<[f64; 3]> = (0..*rows)
-            .map(|i| [data[3 * i], data[3 * i + 1], data[3 * i + 2]])
-            .collect();
+        let sources: Vec<Radiator> = match *cols {
+            3 => (0..*rows)
+                .map(|i| Radiator::Point([data[3 * i], data[3 * i + 1], data[3 * i + 2]]))
+                .collect(),
+            6 => (0..*rows)
+                .map(|i| Radiator::Line {
+                    start: [data[6 * i], data[6 * i + 1], data[6 * i + 2]],
+                    end: [data[6 * i + 3], data[6 * i + 4], data[6 * i + 5]],
+                })
+                .collect(),
+            _ => {
+                return Err(SolverError::Unsupported(
+                    "Radiator Coordinates with a column count other than 3 or 6".into(),
+                ))
+            }
+        };
         let mut powers = Vec::with_capacity(*rows);
         for i in 1..=*rows {
             powers.push(
