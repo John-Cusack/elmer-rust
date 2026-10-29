@@ -19,9 +19,10 @@ fn numbered(v: &[elmer_sif::model::Section]) -> Vec<ParamMap> {
     out
 }
 
-/// Runs Solver 1 of `case/sif` (the other solvers dropped) and returns its
-/// variable's norm, the variable's value count and the reference tally.
-fn run(case: &str, sif: &str, tweak: impl Fn(&mut Model)) -> (f64, usize, usize) {
+/// Runs the first `keep` solvers of `case/sif` (the others dropped) and
+/// returns the last kept solver's variable norm, that variable's value
+/// count and the reference tally.
+fn run_n(case: &str, sif: &str, keep: usize, tweak: impl Fn(&mut Model)) -> (f64, usize, usize) {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data").join(case);
     let parsed = {
         let _guard = CWD.lock().unwrap_or_else(|e| e.into_inner());
@@ -33,7 +34,7 @@ fn run(case: &str, sif: &str, tweak: impl Fn(&mut Model)) -> (f64, usize, usize)
     };
     let m = &parsed.sif.runs[0];
     let mut solvers = numbered(&m.solvers);
-    solvers.truncate(1);
+    solvers.truncate(keep);
     let mut model = Model {
         header: ParamMap::new(),
         simulation: m.simulation.as_ref().map(ParamMap::from).unwrap_or_default(),
@@ -54,9 +55,13 @@ fn run(case: &str, sif: &str, tweak: impl Fn(&mut Model)) -> (f64, usize, usize)
     let mut sim = Simulation::new(model);
     sim.setup(&mesh, &registry, &NullLogger, &SerialComm).unwrap();
     sim.run(&mesh, &NullLogger, &SerialComm).unwrap();
-    let id = sim.slot(1).unwrap().variable.unwrap();
+    let id = sim.slot(keep).unwrap().variable.unwrap();
     let var = sim.vars.by_id(id);
     (var.conv.norm, var.values.len(), sim.reference.pass_count)
+}
+
+fn run(case: &str, sif: &str, tweak: impl Fn(&mut Model)) -> (f64, usize, usize) {
+    run_n(case, sif, 1, tweak)
 }
 
 #[test]
@@ -98,4 +103,14 @@ fn harmonic_solver_through_the_simulation() {
     // The pristine run at the same tolerance (tests/data/README.md).
     let reference = 2.42424125e-03;
     assert!((norm - reference).abs() / reference < 1e-5, "norm {norm}");
+}
+
+#[test]
+fn calc_fields_through_the_simulation() {
+    let (norm, n, passed) = run_n("mgdyn_airgap", "airgap.sif", 2, |_| {});
+    // hr_dummy over the 265 nodes holds Magnetic Field Strength 3.
+    assert_eq!(n, 265);
+    let reference = 3.06334400e3;
+    assert!((norm - reference).abs() / reference < 1e-5, "norm {norm}");
+    assert_eq!(passed, 2, "CompareToReferenceSolution for Solvers 1 and 2");
 }
