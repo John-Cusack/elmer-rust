@@ -202,9 +202,13 @@ fn merged_with(model: &Model, block: &Model) -> Model {
 /// unsupported. Fortran solvers read their keywords on every visit, while
 /// several native solvers read their section once when built; until the
 /// slots are rebuilt on reload, a block may only change `Reference Norm` /
-/// `Reference Norm Tolerance` of existing solvers.
+/// `Reference Norm Tolerance` of existing solvers, plus the keywords a
+/// solver is known to re-read on every solve (`LIVE`).
 fn check_reloads(model: &Model, reloads: &[Model], registry: &SolverRegistry) -> Result<(), SolverError> {
     const ALLOWED: [&str; 2] = ["reference norm", "reference norm tolerance"];
+    // Keywords a solver reads from its section on every solve, so a later
+    // block's value takes effect (QuadraturesBrick).
+    const LIVE: [(&str, &str, &[&str]); 1] = [("modelpde", "advdiffsolver", &["number of integration points"])];
     let mut merged = model.clone();
     for (k, block) in reloads.iter().enumerate() {
         let run = k + 2;
@@ -235,7 +239,12 @@ fn check_reloads(model: &Model, reloads: &[Model], registry: &SolverRegistry) ->
             if i >= model.solvers.len() && !params.0.is_empty() {
                 return refuse(format!("Solver {} (a new solver)", i + 1));
             }
-            if let Some(key) = params.0.keys().find(|k| !ALLOWED.contains(&k.as_str())) {
+            let live = procedure_of(&merged.solvers[i])
+                .and_then(|(lib, entry)| {
+                    LIVE.iter().find(|(l, e, _)| lib.eq_ignore_ascii_case(l) && entry.eq_ignore_ascii_case(e))
+                })
+                .map_or(&[][..], |(_, _, keys)| *keys);
+            if let Some(key) = params.0.keys().find(|k| !ALLOWED.contains(&k.as_str()) && !live.contains(&k.as_str())) {
                 return refuse(format!("Solver {} {key}", i + 1));
             }
         }
