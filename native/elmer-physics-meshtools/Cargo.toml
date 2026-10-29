@@ -10,3 +10,11 @@ description = "Mesh utility solvers (RigidMeshMapper, StructuredMeshMapper, Stru
 elmer-core.workspace = true
 elmer-solver = { path = "../elmer-solver" }
 thiserror.workspace = true
+
+[dev-dependencies]
+# The pristine quick tests run HeatSolve behind the mappers.
+elmer-physics-heat = { path = "../elmer-physics-heat" }
+elmer-fe = { path = "../elmer-fe" }
+elmer-krylov = { path = "../elmer-krylov" }
+elmer-sparse = { path = "../elmer-sparse" }
+elmer-sif = { path = "../elmer-sif" }

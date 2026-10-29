@@ -1,11 +1,16 @@
-//! A `MeshView` over the test mesh.
+//! A `MeshView` over the test mesh whose node coordinates a mapper can move
+//! (through `motion::SharedCoords`).
+
+use std::sync::Arc;
 
 use elmer_core::{ElemId, ElementRef, ElementType, MeshView};
+use elmer_physics_meshtools::motion::SharedCoords;
 
 use super::meshio::Mesh;
 
 pub struct SimMesh {
     pub mesh: Mesh,
+    pub coords: Arc<SharedCoords>,
     nodes: Vec<Vec<u32>>,
 }
 
@@ -17,7 +22,8 @@ impl SimMesh {
             .chain(&mesh.boundary)
             .map(|e| e.nodes.iter().map(|&n| n as u32).collect())
             .collect();
-        Self { mesh, nodes }
+        let coords = Arc::new(SharedCoords::new(mesh.coords.clone()));
+        Self { mesh, coords, nodes }
     }
 }
 
@@ -26,10 +32,10 @@ impl MeshView for SimMesh {
         self.mesh.dim
     }
     fn n_nodes(&self) -> usize {
-        self.mesh.coords.len()
+        self.coords.len()
     }
     fn coord(&self, node: u32) -> [f64; 3] {
-        self.mesh.coords[node as usize]
+        self.coords.get(node)
     }
     fn n_bulk(&self) -> usize {
         self.mesh.bulk.len()

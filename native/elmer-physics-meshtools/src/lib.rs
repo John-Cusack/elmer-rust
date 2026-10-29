@@ -7,12 +7,17 @@
 #![forbid(unsafe_code)]
 
 mod checksum;
+pub mod motion;
+mod rigid;
+mod util;
 
 pub use checksum::{checksum, pseudo_norm, MeshChecksum};
+pub use rigid::RigidMeshMapper;
 
 use elmer_solver::SolverRegistry;
 
 /// Registers every solver of this crate.
 pub fn register(registry: &mut SolverRegistry) {
     registry.register("MeshChecksum", "MeshChecksum", checksum::factory);
+    registry.register("RigidMeshMapper", "RigidMeshMapper", rigid::factory);
 }
