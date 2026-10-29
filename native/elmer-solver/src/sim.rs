@@ -144,6 +144,10 @@ pub struct SolverSlot {
     pub system: Option<LinearSystem>,
     pub(crate) instance: Option<Box<dyn Solver>>,
     pub(crate) asm: crate::loads::AssemblyState,
+    /// The constraint rows `Apply Integral BCs` generated for this solve.
+    pub(crate) constraints: Option<crate::constraints::ConstraintMatrix>,
+    /// Constraint rows the solver set itself.
+    pub(crate) own_constraints: Option<crate::constraints::ConstraintMatrix>,
 }
 
 impl SolverSlot {
@@ -167,6 +171,8 @@ impl SolverSlot {
             system: None,
             instance: None,
             asm: Default::default(),
+            constraints: None,
+            own_constraints: None,
         })
     }
 

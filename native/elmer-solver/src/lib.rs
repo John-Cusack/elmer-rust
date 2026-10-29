@@ -22,6 +22,7 @@
 pub mod assembly;
 pub mod backend;
 pub mod change;
+mod constraints;
 mod control;
 pub mod coupled;
 pub mod error;
@@ -42,6 +43,7 @@ pub mod variable;
 pub use assembly::ElmerAssembly;
 pub use backend::{AssemblyBackend, Backends, FeBackend, LinearSolverRegistry, Perm, TimeBackend, TimeTerms};
 pub use coupled::{AssemblySolver, CoupledSystem};
+pub use constraints::ConstraintMatrix;
 pub use change::{compute_change, ChangeEnv, ChangeReport, SolverState};
 pub use error::SolverError;
 pub use expr::{SharedMatc, TextMatc};

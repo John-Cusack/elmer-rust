@@ -1,0 +1,19 @@
+IntegralProjector: Creating integral constraint matrix for body force: 1
+IntegralProjector: Total area of boundary integral:  2.5000E-01
+IntegralProjector: Setting the representative node to: 120
+GenerateConstraintMatrix: There are 1 initial rows in constraint matrices
+GenerateConstraintMatrix: Adding integral constraint for BC: 3
+GenerateConstraintMatrix: Allocating 1 rows and 25 nonzeros
+GenerateConstraintMatrix: Used 1 rows and 25 nonzeros
+SolveWithLinearRestriction: Adding ConstraintMatrix into CollectionMatrix
+SolveWithLinearRestriction: Reverting CollectionMatrix back to CRS matrix
+SolveWithLinearRestriction: Collection matrix increased with 1 rows and 51 non-zeros
+SolveWithLinearRestriction: Now solving the linear system with constraints!
+ComputeChange: WARNING: Possible mismatch in length of vectors (257 vs. 256)!
+ComputeChange: NS (ITER=1) (NRM,RELC): (  4.6088484      2.0000000     ) :: heat equation
+SolveWithLinearRestriction: Picking solution from collection solution
+SolveWithLinearRestriction: All done
+ComputeChange: SS (ITER=1) (NRM,RELC): (  1.5325085      2.0000000     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 1.53250847E+00  RefNorm = 1.53250847E+00
+CompareToReferenceSolution: Relative Error to reference norm: 4.125462E-10
+CompareToReferenceSolution: PASSED all 1 tests!
