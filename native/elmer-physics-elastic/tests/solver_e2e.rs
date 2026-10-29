@@ -265,6 +265,6 @@ fn plane_strain_differs_from_plane_stress() {
 fn unimplemented_options_are_refused() {
     let r = run(model(true, &[("Large Deflection", Value::Logical(true))]));
     assert!(matches!(r, Err(SolverError::Unsupported(_))), "{:?}", r.err());
-    let r = run(model(true, &[("Calculate Stresses", Value::Logical(true))]));
+    let r = run(model(true, &[("Calculate PAngle", Value::Logical(true))]));
     assert!(matches!(r, Err(SolverError::Unsupported(_))));
 }
