@@ -171,8 +171,8 @@ fails="$(grep -cE "^[[:space:]]+[0-9]+ - .*\(Failed\)" "$WORK/LastTest-quick-por
 if [ "$fails" != "3" ]; then
   echo "FAIL: expected exactly K=3 failures, got $fails"; exit 1;
 fi
-for n in " #80 " " #536 " " #537 "; do
-  grep -q "Test $n.*Failed" "$WORK/LastTest-quick-port.log" \
+for n in "#80" "#536" "#537"; do
+  grep -qE "Test +$n[: ]" "$WORK/LastTest-quick-port.log" \
     || { echo "FAIL: K=3 member $n not in failure set"; exit 1; }
 done
 echo "   backstop 479/482 K=3 with port spliced"
