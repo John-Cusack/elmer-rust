@@ -1,0 +1,292 @@
+//! `COVERAGE.md`: counts, the heat + SaveData pool, and the ranked list of
+//! missing features.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write;
+
+use crate::analyze::{class_of, provider_of, CLASS_ORDER};
+use crate::child::Verdict;
+use crate::record::Record;
+
+pub struct Meta {
+    /// `origin/main` commit the run was built from.
+    pub commit: String,
+    pub date: String,
+}
+
+/// One row of the ranking.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Rank {
+    pub blocker: String,
+    /// Tests that run clean once this and the rows above it exist.
+    pub unlocks: usize,
+    pub cumulative: usize,
+    /// Tests that list the blocker at all.
+    pub blocks: usize,
+    /// Tests for which it is the only blocker.
+    pub sole: usize,
+}
+
+/// Tests the native path does not run to a match.
+fn open(records: &[Record]) -> Vec<&Record> {
+    records.iter().filter(|r| !matches!(r.verdict, Verdict::Match | Verdict::NoOracle)).collect()
+}
+
+/// Greedy unlock order: at each step the blocker that completes the most
+/// still-blocked tests (ties: the blocker listed by most tests, then name).
+/// A test unlocks when all its blockers are chosen; the count is an upper
+/// bound, because the screen cannot see a gap that only a run would hit.
+pub fn rank(records: &[Record], limit: usize) -> Vec<Rank> {
+    let tests: Vec<BTreeSet<&str>> = open(records)
+        .iter()
+        .filter(|r| !r.blockers.is_empty())
+        .map(|r| r.blockers.iter().map(String::as_str).collect())
+        .collect();
+    let mut blocks: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut sole: BTreeMap<&str, usize> = BTreeMap::new();
+    for t in &tests {
+        for b in t {
+            *blocks.entry(b).or_default() += 1;
+        }
+        if t.len() == 1 {
+            *sole.entry(t.iter().next().unwrap()).or_default() += 1;
+        }
+    }
+    let mut chosen: BTreeSet<&str> = BTreeSet::new();
+    let mut done = vec![false; tests.len()];
+    let (mut rows, mut cumulative) = (Vec::new(), 0);
+    while rows.len() < limit && chosen.len() < blocks.len() {
+        let mut best: Option<(&str, usize)> = None;
+        for &cand in blocks.keys().filter(|b| !chosen.contains(*b)) {
+            let gain = tests
+                .iter()
+                .zip(&done)
+                .filter(|(t, d)| !**d && t.contains(cand) && t.iter().all(|b| *b == cand || chosen.contains(b)))
+                .count();
+            let better = match best {
+                None => true,
+                Some((b, g)) => (gain, blocks[cand]) > (g, blocks[b]),
+            };
+            if better {
+                best = Some((cand, gain));
+            }
+        }
+        let Some((pick, gain)) = best else { break };
+        chosen.insert(pick);
+        for (t, d) in tests.iter().zip(done.iter_mut()) {
+            if !*d && t.iter().all(|b| chosen.contains(b)) {
+                *d = true;
+            }
+        }
+        cumulative += gain;
+        rows.push(Rank {
+            blocker: pick.to_string(),
+            unlocks: gain,
+            cumulative,
+            blocks: blocks[pick],
+            sole: sole.get(pick).copied().unwrap_or(0),
+        });
+    }
+    rows
+}
+
+/// The heat + SaveData pool of the strategy (section 2.4): serial, only
+/// `HeatSolve` and `SaveData` solvers, no test-local plugin and none of the
+/// hard features.
+pub fn in_heat_pool(r: &Record) -> bool {
+    r.nprocs == 1
+        && !r.libs.is_empty()
+        && r.libs.iter().all(|l| l == "heatsolve" || l == "savedata")
+        && !r.blockers.iter().any(|b| matches!(class_of(b), "mpi" | "prestep" | "plugin" | "feature"))
+}
+
+fn pct(n: usize, of: usize) -> String {
+    if of == 0 {
+        "-".into()
+    } else {
+        format!("{:.1}%", 100.0 * n as f64 / of as f64)
+    }
+}
+
+fn count(records: &[&Record], v: Verdict) -> usize {
+    records.iter().filter(|r| r.verdict == v).count()
+}
+
+fn verdict_table(out: &mut String, records: &[&Record]) {
+    let n = records.len();
+    let _ = writeln!(out, "| Verdict | Tests | Share |\n|---|---:|---:|");
+    for (label, v) in [
+        ("match (reference norm within tolerance)", Verdict::Match),
+        ("mismatch (ran, reference check failed)", Verdict::Mismatch),
+        ("no-oracle (ran, no reference)", Verdict::NoOracle),
+        ("refused (missing feature)", Verdict::Refused),
+        ("error (fatal solver error, crash, timeout, setup failure)", Verdict::Error),
+    ] {
+        let c = count(records, v);
+        let _ = writeln!(out, "| {label} | {c} | {} |", pct(c, n));
+    }
+    let _ = writeln!(out, "| **total** | **{n}** | |");
+}
+
+pub fn render(records: &[Record], meta: &Meta) -> String {
+    let mut out = String::new();
+    let all: Vec<&Record> = records.iter().collect();
+    let _ = writeln!(out, "# Quick-suite coverage of the Rust-native Elmer\n");
+    let _ = writeln!(
+        out,
+        "Generated by `elmer-coverage run` from `main` at `{}` on {}. Do not edit by hand; \
+         `results.tsv` beside this file has one row per test.\n",
+        meta.commit, meta.date
+    );
+    let _ = writeln!(
+        out,
+        "Every ctest `quick` test of the pristine build tree (`ctest -N -L quick`) is staged in a scratch \
+         directory, its mesh is generated with the pristine `ElmerGrid` exactly as its `runtest.cmake` does, \
+         and its `.sif` is run through `elmer-run`'s `NativeEngine` (the engine behind `elmer-cli`) with \
+         `elmer-sif` as parser. The oracle is the case's own `Reference Norm` and `Reference Norm Tolerance` \
+         (default 1e-5), applied by `CompareToReferenceSolution`; a test matches when `TEST.PASSED` is `1`.\n"
+    );
+    let _ = writeln!(out, "## Result\n");
+    verdict_table(&mut out, &all);
+
+    let pool: Vec<&Record> = records.iter().filter(|r| in_heat_pool(r)).collect();
+    let _ = writeln!(out, "\n## Heat + SaveData pool (strategy 2.4 / 5.4)\n");
+    let _ = writeln!(
+        out,
+        "Serial tests whose solvers are all `HeatSolve` or `SaveData`, with no test-local plugin and none of the hard \
+         features (MPI, eigen, p/edge elements, mortar/periodic/contact, DG, mesh levels, multigrid/block, \
+         complex/harmonic, scanning). The strategy counts 83-86 such tests.\n"
+    );
+    verdict_table(&mut out, &pool);
+    let rest: Vec<&&Record> = pool.iter().filter(|r| r.verdict != Verdict::Match).collect();
+    if !rest.is_empty() {
+        let _ = writeln!(out, "\nPool tests that do not match:\n\n| Test | Verdict | First missing / detail |\n|---|---|---|");
+        for r in rest {
+            let why = r.first().map(str::to_string).unwrap_or_else(|| r.detail.clone());
+            let _ = writeln!(out, "| {} | {} | {} |", r.name, r.verdict.name(), md(&why));
+        }
+    }
+
+    let mut by_class: BTreeMap<&str, usize> = BTreeMap::new();
+    for r in open(records) {
+        if let Some(f) = r.first() {
+            *by_class.entry(class_of(f)).or_default() += 1;
+        }
+    }
+    let _ = writeln!(out, "\n## First missing feature, by class\n");
+    let _ = writeln!(out, "| Class | Tests whose first blocker is of this class |\n|---|---:|");
+    for c in CLASS_ORDER {
+        if let Some(n) = by_class.get(c) {
+            let _ = writeln!(out, "| `{c}` | {n} |");
+        }
+    }
+
+    let _ = writeln!(out, "\n## Missing features, ranked by tests unlocked\n");
+    let _ = writeln!(
+        out,
+        "Greedy order: each row is the blocker that completes the most tests still blocked after the rows above it. \
+         *Unlocks* counts tests whose every known blocker is then implemented; it is an upper bound, since a run \
+         reports only its first refusal and the screen sees only what it has rules for. *Lists it* counts tests naming \
+         the blocker at all; *only blocker* counts tests where it is the sole one. Blockers are `class: name` \
+         (classes in `src/analyze.rs`); `stand-in` rows disappear once S1's `elmer-mesh`/`elmer-fe` merge.\n"
+    );
+    let _ = writeln!(
+        out,
+        "| # | Blocker | Unlocks | Cumulative | Lists it | Only blocker | Provider on main, not wired into elmer-run |\n|---:|---|---:|---:|---:|---:|---|"
+    );
+    for (i, r) in rank(records, 40).iter().enumerate() {
+        let _ = writeln!(
+            out,
+            "| {} | `{}` | {} | {} | {} | {} | {} |",
+            i + 1,
+            md(&r.blocker),
+            r.unlocks,
+            r.cumulative,
+            r.blocks,
+            r.sole,
+            provider_of(&r.blocker).unwrap_or_default()
+        );
+    }
+
+    let matched: Vec<&str> = records.iter().filter(|r| r.verdict == Verdict::Match).map(|r| r.name.as_str()).collect();
+    let _ = writeln!(out, "\n## Matching tests ({})\n", matched.len());
+    let _ = writeln!(out, "{}", if matched.is_empty() { "None.".to_string() } else { matched.join(", ") });
+
+    for (title, v) in [("Mismatches", Verdict::Mismatch), ("Errors", Verdict::Error), ("Ran without a reference", Verdict::NoOracle)] {
+        let rows: Vec<&Record> = records.iter().filter(|r| r.verdict == v).collect();
+        if rows.is_empty() {
+            continue;
+        }
+        let _ = writeln!(out, "\n## {title} ({})\n\n| Test | Detail | Known blockers |\n|---|---|---|", rows.len());
+        for r in rows {
+            let _ = writeln!(out, "| {} | {} | {} |", r.name, md(&r.detail), md(&r.blockers.join("; ")));
+        }
+    }
+
+    let disagree: Vec<&Record> = records.iter().filter(|r| r.verdict == Verdict::Match && !r.blockers.is_empty()).collect();
+    if !disagree.is_empty() {
+        let _ = writeln!(out, "\n## Screen false positives ({})\n\nMatching tests the static screen still listed blockers for:\n", disagree.len());
+        for r in disagree {
+            let _ = writeln!(out, "- {}: {}", r.name, md(&r.blockers.join("; ")));
+        }
+    }
+
+    let _ = writeln!(
+        out,
+        "\n## Refreshing\n\n```\n. native/swarm-env.sh\n\
+         cargo run --release --manifest-path native/Cargo.toml -p elmer-coverage -- run --out native/elmer-coverage\n```\n\n\
+         Pristine binaries run serially at `nice -n 10`; nothing here builds Fortran. Rerun after each major merge \
+         and commit `COVERAGE.md` and `results.tsv` together."
+    );
+    out
+}
+
+fn md(s: &str) -> String {
+    s.replace('|', "\\|")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rec(name: &str, verdict: Verdict, blockers: &[&str]) -> Record {
+        Record {
+            name: name.into(),
+            nprocs: 1,
+            verdict,
+            secs: 0.0,
+            libs: vec!["heatsolve".into()],
+            blockers: blockers.iter().map(|b| b.to_string()).collect(),
+            detail: String::new(),
+        }
+    }
+
+    #[test]
+    fn greedy_ranking_counts_completed_tests() {
+        let rs = vec![
+            rec("a", Verdict::Refused, &["solver: x"]),
+            rec("b", Verdict::Refused, &["solver: x", "feature: y"]),
+            rec("c", Verdict::Refused, &["feature: y"]),
+            rec("d", Verdict::Refused, &["feature: z", "solver: x"]),
+            rec("ok", Verdict::Match, &[]),
+        ];
+        let r = rank(&rs, 10);
+        // `solver: x` alone completes only `a`; `feature: y` alone only `c`.
+        // Ties break on how many tests list the blocker: x (3) first.
+        assert_eq!(r[0].blocker, "solver: x");
+        assert_eq!((r[0].unlocks, r[0].blocks, r[0].sole), (1, 3, 1));
+        assert_eq!(r[1].blocker, "feature: y");
+        assert_eq!((r[1].unlocks, r[1].cumulative), (2, 3));
+        assert_eq!(r[2].blocker, "feature: z");
+        assert_eq!(r[2].cumulative, 4);
+    }
+
+    #[test]
+    fn pool_excludes_hard_features() {
+        assert!(in_heat_pool(&rec("a", Verdict::Refused, &["solver: x"])));
+        assert!(!in_heat_pool(&rec("b", Verdict::Refused, &["feature: eigenvalue analysis"])));
+        let mut mpi = rec("c", Verdict::Refused, &[]);
+        mpi.nprocs = 2;
+        assert!(!in_heat_pool(&mpi));
+    }
+}
