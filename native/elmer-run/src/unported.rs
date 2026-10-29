@@ -37,7 +37,6 @@ const SIMULATION: &[Rule] = &[
 const SOLVER: &[Rule] = &[
     present("Mesh", "solver-specific meshes are not implemented"),
     flag("Apply Conforming BCs", "conforming BCs are not implemented"),
-    flag("Apply Mortar BCs", "mortar BCs are not implemented"),
     present("Namespace", "solver keyword namespaces are not implemented"),
     flag("Adaptive Mesh Refinement", "mesh refinement is not implemented"),
     flag("Apply Explicit Control", "explicit control (Control Parameter values) is not implemented"),
@@ -54,7 +53,6 @@ const BOUNDARY: &[Rule] = &[
     present("Intersection BC", "intersection BCs are not implemented"),
     present("Intersection Body", "intersection BCs are not implemented"),
     flag("Discontinuous Boundary", "discontinuous boundaries (mesh splitting) are not implemented"),
-    present("Mortar BC", "mortar BCs are not implemented"),
     present("Conforming BC", "conforming BCs are not implemented"),
     present("Target Nodes", "point BCs (Target Nodes) are not implemented"),
     present("Target Coordinates", "point BCs (Target Coordinates) are not implemented"),
@@ -211,10 +209,10 @@ mod tests {
 
         let model = Model {
             solvers: vec![heat(&[]), heat(&[("exec solver", st("never")), ("mesh", st("local"))])],
-            boundary_conditions: vec![pm(&[]), pm(&[("mortar bc", Value::Integer(vec![2]))])],
+            boundary_conditions: vec![pm(&[]), pm(&[("conforming bc", Value::Integer(vec![2]))])],
             ..Model::default()
         };
-        assert_eq!(refusal(&model), "Boundary Condition 2: Mortar BC: mortar BCs are not implemented");
+        assert_eq!(refusal(&model), "Boundary Condition 2: Conforming BC: conforming BCs are not implemented");
 
         let model = Model {
             solvers: vec![heat(&[])],

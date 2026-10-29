@@ -85,7 +85,12 @@ fn section_features(kind: &str, p: &ParamMap, out: &mut Vec<String>) {
         // `Periodic BC` (nodal projectors) is served by `elmer-mortar`, which
         // refuses its unported variants at run time.
         let periodic = key.starts_with("periodic bc");
-        if kind == "boundary condition" && (key.contains("mortar") || (key.contains("periodic") && !periodic) || key.contains("contact")) {
+        // `Mortar BC` is served by `elmer-mortar` (`Apply Mortar BCs`), which
+        // refuses its unported variants at run time.
+        let mortar = key.starts_with("mortar bc");
+        if kind == "boundary condition"
+            && ((key.contains("mortar") && !mortar) || (key.contains("periodic") && !periodic) || key.contains("contact"))
+        {
             feature("mortar / periodic / contact BC");
         }
     }
@@ -345,7 +350,7 @@ mod tests {
         let model = Model {
             simulation: pm(&[("simulation type", st("scanning"))]),
             solvers: vec![pm(&[("procedure", st("\"HeatSolve\" \"HeatSolver\"")), ("eigen analysis", Value::Logical(true))])],
-            boundary_conditions: vec![pm(&[("mortar bc", Value::Integer(vec![1]))])],
+            boundary_conditions: vec![pm(&[("contact bc", Value::Integer(vec![1]))])],
             ..Model::default()
         };
         let b = blockers(&model, &elmer_run::solver_registry(), &[], "");

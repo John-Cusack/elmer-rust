@@ -68,6 +68,12 @@ pub fn prepare_vtu_output(model: &mut Model, case_dir: &Path, mesh_dir: &Path) -
         if opts.time_collection || opts.part_collection {
             opts.unsupported.push("vtu time/part collection (.pvd)".into());
         }
+        // ResultOutputSolver.F90:349: the solver's norm becomes
+        // `AscBinCompareNorm(Reference Values)`, a pseudonorm of the written
+        // data that `elmer-vtu` does not accumulate.
+        if params.get("reference values").is_some() {
+            opts.unsupported.push("Reference Values (AscBinCompareNorm pseudonorm of the written file)".into());
+        }
         if !opts.unsupported.is_empty() {
             return Err(SolverError::Unsupported(format!("Solver {id}: VTU output: {}", opts.unsupported.join(", "))));
         }

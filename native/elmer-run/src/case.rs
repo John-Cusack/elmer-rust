@@ -292,8 +292,8 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
 /// in the global system and its solution norm, the `Reference Norm`); and
 /// any definition for the solvers that read their DOFs from `elmer-pdofs`
 /// (`ctx.solver_dofs()`) and refuse what they do not port: ModelPDE's
-/// AdvDiffSolver and the test-local `Poisson` `PoissonSolver` and
-/// `SingleElements` ports.
+/// AdvDiffSolver and the test-local `Poisson` `PoissonSolver`,
+/// `ModelPDEsplitted` and `SingleElements` ports.
 pub fn native_element(params: &ParamMap) -> bool {
     let Some(e) = params.string("element") else { return true };
     if normalize_key(e) == "n:1" {
@@ -301,8 +301,12 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 3] =
-        [("poisson", "poissonsolver"), ("modelpde", "advdiffsolver"), ("singleelements", "singleelements")];
+    const P_DOFS: [(&str, &str); 4] = [
+        ("poisson", "poissonsolver"),
+        ("modelpde", "advdiffsolver"),
+        ("modelpdesplitted", "advdiffsolver"),
+        ("singleelements", "singleelements"),
+    ];
     if P_DOFS.iter().any(|(l, n)| lib.eq_ignore_ascii_case(l) && entry.eq_ignore_ascii_case(n)) {
         return true;
     }
@@ -498,6 +502,23 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
             .find(|s| s.id == id)
             .ok_or_else(|| SolverError::fatal("ResultOutputSolver", format!("no slot for Solver {id}")))?;
         slot.set_instance(Box::new(out.into_solver(Arc::clone(&written)).in_job(rank, size)));
+    }
+    // `Apply Mortar BCs`: the slot's solver behind the mortar constraints.
+    for slot in &mut sim.slots {
+        let params = &sim.model.solvers[slot.id - 1];
+        if !crate::mortar::applies(params) {
+            continue;
+        }
+        let factory = procedure_of(params)
+            .and_then(|(lib, entry)| registry.get(&lib, &entry))
+            .ok_or_else(|| SolverError::Unsupported(format!("Solver {}: Apply Mortar BCs without a registered Procedure", slot.id)))?;
+        let inner = factory(params)?;
+        slot.set_instance(Box::new(crate::mortar::MortarSolver {
+            inner,
+            coord_dim: coords.dim,
+            case_dir: case_dir.clone(),
+            ready: false,
+        }));
     }
     let mut report = sim.run(mesh, log, comm)?;
     for block in &reloads {

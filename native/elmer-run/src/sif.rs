@@ -124,7 +124,10 @@ impl Frontend for SifFrontend {
         elmer_sif::complete(&mut parsed.sif, path)?;
         let mut runs = parsed.sif.runs.iter().zip(empty);
         let (first, _) = runs.next().ok_or("empty .sif")?;
-        let model = to_model(first)?;
+        let mut model = to_model(first)?;
+        // `LoadModel`'s defaults for the section kinds the input omits
+        // (ModelDescription.F90:1314).
+        model.add_default_sections();
         let mut reloads = Vec::new();
         for (block, _) in runs.filter(|(_, empty)| !empty) {
             if block.header.present {
