@@ -5,7 +5,7 @@
 //! VTU.
 //!
 //! * [`compose`]: the solver registry (HeatSolve, FluxSolver, StressSolver,
-//!   FlowSolve, StatElecSolve, StatCurrentSolve, HelmholtzSolve,
+//!   ElasticSolve, FlowSolve, IncompressibleNS, StatElecSolve, StatCurrentSolve, HelmholtzSolve,
 //!   AdvectionDiffusion, ModelPDE, SaveScalars, SaveLine) and `elmer-fe` as
 //!   their shared element library;
 //!   assembly, time and linear solvers are `elmer-solver`'s default backends.

@@ -12,7 +12,6 @@ use elmer_cli::strangler::Variant;
 use elmer_cli::ExitCode;
 use elmer_core::{SerialComm, Value};
 use elmer_run::{run_case, Case, NativeEngine};
-use elmer_solver::SolverError;
 use support::case::{minimal_example, scratch_case, sif_frontend, HandBuilt};
 use support::logger;
 use support::mesh::FileMesh;
@@ -29,13 +28,14 @@ fn minimal_example_norm_test_passed_and_vtu() {
     let (log, buf) = logger();
     let case = Case {
         model: minimal_example(),
+        reloads: vec![],
         mesh: &mesh,
         case_dir: dir.clone(),
         mesh_dir: dir.join("triangle"),
     };
     let out = run_case(case, &log, &SerialComm).unwrap();
 
-    let [(1, norm)] = out.norms[..] else {
+    let Some(&(_, norm)) = out.norms.iter().find(|(id, _)| *id == 1) else {
         panic!("{:?}", out.norms)
     };
     let rel = (norm - REFERENCE_NORM).abs() / REFERENCE_NORM;
@@ -148,13 +148,63 @@ fn implicit_legacy_heat_equation_solver() {
 }
 
 #[test]
-fn transient_post_file_is_refused() {
+fn run_blocks_reload_the_simulation() {
+    // A second RUN block that only restates `Reference Norm` runs again
+    // (Simulation::reload) and is checked again: two tests, both passed.
+    let dir = scratch_case("minimal_example", "reload");
+    let mesh = FileMesh::read(&dir.join("triangle"), 2);
+    let mut block = elmer_solver::Model::default();
+    let mut s1 = elmer_core::ParamMap::new();
+    s1.insert("Reference Norm", Value::real(REFERENCE_NORM));
+    block.solvers = vec![s1];
+    let (log, buf) = logger();
+    let case = Case {
+        model: minimal_example(),
+        reloads: vec![block],
+        mesh: &mesh,
+        case_dir: dir.clone(),
+        mesh_dir: dir.join("triangle"),
+    };
+    let out = run_case(case, &log, &SerialComm).unwrap_or_else(|e| panic!("{e}\n{}", buf.text()));
+    assert_eq!(out.passed, Some(true));
+    assert!(buf.text().contains("PASSED all 2 tests!"), "{}", buf.text());
+}
+
+#[test]
+fn run_block_changing_physics_is_refused_before_running() {
+    let dir = scratch_case("minimal_example", "reload-refused");
+    let mesh = FileMesh::read(&dir.join("triangle"), 2);
+    let mut block = elmer_solver::Model::default();
+    let mut mat = elmer_core::ParamMap::new();
+    mat.insert("Heat Conductivity", Value::real(2.0));
+    block.materials = vec![mat];
+    let (log, _) = logger();
+    let case = Case {
+        model: minimal_example(),
+        reloads: vec![block],
+        mesh: &mesh,
+        case_dir: dir.clone(),
+        mesh_dir: dir.join("triangle"),
+    };
+    let err = run_case(case, &log, &SerialComm).unwrap_err().to_string();
+    assert!(err.contains("RUN block 2 changes Material 1"), "{err}");
+    assert!(!dir.join("TEST.PASSED").exists());
+}
+
+#[test]
+fn transient_post_file_writes_each_output_step() {
+    // The Post File solver runs `after saving`, i.e. at every output step.
     let dir = scratch_case("minimal_example", "transient");
     let mesh = FileMesh::read(&dir.join("triangle"), 2);
     let mut model = minimal_example();
     model.simulation.insert("Simulation Type", Value::Str("transient".into()));
-    let (log, _) = logger();
-    let case = Case { model, mesh: &mesh, case_dir: dir.clone(), mesh_dir: dir.join("triangle") };
-    let err = run_case(case, &log, &SerialComm).unwrap_err();
-    assert!(matches!(err, SolverError::Unsupported(_)), "{err}");
+    model.simulation.insert("Timestep Intervals", Value::Integer(vec![3]));
+    model.simulation.insert("Timestep Sizes", Value::real(0.1));
+    model.solvers[0].0.remove("reference norm");
+    let (log, buf) = logger();
+    let case = Case { model, reloads: vec![], mesh: &mesh, case_dir: dir.clone(), mesh_dir: dir.join("triangle") };
+    let out = run_case(case, &log, &SerialComm).unwrap_or_else(|e| panic!("{e}\n{}", buf.text()));
+    let want: Vec<_> = (1..=3).map(|i| dir.join(format!("triangle/case_t{i:04}.vtu"))).collect();
+    assert_eq!(out.written, want);
+    assert!(want.iter().all(|p| p.is_file()));
 }

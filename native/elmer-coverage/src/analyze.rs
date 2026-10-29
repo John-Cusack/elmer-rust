@@ -99,8 +99,13 @@ pub fn blockers(model: &Model, registry: &elmer_solver::SolverRegistry, local_mo
     // `elmer-run` runs none of them without an explicit `Procedure`.
     const LEGACY: [&str; 5] = ["heat equation", "navier-stokes", "stress analysis", "magnetic induction", "mesh update"];
     for p in &model.solvers {
-        // A section that never runs needs no implementation.
-        if p.0.is_empty() || p.0.get("exec solver").and_then(text).as_deref() == Some("never") {
+        // A section that never runs needs no implementation; VTU output
+        // sections are served by elmer-run's output solver (refusals come
+        // from its own check).
+        if p.0.is_empty()
+            || p.0.get("exec solver").and_then(text).as_deref() == Some("never")
+            || elmer_run::output::is_result_output(p)
+        {
             continue;
         }
         match procedure_of(p) {
@@ -216,7 +221,7 @@ pub fn libs(model: &Model) -> Vec<String> {
     let mut libs: Vec<String> = model
         .solvers
         .iter()
-        .filter(|p| !p.0.is_empty())
+        .filter(|p| !p.0.is_empty() && !elmer_run::output::is_result_output(p))
         .filter_map(elmer_cli::capability::solver_lib_of)
         .map(|l| module_stem(&l))
         .collect();

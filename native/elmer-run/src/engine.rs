@@ -12,6 +12,8 @@ use crate::case::{run_case, Case};
 /// A case read from disk.
 pub struct LoadedCase {
     pub model: Model,
+    /// The later `RUN` blocks, each holding only its own entries.
+    pub reloads: Vec<Model>,
     pub mesh: Box<dyn MeshView>,
     pub case_dir: PathBuf,
     pub mesh_dir: PathBuf,
@@ -47,6 +49,7 @@ impl Engine for NativeEngine {
         };
         let case = Case {
             model: loaded.model,
+            reloads: loaded.reloads,
             mesh: loaded.mesh.as_ref(),
             case_dir: loaded.case_dir,
             mesh_dir: loaded.mesh_dir,

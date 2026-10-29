@@ -99,35 +99,44 @@ pub fn to_model(m: &elmer_sif::Model) -> Result<Model, String> {
     })
 }
 
+/// A `RUN` block with no entries: the one a trailing `RUN` leaves, after
+/// which Elmer stops at end of file.
 fn is_empty(m: &elmer_sif::Model) -> bool {
+    let none = |s: &Option<Section>| s.as_ref().is_none_or(|s| s.entries.is_empty());
     !m.header.present
-        && m.control.is_none()
-        && m.simulation.is_none()
-        && m.constants.is_none()
+        && none(&m.control)
+        && none(&m.simulation)
+        && none(&m.constants)
         && m.boundaries.is_empty()
         && [&m.bodies, &m.bcs, &m.ics, &m.materials, &m.body_forces, &m.equations, &m.solvers, &m.components]
             .iter()
-            .all(|v| v.is_empty())
+            .all(|v| v.iter().all(|s| s.entries.is_empty()))
 }
 
 impl Frontend for SifFrontend {
     fn load(&self, sif: &Path) -> Result<LoadedCase, String> {
         let path = sif.to_str().ok_or("non-UTF-8 case path")?;
         let mut parsed = elmer_sif::parse_file(path).map_err(|e| e.to_string())?;
-        // A trailing `RUN` leaves an empty block after it; Elmer then stops at
-        // end of file, so only blocks with content are further simulations.
-        let runs = 1 + parsed.sif.runs.iter().skip(1).filter(|r| !is_empty(r)).count();
-        if runs > 1 {
-            return Err(format!("{runs} RUN blocks (one Simulation per process is composed)"));
-        }
+        // Each further `RUN` block is a reload of the same simulation; the
+        // empty block after a trailing `RUN` is none. Judged before
+        // completion, which adds `Solver Input File` to every block.
+        let empty: Vec<bool> = parsed.sif.runs.iter().map(is_empty).collect();
         elmer_sif::complete(&mut parsed.sif, path)?;
-        let merged = parsed.sif.merged();
-        let model = to_model(&merged)?;
+        let mut runs = parsed.sif.runs.iter().zip(empty);
+        let (first, _) = runs.next().ok_or("empty .sif")?;
+        let model = to_model(first)?;
+        let mut reloads = Vec::new();
+        for (block, _) in runs.filter(|(_, empty)| !empty) {
+            if block.header.present {
+                return Err("a Header section in a later RUN block".into());
+            }
+            reloads.push(to_model(block)?);
+        }
         let case_dir = sif.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
-        let (db, name) = merged.header.mesh_db.clone().ok_or("no Mesh DB in Header")?;
+        let (db, name) = first.header.mesh_db.clone().ok_or("no Mesh DB in Header")?;
         let mesh_dir = case_dir.join(db).join(name);
         let mesh = (self.mesh)(&mesh_dir, &model.simulation)?;
-        Ok(LoadedCase { model, mesh, case_dir, mesh_dir })
+        Ok(LoadedCase { model, reloads, mesh, case_dir, mesh_dir })
     }
 }
 

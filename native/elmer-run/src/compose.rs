@@ -16,7 +16,9 @@ pub fn solver_registry() -> SolverRegistry {
     elmer_physics_heat::register(&mut reg);
     elmer_physics_flux::register(&mut reg);
     elmer_physics_elastic::register(&mut reg);
+    elmer_physics_elasticsolve::register(&mut reg);
     elmer_physics_flow::register(&mut reg);
+    elmer_physics_incompressible::register(&mut reg);
     elmer_physics_scalar::register(&mut reg);
     elmer_physics_advdiff::register(&mut reg);
     elmer_savedata::register(&mut reg);
@@ -56,11 +58,14 @@ pub fn install_fe(cdim: usize) -> Result<(), SolverError> {
         let _ = elmer_physics_heat::install_fe(provider);
         let _ = elmer_physics_flux::install_fe(provider);
         let _ = elmer_physics_flow::install_fe(provider);
+        let _ = elmer_physics_incompressible::install_fe(provider);
         let _ = elmer_physics_scalar::install_fe(provider);
-        let _ = elmer_physics_elastic::install_fe(elmer_physics_elastic::FeServices {
+        let services = || elmer_physics_elastic::FeServices {
             basis: Box::new(LagrangeBasis::new(cdim)),
             quad: Box::new(ElmerQuadrature),
-        });
+        };
+        let _ = elmer_physics_elastic::install_fe(services());
+        let _ = elmer_physics_elasticsolve::install_fe(services());
         cdim
     });
     if first != cdim {

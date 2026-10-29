@@ -25,6 +25,7 @@ fn run(case: &str, sif: &str, tag: &str) -> (Outcome, PathBuf) {
     let (log, buf) = logger();
     let case = Case {
         model: loaded.model,
+        reloads: loaded.reloads,
         mesh: loaded.mesh.as_ref(),
         case_dir: loaded.case_dir,
         mesh_dir: loaded.mesh_dir,
@@ -34,7 +35,7 @@ fn run(case: &str, sif: &str, tag: &str) -> (Outcome, PathBuf) {
 }
 
 fn check_norm(tag: &str, out: &Outcome, reference: f64, dir: &Path) {
-    let [(1, norm)] = out.norms[..] else {
+    let Some(&(_, norm)) = out.norms.iter().find(|(id, _)| *id == 1) else {
         panic!("{tag}: {:?}", out.norms)
     };
     let rel = (norm - reference).abs() / reference;
