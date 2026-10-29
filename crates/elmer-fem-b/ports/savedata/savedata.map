@@ -1,0 +1,14 @@
+{
+  global:
+    saveboundaryvalues_;
+    savedependence_;
+    savedependence_init_;
+    saveline_;
+    saveline_init_;
+    savematerials_;
+    saveprojection_;
+    saveprojection_init_;
+    savescalars_;
+    savescalars_init_;
+  local: *;
+};

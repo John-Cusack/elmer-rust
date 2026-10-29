@@ -1,0 +1,15 @@
+[package]
+name = "savedata"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "savedata"
+crate-type = ["cdylib"]
+
+# Standalone package: the fem-b lane has no workspace manifest, so this
+# port builds on its own — the same shape the ConsistentSplitting port uses.
+
+[workspace]
+
+[build-dependencies]
