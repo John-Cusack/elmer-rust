@@ -5,8 +5,7 @@
 //! arguments the fixtures under `tests/fixtures` are used. Prints a timing
 //! table (best of `REPS` runs); there is no pass/fail gate.
 //!
-//! The dump reader is shared with the tests; it moves to `elmer-sparse` once
-//! that crate merges (swarm plan L04: delete the duplicate afterwards).
+//! The dump reader is `elmer-sparse`'s, shared with the tests.
 #[path = "../tests/common/mod.rs"]
 mod common;
 

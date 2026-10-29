@@ -98,49 +98,12 @@ pub struct Dump {
     pub sol: Option<Vec<f64>>,
 }
 
-fn read_pairs(path: &std::path::Path) -> Vec<(usize, f64)> {
-    let txt = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    txt.lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| {
-            let mut it = l.split_whitespace();
-            let i: usize = it.next().unwrap().parse().unwrap();
-            (i - 1, it.next().unwrap().replace('D', "E").parse().unwrap())
-        })
-        .collect()
-}
-
-/// Read `linsys_a.dat` (`row col value`, 1-based), `linsys_b.dat` and, when
-/// present, `linsys_sol.dat` from `dir`. Entries become sorted CSR.
+/// Read a `Linear System Save` (`linsys_{a,b,sol}.dat`) from `dir` with
+/// `elmer-sparse`'s reader.
 pub fn read_dump(dir: &std::path::Path) -> Dump {
-    let txt = std::fs::read_to_string(dir.join("linsys_a.dat")).unwrap();
-    let mut trip: Vec<(usize, usize, f64)> = txt
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| {
-            let mut it = l.split_whitespace();
-            let r: usize = it.next().unwrap().parse().unwrap();
-            let c: usize = it.next().unwrap().parse().unwrap();
-            (r - 1, c - 1, it.next().unwrap().replace('D', "E").parse().unwrap())
-        })
-        .collect();
-    trip.sort_by_key(|&(r, c, _)| (r, c));
-    let b: Vec<f64> = read_pairs(&dir.join("linsys_b.dat")).into_iter().map(|p| p.1).collect();
-    let n = b.len();
-    let (mut row_ptr, mut col_idx, mut values) = (vec![0usize; n + 1], vec![], vec![]);
-    for &(r, c, v) in &trip {
-        row_ptr[r + 1] += 1;
-        col_idx.push(c as u32);
-        values.push(v);
-    }
-    for i in 0..n {
-        row_ptr[i + 1] += row_ptr[i];
-    }
-    let sol = dir
-        .join("linsys_sol.dat")
-        .exists()
-        .then(|| read_pairs(&dir.join("linsys_sol.dat")).into_iter().map(|p| p.1).collect());
-    Dump { a: CsrMatrix { nrows: n, ncols: n, row_ptr, col_idx, values, diag: None }, b, sol }
+    let s = elmer_sparse::save::read_linear_system_save(dir, "linsys", elmer_sparse::save::Columns::default())
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+    Dump { a: s.stiff.expect("linsys_a.dat"), b: s.rhs.expect("linsys_b.dat"), sol: s.solution }
 }
 
 pub fn fixture(name: &str) -> Dump {
