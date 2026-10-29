@@ -157,3 +157,16 @@ fn radiators_need_the_default_assembly() {
         "Radiator Coordinates"
     );
 }
+
+#[test]
+fn heat_gap_is_a_legacy_assembly_feature() {
+    let mut s = solver();
+    let mut bc = ParamMap::new();
+    bc.insert("Heat Gap", Value::Logical(true));
+    assert_eq!(
+        keyword(check_supported(&sections(&s, None, None, vec![&bc])).unwrap_err()),
+        "Heat Gap"
+    );
+    s.insert("Legacy Assembly", Value::Logical(true));
+    check_supported(&sections(&s, None, None, vec![&bc])).unwrap();
+}

@@ -110,7 +110,6 @@ const BOUNDARY: &[Rule] = &[
         "far-field condition is not implemented",
     ),
     present("Phase Change", "phase change is not implemented"),
-    present("Heat Gap", "DG heat gap is not implemented"),
     present("Temperature Nitsche", "weak conditions are not implemented"),
 ];
 
@@ -234,6 +233,14 @@ pub fn check_supported(sections: &HeatSections<'_>) -> Result<(), HeatError> {
     for bc in &sections.boundaries {
         scan(*bc, "boundary condition", BOUNDARY)?;
         check_radiation(*bc, legacy)?;
+        // HeatSolver_init: a gap needs DG; the legacy assembly has its own.
+        if !legacy && bc.get("Heat Gap").is_some() {
+            return Err(HeatError::Unsupported {
+                section: "boundary condition",
+                keyword: "Heat Gap".into(),
+                reason: "DG heat gap is not implemented",
+            });
+        }
     }
     Ok(())
 }
