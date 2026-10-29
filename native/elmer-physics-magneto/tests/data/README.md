@@ -30,3 +30,9 @@ Field Strength`): the pristine run prints `Norm = 3.06334699E+03`
 (reference 3.06334400E+03), the norm of the last nodal component solved,
 `Magnetic Field Strength 3`. The projections are SPD mass-matrix solves
 (CG to 1e-8), so this value does not hang on the solver path.
+
+`mgdyn_airgap_harmonic/thinsheet.sif` is `fem/tests/mgdyn_thinsheet_harmonic/thinsheet.sif`
+verbatim; that test uses the same `airgap` mesh, so it sits here instead of
+copying the mesh again. The pristine run prints `Norm = 1.22780296E-03`
+(reference 1.22780252E-03); with `Linear System Convergence Tolerance =
+1.0e-10` it prints `Norm = 1.22780291E-03`.

@@ -131,3 +131,30 @@ fn mgdyn_airgap_solver2_calcfields_norm() {
     );
     assert!(rel < REL_TOL, "norm {} vs {reference}", res.norm);
 }
+
+#[test]
+fn mgdyn_thinsheet_harmonic_solver1_norm() {
+    // fem/tests/mgdyn_thinsheet_harmonic: the airgap_harmonic case with a
+    // thin conducting sheet (LocalMatrixThinSheet) on the air-gap boundary
+    // instead of the air-gap BC; same mesh, so its sif sits next to it.
+    let case = load("mgdyn_airgap_harmonic", "thinsheet.sif");
+    let sol = elmer_physics_magneto::solve_harmonic(&case, 1).unwrap();
+    // Stored reference (the case's 1e-6 tolerance).
+    let reference = 1.22780252e-03;
+    let rel = (sol.norm - reference).abs() / reference;
+    eprintln!(
+        "mgdyn_thinsheet_harmonic: {} iterations to {:.3e}, norm {:.9e}, rel err {rel:.3e}",
+        sol.stats.iterations, sol.stats.residual, sol.norm
+    );
+    assert!(rel < REL_TOL, "norm {} vs {reference}", sol.norm);
+
+    // Converged to 1e-10 the pristine run prints Norm = 1.22780291E-03.
+    let mut case = case;
+    case.solvers[0]
+        .as_mut()
+        .unwrap()
+        .insert("Linear System Convergence Tolerance", elmer_core::Value::real(1e-10));
+    let tight = elmer_physics_magneto::solve_harmonic(&case, 1).unwrap();
+    let reference = 1.22780291e-03;
+    assert!((tight.norm - reference).abs() / reference < REL_TOL, "converged norm {}", tight.norm);
+}

@@ -360,6 +360,59 @@ pub fn air_gap_matrix(
     Ok(loc)
 }
 
+/// `LocalMatrixThinSheet` (WhitneyAVHarmonicSolver.F90:1828): a thin
+/// conducting, permeable sheet of thickness `d` on a boundary face. Returns
+/// the stiffness and the damping matrix (`<d C A, grad v>`, `<d C A, eta>`)
+/// the caller combines into `K + i omega D`.
+pub fn thin_sheet_matrix(
+    code: u16,
+    xyz: &[[f64; 3]],
+    gindex: &[i64],
+    np: usize,
+    thickness: &[f64],
+    permeability: &[f64],
+    conductivity: &[f64],
+) -> Result<(Local, Vec<f64>), MagnetoError> {
+    let n = (code % 100) as usize;
+    let ne = crate::topology::edge_map(code / 100).len();
+    let nd = np + ne;
+    let mut loc = Local::new(nd);
+    let mut damp = vec![0.0; nd * nd];
+    let mu_vacuum = 4.0 * crate::material::PI * 1e-7;
+    let rule = edge_rule(code)?;
+    let mut status = MetricStatus::default();
+    for t in 0..rule.len() {
+        let pt = eval_point(code, xyz, gindex, [rule.u[t], rule.v[t], rule.w[t]], &mut status)?;
+        let (basis, db, s, det_j) = (&pt.basis[..n], &pt.dbasis[..n], rule.s[t], pt.det_j);
+        let d = interp(basis, thickness);
+        let mu = interp(basis, permeability);
+        let c = interp(basis, conductivity);
+        let conductor = c.abs() > elmer_sparse::AEPS;
+        if conductor {
+            for p in 0..np {
+                for q in 0..np {
+                    loc.add(p, q, d * c * dot(&db[q], &db[p]) * det_j * s);
+                }
+                for (j, wj) in pt.w.iter().enumerate().take(ne) {
+                    damp[p * nd + np + j] += d * c * dot(wj, &db[p]) * det_j * s;
+                    loc.add(np + j, p, d * c * dot(&db[p], wj) * det_j * s);
+                }
+            }
+        }
+        for i in 0..ne {
+            let p = np + i;
+            for j in 0..ne {
+                let q = np + j;
+                loc.add(p, q, d / (mu * mu_vacuum) * dot(&pt.curl[i], &pt.curl[j]) * det_j * s);
+                if conductor {
+                    damp[p * nd + q] += d * c * dot(&pt.w[j], &pt.w[i]) * det_j * s;
+                }
+            }
+        }
+    }
+    Ok((loc, damp))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
