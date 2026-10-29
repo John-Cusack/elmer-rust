@@ -413,3 +413,39 @@ fn only_rank_zero_prints() {
     .unwrap();
     assert_eq!(*lines.lock().unwrap(), 0);
 }
+
+#[test]
+fn nonzero_initial_guess() {
+    let a = grid(12, 12, 0.0, 0.4);
+    let b: Vec<f64> = (0..144).map(|i| 1.0 + (i % 5) as f64).collect();
+    for m in ALL.into_iter().filter(|m| *m != HutiMethod::Cg) {
+        let mut x: Vec<f64> = (0..144).map(|i| ((i * 7) % 11) as f64 - 5.0).collect();
+        let (st, _) = solve(cfg(m, 1e-10, 2000), &a, &IdentityPrecond, &b, &mut x);
+        assert_eq!(st.status, SolveStatus::Converged, "{m:?}");
+        assert!(residual(&a, &x, &b) < 1e-9, "{m:?}");
+    }
+}
+
+#[test]
+fn monitored_residual_is_the_true_one_unless_left_preconditioned() {
+    let a = grid(12, 12, 0.0, 0.4);
+    let b: Vec<f64> = (0..144).map(|i| 1.0 + (i % 5) as f64).collect();
+    let m = Ilu::diagonal(&a);
+    // Right-preconditioned BiCGStab monitors ||b - A x|| / ||b|| directly.
+    let mut c = cfg(HutiMethod::BiCGStab, 1e-10, 3);
+    c.perturb_zero_guess = false;
+    let mut x = vec![0.0; 144];
+    let (st, _) = solve(c, &a, &m, &b, &mut x);
+    assert_eq!(st.status, SolveStatus::MaxIterations);
+    let t = residual(&a, &x, &b);
+    assert!(
+        (st.residual - t).abs() <= 1e-14 * t,
+        "{} vs {t}",
+        st.residual
+    );
+    // GMRES is left-preconditioned: it monitors ||M^-1 (b - A x)|| / ||b||.
+    let mut x = vec![0.0; 144];
+    let (st, _) = solve(cfg(HutiMethod::Gmres, 1e-10, 1), &a, &m, &b, &mut x);
+    let t = residual(&a, &x, &b);
+    assert!((st.residual - t).abs() > 1e-3 * t, "{} vs {t}", st.residual);
+}
