@@ -607,7 +607,7 @@ impl<'a> SolverCtx<'a> {
             }
         };
         let mut extra = Vec::new();
-        for e in self.boundary_elements() {
+        for e in self.dirichlet_element_order()? {
             let bc = self.bc_params(e).expect("boundary_elements filters on BC");
             if let Some(d) = layout {
                 d.boundary_extra_slots(e, &mut extra);
@@ -748,6 +748,46 @@ impl<'a> SolverCtx<'a> {
             }
         }
         Ok(())
+    }
+
+    /// The boundary elements in the order `SetDirichletBoundaries` visits
+    /// them (BoundaryConditionUtils.F90:487-640): element order, or with
+    /// `Set Dirichlet BCs by BC Numbering` condition by condition (in the
+    /// solver's `Dirichlet BC Order`, if given), so that at a node two
+    /// conditions share the later one wins.
+    fn dirichlet_element_order(&self) -> Result<Vec<ElemId>, SolverError> {
+        const CALLER: &str = "SetDirichletBoundaries";
+        let by_bc = self.sim.model.simulation.logical("set dirichlet bcs by bc numbering") == Some(true);
+        let nbc = self.sim.model.boundary_conditions.len();
+        let order = match self.params().get("dirichlet bc order") {
+            Some(Value::Integer(v)) if by_bc => {
+                if v.len() != nbc {
+                    return Err(SolverError::fatal(CALLER, "'Dirichlet BC Order' is the wrong length!"));
+                }
+                Some(v.clone())
+            }
+            Some(_) if !by_bc => {
+                self.warn(
+                    CALLER,
+                    "Requested 'Dirichlet BC Order' but not 'Set Dirichlet BCs by BC Numbering', ignoring...",
+                );
+                None
+            }
+            _ => None,
+        };
+        let elements: Vec<ElemId> = self.boundary_elements().collect();
+        if !by_bc {
+            return Ok(elements);
+        }
+        let mut out = Vec::with_capacity(elements.len());
+        for i in 1..=nbc {
+            let bc = match &order {
+                Some(o) => o[i - 1] as usize,
+                None => i,
+            };
+            out.extend(elements.iter().copied().filter(|&e| self.bc_id(e) == Some(bc)));
+        }
+        Ok(out)
     }
 
     /// The nodes of a condition's `Target Nodes` (1-based in the input), or

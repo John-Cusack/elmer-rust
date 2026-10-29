@@ -1,0 +1,2 @@
+ComputeChange: NS (ITER=1) (NRM,RELC): (  1.5468970      2.0000000     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  1.5468970      2.0000000     ) :: heat equation
