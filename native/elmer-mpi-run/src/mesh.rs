@@ -3,7 +3,8 @@
 //! every local node.
 //!
 //! Local nodes are renumbered so that the nodes another rank owns come
-//! first and the owned ones last, each group in partition-file order. The
+//! first and the owned ones last, each group in partition-file order (the
+//! first rank in a node's `part.K.shared` list owns it). The
 //! owned nodes are then the tail `n_ghost..` of the node range, which is
 //! what lets [`crate::backend`] express Elmer's consistent parallel norm
 //! (`Nonlinear System Consistent Norm`) through `elmer-solver`'s `Norm
@@ -14,11 +15,11 @@ use std::path::Path;
 use elmer_core::{ElemId, ElementRef, MeshView};
 use elmer_mpi::{PartError, PartitionMesh};
 
-struct Elem {
-    etype: elmer_core::ElementType,
-    nodes: Vec<u32>,
-    tag: i32,
-    parents: [Option<ElemId>; 2],
+pub(crate) struct Elem {
+    pub(crate) etype: elmer_core::ElementType,
+    pub(crate) nodes: Vec<u32>,
+    pub(crate) tag: i32,
+    pub(crate) parents: [Option<ElemId>; 2],
 }
 
 /// One rank's mesh: owned bulk elements, then the boundary elements.
@@ -28,13 +29,53 @@ pub struct ParMesh {
     dim: usize,
     coords: Vec<[f64; 3]>,
     node_gid: Vec<u64>,
+    /// Ranks holding each node; the first owns it.
+    node_parts: Vec<Vec<usize>>,
     node_owner: Vec<usize>,
     n_ghost: usize,
     elems: Vec<Elem>,
     n_bulk: usize,
 }
 
+/// Node data in any order, before [`ParMesh::new`] puts the ghosts first.
+pub(crate) struct Nodes {
+    pub(crate) coords: Vec<[f64; 3]>,
+    pub(crate) gid: Vec<u64>,
+    pub(crate) parts: Vec<Vec<usize>>,
+}
+
 impl ParMesh {
+    /// Renumbers `nodes` ghosts first, owned last (each group in the given
+    /// order) and the element node lists with them.
+    pub(crate) fn new(rank: usize, n_parts: usize, dim: usize, nodes: Nodes, mut elems: Vec<Elem>, n_bulk: usize) -> Self {
+        let n = nodes.gid.len();
+        let owner = |i: usize| nodes.parts[i][0];
+        let mut order: Vec<usize> = (0..n).filter(|&i| owner(i) != rank).collect();
+        let n_ghost = order.len();
+        order.extend((0..n).filter(|&i| owner(i) == rank));
+        let mut new_of = vec![0u32; n];
+        for (k, &i) in order.iter().enumerate() {
+            new_of[i] = k as u32;
+        }
+        for e in &mut elems {
+            for v in &mut e.nodes {
+                *v = new_of[*v as usize];
+            }
+        }
+        ParMesh {
+            rank,
+            n_parts,
+            dim,
+            coords: order.iter().map(|&i| nodes.coords[i]).collect(),
+            node_gid: order.iter().map(|&i| nodes.gid[i]).collect(),
+            node_parts: order.iter().map(|&i| nodes.parts[i].clone()).collect(),
+            node_owner: order.iter().map(|&i| owner(i)).collect(),
+            n_ghost,
+            elems,
+            n_bulk,
+        }
+    }
+
     /// Rank `rank` of `<mesh_dir>/partitioning.<n_parts>`, coordinates
     /// multiplied by `scale` (`Coordinate Scaling`). Partitions written with
     /// halo elements (`ElmerGrid -halo`) are an error: their ghost elements
@@ -59,67 +100,29 @@ impl ParMesh {
     /// One rank holding all of `view`.
     pub fn from_view(view: &dyn MeshView, scale: f64) -> Self {
         let n = view.n_nodes();
-        let elems = (0..view.n_bulk() + view.n_boundary())
-            .map(|e| {
-                let el = view.element(ElemId(e as u32));
-                Elem { etype: el.etype, nodes: el.nodes.to_vec(), tag: el.tag, parents: el.parents }
-            })
-            .collect();
-        ParMesh {
-            rank: 0,
-            n_parts: 1,
-            dim: view.dim(),
+        let nodes = Nodes {
             coords: (0..n).map(|i| view.coord(i as u32).map(|c| scale * c)).collect(),
-            node_gid: (1..=n as u64).collect(),
-            node_owner: vec![0; n],
-            n_ghost: 0,
-            elems,
-            n_bulk: view.n_bulk(),
-        }
+            gid: (1..=n as u64).collect(),
+            parts: vec![vec![0]; n],
+        };
+        Self::new(0, 1, view.dim(), nodes, elems_of(view), view.n_bulk())
     }
 
     /// [`ParMesh::read`] from an already read partition without halo
     /// elements.
     pub fn from_partition(part: &PartitionMesh, scale: f64) -> Self {
         let rank = part.rank();
-        let owners = part.node_owners();
-        let n = owners.len();
-        // New index of every file-order node: ghosts first, then owned.
-        let mut new_of = vec![0u32; n];
-        let mut order: Vec<usize> = (0..n).filter(|&i| owners[i] != rank).collect();
-        let n_ghost = order.len();
-        order.extend((0..n).filter(|&i| owners[i] == rank));
-        for (k, &i) in order.iter().enumerate() {
-            new_of[i] = k as u32;
+        let n = part.n_nodes();
+        let mut parts = vec![vec![rank]; n];
+        for s in part.shared() {
+            parts[s.local as usize] = s.parts.clone();
         }
-        let coords = order
-            .iter()
-            .map(|&i| part.coord(i as u32).map(|c| scale * c))
-            .collect();
-        let node_gid = order.iter().map(|&i| part.node_gids()[i]).collect();
-        let node_owner = order.iter().map(|&i| owners[i]).collect();
-        let elems = (0..part.n_bulk() + part.n_boundary())
-            .map(|e| {
-                let el = part.element(ElemId(e as u32));
-                Elem {
-                    etype: el.etype,
-                    nodes: el.nodes.iter().map(|&k| new_of[k as usize]).collect(),
-                    tag: el.tag,
-                    parents: el.parents,
-                }
-            })
-            .collect();
-        ParMesh {
-            rank,
-            n_parts: part.n_parts(),
-            dim: part.dim(),
-            coords,
-            node_gid,
-            node_owner,
-            n_ghost,
-            elems,
-            n_bulk: part.n_bulk(),
-        }
+        let nodes = Nodes {
+            coords: (0..n).map(|i| part.coord(i as u32).map(|c| scale * c)).collect(),
+            gid: part.node_gids().to_vec(),
+            parts,
+        };
+        Self::new(rank, part.n_parts(), part.dim(), nodes, elems_of(part), part.n_bulk())
     }
 
     pub fn rank(&self) -> usize {
@@ -140,6 +143,11 @@ impl ParMesh {
         &self.node_owner
     }
 
+    /// Ranks holding each local node (this one included); the first owns it.
+    pub fn node_parts(&self) -> &[Vec<usize>] {
+        &self.node_parts
+    }
+
     /// Nodes `0..n_ghost` are owned by other ranks, the rest by this one.
     pub fn n_ghost(&self) -> usize {
         self.n_ghost
@@ -149,6 +157,15 @@ impl ParMesh {
     pub fn element_types(&self) -> std::collections::BTreeSet<u16> {
         self.elems.iter().map(|e| e.etype.0).collect()
     }
+}
+
+pub(crate) fn elems_of(view: &dyn MeshView) -> Vec<Elem> {
+    (0..view.n_bulk() + view.n_boundary())
+        .map(|e| {
+            let el = view.element(ElemId(e as u32));
+            Elem { etype: el.etype, nodes: el.nodes.to_vec(), tag: el.tag, parents: el.parents }
+        })
+        .collect()
 }
 
 impl MeshView for ParMesh {

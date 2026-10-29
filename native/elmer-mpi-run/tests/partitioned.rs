@@ -1,6 +1,7 @@
 //! `mpirun -np N elmer-mpi-run` on the AngleMetisLayer fixture
 //! (`tests/data/angle`) at np = 1..=4: every run must reproduce the pristine
-//! serial ElmerSolver norm to 1e-12 relative (`TEST.PASSED[_N]` = 1).
+//! serial ElmerSolver norm to 1e-12 relative (`TEST.PASSED[_N]` = 1), also
+//! with `Mesh Levels` 2 and 3.
 //! Skipped with a message when `mpirun` is not installed. Always
 //! `HWLOC_COMPONENTS=-gl`, never more than 4 ranks.
 
@@ -78,16 +79,55 @@ fn four_partitions() {
     passes_at(4);
 }
 
-/// Mesh Levels needs the new nodes' sharing across partitions, which this
-/// crate does not derive yet: refused (exit 78) on every rank, nothing run.
-#[test]
-fn mesh_levels_are_refused() {
-    let dir = stage("levels");
+/// `case.sif` with `Mesh Levels = levels` and the pristine serial norm of
+/// that refined mesh (from its full-precision `Output File`).
+fn with_levels(dir: &Path, levels: u32, norm: &str) -> String {
     let sif = std::fs::read_to_string(dir.join("case.sif")).unwrap();
-    std::fs::write(dir.join("levels.sif"), sif.replace("Simulation\n", "Simulation\n  Mesh Levels = 2\n")).unwrap();
-    let Some(out) = mpirun(2, &dir, "levels.sif") else { return };
+    let sif = sif.replace("Simulation\n", &format!("Simulation\n  Mesh Levels = {levels}\n"));
+    let sif = sif.replace("Real 0.16133448050272817", &format!("Real {norm}"));
+    let name = format!("levels{levels}.sif");
+    std::fs::write(dir.join(&name), sif).unwrap();
+    name
+}
+
+/// Every rank splits its piece; the new edge and centre nodes get global
+/// ids and holders across ranks. Two levels split the first level's new
+/// nodes again. Each np must match the serial pristine norm, which the
+/// consistent norm only does when every shared new node is counted once.
+fn levels_pass_at(levels: u32, norm: &str) {
+    for np in 1..=4 {
+        let dir = stage(&format!("levels{levels}-np{np}"));
+        let sif = with_levels(&dir, levels, norm);
+        let Some(out) = mpirun(np, &dir, &sif) else { return };
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "np={np}:\n{stdout}\n{}", String::from_utf8_lossy(&out.stderr));
+        let name = if np > 1 { format!("TEST.PASSED_{np}") } else { "TEST.PASSED".into() };
+        let verdict = std::fs::read_to_string(dir.join(&name)).unwrap_or_else(|e| panic!("{name}: {e}\n{stdout}"));
+        assert_eq!(verdict.trim(), "1", "Mesh Levels = {levels}, np={np}:\n{stdout}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[test]
+fn mesh_levels_2() {
+    levels_pass_at(2, "0.1639056784545602");
+}
+
+#[test]
+fn mesh_levels_3() {
+    levels_pass_at(3, "0.16525319400846628");
+}
+
+/// What the parallel path cannot run is refused (exit 78) on every rank
+/// before anything is written.
+#[test]
+fn direct_solver_is_refused() {
+    let dir = stage("direct");
+    let sif = std::fs::read_to_string(dir.join("case.sif")).unwrap();
+    std::fs::write(dir.join("direct.sif"), sif.replace("Linear System Solver = Iterative", "Linear System Solver = Direct")).unwrap();
+    let Some(out) = mpirun(2, &dir, "direct.sif") else { return };
     assert_eq!(out.status.code(), Some(78), "{}", String::from_utf8_lossy(&out.stderr));
-    assert!(String::from_utf8_lossy(&out.stderr).contains("Mesh Levels in parallel"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("Linear System Solver = direct in parallel"));
     assert!(!dir.join("TEST.PASSED_2").exists());
     std::fs::remove_dir_all(&dir).unwrap();
 }

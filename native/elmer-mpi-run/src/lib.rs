@@ -15,6 +15,9 @@
 //!   (`elmer-mpi`), with `Nonlinear System Consistent Norm` counting each
 //!   shared node once, on its owner.
 //!
+//! `Mesh Levels` splits every rank's piece and numbers the new nodes across
+//! ranks ([`levels`]).
+//!
 //! [`run_partitioned`] composes a case; [`MpiEngine`] puts it behind
 //! `elmer-cli`'s [`Engine`](elmer_cli::driver::Engine); the
 //! `elmer-mpi-run` binary is the `mpirun` entry point. Every MPI process
@@ -23,6 +26,7 @@
 
 pub mod backend;
 pub mod context;
+pub mod levels;
 pub mod mesh;
 pub mod run;
 pub mod transport;
