@@ -1,0 +1,13 @@
+Header
+  Mesh DB "." "mesh"
+End
+
+Simulation
+
+  Mesh Levels = 2
+
+End
+
+Boundary Condition 1
+  Target Boundaries(1) = 1
+End
