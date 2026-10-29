@@ -17,14 +17,15 @@ set -euo pipefail
 
 PIN=9f6af2f85433fbe8ec71b85c3486ed38b88fcaf0
 
-if [ "$#" -ne 3 ]; then
-    echo "usage: build-arm.sh <release|fma|openblas|listusage> <source-dir> <build-dir>" >&2
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
+    echo "usage: build-arm.sh <release|fma|openblas|listusage> <source-dir> <build-dir> [patch-dir]" >&2
     exit 2
 fi
 
 ARM="$1"
 SRC="$2"
 DEST="$3"
+PATCH_DIR="${4:-}"
 
 # Container mounts change file ownership; without this every git call below
 # fails with "dubious ownership".
@@ -65,6 +66,23 @@ if [ ! -w "$SRC" ]; then
     fi
     cp -a "$SRC" "$SRC_COPY"
     SRC="$SRC_COPY"
+fi
+
+# Oracle-only instrumentation (D6) lands as versioned patches on the copy,
+# never in the pristine source. Every applied patch is hashed into
+# versions.txt; the copy's own git diff stays reviewable in the build dir.
+APPLIED_PATCHES=""
+if [ -n "$PATCH_DIR" ]; then
+    if [ ! -d "$PATCH_DIR" ]; then
+        echo "refusing: patch dir $PATCH_DIR missing" >&2
+        exit 2
+    fi
+    for patch in "$PATCH_DIR"/*.patch; do
+        [ -e "$patch" ] || break
+        git -C "$SRC" apply --check "$patch" || exit 2
+        git -C "$SRC" apply "$patch"
+        APPLIED_PATCHES="$APPLIED_PATCHES $(basename "$patch"):$(sha256sum "$patch" | cut -d' ' -f1)"
+    done
 fi
 
 # shellcheck disable=SC2207
@@ -110,7 +128,7 @@ cmake --build "$DEST" --parallel 4
 {
     echo "arm: $ARM"
     echo "source-pin: $head"
-    echo "date-utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "source-patches:${APPLIED_PATCHES:- none}"
     echo "--- compilers ---"
     gfortran --version | head -1
     gcc --version | head -1

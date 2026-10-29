@@ -1,0 +1,13 @@
+diff --git a/fem/src/Lists.F90 b/fem/src/Lists.F90
+index e800a20d0..82cf2a82b 100644
+--- a/fem/src/Lists.F90
++++ b/fem/src/Lists.F90
+@@ -2327,6 +2327,8 @@ CONTAINS
+ #ifdef DEVEL_LISTUSAGE
+      IF( ASSOCIATED( ptr ) ) THEN
+        ptr % Counter = 1
++     ELSE
++       CALL Info('ListFindMiss', TRIM(Name), Level=12)
+      END IF
+ #endif
+      
