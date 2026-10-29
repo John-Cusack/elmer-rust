@@ -1,0 +1,5 @@
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.28996959      2.0000000     ) :: heata
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.15570341      2.0000000     ) :: heata
+CompareToReferenceSolution: Solver 2 PASSED:  Norm = 1.55703409E-01  RefNorm = 1.55703409E-01
+CompareToReferenceSolution: Relative Error to reference norm: 2.562072E-10
+CompareToReferenceSolution: PASSED all 1 tests!

@@ -396,7 +396,56 @@ impl Simulation {
                 self.add_load_variables(&mut slot.params, &spec, id)?;
             }
         }
+        self.add_exported_variables(&slot, mesh, apply_ics)?;
         Ok(Some(slot))
+    }
+
+    /// `Exported Variable n` of a solver section (AddEquationBasics,
+    /// MainUtils.F90:1876-2160): nodal fields on the solver's permutation
+    /// (all nodes of its active elements, or every node when it has none),
+    /// or `-global` ones; `Exported Variable n Output` and `-nooutput`
+    /// control output. Initial conditions are applied when `apply_ics`.
+    /// Masks, `-ip`, `-elem`, `-dg` and time derivatives are refused.
+    fn add_exported_variables(&mut self, slot: &SolverSlot, mesh: &dyn MeshView, apply_ics: bool) -> Result<(), SolverError> {
+        for l in 1.. {
+            let key = format!("exported variable {l}");
+            let Some(text) = slot.params.string(&key).map(str::to_string) else { break };
+            for suffix in ["mask", "transient", "calculate velocity", "calculate acceleration"] {
+                if slot.params.get(&format!("{key} {suffix}")).is_some() {
+                    return Err(SolverError::Unsupported(format!("Exported Variable {l} {suffix}")));
+                }
+            }
+            let mut spec = parse_variable_spec(&text, slot.params.integer(&format!("{key} dofs")))?;
+            if let Some(false) = slot.params.logical(&format!("{key} output")) {
+                spec.output = false;
+            }
+            if self.vars.id(&spec.name).is_some() {
+                continue;
+            }
+            match spec.kind {
+                FieldKind::Global => {
+                    let mut v = Variable::new(&spec.name, FieldKind::Global, spec.dofs, None, vec![0.0; spec.dofs]);
+                    v.output = spec.output;
+                    self.vars.add_with_components(v, &spec.components)?;
+                }
+                FieldKind::Nodal => {
+                    let perm: Arc<[u32]> = match &slot.perm {
+                        Some(p) => p.clone(),
+                        None => node_order_perm(mesh, &slot.active).perm.into(),
+                    };
+                    let n = perm.iter().filter(|&&s| s != NO_DOF).count();
+                    let mut values = vec![0.0; n * spec.dofs];
+                    if apply_ics {
+                        self.apply_initial_conditions(slot, &spec, mesh, &perm, &mut values)?;
+                    }
+                    let mut v = Variable::new(&spec.name, FieldKind::Nodal, spec.dofs, Some(perm), values);
+                    v.output = spec.output;
+                    self.vars.add_with_components(v, &spec.components)?;
+                }
+                k => return Err(SolverError::Unsupported(format!("{k:?} exported variable {}", spec.name))),
+            }
+        }
+        Ok(())
     }
 
     /// `<Proc>_init` of slot `ix`, if it has a procedure.
@@ -921,6 +970,11 @@ impl Simulation {
         if !auxiliary {
             self.vars.set_scalar("nonlin iter", 1.0);
         }
+        for k in ["pre solvers", "post solvers", "assembly solvers"] {
+            if p.get(k).is_some_and(|v| *v != Value::Logical(false)) {
+                return Err(SolverError::Unsupported(format!("Solver {}: {k}", self.slots[ix].id)));
+            }
+        }
         self.slots[ix].dt = dts * dt;
         self.publish_live();
         if let Some(mut inst) = self.slots[ix].instance.take() {
@@ -933,6 +987,50 @@ impl Simulation {
             r?;
         }
         self.slots[ix].times_visited += 1;
+        Ok(())
+    }
+
+    /// `DefaultSlaveSolvers(Solver, name)` (DefUtils.F90:3750): every solver
+    /// listed in slot `master`'s `key` (`Slave Solvers`, `Nonlinear Pre
+    /// Solvers`, `Nonlinear Post Solvers`) is activated with the current
+    /// `Timestep Size` and the simulation's transient flag; `nonlin iter` is
+    /// restored afterwards. `name` is the keyword as Elmer prints it.
+    pub(crate) fn run_slave_solvers(
+        &mut self,
+        master: usize,
+        name: &str,
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+        comm: &dyn Communicator,
+    ) -> Result<(), SolverError> {
+        let ids = match self.slots[master].params.get(&normalize_key(name)) {
+            Some(Value::Integer(v)) => v.clone(),
+            _ => return Ok(()),
+        };
+        log.info("DefaultSlaveSolvers", &format!("Executing slave solvers: {name}"), 6);
+        let dt = self.vars.scalar("timestep size").unwrap_or(0.0);
+        let transient = self.is_transient();
+        let iter = self.vars.scalar("nonlin iter");
+        for k in ids {
+            let ix = usize::try_from(k)
+                .ok()
+                .and_then(|k| self.slot_ix(k))
+                .ok_or_else(|| SolverError::fatal("DefaultSlaveSolvers", format!("no solver {k} to call as a slave")))?;
+            if ix == master {
+                return Err(SolverError::fatal("DefaultSlaveSolvers", format!("solver {k} is its own slave")));
+            }
+            log.info("DefaultSlaveSolvers", &format!("Calling slave solver: {k}"), 8);
+            if self.slots[master].params.logical("monolithic slave") == Some(true)
+                && self.slots[ix].params.get("linear system solver disabled").is_none()
+            {
+                log.info("DefaultSlaveSolvers", &format!("Disabling linear system solver for slave: {k}"), 6);
+                self.slots[ix].params.insert("Linear System Solver Disabled", Value::Logical(true));
+            }
+            self.solver_activate(ix, dt, transient, mesh, log, comm)?;
+        }
+        if let Some(it) = iter {
+            self.vars.set_scalar("nonlin iter", it.round());
+        }
         Ok(())
     }
 

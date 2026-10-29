@@ -317,9 +317,13 @@ impl<'a> SolverCtx<'a> {
         self.log.warn(caller, msg);
     }
 
-    /// `DefaultInitialize`: create the matrix on first use, then zero the
-    /// matrix values and the right-hand side.
+    /// `DefaultInitialize`: run the `Slave Solvers` and `Nonlinear Pre
+    /// Solvers`, create the matrix on first use, then zero the matrix values
+    /// and the right-hand side.
     pub fn default_initialize(&mut self) -> Result<(), SolverError> {
+        let (mesh, log, comm) = (self.mesh, self.log, self.comm);
+        self.sim.run_slave_solvers(self.slot, "Slave Solvers", mesh, log, comm)?;
+        self.sim.run_slave_solvers(self.slot, "Nonlinear Pre Solvers", mesh, log, comm)?;
         self.sim.publish_live();
         self.sim.slots[self.slot].asm = Default::default();
         let sim = &mut *self.sim;
@@ -557,12 +561,28 @@ impl<'a> SolverCtx<'a> {
         backend.try_apply_dirichlet(&mut sys.matrix, &mut sys.rhs, &fixed, &slot.params)
     }
 
-    /// `DefaultSolve` -> `SolveLinearSystem` (SolveCore.F90:1186): keep the
+    /// `DefaultSolve` (DefUtils.F90:4470): returns early when `Linear System
+    /// Solver Disabled`; with `Monolithic Slave` the system is merged with
+    /// the slave solver's first (`MergeSlaveSolvers`, ContactUtils.F90:2619),
+    /// solved and split again; otherwise see [`solve_system`](Self::solve_system).
+    /// Returns the variable norm.
+    pub fn default_solve(&mut self) -> Result<f64, SolverError> {
+        if self.params().logical("linear system solver disabled") == Some(true) {
+            self.info("DefaultSolve", "Solver disabled, exiting early!", 10);
+            return Ok(self.convergence().map_or(0.0, |c| c.norm));
+        }
+        if self.params().logical("monolithic slave") == Some(true) {
+            return crate::monolithic::solve_merged(self);
+        }
+        self.solve_system()
+    }
+
+    /// `SolveSystem` -> `SolveLinearSystem` (SolveCore.F90:1186): keep the
     /// previous iterate when needed, the zero right-hand-side shortcut,
     /// `Linear System Scaling` (default on) around the solve, the
     /// nullify-guess options, the solve with the linear solver the section
     /// selects, then the nonlinear `ComputeChange`. Returns the variable norm.
-    pub fn default_solve(&mut self) -> Result<f64, SolverError> {
+    pub(crate) fn solve_system(&mut self) -> Result<f64, SolverError> {
         let (mesh, log, comm, slot_ix) = (self.mesh, self.log, self.comm, self.slot);
         let sim = &mut *self.sim;
         let nonlin_iter = sim.vars.scalar("nonlin iter");
@@ -657,6 +677,7 @@ impl<'a> SolverCtx<'a> {
             var.conv.nonlin_converged = 1;
             sim.update_2nd_order(slot_ix, n)?;
             sim.publish_live();
+            sim.run_slave_solvers(slot_ix, "Nonlinear Post Solvers", mesh, log, comm)?;
             return Ok(0.0);
         }
 
@@ -720,6 +741,7 @@ impl<'a> SolverCtx<'a> {
         sim.calculate_loads(slot_ix, n, false)?;
         sim.update_2nd_order(slot_ix, n)?;
         sim.publish_live();
+        sim.run_slave_solvers(slot_ix, "Nonlinear Post Solvers", mesh, log, comm)?;
         Ok(sim.vars.by_id(id).conv.norm)
     }
 
