@@ -89,10 +89,15 @@ impl BlockLayout {
     }
 }
 
-/// A monolithic system split into `nblocks x nblocks` submatrices.
+/// A block system: `nblocks x nblocks` submatrices, split from a monolithic
+/// system ([`split`](Self::split)) or assembled per block
+/// ([`from_blocks`](Self::from_blocks)).
 #[derive(Clone, Debug)]
 pub struct BlockSystem {
-    pub layout: BlockLayout,
+    /// The components behind the blocks of a split system; `None` for a
+    /// system assembled per block.
+    pub layout: Option<BlockLayout>,
+    nblocks: usize,
     /// Start of each block in the block-ordered vector; `nblocks + 1` entries.
     pub offsets: Vec<usize>,
     /// Row-major submatrices; `None` where the pick found no entries.
@@ -149,15 +154,65 @@ impl BlockSystem {
             }
         }
         Ok(BlockSystem {
-            layout,
+            nblocks: layout.nblocks,
+            layout: Some(layout),
             offsets,
             blocks,
             perm,
         })
     }
 
+    /// A system assembled block by block (`BlockSolver` without a
+    /// `Procedure`): `blocks` row-major, `nblocks x nblocks`, every diagonal
+    /// block present and square, the off-diagonal ones sized to fit. The
+    /// block-ordered vector is the concatenation of the block variables.
+    pub fn from_blocks(nblocks: usize, blocks: Vec<Option<CsrMatrix<f64>>>) -> Result<Self, BlockError> {
+        if blocks.len() != nblocks * nblocks {
+            return Err(BlockError::fatal(
+                "BlockInitMatrix",
+                format!("{} submatrices for {nblocks} blocks", blocks.len()),
+            ));
+        }
+        let mut offsets = vec![0];
+        for i in 0..nblocks {
+            let Some(d) = &blocks[i * nblocks + i] else {
+                return Err(BlockError::fatal(
+                    "BlockKrylovIter",
+                    format!("Submatrix {} not associated!", 11 * (i + 1)),
+                ));
+            };
+            if d.nrows != d.ncols {
+                return Err(BlockError::fatal(
+                    "BlockInitMatrix",
+                    format!("block {} is not square", 11 * (i + 1)),
+                ));
+            }
+            offsets.push(offsets[i] + d.nrows);
+        }
+        for i in 0..nblocks {
+            for j in 0..nblocks {
+                if let Some(b) = &blocks[i * nblocks + j] {
+                    if b.nrows != offsets[i + 1] - offsets[i] || b.ncols != offsets[j + 1] - offsets[j] {
+                        return Err(BlockError::fatal(
+                            "BlockInitMatrix",
+                            format!("block {}{} does not fit its row and column blocks", i + 1, j + 1),
+                        ));
+                    }
+                }
+            }
+        }
+        let n = offsets[nblocks];
+        Ok(BlockSystem {
+            layout: None,
+            nblocks,
+            offsets,
+            blocks,
+            perm: (0..n).collect(),
+        })
+    }
+
     pub fn nblocks(&self) -> usize {
-        self.layout.nblocks
+        self.nblocks
     }
 
     /// Size of the block-ordered vector (`TotSize`).

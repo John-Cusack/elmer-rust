@@ -1,8 +1,9 @@
 //! Block solves of small coupled systems: correctness of the solution
 //! (residual of the monolithic system), the Jacobi/Gauss-Seidel difference,
-//! `Block Structure`, `Block Order`, and the refusals.
+//! `Block Structure`, `Block Order`, the block Jacobi/Gauss-Seidel outer
+//! iteration, a system assembled per block, and the refusals.
 
-use elmer_block::{block_solve, BlockError, BlockOptions};
+use elmer_block::{block_solve, block_solve_system, BlockError, BlockOptions, BlockSystem, ElmerInner};
 use elmer_core::{CsrMatrix, LinearOperator, NullLogger, ParamMap, SerialComm, Value};
 
 /// A 1D chain of `nodes` nodes with `dofs` components: a Laplacian per
@@ -245,9 +246,6 @@ fn unported_options_are_refused() {
         assert!(matches!(solve(&p, 2), Err(BlockError::Unsupported(_))), "{key}");
     }
     let mut p = base("direct");
-    p.insert("Block Preconditioner", Value::Logical(false));
-    assert!(matches!(solve(&p, 2), Err(BlockError::Unsupported(_))));
-    let mut p = base("direct");
     p.insert("Schur Operator 1", Value::Integer(vec![2]));
     assert!(matches!(solve(&p, 2), Err(BlockError::Unsupported(_))));
     // One block: BlockSolveInt's plain DefaultSolve route.
@@ -292,4 +290,77 @@ fn inner_iteration_limit_is_a_numerical_error() {
     )
     .unwrap();
     assert!(residual(&a, &x, &b) < 1e-8);
+}
+
+#[test]
+fn standard_iteration_converges() {
+    let a = coupled(10, 2);
+    let b = rhs(a.nrows);
+    for gs in [false, true] {
+        let mut p = base("direct");
+        p.insert("Block Preconditioner", Value::Logical(false));
+        p.insert("Block Gauss-Seidel", Value::Logical(gs));
+        p.insert("Outer: Linear System Convergence Tolerance", Value::real(1e-12));
+        let mut x = vec![0.0; a.nrows];
+        let rep = block_solve(
+            &p,
+            2,
+            &a,
+            &b,
+            &mut x,
+            &BlockOptions::default(),
+            &NullLogger,
+            &SerialComm,
+        )
+        .unwrap();
+        let out = rep.outer.unwrap();
+        assert_eq!(out.status, elmer_core::SolveStatus::Converged, "gs={gs}");
+        assert_eq!(rep.inner.len(), 2 * out.iterations);
+        assert!(residual(&a, &x, &b) < 1e-9, "gs={gs}: {}", residual(&a, &x, &b));
+    }
+}
+
+#[test]
+fn assembled_blocks_match_the_split_solve() {
+    // The same system given block by block (BlockSolver without a
+    // Procedure) solves to the same answer as the split monolithic one.
+    let a = coupled(9, 2);
+    let b = rhs(a.nrows);
+    let split = BlockSystem::split(&a, elmer_block::BlockLayout::by_component(2), false).unwrap();
+    let blocks = (0..4).map(|k| split.block(k / 2, k % 2).cloned()).collect();
+    let sys = BlockSystem::from_blocks(2, blocks).unwrap();
+    let p = base("direct");
+    let bb = split.gather(&b);
+    let mut xb = vec![0.0; a.nrows];
+    let inner = Box::new(ElmerInner::new(&NullLogger, &SerialComm, true));
+    let rep = block_solve_system(
+        &p,
+        &sys,
+        &bb,
+        &mut xb,
+        &BlockOptions::default(),
+        inner,
+        &NullLogger,
+        &SerialComm,
+    )
+    .unwrap();
+    let mut x = vec![0.0; a.nrows];
+    let rep2 = block_solve(
+        &p,
+        2,
+        &a,
+        &b,
+        &mut x,
+        &BlockOptions::default(),
+        &NullLogger,
+        &SerialComm,
+    )
+    .unwrap();
+    assert_eq!(rep.outer.unwrap().iterations, rep2.outer.unwrap().iterations);
+    assert_eq!(xb, split.gather(&x));
+    // A missing diagonal block is fatal.
+    assert!(matches!(
+        BlockSystem::from_blocks(2, vec![None, None, None, None]),
+        Err(BlockError::Fatal { .. })
+    ));
 }

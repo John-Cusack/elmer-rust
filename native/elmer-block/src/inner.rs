@@ -87,14 +87,30 @@ impl<'a> ElmerInner<'a> {
         }
         match kind.as_str() {
             "iterative" => {
-                if self.cache[block].is_none() {
-                    self.cache[block] = Some(Cached::Precond(precond(p, a, self.log)?));
-                }
-                let Some(Cached::Precond(m)) = &self.cache[block] else {
-                    return Err(BlockError::fatal("SolveLinearSystem", "block changed its solver kind"));
+                // IterSolve.F90:1108: `No Precondition Recompute` skips the
+                // factorization; an ILU that was never built then leaves
+                // CRS_LUSolve dividing by the diagonal (CRSMatrix.F90:5372).
+                let no_recompute = p.logical("no precondition recompute") == Some(true);
+                let fallback;
+                let m: &dyn Preconditioner<f64> = match &self.cache[block] {
+                    Some(Cached::Precond(m)) => &**m,
+                    Some(Cached::Direct(_)) => {
+                        return Err(BlockError::fatal("SolveLinearSystem", "block changed its solver kind"))
+                    }
+                    None if no_recompute && is_ilu(p) => {
+                        fallback = DiagonalFallback(a);
+                        &fallback
+                    }
+                    None => {
+                        self.cache[block] = Some(Cached::Precond(precond(p, a, self.log)?));
+                        let Some(Cached::Precond(m)) = &self.cache[block] else {
+                            unreachable!()
+                        };
+                        &**m
+                    }
                 };
                 let mut solver = iterative(p, Some(a))?;
-                let stats = solver.solve(&CsrOp(a), &**m, b, x, self.comm)?;
+                let stats = solver.solve(&CsrOp(a), m, b, x, self.comm)?;
                 check_converged(p, &stats.status, self.global_abort)?;
                 Ok(InnerStats {
                     iterations: stats.iterations,
@@ -322,6 +338,26 @@ fn precond(
         &format!("Unknown preconditioner type: {name}, feature disabled."),
     );
     Ok(Box::new(IdentityPrecond))
+}
+
+/// The preconditioner names CRS_LUPrecondition serves.
+fn is_ilu(p: &ParamMap) -> bool {
+    normalize_key(p.string("linear system preconditioning").unwrap_or("none")).starts_with("ilu")
+}
+
+/// CRS_LUSolve without factors: `b(i) / A(i,i)` where the diagonal is nonzero.
+struct DiagonalFallback<'a>(&'a CsrMatrix<f64>);
+
+impl Preconditioner<f64> for DiagonalFallback<'_> {
+    fn apply(&self, r: &[f64], z: &mut [f64]) {
+        let a = self.0;
+        for i in 0..a.nrows {
+            let d = (a.row_ptr[i]..a.row_ptr[i + 1])
+                .find(|&k| a.col_idx[k] as usize == i)
+                .map_or(0.0, |k| a.values[k]);
+            z[i] = if d != 0.0 { r[i] / d } else { r[i] };
+        }
+    }
 }
 
 /// `Linear System Direct Method`, default `banded` (DirectSolve.F90).
