@@ -100,7 +100,20 @@ pub(crate) fn solve<T: HutiScalar>(
                 x[i] = x[i] + eta * d[i];
             }
             oldgamma = gamma;
-            residual = stop(o, c, &nb, x, b, &d, eta, tau, iter, &mut r, &mut trv, &mut upperb);
+            residual = stop(
+                o,
+                c,
+                &nb,
+                x,
+                b,
+                &d,
+                eta,
+                tau,
+                iter,
+                &mut r,
+                &mut trv,
+                &mut upperb,
+            );
             if converged(residual, c.tol) {
                 break 'run HutiInfo::Convergence;
             }
@@ -127,7 +140,20 @@ pub(crate) fn solve<T: HutiScalar>(
                 x[i] = x[i] + eta * d[i];
             }
             oldgamma = gamma;
-            residual = stop(o, c, &nb, x, b, &d, eta, tau, iter, &mut r, &mut trv, &mut upperb);
+            residual = stop(
+                o,
+                c,
+                &nb,
+                x,
+                b,
+                &d,
+                eta,
+                tau,
+                iter,
+                &mut r,
+                &mut trv,
+                &mut upperb,
+            );
             if converged(residual, c.tol) {
                 break 'run HutiInfo::Convergence;
             }

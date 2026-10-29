@@ -202,8 +202,12 @@ impl HutiConfig {
             .max(0) as usize;
 
         // ListGetCReal returns 0 when absent.
-        cfg.tol = params.real("Linear System Convergence Tolerance").unwrap_or(0.0);
-        cfg.max_tol = params.real("Linear System Divergence Limit").unwrap_or(1.0e20);
+        cfg.tol = params
+            .real("Linear System Convergence Tolerance")
+            .unwrap_or(0.0);
+        cfg.max_tol = params
+            .real("Linear System Divergence Limit")
+            .unwrap_or(1.0e20);
 
         cfg.left_precond = match method {
             HutiMethod::BiCGStab2 | HutiMethod::Gmres | HutiMethod::Tfqmr => true,

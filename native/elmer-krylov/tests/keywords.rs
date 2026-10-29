@@ -33,7 +33,10 @@ fn method_names_case_insensitive() {
         ("GMRES", HutiMethod::Gmres),
         (" tfqmr ", HutiMethod::Tfqmr),
     ] {
-        assert_eq!(HutiConfig::from_params(&with_method(name)).unwrap().method, m);
+        assert_eq!(
+            HutiConfig::from_params(&with_method(name)).unwrap().method,
+            m
+        );
     }
 }
 
@@ -59,7 +62,15 @@ fn missing_method_warns_and_uses_bicgstab() {
 
 #[test]
 fn itermethods_names_are_unsupported_until_l03() {
-    for name in ["bicgstabl", "gcr", "idrs", "richardson", "jacobi", "sgs", "mprgp"] {
+    for name in [
+        "bicgstabl",
+        "gcr",
+        "idrs",
+        "richardson",
+        "jacobi",
+        "sgs",
+        "mprgp",
+    ] {
         let e = HutiConfig::from_params(&with_method(name)).unwrap_err();
         assert!(matches!(e, LinalgError::Unsupported(_)), "{name}");
     }
@@ -118,9 +129,16 @@ fn preconditioning_side() {
 
 #[test]
 fn zero_guess_perturbation_only_for_the_bicgstab_family() {
-    for (name, on) in [("bicgstab", true), ("bicgstab2", true), ("cg", false), ("gmres", false)] {
+    for (name, on) in [
+        ("bicgstab", true),
+        ("bicgstab2", true),
+        ("cg", false),
+        ("gmres", false),
+    ] {
         assert_eq!(
-            HutiConfig::from_params(&with_method(name)).unwrap().perturb_zero_guess,
+            HutiConfig::from_params(&with_method(name))
+                .unwrap()
+                .perturb_zero_guess,
             on,
             "{name}"
         );

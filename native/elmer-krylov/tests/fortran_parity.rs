@@ -8,9 +8,10 @@ mod common;
 
 use std::sync::{Arc, Mutex};
 
-use common::{load_lines, load_system, DiagPrecond};
+use common::{load_lines, load_system};
 use elmer_core::{IdentityPrecond, IterativeSolver, ParamMap, Preconditioner, SerialComm, Value};
 use elmer_krylov::{Huti, HutiConfig};
+use elmer_sparse::{CsrOp, Ilu};
 
 /// The keyword set the capture script wrote into the solver section.
 fn params(method: &str) -> ParamMap {
@@ -24,30 +25,45 @@ fn params(method: &str) -> ParamMap {
 }
 
 /// Runs one captured configuration and returns the printed lines.
-fn run(case: &str, method: &str, diag: bool, max_iter: i32) -> Vec<String> {
+fn run(case: &str, method: &str, prec: &str, max_iter: i32) -> Vec<String> {
     let (a, b) = load_system(case);
     let mut p = params(method);
-    p.insert("Linear System Max Iterations", Value::Integer(vec![max_iter]));
+    p.insert(
+        "Linear System Max Iterations",
+        Value::Integer(vec![max_iter]),
+    );
     let mut solver: Huti = Huti::new(HutiConfig::from_params(&p).unwrap());
     let lines = Arc::new(Mutex::new(Vec::new()));
     let sink = lines.clone();
     solver.set_output(Box::new(move |l| sink.lock().unwrap().push(l.to_owned())));
     let mut x = vec![0.0; b.len()];
-    let dp;
-    let m: &dyn Preconditioner<f64> = if diag {
-        dp = DiagPrecond(a.diag());
-        &dp
-    } else {
-        &IdentityPrecond
+    let ilu;
+    let m: &dyn Preconditioner<f64> = match prec {
+        "none" => &IdentityPrecond,
+        "diagonal" => {
+            ilu = Ilu::diagonal(&a);
+            &ilu
+        }
+        "ilu0" => {
+            ilu = Ilu::ilu_n(&a, 0).unwrap();
+            &ilu
+        }
+        "ilu1" => {
+            ilu = Ilu::ilu_n(&a, 1).unwrap();
+            &ilu
+        }
+        other => panic!("no preconditioner {other}"),
     };
-    solver.solve(&a, m, &b, &mut x, &SerialComm).unwrap();
+    solver
+        .solve(&CsrOp(&a), m, &b, &mut x, &SerialComm)
+        .unwrap();
     let out = lines.lock().unwrap().clone();
     out
 }
 
 fn check(case: &str, method: &str, prec: &str, max_iter: i32) {
     let want = load_lines(case, &format!("{method}_{prec}"));
-    let got = run(case, method, prec == "diagonal", max_iter);
+    let got = run(case, method, prec, max_iter);
     for (k, (g, w)) in got.iter().zip(&want).enumerate() {
         assert_eq!(g, w, "{case} {method}/{prec}: line {} differs", k + 1);
     }
@@ -90,7 +106,32 @@ parity!(conv_tfqmr, "heataniso_conv", "tfqmr", "none", 500);
 // BiCGStab, left-applied for BiCGStab(2), GMRES and TFQMR.
 parity!(conv_diag_cg, "heataniso_conv", "cg", "diagonal", 500);
 parity!(conv_diag_cgs, "heataniso_conv", "cgs", "diagonal", 500);
-parity!(conv_diag_bicgstab, "heataniso_conv", "bicgstab", "diagonal", 500);
-parity!(conv_diag_bicgstab2, "heataniso_conv", "bicgstab2", "diagonal", 500);
+parity!(
+    conv_diag_bicgstab,
+    "heataniso_conv",
+    "bicgstab",
+    "diagonal",
+    500
+);
+parity!(
+    conv_diag_bicgstab2,
+    "heataniso_conv",
+    "bicgstab2",
+    "diagonal",
+    500
+);
 parity!(conv_diag_gmres, "heataniso_conv", "gmres", "diagonal", 500);
 parity!(conv_diag_tfqmr, "heataniso_conv", "tfqmr", "diagonal", 500);
+
+// ILU preconditioning from elmer-sparse (lane L01) against Elmer's ILU0/ILU1:
+// the two crates together reproduce the reference solve.
+parity!(heataniso_ilu0_cg, "heataniso", "cg", "ilu0", 500);
+parity!(
+    conv_ilu0_bicgstab,
+    "heataniso_conv",
+    "bicgstab",
+    "ilu0",
+    500
+);
+parity!(conv_ilu0_gmres, "heataniso_conv", "gmres", "ilu0", 500);
+parity!(conv_ilu1_tfqmr, "heataniso_conv", "tfqmr", "ilu1", 500);

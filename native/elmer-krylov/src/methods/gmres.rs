@@ -244,7 +244,10 @@ fn lusolve<T: HutiScalar>(
             if hlu[at(kk, kk)].abs() < small {
                 // List-directed in Fortran; the spacing is not reproduced.
                 let p = hlu[at(kk, kk)].parts();
-                mon.emit(&format!(" (libhuti.a) GMRES: small pivot {:e} {:e}", p[0], p[1]));
+                mon.emit(&format!(
+                    " (libhuti.a) GMRES: small pivot {:e} {:e}",
+                    p[0], p[1]
+                ));
             }
             hlu[at(i, kk)] = hlu[at(i, kk)].fdiv(hlu[at(kk, kk)]);
             for j in kk + 1..k {

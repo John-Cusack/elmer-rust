@@ -17,7 +17,7 @@ keywords were replaced by:
 ```
 Linear System Solver = String "Iterative"
 Linear System Iterative Method = String "<method>"
-Linear System Preconditioning = String "<None|Diagonal>"
+Linear System Preconditioning = String "<None|Diagonal|ILU0|ILU1>"
 Linear System Scaling = Logical False
 Linear System Residual Output = Integer 1
 Linear System Max Iterations = Integer <2000 or 500>
@@ -39,5 +39,6 @@ matrix and right-hand side were byte-identical across all methods of a case.
 - `<method>_<preconditioning>.out`: every HUTI iteration line from the run's
   stdout, verbatim, including the line repeated at exit.
 
-Max Iterations was 2000 for the `heataniso` runs except TFQMR (500), and 500
-for every `heataniso_conv` run.
+Max Iterations was 2000 for the `heataniso` runs except TFQMR and CG/ILU0
+(500), and 500 for every `heataniso_conv` run. The ILU runs are checked with
+elmer-sparse's `Ilu` as the preconditioner.

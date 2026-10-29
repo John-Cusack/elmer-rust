@@ -54,7 +54,10 @@ pub fn format_e(x: f64, w: usize, d: usize) -> String {
             // from printf under the default (processor-defined) rounding.
             let s = format!("{:.*e}", d.saturating_sub(1), x.abs());
             let (mant, e) = s.split_once('e').expect("exponent form");
-            (mant.replace('.', ""), e.parse::<i32>().expect("exponent") + 1)
+            (
+                mant.replace('.', ""),
+                e.parse::<i32>().expect("exponent") + 1,
+            )
         };
         let sign = if x.is_sign_negative() { "-" } else { "" };
         let e = if exp.abs() <= 99 {
@@ -86,7 +89,10 @@ mod tests {
         assert_eq!(iteration_line(191, 9.5304e-9), "     191 0.9530E-08");
         assert_eq!(iteration_line(1, 1.50797), "       1 0.1508E+01");
         assert_eq!(iteration_line(297, f64::INFINITY), "     297   Infinity");
-        assert_eq!(gmres_line(false, 768, 1.0e-8), "   gmres:     768 0.1000E-07");
+        assert_eq!(
+            gmres_line(false, 768, 1.0e-8),
+            "   gmres:     768 0.1000E-07"
+        );
         assert_eq!(
             tfqmr_line(2001, 0.73548563, None),
             "    2001    0.7354856E+00"

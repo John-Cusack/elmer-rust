@@ -9,3 +9,7 @@ description = "HUTI Krylov solvers (CG, CGS, BiCGStab, BiCGStab(2), GMRES, QMR, 
 [dependencies]
 elmer-core.workspace = true
 num-complex.workspace = true
+
+[dev-dependencies]
+# Elmer-ordered CSR matvec and the diagonal/ILU preconditioners (lane L01).
+elmer-sparse = { path = "../elmer-sparse" }

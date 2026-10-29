@@ -323,8 +323,14 @@ mod tests {
 
     #[test]
     fn csqrt_principal_branch() {
-        assert_eq!(glibc_csqrt(Complex64::new(-4.0, 0.0)), Complex64::new(0.0, 2.0));
-        assert_eq!(glibc_csqrt(Complex64::new(0.0, 2.0)), Complex64::new(1.0, 1.0));
+        assert_eq!(
+            glibc_csqrt(Complex64::new(-4.0, 0.0)),
+            Complex64::new(0.0, 2.0)
+        );
+        assert_eq!(
+            glibc_csqrt(Complex64::new(0.0, 2.0)),
+            Complex64::new(1.0, 1.0)
+        );
         let z = glibc_csqrt(Complex64::new(3.0, 4.0));
         assert_eq!(z, Complex64::new(2.0, 1.0));
         let z = glibc_csqrt(Complex64::new(-3.0, -4.0));
