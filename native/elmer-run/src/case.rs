@@ -288,13 +288,49 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
         Some(Value::Integer(v)) if v[..] == [1, 2, 3] => {}
         Some(v) => return Err(SolverError::Unsupported(format!("Simulation: Coordinate Mapping {v:?}"))),
     }
-    let sections = model.solvers.iter().map(|p| ("Solver", p)).chain(model.equations.iter().map(|p| ("Equation", p)));
-    for (i, (name, p)) in sections.enumerate() {
+    // Element definitions and the solvers they reach (`NonNodalElements`,
+    // MeshLoad.F90): the solver's own `Element`; an equation's `Element`
+    // (every solver) or `Element{s}`; a body's `Solver s: Element`. Each is
+    // judged as if it were the solver's own.
+    let runs = |p: &ParamMap| {
+        !p.0.is_empty()
+            && !p.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never"))
+            && !is_result_output(p)
+    };
+    let solver_ix = |s: &str| s.trim().parse::<usize>().ok().filter(|&s| s >= 1 && s <= model.solvers.len()).map(|s| s - 1);
+    let mut defs: Vec<(String, &str, Vec<usize>)> = Vec::new();
+    for (i, p) in model.solvers.iter().enumerate() {
         if let Some(e) = p.string("element") {
-            if !native_element(p) {
+            defs.push((format!("Solver section {}", i + 1), e, vec![i]));
+        }
+    }
+    for (kind, sections) in [("Equation", &model.equations), ("Body", &model.bodies)] {
+        for (i, p) in sections.iter().enumerate() {
+            for (key, v) in &p.0 {
+                let Value::Str(e) = v else { continue };
+                let targets = match (kind, key.as_str()) {
+                    ("Equation", "element") => (0..model.solvers.len()).collect(),
+                    ("Equation", k) => match k.strip_prefix("element{").and_then(|r| r.strip_suffix('}')) {
+                        Some(s) => solver_ix(s).into_iter().collect(),
+                        None => continue,
+                    },
+                    (_, k) => match k.strip_prefix("solver ").and_then(|r| r.strip_suffix(": element")) {
+                        Some(s) => solver_ix(s).into_iter().collect(),
+                        None => continue,
+                    },
+                };
+                defs.push((format!("{kind} section {}: {key}", i + 1), e, targets));
+            }
+        }
+    }
+    for (place, e, targets) in defs {
+        for s in targets.into_iter().filter(|&s| runs(&model.solvers[s])) {
+            let mut solver = model.solvers[s].clone();
+            solver.insert("Element", Value::Str(e.to_string()));
+            if !native_element(&solver) {
                 return Err(SolverError::Unsupported(format!(
-                    "{name} section {}: Element = {e} (p-, bubble, edge or DG elements)",
-                    i + 1
+                    "{place}: Element = {e} for Solver {} (p-, bubble, edge or DG elements)",
+                    s + 1
                 )));
             }
         }
