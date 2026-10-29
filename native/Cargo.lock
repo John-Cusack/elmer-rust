@@ -299,6 +299,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "elmer-fe-hp"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+]
+
+[[package]]
 name = "elmer-solver"
 version = "0.1.0"
 dependencies = [
