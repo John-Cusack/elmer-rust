@@ -30,6 +30,7 @@ const fn flag(key: &'static str, reason: &'static str) -> Rule {
 
 const SIMULATION: &[Rule] = &[
     flag("Increase Element Order", "quadratic element generation is not implemented"),
+    flag("Set Dirichlet BCs by BC Numbering", "Dirichlet conditions in BC numbering order are not implemented"),
 ];
 
 /// Read by the solver's own procedure; skipped for `Exec Solver = Never`.

@@ -10,9 +10,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use elmer_core::{ElemId, ElementRef, FieldKind, FieldSource, MeshView, ParamMap, Params};
+use elmer_core::{ElemId, ElementRef, FieldKind, FieldRef, FieldSource, MeshView, ParamMap, Params};
 use elmer_solver::{
-    solver::procedure_of, variable::Snapshot, Model, Simulation, Solver, SolverCtx, SolverError,
+    solver::procedure_of,
+    variable::{Snapshot, VarHandle, VarId, VariableStore},
+    Model, Simulation, Solver, SolverCtx, SolverError,
 };
 use elmer_vtu::{post_file_solver, FileIndexer, GeometryIds, VtuNaming, VtuOptions};
 
@@ -153,32 +155,22 @@ impl MeshView for MappedTags<'_> {
 
 impl VtuOutput {
     /// `CreateListForSaving` (Lists.F90:10031) when the section names no
-    /// `Scalar Field 1` / `Vector Field 1`: every output variable in
-    /// registration order. Only the plain scalar branch is ported; vector and
-    /// component variables (`dofs > 1`, names ending in an index,
-    /// `displacement`/`mesh update` pairing) are refused. Call after
-    /// `Simulation::setup`, before the run.
-    pub fn select_fields(&mut self, sim: &Simulation) -> Result<(), SolverError> {
+    /// `Scalar Field 1` / `Vector Field 1`: every output variable of the
+    /// mesh's variable list ([`ElmerVariables`]) in order. Multi-dof
+    /// variables are saved through their components; components that make
+    /// up a `dim`- or 3-vector (`velocity 1..3`) become one vector field.
+    /// `Displacement` and `Mesh Update` are vectors, and the `Mesh Update`
+    /// complement of `Displacement` is refused (`elmer-vtu` has no `Vector
+    /// Field n Complement`). Call after `Simulation::setup`, before the run;
+    /// `dim` is the mesh dimension (`Mesh % MeshDim`).
+    pub fn select_fields(&mut self, sim: &Simulation, dim: usize) -> Result<(), SolverError> {
         if !self.opts.scalar_fields.is_empty() || !self.opts.vector_fields.is_empty() {
             return Ok(());
         }
-        let snapshot = Snapshot { store: &sim.vars };
-        for f in snapshot.fields() {
-            if f.kind == FieldKind::Global || f.values.len() == f.dofs {
-                continue;
-            }
-            let indexed = f.name.rsplit_once(' ').is_some_and(|(_, t)| t.bytes().all(|b| b.is_ascii_digit()));
-            if f.name.starts_with("coordinate ") && indexed {
-                continue;
-            }
-            if f.dofs > 1 || indexed || matches!(f.name, "displacement" | "mesh update") {
-                return Err(SolverError::Unsupported(format!(
-                    "VTU output of vector or component variable {} without Scalar/Vector Field keywords",
-                    f.name
-                )));
-            }
-            self.opts.scalar_fields.push(f.name.to_string());
-        }
+        let enforce_vectors = sim.model.solvers[self.index].logical("enforce vectors").unwrap_or(true);
+        let (scalars, vectors) = fields_for_saving(&sim.vars, enforce_vectors, dim)?;
+        self.opts.scalar_fields = scalars;
+        self.opts.vector_fields = vectors;
         Ok(())
     }
 
@@ -205,8 +197,174 @@ impl Solver for VtuSolver {
         std::fs::create_dir_all(&self.out.dir)?;
         let path = self.out.dir.join(name);
         let mapped = MappedTags { mesh: ctx.mesh, model: &ctx.sim.model };
-        elmer_vtu::write_vtu(&path, &mapped, &Snapshot { store: &ctx.sim.vars }, opts)?;
+        elmer_vtu::write_vtu(&path, &mapped, &ElmerVariables::new(&ctx.sim.vars), opts)?;
         self.written.lock().unwrap().push(path);
         Ok(())
+    }
+}
+
+/// [`VtuOutput::select_fields`]'s lists: `(Scalar Field n, Vector Field n)`.
+fn fields_for_saving(
+    store: &VariableStore,
+    enforce_vectors: bool,
+    dim: usize,
+) -> Result<(Vec<String>, Vec<String>), SolverError> {
+    let exists = |name: &str| store.resolve(name).is_some();
+    let variables = ElmerVariables::new(store);
+    let (mut scalars, mut vectors) = (Vec::new(), Vec::new());
+    let fields = variables.fields();
+    let displacement_v = fields.iter().any(|f| f.name == "displacement");
+    for f in &fields {
+        if f.kind == FieldKind::Global || f.values.len() == f.dofs {
+            continue;
+        }
+        let (mut name, mut is_vector) = (f.name.to_string(), f.dofs > 1);
+        let set = match f.name {
+            "coordinate 1" | "coordinate 2" | "coordinate 3" => false,
+            "mesh update 1" | "mesh update 2" | "mesh update 3" => false,
+            "mesh update" => !exists("displacement"),
+            "displacement" => {
+                if exists("mesh update") {
+                    return Err(SolverError::Unsupported(
+                        "VTU output of Displacement with its Mesh Update complement".into(),
+                    ));
+                }
+                true
+            }
+            _ if f.dofs > 1 => false,
+            _ => {
+                let mut set = true;
+                // A trailing component index: `velocity 2`.
+                let index = f.name.rsplit_once(' ').filter(|(_, t)| t.bytes().all(|b| b.is_ascii_digit()));
+                let comp = index.and_then(|(_, t)| t.parse::<usize>().ok()).unwrap_or(0);
+                let base = index.map_or(f.name, |(b, _)| b);
+                let parent = index.and_then(|(b, _)| store.resolve(b)).map(|_| store.get(base));
+                if let Some(parent) = parent {
+                    let dofs = parent.map_or(1, |v| v.dofs);
+                    is_vector = dofs == dim || dofs == 3;
+                    set = comp == 1 || !is_vector;
+                } else if enforce_vectors && comp == 1 {
+                    if exists(&format!("{base} {dim}")) {
+                        is_vector = !exists(&format!("{base} 4"));
+                    }
+                } else if enforce_vectors && (comp == 2 || comp == 3) && exists(&format!("{base} 1")) {
+                    set = exists(&format!("{base} 4"));
+                    if !set && comp == 2 && dim == 3 {
+                        set = !exists(&format!("{base} {dim}"));
+                    }
+                }
+                if set && is_vector {
+                    name = base.to_string();
+                }
+                set && !(name == "displacement" && displacement_v)
+            }
+        };
+        if set {
+            if is_vector {
+                vectors.push(name);
+            } else {
+                scalars.push(name);
+            }
+        }
+    }
+    Ok((scalars, vectors))
+}
+
+
+/// Elmer's `Mesh % Variables` list as the writer sees it: each output
+/// variable followed by its components, which Elmer keeps as variables of
+/// their own (`VariableAddVector`: `pot` and `temperature`, `potential` for
+/// `POT[Temperature:1 Potential:1]`; `displacement 1..n` otherwise).
+/// `elmer-solver` keeps components as aliases, so their values are copied
+/// out of the parent here.
+struct ElmerVariables<'a> {
+    store: &'a VariableStore,
+    /// `(name, parent, values)` of each component.
+    components: Vec<(String, VarId, Vec<f64>)>,
+}
+
+impl<'a> ElmerVariables<'a> {
+    fn new(store: &'a VariableStore) -> Self {
+        let components = store
+            .names_in_order()
+            .into_iter()
+            .filter_map(|(name, h)| match h {
+                VarHandle::Component { parent, component } => {
+                    let v = store.by_id(parent);
+                    let values = v.values.iter().skip(component).step_by(v.dofs).copied().collect();
+                    Some((name, parent, values))
+                }
+                VarHandle::Primary(_) => None,
+            })
+            .collect();
+        ElmerVariables { store, components }
+    }
+}
+
+impl FieldSource for ElmerVariables<'_> {
+    fn fields(&self) -> Vec<FieldRef<'_>> {
+        let mut out = Vec::new();
+        for (id, v) in self.store.iter() {
+            if !v.output {
+                continue;
+            }
+            out.push(v.field_ref());
+            out.extend(self.components.iter().filter(|(_, p, _)| *p == id).map(|(name, _, values)| FieldRef {
+                name,
+                kind: v.kind,
+                dofs: 1,
+                perm: v.perm.as_deref(),
+                values,
+            }));
+        }
+        out
+    }
+
+    fn time(&self) -> f64 {
+        Snapshot { store: self.store }.time()
+    }
+
+    fn step(&self) -> usize {
+        Snapshot { store: self.store }.step()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elmer_solver::variable::Variable;
+
+    fn nodal(name: &str, dofs: usize, values: Vec<f64>) -> Variable {
+        Variable::new(name, FieldKind::Nodal, dofs, None, values)
+    }
+
+    /// `POT[Temperature:1 Potential:1]` is saved through its two named
+    /// components; a 2-vector through `velocity 1` as one vector field.
+    #[test]
+    fn components_are_fields_and_vectors_are_merged() {
+        let mut store = VariableStore::new();
+        store
+            .add_with_components(nodal("pot", 2, vec![1.0, 10.0, 2.0, 20.0]), &["temperature".into(), "potential".into()])
+            .unwrap();
+        store.add(nodal("velocity", 2, vec![0.0; 4])).unwrap();
+        store.add(nodal("coordinate 1", 1, vec![0.0, 1.0])).unwrap();
+        store.add(Variable::new("time", FieldKind::Global, 1, None, vec![0.0])).unwrap();
+
+        let (scalars, vectors) = fields_for_saving(&store, true, 2).unwrap();
+        assert_eq!(scalars, ["temperature", "potential"]);
+        assert_eq!(vectors, ["velocity"]);
+
+        let variables = ElmerVariables::new(&store);
+        let fields = variables.fields();
+        let potential = fields.iter().find(|f| f.name == "potential").unwrap();
+        assert_eq!(potential.values, [10.0, 20.0]);
+    }
+
+    #[test]
+    fn displacement_with_mesh_update_complement_is_refused() {
+        let mut store = VariableStore::new();
+        store.add(nodal("displacement", 2, vec![0.0; 4])).unwrap();
+        store.add(nodal("mesh update", 2, vec![0.0; 4])).unwrap();
+        assert!(matches!(fields_for_saving(&store, true, 2), Err(SolverError::Unsupported(_))));
     }
 }

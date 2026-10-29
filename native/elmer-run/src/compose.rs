@@ -22,6 +22,7 @@ pub fn solver_registry() -> SolverRegistry {
     elmer_physics_scalar::register(&mut reg);
     elmer_physics_advdiff::register(&mut reg);
     elmer_physics_meshtools::register(&mut reg);
+    elmer_physics_thermoelectric::register(&mut reg);
     elmer_savedata::register(&mut reg);
     reg
 }
@@ -67,6 +68,7 @@ pub fn install_fe(cdim: usize) -> Result<(), SolverError> {
         let _ = elmer_physics_flow::install_fe(provider);
         let _ = elmer_physics_incompressible::install_fe(provider);
         let _ = elmer_physics_scalar::install_fe(provider);
+        let _ = elmer_physics_thermoelectric::install_fe(provider);
         let services = || elmer_physics_elastic::FeServices {
             basis: Box::new(LagrangeBasis::new(cdim)),
             quad: Box::new(ElmerQuadrature),
