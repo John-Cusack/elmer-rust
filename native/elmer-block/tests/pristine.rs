@@ -216,3 +216,66 @@ fn step_stokes_matches_pristine() {
     let nrm = comp_norm(&vel);
     assert!((nrm - 7.554_018_34e-2).abs() < 1e-9, "{nrm}");
 }
+
+/// BlockLinElast2b with `Block Preconditioner = False` (`BlockStandardIter`)
+/// and the outer tolerance at 1e-5, run on pristine for this test.
+fn standard_iteration(gauss_seidel: bool) -> (elmer_block::BlockReport, Vec<f64>) {
+    let (a, b) = load("blocklinelast2b");
+    let p = section(&[
+        ("Linear System Solver", s("block")),
+        ("Linear System Scaling", l(false)),
+        ("Block Preconditioner", l(false)),
+        ("Block Gauss-Seidel", l(gauss_seidel)),
+        ("Block: Linear System Solver", s("iterative")),
+        ("Block: Linear System Refactorize", l(false)),
+        ("Block: Linear System Convergence Tolerance", r(0.1e-2)),
+        ("Block: Linear System Iterative Method", s("bicgstab")),
+        ("Block: Linear System Max Iterations", i(500)),
+        ("Block: Linear System Preconditioning", s("ILU0")),
+        ("Outer: Linear System Solver", s("Iterative")),
+        ("Outer: Linear System Convergence Tolerance", r(1e-5)),
+        ("Outer: Linear System Iterative Method", s("GCR")),
+        ("Outer: Linear System Max Iterations", i(500)),
+    ]);
+    let opts = BlockOptions {
+        additive_namespaces: true,
+        ..Default::default()
+    };
+    let mut x = vec![0.0; a.nrows];
+    let rep = block_solve(&p, 2, &a, &b, &mut x, &opts, &NullLogger, &SerialComm).unwrap();
+    (rep, x)
+}
+
+#[test]
+fn blocklinelast2b_gauss_seidel_iteration_matches_pristine() {
+    let (rep, x) = standard_iteration(true);
+    // "Converged after iterations: 28"; each iteration solves block 1 then 2.
+    assert_eq!(rep.outer.as_ref().unwrap().iterations, 28);
+    let inner: Vec<usize> = rep.inner.iter().map(|r| r.iterations).collect();
+    let mut pristine = vec![0, 7, 19, 7, 17, 7, 18, 7, 18, 7, 18, 7, 15, 7, 14, 7, 16, 7];
+    pristine.extend([17, 7].repeat(19));
+    assert_eq!(inner, pristine);
+    // Last "Block 1 norms: 1.181E+00 8.231E-06", block 2 change 4.149E-06.
+    assert!((rep.max_change - 8.231e-6).abs() < 0.001e-6, "{}", rep.max_change);
+    // ComputeChange NRM 6.0902323.
+    assert!((comp_norm(&x) - 6.090_232_3).abs() < 1e-7, "{}", comp_norm(&x));
+}
+
+#[test]
+fn blocklinelast2b_jacobi_iteration_matches_pristine() {
+    let (rep, x) = standard_iteration(false);
+    assert_eq!(rep.outer.as_ref().unwrap().iterations, 51);
+    let inner: Vec<usize> = rep.inner.iter().map(|r| r.iterations).collect();
+    #[rustfmt::skip]
+    let pristine = [
+        0, 7, 19, 8, 16, 7, 17, 7, 20, 7, 18, 8, 19, 7, 18, 8, 18, 7, 18, 8, 19, 7, 14, 7, 19, 7,
+        15, 8, 18, 7, 17, 8, 18, 7, 17, 8, 18, 7, 17, 8, 18, 7, 17, 8, 18, 7, 17, 8, 18, 7, 17, 8,
+        18, 7, 17, 8, 18, 7, 17, 8, 19, 7, 17, 8, 19, 7, 17, 8, 19, 7, 17, 8, 19, 7, 17, 8, 20, 7,
+        17, 8, 20, 7, 17, 9, 21, 7, 17, 9, 21, 7, 17, 9, 21, 7, 17, 9, 24, 7, 17, 9, 27, 7,
+    ];
+    assert_eq!(inner, pristine);
+    // Last iteration: block 1 change 1.359E-06, block 2 8.298E-06.
+    assert!((rep.max_change - 8.298e-6).abs() < 0.001e-6, "{}", rep.max_change);
+    // ComputeChange NRM 6.0901689.
+    assert!((comp_norm(&x) - 6.090_168_9).abs() < 1e-7, "{}", comp_norm(&x));
+}

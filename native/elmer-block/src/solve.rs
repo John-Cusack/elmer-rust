@@ -5,6 +5,7 @@ use elmer_core::{normalize_key, Communicator, CsrMatrix, Logger, ParamMap, Param
 use crate::inner::{check_converged, iterative};
 use crate::namespace::{block_namespace, resolve};
 use crate::precond::PrecBlock;
+use crate::standard::standard_iter;
 use crate::{
     BlockError, BlockLayout, BlockOperator, BlockPreconditioner, BlockSystem, ElmerInner, InnerRecord, InnerSolver,
     PrecSettings,
@@ -137,11 +138,6 @@ fn refuse_unported(p: &ParamMap) -> Result<(), BlockError> {
             return Err(BlockError::Unsupported(format!("{what} in a block linear system")));
         }
     }
-    if p.logical("block preconditioner") == Some(false) {
-        return Err(BlockError::Unsupported(
-            "Block Preconditioner = False (the block Jacobi/Gauss-Seidel outer iteration)".into(),
-        ));
-    }
     Ok(())
 }
 
@@ -159,16 +155,7 @@ pub fn block_solve_with<'a>(
     comm: &dyn Communicator,
 ) -> Result<BlockReport, BlockError> {
     log.info("BlockSolveInt", "---------------------------------------", 5);
-    if comm.size() > 1 {
-        return Err(BlockError::Unsupported("parallel block linear systems".into()));
-    }
-    refuse_unported(params)?;
-    if params.get("block matrix schur variable").is_some() && opts.schur.is_none() {
-        return Err(BlockError::fatal(
-            "BlockPrecMatrix",
-            "Schur matrix does not exist for: Block Matrix Schur Variable",
-        ));
-    }
+    check_supported(params, opts, comm)?;
     if params.get("block preconditioner").is_none() {
         log.info("BlockSolveInt", "Using block preconditioning mode by default", 4);
     }
@@ -199,13 +186,20 @@ pub fn block_solve_with<'a>(
             ));
         }
     }
-    log.info("BlockSolveInt", "Using block preconditioning strategy", 6);
-    krylov_iter(params, &sys, b, x, opts, inner, log, comm)
+    let mut xb = sys.gather(x);
+    let bb = sys.gather(b);
+    let report = solve_system(params, &sys, &bb, &mut xb, opts, inner, log, comm)?;
+    sys.scatter(&xb, x);
+    log.info("BlockSolveInt", "All done", 4);
+    log.info("BlockSolveInt", "-------------------------------------------------", 5);
+    Ok(report)
 }
 
-/// `BlockKrylovIter`: the outer iteration under `outer:`.
+/// The block solve of a system assembled per block (`BlockSolver` without a
+/// `Procedure`, MainUtils.F90:4323): `b` and `x` are block-ordered (the block
+/// variables one after the other). Inner solves use `inner`.
 #[allow(clippy::too_many_arguments)]
-fn krylov_iter<'a>(
+pub fn block_solve_system<'a>(
     params: &ParamMap,
     sys: &BlockSystem,
     b: &[f64],
@@ -215,12 +209,122 @@ fn krylov_iter<'a>(
     log: &dyn Logger,
     comm: &dyn Communicator,
 ) -> Result<BlockReport, BlockError> {
+    check_supported(params, opts, comm)?;
+    if sys.nblocks() < 2 {
+        // BlockSolver hands a single block to DefaultSolve under `outer:`.
+        return Err(BlockError::Unsupported("a block linear system of one block".into()));
+    }
+    if b.len() < sys.size() || x.len() < sys.size() {
+        return Err(BlockError::fatal(
+            "BlockSolver",
+            "right-hand side or solution shorter than the block system",
+        ));
+    }
+    solve_system(params, sys, b, x, opts, inner, log, comm)
+}
+
+/// Refusals shared by both entry points.
+fn check_supported(params: &ParamMap, opts: &BlockOptions, comm: &dyn Communicator) -> Result<(), BlockError> {
+    if comm.size() > 1 {
+        return Err(BlockError::Unsupported("parallel block linear systems".into()));
+    }
+    refuse_unported(params)?;
+    if params.get("block matrix schur variable").is_some() && opts.schur.is_none() {
+        return Err(BlockError::fatal(
+            "BlockPrecMatrix",
+            "Schur matrix does not exist for: Block Matrix Schur Variable",
+        ));
+    }
+    Ok(())
+}
+
+/// `Block Preconditioner` (default true) picks `BlockKrylovIter`, else
+/// `BlockStandardIter`; both run under `outer:`.
+#[allow(clippy::too_many_arguments)]
+fn solve_system<'a>(
+    params: &ParamMap,
+    sys: &BlockSystem,
+    b: &[f64],
+    x: &mut [f64],
+    opts: &BlockOptions,
+    inner: Box<dyn InnerSolver + 'a>,
+    log: &dyn Logger,
+    comm: &dyn Communicator,
+) -> Result<BlockReport, BlockError> {
+    if params.logical("block preconditioner") == Some(false) {
+        log.info("BlockSolveInt", "Using block solution strategy", 6);
+        standard(params, sys, b, x, opts, inner, log)
+    } else {
+        log.info("BlockSolveInt", "Using block preconditioning strategy", 6);
+        krylov_iter(params, sys, b, x, opts, inner, log, comm)
+    }
+}
+
+/// `BlockStandardIter` under `outer:`, with `block:` and `block NN:` for the
+/// corrections.
+fn standard<'a>(
+    params: &ParamMap,
+    sys: &BlockSystem,
+    b: &[f64],
+    x: &mut [f64],
+    opts: &BlockOptions,
+    mut inner: Box<dyn InnerSolver + 'a>,
+    log: &dyn Logger,
+) -> Result<BlockReport, BlockError> {
+    let nb = sys.nblocks();
+    let add = opts.additive_namespaces;
+    let outer = resolve(params, &["outer:"], add);
+    let order = block_order(&outer, nb)?;
+    let views = |base: &ParamMap| -> Vec<ParamMap> {
+        (0..nb)
+            .map(|i| resolve(base, &["outer:", "block:", &block_namespace(i)], add))
+            .collect()
+    };
+    let first = views(params);
+    // BlockSolve.F90:4296: from the second iteration on the preconditioners
+    // are not recomputed.
+    let mut later = params.clone();
+    later.insert("no precondition recompute", Value::Logical(true));
+    let later = views(&later);
+    // The tailored matrix replaces the block as is: BlockStandardIter does no
+    // DoPrecScaling.
+    let prec: Vec<Option<PrecBlock<'_>>> = prec_blocks(sys, opts)?
+        .into_iter()
+        .map(|p| p.map(|p| PrecBlock { unscale: None, ..p }))
+        .collect();
+    let start_norm = comp_norm(&x[..sys.size()]);
+    let out = standard_iter(&outer, &order, [&first, &later], &prec, sys, b, x, &mut *inner, log)?;
+    let solution_norm = comp_norm(&x[..sys.size()]);
+    Ok(BlockReport {
+        nblocks: nb,
+        sweeps: out.stats.iterations,
+        max_change: out.stats.residual,
+        outer: Some(out.stats),
+        inner: out.records,
+        rhs_norm: comp_norm(&b[..sys.size()]),
+        start_norm,
+        solution_norm,
+    })
+}
+
+/// `BlockKrylovIter`: the outer iteration under `outer:`, on block-ordered
+/// vectors.
+#[allow(clippy::too_many_arguments)]
+fn krylov_iter<'a>(
+    params: &ParamMap,
+    sys: &BlockSystem,
+    bb: &[f64],
+    xb: &mut [f64],
+    opts: &BlockOptions,
+    inner: Box<dyn InnerSolver + 'a>,
+    log: &dyn Logger,
+    comm: &dyn Communicator,
+) -> Result<BlockReport, BlockError> {
     let nb = sys.nblocks();
     let ndim = sys.size();
-    let mut xb = sys.gather(x);
-    let bb = sys.gather(b);
+    let (bb, xb) = (&bb[..ndim], &mut xb[..ndim]);
 
-    let rhs_norm = comp_norm(&bb);
+    let rhs_norm = comp_norm(bb);
     log.info("BlockKrylovIter", &format!("Rhs norm at start: {rhs_norm:12.5E}"), 10);
     let mut report = BlockReport {
         nblocks: nb,
@@ -239,7 +343,7 @@ fn krylov_iter<'a>(
         );
         return Ok(report);
     }
-    let prev = comp_norm(&xb);
+    let prev = comp_norm(xb);
     report.start_norm = prev;
     log.info("BlockKrylovIter", &format!("Solution norm at start: {prev:12.5E}"), 10);
 
@@ -253,7 +357,7 @@ fn krylov_iter<'a>(
     // The outer IterSolver gets the block operator and preconditioner; the
     // stationary methods read matrix entries and have none to read.
     let mut solver = iterative(&outer, None)?;
-    let stats = solver.solve(&op, &prec, &bb, &mut xb, comm);
+    let stats = solver.solve(&op, &prec, bb, xb, comm);
     if let Some(e) = prec.take_error() {
         return Err(e);
     }
@@ -263,7 +367,7 @@ fn krylov_iter<'a>(
     check_converged(&outer, &stats.status, opts.global_abort)?;
     log.info("BlockKrylovIter", "Finished block system iteration", 18);
 
-    let xnorm = comp_norm(&xb[..ndim]);
+    let xnorm = comp_norm(xb);
     log.info("BlockKrylovIter", &format!("Solution norm: {xnorm:12.5E}"), 8);
     report.max_change = 2.0 * (xnorm - prev).abs() / (xnorm + prev);
     log.info(
@@ -273,33 +377,12 @@ fn krylov_iter<'a>(
     );
     report.solution_norm = xnorm;
     report.outer = Some(stats);
-    sys.scatter(&xb, x);
-    log.info("BlockSolveInt", "All done", 4);
-    log.info("BlockSolveInt", "-------------------------------------------------", 5);
     Ok(report)
 }
 
-/// `CompNorm` (BlockSolve.F90:2853), serial: `sqrt(sum x^2 / n)`.
-pub fn comp_norm(x: &[f64]) -> f64 {
-    (x.iter().map(|v| v * v).sum::<f64>() / x.len() as f64).sqrt()
-}
-
-/// `Dummy block i` (1-based in the keyword) in the view `p`.
-fn dummy(p: &ParamMap, i: usize) -> bool {
-    p.logical(&format!("dummy block {}", i + 1)) == Some(true)
-}
-
-/// The settings `BlockMatrixPrec` reads. `outer` is the section under
-/// `outer:`, where the outer iteration calls the preconditioner.
-fn prec_settings<'a>(
-    params: &ParamMap,
-    outer: &ParamMap,
-    sys: &BlockSystem,
-    opts: &BlockOptions<'a>,
-    add: bool,
-) -> Result<PrecSettings<'a>, BlockError> {
-    let nb = sys.nblocks();
-    let order = match outer.get("block order") {
+/// `Block Order` (1-based) as 0-based block indices, default `0..nb`.
+fn block_order(outer: &ParamMap, nb: usize) -> Result<Vec<usize>, BlockError> {
+    Ok(match outer.get("block order") {
         Some(Value::Integer(o)) => {
             if o.len() != nb {
                 return Err(BlockError::fatal(
@@ -328,7 +411,30 @@ fn prec_settings<'a>(
             ))
         }
         None => (0..nb).collect(),
-    };
+    })
+}
+
+/// `CompNorm` (BlockSolve.F90:2853), serial: `sqrt(sum x^2 / n)`.
+pub fn comp_norm(x: &[f64]) -> f64 {
+    (x.iter().map(|v| v * v).sum::<f64>() / x.len() as f64).sqrt()
+}
+
+/// `Dummy block i` (1-based in the keyword) in the view `p`.
+fn dummy(p: &ParamMap, i: usize) -> bool {
+    p.logical(&format!("dummy block {}", i + 1)) == Some(true)
+}
+
+/// The settings `BlockMatrixPrec` reads. `outer` is the section under
+/// `outer:`, where the outer iteration calls the preconditioner.
+fn prec_settings<'a>(
+    params: &ParamMap,
+    outer: &ParamMap,
+    sys: &BlockSystem,
+    opts: &BlockOptions<'a>,
+    add: bool,
+) -> Result<PrecSettings<'a>, BlockError> {
+    let nb = sys.nblocks();
+    let order = block_order(outer, nb)?;
     let gauss_seidel = outer.logical("block gauss-seidel") == Some(true);
     // BlockMatrixPrec.F90:3870-3876: with the outer scaling active, nested
     // scaling is eliminated unless asked otherwise.
@@ -390,7 +496,11 @@ fn prec_blocks<'a>(sys: &BlockSystem, opts: &BlockOptions<'a>) -> Result<Vec<Opt
         Some(sc) => {
             // `DiagScaling(k::l)`: component k of every node, k the block's
             // only component (`InvBlockStruct`).
-            let layout = &sys.layout;
+            let Some(layout) = &sys.layout else {
+                return Err(BlockError::Unsupported(
+                    "a Schur block in the scaled system of a block-assembled system".into(),
+                ));
+            };
             let comps: Vec<usize> = (0..layout.comps).filter(|&c| layout.block_of[c] == last).collect();
             let [k] = comps[..] else {
                 return Err(BlockError::fatal(
