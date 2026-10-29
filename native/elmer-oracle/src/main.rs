@@ -3,6 +3,7 @@
 use elmer_oracle::manifest::{hash_tree, Manifest};
 use elmer_oracle::runner::{
     discover_tests, known_bins, parse_cmakelists, plan_test, read_startinfo, run_plan, Arm,
+    SifInject,
 };
 use std::path::{Path, PathBuf};
 
@@ -93,11 +94,16 @@ fn main() {
             let test = args[4].clone();
             let run_dir = PathBuf::from(&args[5]);
             let mut np = 1u32;
+            let mut inj = SifInject { o2: false, o2m: false };
             let mut i = 6;
             while i < args.len() {
                 if args[i] == "--np" && i + 1 < args.len() {
                     np = args[i + 1].parse().unwrap_or_else(|_| usage());
                     i += 1;
+                } else if args[i] == "--o2" {
+                    inj.o2 = true;
+                } else if args[i] == "--o2m" {
+                    inj.o2m = true;
                 }
                 i += 1;
             }
@@ -115,7 +121,7 @@ fn main() {
                 eprintln!("custom test, refusing: {reason}");
                 std::process::exit(3);
             }
-            match run_plan(&arm, &spec, &plan, &dir, &run_dir) {
+            match run_plan(&arm, &spec, &plan, &dir, &run_dir, Some(&inj)) {
                 Ok(outcome) => {
                     println!("passed: {}", outcome.passed);
                     for line in &outcome.compare_lines {
@@ -144,11 +150,16 @@ fn main() {
             let golden_dir = PathBuf::from(&args[5]);
             let manifest_path = PathBuf::from(&args[6]);
             let mut np = 1u32;
+            let mut inj = SifInject { o2: false, o2m: false };
             let mut i = 7;
             while i < args.len() {
                 if args[i] == "--np" && i + 1 < args.len() {
                     np = args[i + 1].parse().unwrap_or_else(|_| usage());
                     i += 1;
+                } else if args[i] == "--o2" {
+                    inj.o2 = true;
+                } else if args[i] == "--o2m" {
+                    inj.o2m = true;
                 }
                 i += 1;
             }
@@ -167,7 +178,7 @@ fn main() {
                 std::process::exit(3);
             }
             let run_dir = golden_dir.join("run");
-            let outcome = run_plan(&arm, &spec, &plan, &dir, &run_dir).unwrap_or_else(|e| {
+            let outcome = run_plan(&arm, &spec, &plan, &dir, &run_dir, Some(&inj)).unwrap_or_else(|e| {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             });
