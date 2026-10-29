@@ -13,5 +13,6 @@ pub mod elements;
 pub mod mesh;
 pub mod transform;
 
+pub use adapters::MeshViewAdapter;
 pub use mesh::{load, write_db, BoundElem, EdgeTable, Elem, Mesh, MeshError};
 pub use transform::transform;
