@@ -78,6 +78,9 @@ pub enum Step {
         sif: Option<String>,
         np: u32,
         extra_lib: Vec<String>,
+        /// Only `RUN_ELMER_TEST` steps check `TEST.PASSED`; intermediate
+        /// `EXECUTE_*` steps only need a zero exit, mirroring ctest.
+        verdict: bool,
     },
 }
 
@@ -292,6 +295,7 @@ pub fn plan_test(spec: &TestSpec, runtest: &str, np: u32, _arm: &Arm) -> Result<
                     sif: None,
                     np,
                     extra_lib,
+                    verdict: true,
                 });
             }
             "execute_elmer_solver" => {
@@ -304,11 +308,17 @@ pub fn plan_test(spec: &TestSpec, runtest: &str, np: u32, _arm: &Arm) -> Result<
                     sif,
                     np: 1,
                     extra_lib,
+                    verdict: false,
                 });
             }
             "execute_elmer_solver_mpi" => {
                 let sif = tokens.get(1).cloned().filter(|s| !s.starts_with("ELMER_LIB"));
-                steps.push(Step::Solver { sif, np, extra_lib: Vec::new() });
+                steps.push(Step::Solver {
+                    sif,
+                    np,
+                    extra_lib: Vec::new(),
+                    verdict: false,
+                });
             }
             _ => {
                 return Ok(Plan::unsupported(format!(
@@ -403,6 +413,9 @@ pub fn read_startinfo(dir: &Path) -> Result<Option<String>> {
 #[derive(Debug)]
 pub struct RunOutcome {
     pub passed: bool,
+    /// Whether the last executed solver/tool process exited zero.
+    /// Intermediate `EXECUTE_*` steps use this instead of the verdict.
+    pub exit_ok: bool,
     pub failed_step: Option<String>,
     pub compare_lines: Vec<String>,
     pub cpu_time: Option<f64>,
@@ -526,6 +539,7 @@ fn inject_text(text: &str, inj: &SifInject) -> String {
                 if !status.success() {
                     return Ok(RunOutcome {
                         passed: false,
+                        exit_ok: false,
                         failed_step: Some(format!("tool {bin:?} exited {status}")),
                         compare_lines: Vec::new(),
                         cpu_time: None,
@@ -533,7 +547,12 @@ fn inject_text(text: &str, inj: &SifInject) -> String {
                     });
                 }
             }
-            Step::Solver { sif, np, extra_lib } => {
+            Step::Solver {
+                sif,
+                np,
+                extra_lib,
+                verdict,
+            } => {
                 let sif_name = match sif {
                     Some(s) => s.clone(),
                     None => read_startinfo(run_dir)?.ok_or_else(|| {
@@ -548,12 +567,26 @@ fn inject_text(text: &str, inj: &SifInject) -> String {
                     String::from("test")
                 };
                 let outcome = run_solver(arm, spec, run_dir, &sif_name, *np, extra_lib, &log_base)?;
-                if !outcome.passed {
-                    return Ok(outcome);
+                if *verdict {
+                    if !outcome.passed {
+                        return Ok(outcome);
+                    }
+                    // Multi-solver tests keep going only on success,
+                    // mirroring ctest: the last solver step owns the
+                    // plan logs.
+                    let _ = outcome;
+                } else if !outcome.exit_ok {
+                    return Ok(RunOutcome {
+                        passed: false,
+                        failed_step: Some(format!(
+                            "intermediate solver on {sif_name} exited nonzero"
+                        )),
+                        compare_lines: outcome.compare_lines,
+                        cpu_time: outcome.cpu_time,
+                        real_time: outcome.real_time,
+                        exit_ok: false,
+                    });
                 }
-                // Multi-solver tests keep going only on success, mirroring
-                // ctest: the last solver step owns the plan logs.
-                let _ = outcome;
             }
         }
     }
@@ -563,6 +596,7 @@ fn inject_text(text: &str, inj: &SifInject) -> String {
         passed: std::fs::read_to_string(run_dir.join(&plan.passed_file))
             .map(|s| s.trim() == "1")
             .unwrap_or(false),
+        exit_ok: true,
         failed_step: None,
         compare_lines: compare_lines(&stdout),
         cpu_time: parse_total_time(&stdout, 1),
@@ -674,6 +708,7 @@ fn run_solver(
         .unwrap_or(false);
     Ok(RunOutcome {
         passed,
+        exit_ok: output.status.success(),
         failed_step: if passed {
             None
         } else {
@@ -800,7 +835,8 @@ mod tests {
             Step::Solver {
                 sif: None,
                 np: 1,
-                extra_lib: Vec::new()
+                extra_lib: Vec::new(),
+                verdict: true
             }
         );
         assert_eq!(plan.passed_file, "TEST.PASSED");
@@ -824,7 +860,8 @@ mod tests {
             Step::Solver {
                 sif: Some(String::from("numrays.sif")),
                 np: 1,
-                extra_lib: Vec::new()
+                extra_lib: Vec::new(),
+                verdict: false
             }
         );
     }
