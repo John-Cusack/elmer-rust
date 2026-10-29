@@ -1,0 +1,8 @@
+ListTagKeywords: Tagged 1 parameters with suffix: normalize by volume
+ListTagCount: Found number of normalized keywords: 1
+CalculateEntityWeights: Computing weights for the mesh entities
+ListSetParameters: Scaled number of parameters: 1
+ComputeChange: Nonlinear iteration did not converge to tolerance
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.25941344E-01  2.0000000     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.25941344E-01  2.0000000     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 2.59413436E-02  RefNorm = 2.59413436E-02
