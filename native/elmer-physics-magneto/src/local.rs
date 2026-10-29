@@ -199,6 +199,87 @@ pub fn bulk_matrix(
     Ok(loc)
 }
 
+/// The real parts of the harmonic `LocalMatrix` (WhitneyAVHarmonicSolver.F90:1234)
+/// for real coefficients and without electrodynamics: the stiffness `K`
+/// and damping `D` matrices, combined by the caller into `K + i omega D`
+/// (the `MASS` term is zero). Same layout and coefficients as
+/// [`bulk_matrix`]; `D` carries `<C A, eta>` and `<C A, grad v>`.
+pub fn harmonic_bulk_matrix(
+    code: u16,
+    xyz: &[[f64; 3]],
+    gindex: &[i64],
+    np: usize,
+    co: &BulkCoeffs,
+) -> Result<(Local, Vec<f64>), MagnetoError> {
+    let n = (code % 100) as usize;
+    let ne = crate::topology::edge_map(code / 100).len();
+    let nd = np + ne;
+    let mut loc = Local::new(nd);
+    let mut damp = vec![0.0; nd * nd];
+    let rule = edge_rule(code)?;
+    let mut status = MetricStatus::default();
+    for t in 0..rule.len() {
+        let pt = eval_point(code, xyz, gindex, [rule.u[t], rule.v[t], rule.w[t]], &mut status)?;
+        let (basis, db, s) = (&pt.basis[..n], &pt.dbasis[..n], rule.s[t]);
+        let det_j = pt.det_j;
+        let mut c = [[0.0; 3]; 3];
+        for (i, ci) in c.iter_mut().enumerate() {
+            for (j, cij) in ci.iter_mut().enumerate() {
+                let mut v = 0.0;
+                for k in 0..n {
+                    v += co.sigma[k][i][j] * basis[k];
+                }
+                *cij = v;
+            }
+        }
+        let mu = interp(basis, &co.nu);
+        let mut l = [0.0; 3];
+        let mut m = [0.0; 3];
+        for i in 0..3 {
+            for k in 0..n {
+                l[i] += co.load[k][i] * basis[k];
+                m[i] += co.load[k][3 + i] * basis[k];
+            }
+        }
+        let mut gv = [0.0; 3];
+        for (j, g) in gv.iter_mut().enumerate() {
+            for k in 0..n {
+                *g += co.load[k][6] * db[k][j];
+            }
+        }
+        let cg = matvec(&c, &gv);
+        for i in 0..3 {
+            l[i] -= cg[i];
+        }
+
+        let csum: f64 = c.iter().flatten().map(|x| x.abs()).sum();
+        if csum > elmer_sparse::AEPS {
+            for p in 0..np {
+                for q in 0..np {
+                    loc.add(p, q, dot(&matvec(&c, &db[q]), &db[p]) * det_j * s);
+                }
+                let cdp = matvec(&c, &db[p]);
+                for (j, wj) in pt.w.iter().enumerate().take(ne) {
+                    damp[p * nd + np + j] += dot(&matvec(&c, wj), &db[p]) * det_j * s;
+                    loc.add(np + j, p, dot(&cdp, wj) * det_j * s);
+                }
+            }
+        }
+
+        for i in 0..ne {
+            let p = np + i;
+            loc.force[p] += (dot(&l, &pt.w[i]) + dot(&m, &pt.curl[i])) * det_j * s;
+            for j in 0..ne {
+                let q = np + j;
+                let cj = &pt.curl[j];
+                loc.add(p, q, dot(&[mu * cj[0], mu * cj[1], mu * cj[2]], &pt.curl[i]) * det_j * s);
+                damp[p * nd + q] += dot(&matvec(&c, &pt.w[j]), &pt.w[i]) * det_j * s;
+            }
+        }
+    }
+    Ok((loc, damp))
+}
+
 /// Nodal coefficients of `LocalMatrixBC`.
 pub struct BcCoeffs {
     /// `Magnetic Transfer Coefficient` (`Bcoef`).

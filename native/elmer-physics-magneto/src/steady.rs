@@ -12,9 +12,9 @@ use elmer_solver::backend::LinearSolverChoice;
 
 use crate::case::{has_prefix, Case};
 use crate::error::MagnetoError;
-use crate::local::{self, BcCoeffs, BulkCoeffs, Local};
+use crate::layout::{geometry, glue, AvLayout};
+use crate::local::{self, BcCoeffs, BulkCoeffs};
 use crate::material::{conductivity, const_real, const_vector, reluctivity};
-use crate::topology::Edges;
 
 /// A solved steady AV system.
 pub struct AvSolution {
@@ -33,7 +33,7 @@ pub struct AvSolution {
 
 /// Keywords whose behaviour is not ported, refused when set in the solver
 /// section (true logicals or any value).
-const REFUSED_SOLVER_KEYS: &[&str] = &[
+pub(crate) const REFUSED_SOLVER_KEYS: &[&str] = &[
     "electrodynamics model",
     "darwin model",
     "eigen analysis",
@@ -59,7 +59,7 @@ const REFUSED_SOLVER_KEYS: &[&str] = &[
     "nonlinear system relaxation factor",
 ];
 
-const REFUSED_BC_PREFIXES: &[&str] = &[
+pub(crate) const REFUSED_BC_PREFIXES: &[&str] = &[
     "perfect electric conductor",
     "outflow bc",
     "thin line crossection area",
@@ -129,54 +129,6 @@ fn jfix(case: &Case, sp: &ParamMap) -> bool {
         .unwrap_or_else(|| case.body_forces.iter().flatten().any(|bf| has_prefix(bf, "current density")))
 }
 
-/// Sparse pattern from the element DOF lists: sorted columns per row, with
-/// the diagonal.
-fn pattern(n: usize, elems: &[Vec<u32>]) -> CsrMatrix<f64> {
-    let mut rows: Vec<Vec<u32>> = (0..n).map(|i| vec![i as u32]).collect();
-    for dofs in elems {
-        for &r in dofs {
-            rows[r as usize].extend_from_slice(dofs);
-        }
-    }
-    let mut row_ptr = vec![0];
-    let mut col_idx = Vec::new();
-    let mut diag = Vec::with_capacity(n);
-    for (i, r) in rows.iter_mut().enumerate() {
-        r.sort_unstable();
-        r.dedup();
-        diag.push(col_idx.len() + r.iter().position(|&c| c as usize == i).expect("diagonal"));
-        col_idx.extend_from_slice(r);
-        row_ptr.push(col_idx.len());
-    }
-    CsrMatrix {
-        nrows: n,
-        ncols: n,
-        values: vec![0.0; col_idx.len()],
-        row_ptr,
-        col_idx,
-        diag: Some(diag),
-    }
-}
-
-fn glue(a: &mut CsrMatrix<f64>, rhs: &mut [f64], dofs: &[u32], loc: &Local) {
-    for (p, &r) in dofs.iter().enumerate() {
-        let r = r as usize;
-        rhs[r] += loc.force[p];
-        let (lo, hi) = (a.row_ptr[r], a.row_ptr[r + 1]);
-        for (q, &c) in dofs.iter().enumerate() {
-            let k = lo + a.col_idx[lo..hi].binary_search(&c).expect("pattern");
-            a.values[k] += loc.at(p, q);
-        }
-    }
-}
-
-/// The nodal coordinates, global indices and slots of an element.
-fn element_geometry(case: &Case, nodes: &[u32]) -> (Vec<[f64; 3]>, Vec<i64>) {
-    let xyz = nodes.iter().map(|&i| case.mesh.nodes[i as usize]).collect();
-    let gindex = nodes.iter().map(|&i| i as i64 + 1).collect();
-    (xyz, gindex)
-}
-
 /// Steady-state `WhitneyAVSolver` for solver section `solver_id`.
 pub fn solve_steady(case: &Case, solver_id: usize) -> Result<AvSolution, MagnetoError> {
     let sp = case
@@ -193,54 +145,13 @@ pub fn solve_steady(case: &Case, solver_id: usize) -> Result<AvSolution, Magneto
     let var = elmer_core::normalize_key(sp.string("variable").unwrap_or("AV"));
     let var = var.split_whitespace().next().unwrap_or("av").to_string();
 
-    // Perm: nodal slots of the active elements in node order, then edges.
-    let active: Vec<usize> = (0..case.mesh.bulk.len())
-        .filter(|&e| case.solver_active_in(solver_id, case.mesh.bulk[e].body))
-        .collect();
-    if active.is_empty() {
-        return Err(MagnetoError::Input("no active elements".into()));
-    }
-    let n_mesh = case.mesh.nodes.len();
-    let mut node_slot = vec![u32::MAX; n_mesh];
-    let mut edges = Edges::default();
-    let mut elem_edges = Vec::with_capacity(active.len());
-    for &e in &active {
-        let el = &case.mesh.bulk[e];
-        if !matches!(el.code, 504 | 706 | 808) {
-            return Err(MagnetoError::unsupported(format!("bulk element type {}", el.code)));
-        }
-        if with_v {
-            for &i in &el.nodes {
-                node_slot[i as usize] = 0;
-            }
-        }
-        elem_edges.push(edges.add_element(el.code, &el.nodes));
-    }
-    let mut n_nodal = 0u32;
-    for s in node_slot.iter_mut().filter(|s| **s == 0) {
-        *s = n_nodal;
-        n_nodal += 1;
-    }
-    let n_nodal = n_nodal as usize;
-    let n = n_nodal + edges.n;
-    let dofs_of = |nodes: &[u32], eids: &[u32]| -> Vec<u32> {
-        let mut d = Vec::with_capacity(nodes.len() + eids.len());
-        if with_v {
-            d.extend(nodes.iter().map(|&i| node_slot[i as usize]));
-        }
-        d.extend(eids.iter().map(|&e| n_nodal as u32 + e));
-        d
-    };
-    let elem_dofs: Vec<Vec<u32>> = active
-        .iter()
-        .zip(&elem_edges)
-        .map(|(&e, eids)| dofs_of(&case.mesh.bulk[e].nodes, eids))
-        .collect();
-    let mut a = pattern(n, &elem_dofs);
+    let lay = AvLayout::build(case, solver_id, with_v)?;
+    let (n, n_nodal) = (lay.n(), lay.n_nodal);
+    let mut a = lay.matrix::<f64>();
     let mut rhs = vec![0.0; n];
 
     // Bulk assembly.
-    for (k, &e) in active.iter().enumerate() {
+    for (k, &e) in lay.active.iter().enumerate() {
         let el = &case.mesh.bulk[e];
         let nn = el.nodes.len();
         let material = case
@@ -265,10 +176,10 @@ pub fn solve_steady(case: &Case, solver_id: usize) -> Result<AvSolution, Magneto
             sigma: vec![sigma; nn],
             load: vec![load; nn],
         };
-        let (xyz, gindex) = element_geometry(case, &el.nodes);
+        let (xyz, gindex) = geometry(case, &el.nodes);
         let np = if with_v { nn } else { 0 };
         let loc = local::bulk_matrix(el.code, &xyz, &gindex, np, &co)?;
-        glue(&mut a, &mut rhs, &elem_dofs[k], &loc);
+        glue(&mut a, &mut rhs, &lay.elem_dofs[k], &loc.stiff, &loc.force);
     }
 
     // Boundary terms (Robin type in H, current density, air gap).
@@ -293,12 +204,13 @@ pub fn solve_steady(case: &Case, solver_id: usize) -> Result<AvSolution, Magneto
         if !is_active(b.parents[0]) && !is_active(b.parents[1]) {
             continue;
         }
-        let eids = edges
+        let eids = lay
+            .edges
             .of_element(b.code, &b.nodes)
             .ok_or_else(|| MagnetoError::Input("boundary element outside the active elements".into()))?;
         let nn = b.nodes.len();
         let np = if with_v { nn } else { 0 };
-        let (xyz, gindex) = element_geometry(case, &b.nodes);
+        let (xyz, gindex) = geometry(case, &b.nodes);
         let loc = if let Some(gap) = gap {
             let mu = const_real(bc, "air gap relative permeability")?.unwrap_or(1.0);
             local::air_gap_matrix(b.code, &xyz, &gindex, np, &vec![gap; nn], &vec![mu; nn])?
@@ -310,7 +222,7 @@ pub fn solve_steady(case: &Case, solver_id: usize) -> Result<AvSolution, Magneto
             };
             local::bc_matrix(b.code, &xyz, &gindex, np, &co)?
         };
-        glue(&mut a, &mut rhs, &dofs_of(&b.nodes, &eids), &loc);
+        glue(&mut a, &mut rhs, &lay.dofs_of(&b.nodes, &eids), &loc.stiff, &loc.force);
     }
 
     // DefaultDirichletBCs: nodal `V` values and `V {e}` edge values.
@@ -324,7 +236,7 @@ pub fn solve_steady(case: &Case, solver_id: usize) -> Result<AvSolution, Magneto
         if with_v {
             if let Some(v) = const_real(bc, &var)? {
                 for &i in &b.nodes {
-                    let s = node_slot[i as usize];
+                    let s = lay.node_slot[i as usize];
                     if s != u32::MAX {
                         fixed[s as usize] = Some(v);
                     }
@@ -340,7 +252,7 @@ pub fn solve_steady(case: &Case, solver_id: usize) -> Result<AvSolution, Magneto
             if !is_active(b.parents[0]) && !is_active(b.parents[1]) {
                 continue;
             }
-            if let Some(eids) = edges.of_element(b.code, &b.nodes) {
+            if let Some(eids) = lay.edges.of_element(b.code, &b.nodes) {
                 for e in eids {
                     fixed[n_nodal + e as usize] = Some(0.0);
                 }
@@ -384,9 +296,9 @@ pub fn solve_steady(case: &Case, solver_id: usize) -> Result<AvSolution, Magneto
     };
     Ok(AvSolution {
         n_nodal,
-        n_edges: edges.n,
+        n_edges: lay.edges.n,
         values: x,
-        node_slot,
+        node_slot: lay.node_slot,
         norm,
     })
 }
