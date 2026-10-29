@@ -24,34 +24,54 @@
 //!   both of those wired in: a `Simulation` with it in
 //!   `backends.assembly` runs `Periodic BC` cases unchanged.
 //!
-//! Refused with [`MortarError::Unsupported`]: Galerkin (weighted) and level
-//! projectors, the rotational, cylindrical, radial, axial, sliding, flat,
-//! plane and normal projector families, discontinuous boundaries,
-//! `Conforming BC`, `Periodic BC Rotate Automatic`, explicit and Lagrange
-//! coefficient periodic conditions, `Periodic BC Coefficient` jumps, and
-//! edge/face DOFs on the interface. Parallel halo handling is out of scope.
-//! Contact is not part of this crate.
+//! For `Mortar BC` (Lagrange multipliers):
+//!
+//! - [`weighted_projector`] (`WeightedProjector`, InterpolateMeshToMesh.F90)
+//!   is the Galerkin projector, and [`generate_mortar_projectors`]
+//!   (`GenerateProjectors`, ProjectorUtils.F90) builds one per `Mortar BC`.
+//! - [`generate_constraint_matrix`] (`GenerateConstraintMatrix`) stacks them
+//!   into the solver's constraint matrix, which [`save_constraint_matrix`]
+//!   writes as `Save Constraint Matrix` does.
+//! - [`collection_system`] (`SolveWithLinearRestriction`) builds the
+//!   saddle-point system `[A C^T; C 0]` the linear solver then solves for
+//!   the field and the multipliers.
+//!
+//! Refused with [`MortarError::Unsupported`]: level projectors, the
+//! rotational, cylindrical, radial, axial, sliding, flat, plane and normal
+//! projector families, discontinuous boundaries, Galerkin projectors with
+//! edge DOFs or axisymmetric weighting, `Conforming BC`, `Periodic BC Rotate
+//! Automatic`, explicit and Lagrange coefficient periodic conditions,
+//! `Periodic BC Coefficient` jumps; for the constraints, vector fields,
+//! `Mortar BCs Additive`, `Mortar Diag` and mortar jumps, contact and
+//! integral BCs, and eliminated, scaled or residual-mode restricted
+//! systems. Parallel halo handling is out of scope.
 
 #![forbid(unsafe_code)]
 
 pub mod backend;
 pub mod constrain;
+pub mod constraint;
 pub mod interface;
 pub mod overlay;
 pub mod projector;
+pub mod restriction;
 pub mod save;
+pub mod weighted;
 
 pub use backend::PeriodicAssembly;
 pub use constrain::{
     add_projector_topology, periodic_active, set_periodic_boundaries, PeriodicTarget,
 };
+pub use constraint::{generate_constraint_matrix, ConstraintMatrix, ConstraintTarget};
 pub use interface::{create_interface_meshes, map_interface_coordinate, InterfaceMesh};
 pub use overlay::overlay_interface_meshes;
 pub use projector::{
-    generate_periodic_projectors, nodal_projector, periodic_projector, save_request, Projector,
-    ProjectorEnv, SaveRequest,
+    generate_mortar_projectors, generate_periodic_projectors, nodal_projector, periodic_projector,
+    save_request, GeneratedProjectors, Projector, ProjectorEnv, SaveRequest,
 };
-pub use save::save_projector;
+pub use restriction::{collection_system, CollectionSystem, Restriction};
+pub use save::{save_constraint_matrix, save_projector};
+pub use weighted::weighted_projector;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MortarError {

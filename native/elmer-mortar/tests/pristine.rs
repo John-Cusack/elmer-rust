@@ -1,21 +1,27 @@
-//! Periodic projectors checked byte for byte against the pristine
-//! `ElmerSolver`'s `Save Projector` files.
+//! Periodic and mortar projectors checked byte for byte against the
+//! pristine `ElmerSolver`'s `Save Projector` files.
 //!
 //! Each `fixtures/<case>` is an Elmer quick test (`fem/tests/<case>`) whose
-//! `test.sif` got `Save Projector = Logical True` next to every `Periodic BC`
-//! (and an `Output File`); `mesh/` is its ElmerGrid mesh and `expected/` the
+//! `.sif` got `Save Projector = Logical True` next to every `Periodic BC` or
+//! `Mortar BC` (and an `Output File`); `mesh/` is its ElmerGrid mesh and `expected/` the
 //! `p<bc>.dat` / `p<bc>_rsum.dat` files the serial pristine run wrote. The
 //! cases cover the automatic overlay (bounding-box scale and translation),
 //! explicit `Periodic BC Translate` / `Scale`, two periodic pairs sharing
 //! corner nodes, and a nonconforming interface where target nodes fall inside
-//! elements (non-trivial weights from `GlobalToLocal`).
+//! elements (non-trivial weights from `GlobalToLocal`). `mortar_poisson2d`
+//! (MortarPoisson2D) has Galerkin projectors between nonmatching meshes,
+//! and its `Save Constraint Matrix` output (`cm*.dat`) checks the
+//! constraint matrix built from them.
 
 mod support;
 
 use std::path::{Path, PathBuf};
 
-use elmer_core::{MeshView, NullLogger, Params};
-use elmer_mortar::{generate_periodic_projectors, ProjectorEnv};
+use elmer_core::{ElemId, MeshView, NullLogger, Params};
+use elmer_mortar::{
+    generate_constraint_matrix, generate_mortar_projectors, generate_periodic_projectors,
+    save_constraint_matrix, ConstraintTarget, ProjectorEnv,
+};
 use support::{Case, FileMesh};
 
 fn fixture(name: &str) -> PathBuf {
@@ -24,13 +30,26 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
+/// Which projectors a case builds.
+#[derive(Clone, Copy)]
+enum Kind {
+    /// `GeneratePeriodicProjectors`.
+    Periodic,
+    /// `GenerateProjectors` for solver 1.
+    Mortar,
+}
+
 /// Builds every periodic projector of the case, saves them into a scratch
 /// directory and compares each expected file byte for byte.
 fn check(name: &str) {
+    check_kind(name, Kind::Periodic)
+}
+
+fn check_kind(name: &str, kind: Kind) {
     let dir = fixture(name);
     let case = Case::read(&dir.join("case.sif"));
     let mesh = FileMesh::read(&dir.join("mesh"), 3);
-    let mesh = FileMesh::read(&dir.join("mesh"), case.coord_dim(mesh.dim()));
+    let mesh = FileMesh::read(&dir.join("mesh"), case.coord_dim(mesh.bulk_dim()));
     let bcs: Vec<&dyn Params> = case.bcs.iter().map(|b| b as &dyn Params).collect();
     let bc_of = |t: i32| case.bc_of(t);
     let env = ProjectorEnv {
@@ -47,7 +66,29 @@ fn check(name: &str) {
         .join(name);
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).unwrap();
-    let (projectors, stop) = generate_periodic_projectors(&env, &out, 0).unwrap();
+    let (projectors, stop) = match kind {
+        Kind::Periodic => generate_periodic_projectors(&env, &out, 0).unwrap(),
+        Kind::Mortar => generate_mortar_projectors(&env, &[], false, &out, 0)
+            .unwrap()
+            .expect("Apply Mortar BCs"),
+    };
+    if let Kind::Mortar = kind {
+        // Every bulk element is active and `Optimize Bandwidth = False`.
+        let perm =
+            elmer_assembly::initial_permutation(&mesh, &|e: ElemId| (e.0 as usize) < mesh.n_bulk());
+        let solver = &case.solvers[0];
+        let t = ConstraintTarget {
+            solver,
+            name: "temperature",
+            dofs: 1,
+            perm: &perm.perm,
+            n_rows: perm.n_dofs,
+        };
+        let cm = generate_constraint_matrix(&bcs, &projectors, &t, &NullLogger)
+            .unwrap()
+            .expect("constraint matrix");
+        save_constraint_matrix(&cm, &out.join("cm")).unwrap();
+    }
     assert!(!stop);
     assert!(
         projectors.iter().any(Option::is_some),
@@ -109,4 +150,9 @@ fn periodic_offset() {
 #[test]
 fn periodic_nonconforming_weights() {
     check("periodic_nonconforming");
+}
+
+#[test]
+fn mortar_poisson2d_galerkin() {
+    check_kind("mortar_poisson2d", Kind::Mortar);
 }
