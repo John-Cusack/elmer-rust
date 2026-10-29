@@ -1,0 +1,6 @@
+{
+  global:
+    isosurfacesolver_;
+    isosurfacesolver_init_;
+  local: *;
+};

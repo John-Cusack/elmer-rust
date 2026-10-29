@@ -1,0 +1,4 @@
+{
+  global: fourierdiffusion3dsolver_;
+  local: *;
+};

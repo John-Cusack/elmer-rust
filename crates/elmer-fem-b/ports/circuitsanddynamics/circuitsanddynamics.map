@@ -1,0 +1,10 @@
+{
+  global:
+    circuitsanddynamics_;
+    circuitsanddynamics_init_;
+    circuitsanddynamicsharmonic_;
+    circuitsanddynamicsharmonic_init_;
+    circuitsoutput_;
+    circuitsoutput_init_;
+  local: *;
+};

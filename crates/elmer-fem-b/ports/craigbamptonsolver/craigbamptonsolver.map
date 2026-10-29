@@ -1,0 +1,4 @@
+{
+  global: craigbamptonsolver_; craigbamptonsolver_init_;
+  local: *;
+};

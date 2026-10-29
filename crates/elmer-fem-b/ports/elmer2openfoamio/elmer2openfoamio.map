@@ -1,0 +1,4 @@
+{
+  global: elmer2openfoamwrite_;
+  local: *;
+};

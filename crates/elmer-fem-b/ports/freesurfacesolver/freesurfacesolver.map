@@ -1,0 +1,10 @@
+{
+  global:
+    freesurfacesolver_;
+    freesurfacesolver_rotinit_;
+    freesurfacetomeshupdate_;
+    freesurfacetomeshupdate1_;
+    freesurfacetomeshupdate2_;
+    freesurfacetomeshupdate3_;
+  local: *;
+};

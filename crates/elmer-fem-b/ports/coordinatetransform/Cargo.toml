@@ -1,0 +1,14 @@
+[package]
+name = "coordinatetransform"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "coordinatetransform"
+crate-type = ["cdylib"]
+
+# Standalone package (same shape as the poisson/divergence ports in this
+# lane): no workspace parent, builds on its own.
+[workspace]
+
+[build-dependencies]

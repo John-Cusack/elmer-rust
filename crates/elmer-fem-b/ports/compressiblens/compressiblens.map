@@ -1,0 +1,4 @@
+{
+  global: compressiblens_;
+  local: *;
+};

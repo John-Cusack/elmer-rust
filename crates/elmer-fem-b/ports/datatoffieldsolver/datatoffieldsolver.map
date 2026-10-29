@@ -1,0 +1,5 @@
+{
+  global: datatofieldsolver_;
+  global: datatofieldsolver_init_;
+  local: *;
+};

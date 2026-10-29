@@ -1,0 +1,5 @@
+{
+  global: bestapproximationsolver_;
+  global: bestapproximationsolver_init0_;
+  local: *;
+};

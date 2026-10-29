@@ -1,0 +1,6 @@
+{
+  global: directionsolver_;
+  global: directionsolver_dummy_;
+  global: directionsolver_init0_;
+  local: *;
+};

@@ -1,0 +1,5 @@
+{
+  global: filmcompressibility_;
+  global: filmcompressibility_init_;
+  local: *;
+};

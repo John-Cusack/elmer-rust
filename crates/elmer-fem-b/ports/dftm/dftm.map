@@ -1,0 +1,4 @@
+{
+  global: chargedensitysolver_; wavefunctionsolver_; poissonsolver_;
+  local: *;
+};

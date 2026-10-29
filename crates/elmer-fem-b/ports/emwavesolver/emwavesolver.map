@@ -1,0 +1,9 @@
+{
+  global:
+    emwavesolver_;
+    emwavesolver_init0_;
+    emwavecalcfields_;
+    emwavecalcfields_init_;
+    emwavecalcfields_init0_;
+  local: *;
+};

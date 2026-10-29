@@ -1,0 +1,7 @@
+{
+  global: helmholtzprojector_;
+  global: helmholtzprojector_init_;
+  global: removekernelcomponent_;
+  global: removekernelcomponent_init0_;
+  local: *;
+};
