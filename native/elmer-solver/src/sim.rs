@@ -1111,11 +1111,28 @@ impl Simulation {
         // the procedure; without one the blocks are assembled one by one.
         // Without one, the slot's instance is the block assembly
         // (`block_system`).
-        let block = self.slots[ix].params.logical("block solver") == Some(true)
-            && self.slots[ix].params.get("procedure").is_some();
+        let p = &self.slots[ix].params;
+        let with_procedure = p.get("procedure").is_some();
+        // The solver mode, the last of these set (MainUtils.F90:1386-1395).
+        let mode = ["coupled solver", "block solver", "assembly solver"]
+            .into_iter()
+            .rfind(|k| p.logical(k) == Some(true));
+        let block = with_procedure && mode == Some("block solver");
+        let coupled = with_procedure && matches!(mode, Some("coupled solver") | Some("assembly solver"));
         if let Some(mut inst) = self.slots[ix].instance.take() {
             let r = if block {
                 crate::block_driver::block_solver(self, ix, &mut inst, dts * dt, time_derivative_active, mesh, log, comm)
+            } else if coupled {
+                crate::block_driver::coupled_with_procedure(
+                    self,
+                    ix,
+                    &mut inst,
+                    dts * dt,
+                    time_derivative_active,
+                    mesh,
+                    log,
+                    comm,
+                )
             } else {
                 inst.solve(
                     &mut SolverCtx::new(self, ix, mesh, log, comm),
