@@ -148,6 +148,8 @@ pub struct SolverSlot {
     pub(crate) constraints: Option<crate::constraints::ConstraintMatrix>,
     /// Constraint rows the solver set itself.
     pub(crate) own_constraints: Option<crate::constraints::ConstraintMatrix>,
+    /// Non-nodal dofs from [`crate::DofsBackend`]; `None` for a nodal solver.
+    pub(crate) dofs: Option<Arc<dyn crate::SolverDofs>>,
 }
 
 impl SolverSlot {
@@ -173,6 +175,7 @@ impl SolverSlot {
             asm: Default::default(),
             constraints: None,
             own_constraints: None,
+            dofs: None,
         })
     }
 
@@ -729,10 +732,19 @@ impl Simulation {
         if spec.kind != FieldKind::Nodal {
             return Err(SolverError::Unsupported(format!("{:?} solver variable", spec.kind)));
         }
-        let perm = match &self.backends.assembly {
-            Some(b) => b.build_perm_for(mesh, &slot.active, &slot.params)?,
-            None => node_order_perm(mesh, &slot.active),
+        let layout: Option<Arc<dyn crate::SolverDofs>> = match &self.backends.dofs {
+            Some(b) => b
+                .for_solver(mesh, &self.model, &slot.params, &slot.active, spec.dofs)
+                .transpose()?
+                .map(Arc::from),
+            None => None,
         };
+        let perm = match (&layout, &self.backends.assembly) {
+            (Some(d), _) => d.perm(),
+            (None, Some(b)) => b.build_perm_for(mesh, &slot.active, &slot.params)?,
+            (None, None) => node_order_perm(mesh, &slot.active),
+        };
+        slot.dofs = layout;
         let perm_arc: Arc<[u32]> = perm.perm.into();
         let mut values = vec![0.0; perm.n_slots * spec.dofs];
         if apply_ics {

@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use elmer_core::{
-    normalize_key, Communicator, ElemId, FieldRef, LocalSystem, Logger, MeshView, ParamMap, Params, Value, NO_DOF,
+    normalize_key, Communicator, DependentKind, ElemId, FieldRef, LocalSystem, Logger, MeshView, ParamMap, Params,
+    Value, NO_DOF,
 };
 
 use crate::backend::{LinearSolverChoice, Perm, TimeTerms};
@@ -252,6 +253,17 @@ impl<'a> SolverCtx<'a> {
         };
         let v = self.sim.vars.by_id(id);
         let dofs = v.dofs as u32;
+        if let Some(d) = &self.sim.slots[self.slot].dofs {
+            let mut slots = Vec::new();
+            d.element_slots(e, &mut slots);
+            for s in slots {
+                match s {
+                    NO_DOF => out.extend(std::iter::repeat_n(NO_DOF, dofs as usize)),
+                    s => out.extend((0..dofs).map(|k| s * dofs + k)),
+                }
+            }
+            return;
+        }
         for &n in self.mesh.element(e).nodes {
             match v.slot(n) {
                 Some(s) => out.extend((0..dofs).map(|k| s as u32 * dofs + k)),
@@ -267,6 +279,10 @@ impl<'a> SolverCtx<'a> {
         let Some(id) = self.sim.slots[self.slot].variable else {
             return;
         };
+        if let Some(d) = &self.sim.slots[self.slot].dofs {
+            d.element_slots(e, out);
+            return;
+        }
         let v = self.sim.vars.by_id(id);
         out.extend(
             self.mesh
@@ -275,6 +291,13 @@ impl<'a> SolverCtx<'a> {
                 .iter()
                 .map(|&n| v.slot(n).map_or(NO_DOF, |s| s as u32)),
         );
+    }
+
+    /// The solver's non-nodal dofs (`Element = "p:..."`), when a
+    /// [`crate::DofsBackend`] numbered them: kernels take the element basis,
+    /// rule, node order and bubble count from it.
+    pub fn solver_dofs(&self) -> Option<&dyn crate::SolverDofs> {
+        self.sim.slots[self.slot].dofs.as_deref()
     }
 
     /// The simulation's fields as `elmer-expr` reads them.
@@ -346,7 +369,10 @@ impl<'a> SolverCtx<'a> {
                 perm: perm.to_vec(),
                 n_slots: v.values.len() / v.dofs,
             };
-            let matrix = backend.create_matrix(self.mesh, &slot.active, &perm, v.dofs);
+            let matrix = match &slot.dofs {
+                Some(d) => d.create_matrix(v.dofs),
+                None => backend.create_matrix(self.mesh, &slot.active, &perm, v.dofs),
+            };
             let n = matrix.nrows;
             slot.system = Some(LinearSystem { matrix, rhs: vec![0.0; n] });
         }
@@ -526,11 +552,34 @@ impl<'a> SolverCtx<'a> {
             (0..v.dofs).map(|k| (k, format!("{} {}", v.name, k + 1))).collect()
         };
         let mut fixed: BTreeMap<u32, f64> = BTreeMap::new();
+        // Non-nodal dofs of this solver's own variable (DefUtils.F90:6355).
+        let slot = &self.sim.slots[self.slot];
+        let layout = slot.dofs.as_deref().filter(|_| slot.variable == Some(id));
+        let mut extra = Vec::new();
         for e in self.boundary_elements() {
             let bc = self.bc_params(e).expect("boundary_elements filters on BC");
+            if let Some(d) = layout {
+                d.boundary_extra_slots(e, &mut extra);
+            }
             for (k, key) in &keys {
                 if bc.get(&format!("{key} condition")).is_some() {
                     return Err(SolverError::Unsupported(format!("Dirichlet mask > {key} Condition <")));
+                }
+                match bc.get(key) {
+                    Some(Value::Dependent(dep))
+                        if !extra.is_empty() && matches!(dep.kind, DependentKind::Procedure { .. }) =>
+                    {
+                        return Err(SolverError::Unsupported(format!(
+                            "p-element Dirichlet value > {key} < given by a procedure (LocalBcBDOFs)"
+                        )));
+                    }
+                    // Any other value fixes the extra (edge) dofs to zero.
+                    Some(_) => {
+                        for &s in &extra {
+                            fixed.insert((offset + s as usize * v.dofs + k) as u32, 0.0);
+                        }
+                    }
+                    None => {}
                 }
                 let Some(vals) = self.real_at_nodes(bc, key, e)? else { continue };
                 for (&n, &x) in self.mesh.element(e).nodes.iter().zip(&vals) {

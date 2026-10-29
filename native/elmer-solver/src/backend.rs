@@ -9,12 +9,13 @@ use std::sync::Arc;
 
 use elmer_core::{
     normalize_key, CsrMatrix, DirectSolver, ElemId, ElementBasis, IterativeSolver, LocalSystem, MeshView, ParamMap,
-    Preconditioner, Quadrature,
+    Preconditioner, QuadPoint, Quadrature,
 };
 
 use elmer_expr::UdfRegistry;
 
 use crate::error::SolverError;
+use crate::model::Model;
 
 /// A dof permutation for one solver: `perm[node]` is the slot or
 /// [`elmer_core::NO_DOF`]; `n_slots` slots are used.
@@ -22,6 +23,54 @@ use crate::error::SolverError;
 pub struct Perm {
     pub perm: Vec<u32>,
     pub n_slots: usize,
+}
+
+/// Non-nodal dofs of one solver (Elmer `Element = "p:..."`): edge, face
+/// and bubble dofs next to the nodal ones. `elmer-pdofs` provides it
+/// through a [`DofsBackend`]; a solver without one is nodal.
+///
+/// Slots below the node count are the nodes (node `n` is slot `n` of
+/// [`perm`](Self::perm)), so nodal lookups through the variable's Perm
+/// keep working.
+pub trait SolverDofs: Send + Sync {
+    /// Perm over every dof slot (Elmer's `Ndeg` entries, [`elmer_core::NO_DOF`]
+    /// where unused) and the number of slots used.
+    fn perm(&self) -> Perm;
+    /// Zero-valued pattern for `dofs` components per slot (`CreateMatrix`).
+    fn create_matrix(&self, dofs: usize) -> CsrMatrix<f64>;
+    /// Perm slots of element `e`'s dofs, `Perm(Indexes(1:nd))` of
+    /// `GetElementDOFs`; [`elmer_core::NO_DOF`] where absent.
+    fn element_slots(&self, e: ElemId, out: &mut Vec<u32>);
+    /// Slots beyond the nodes of boundary element `e` that
+    /// `DefaultDirichletBCs` fixes to zero when a boundary condition gives
+    /// the field a value that is not a procedure (the edge dofs of the
+    /// parent's edge); empty when there are none.
+    fn boundary_extra_slots(&self, e: ElemId, out: &mut Vec<u32>);
+    /// `ElementInfo` of element `e`.
+    fn element_basis(&self, e: ElemId) -> Result<Box<dyn ElementBasis + Send + Sync>, String>;
+    /// `GaussPoints(Element)` of element `e`.
+    fn element_rule(&self, e: ElemId) -> Result<Vec<QuadPoint>, String>;
+    /// The node order the basis of `e` expects (Elmer reorders p boundary
+    /// elements to their parent edge, `AssignLocalNumber`).
+    fn element_nodes(&self, e: ElemId) -> Vec<u32>;
+    /// `GetElementNOFBDOFs`: bubbles a kernel condenses locally (0 when the
+    /// bubbles are in the global system).
+    fn local_bubbles(&self, e: ElemId) -> usize;
+}
+
+/// Builds a solver's [`SolverDofs`].
+pub trait DofsBackend: Send + Sync {
+    /// `None` when the solver section is nodal; the framework then numbers
+    /// nodes with the [`AssemblyBackend`] as before. `active` are the
+    /// solver's bulk elements, `dofs` its `Variable DOFs`.
+    fn for_solver(
+        &self,
+        mesh: &dyn MeshView,
+        model: &Model,
+        solver: &ParamMap,
+        active: &[ElemId],
+        dofs: usize,
+    ) -> Option<Result<Box<dyn SolverDofs>, SolverError>>;
 }
 
 /// Matrix structure and assembly (Elmer `CreateMatrix`, `DefaultUpdate*`,
@@ -284,6 +333,9 @@ pub struct Backends {
     /// itself computes (`Coupled Solver` integral constraints). `elmer-fe`
     /// provides them.
     pub fe: Option<FeBackend>,
+    /// Non-nodal (p-element) dof numbering, consulted for every solver;
+    /// `None` numbers every solver by nodes.
+    pub dofs: Option<Box<dyn DofsBackend>>,
 }
 
 /// `ElementInfo` and `GaussPoints` for the framework's own integrals.
@@ -301,6 +353,7 @@ impl Default for Backends {
             matc: None,
             udfs: Arc::new(UdfRegistry::new()),
             fe: None,
+            dofs: None,
         }
     }
 }
