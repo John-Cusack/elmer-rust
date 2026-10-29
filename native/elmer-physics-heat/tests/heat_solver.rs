@@ -1,0 +1,224 @@
+//! `HeatSolver` end to end through `elmer-solver`'s `Simulation`, with
+//! test-local assembly, time-integration and direct-solver backends and the
+//! pristine ElmerSolver's solution as reference.
+
+mod support;
+
+use std::path::PathBuf;
+
+use elmer_core::{NullLogger, ParamMap, SerialComm, Value};
+use elmer_physics_heat::{install_fe, register};
+use elmer_solver::{Model, Simulation, SolverError, SolverRegistry};
+use support::backends::{BackwardEuler, DenseLu, SimMesh, TestAssembly};
+use support::glue::{read_perm, read_vector};
+use support::meshio::read_elmer_mesh;
+use support::{TestBasis, TestQuadrature};
+
+fn data(case: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data")
+        .join(case)
+}
+
+fn sec(entries: &[(&str, Value)]) -> ParamMap {
+    let mut p = ParamMap::new();
+    for (k, v) in entries {
+        p.insert(k, v.clone());
+    }
+    p
+}
+
+fn ints(v: &[i32]) -> Value {
+    Value::Integer(v.to_vec())
+}
+
+fn st(s: &str) -> Value {
+    Value::Str(s.into())
+}
+
+fn install() {
+    // Idempotent across tests in this binary.
+    let _ = install_fe(|| (Box::new(TestBasis), Box::new(TestQuadrature)));
+}
+
+fn run(model: Model, mesh: &SimMesh) -> Result<Simulation, SolverError> {
+    install();
+    let mut reg = SolverRegistry::new();
+    register(&mut reg);
+    let mut sim = Simulation::new(model);
+    sim.backends.assembly = Some(Box::new(TestAssembly));
+    sim.backends.time = Some(Box::new(BackwardEuler));
+    sim.backends
+        .linear
+        .register_direct("umfpack", |_| Ok(Box::new(DenseLu::default())));
+    sim.setup(mesh, &reg, &NullLogger, &SerialComm)?;
+    sim.run(mesh, &NullLogger, &SerialComm)?;
+    Ok(sim)
+}
+
+fn solver_section(extra: &[(&str, Value)]) -> ParamMap {
+    let mut v = vec![
+        ("Equation", st("heat equation")),
+        ("Procedure", st("\"HeatSolve\" \"HeatSolver\"")),
+        ("Variable", st("Temperature")),
+        ("Linear System Solver", st("Direct")),
+    ];
+    v.extend(extra.iter().cloned());
+    sec(&v)
+}
+
+/// Temperature by node.
+fn temperature(sim: &Simulation, n_nodes: usize) -> Vec<f64> {
+    let v = sim.vars.get("temperature").unwrap();
+    (0..n_nodes)
+        .map(|n| v.values[v.slot(n as u32).unwrap()])
+        .collect()
+}
+
+/// Fortran's solution dump, by node.
+fn reference(case: &str) -> Vec<f64> {
+    let perm = read_perm(&data(case).join("linsys_perm.dat"));
+    let sol = read_vector(&data(case).join("linsys_sol.dat"));
+    perm.iter().map(|&p| sol[p]).collect()
+}
+
+fn max_diff(a: &[f64], b: &[f64]) -> f64 {
+    a.iter()
+        .zip(b)
+        .fold(0.0, |m, (x, y)| f64::max(m, (x - y).abs()))
+}
+
+fn minimal_model() -> Model {
+    Model {
+        simulation: sec(&[("Simulation Type", st("steady state"))]),
+        solvers: vec![solver_section(&[])],
+        equations: vec![sec(&[("Active Solvers", ints(&[1]))])],
+        bodies: vec![sec(&[
+            ("Target Bodies", ints(&[1])),
+            ("Equation", ints(&[1])),
+            ("Material", ints(&[1])),
+        ])],
+        materials: vec![sec(&[
+            ("Heat Conductivity", Value::real(1.0)),
+            ("Density", Value::real(1.0)),
+        ])],
+        boundary_conditions: vec![
+            sec(&[
+                ("Target Boundaries", ints(&[2])),
+                ("Temperature", Value::real(0.0)),
+            ]),
+            sec(&[
+                ("Target Boundaries", ints(&[3])),
+                ("Heat Flux", Value::real(1.0)),
+            ]),
+        ],
+        ..Model::default()
+    }
+}
+
+#[test]
+fn minimal_example_solution_matches_elmer() {
+    let mesh = SimMesh::new(read_elmer_mesh(&data("minimal_example"), 2));
+    let sim = run(minimal_model(), &mesh).unwrap();
+    let t = temperature(&sim, 3);
+    let want = reference("minimal_example");
+    assert!(max_diff(&t, &want) < 1e-5, "{t:?} vs {want:?}");
+    assert!((t[0] - 0.5).abs() < 1e-13);
+    // The sif's own reference norm.
+    let norm = (t.iter().map(|x| x * x).sum::<f64>() / 3.0).sqrt();
+    assert!((norm - 2.88675135e-1).abs() < 1e-8, "{norm}");
+}
+
+#[test]
+fn thermal_pipe_2d_solution_matches_elmer() {
+    let mesh = SimMesh::new(read_elmer_mesh(&data("thermal_pipe2d"), 2));
+    let n = mesh.mesh.coords.len();
+    let model = Model {
+        simulation: sec(&[("Simulation Type", st("steady state"))]),
+        solvers: vec![solver_section(&[])],
+        equations: vec![sec(&[("Active Solvers", ints(&[1]))])],
+        bodies: (1..=3)
+            .map(|b| {
+                sec(&[
+                    ("Target Bodies", ints(&[b])),
+                    ("Equation", ints(&[1])),
+                    ("Material", ints(&[1])),
+                ])
+            })
+            .collect(),
+        materials: vec![sec(&[
+            ("Heat Conductivity", Value::real(1.0)),
+            ("Density", Value::real(1000.0)),
+        ])],
+        boundary_conditions: vec![
+            sec(&[
+                ("Target Boundaries", ints(&[9, 10, 11, 12])),
+                ("Temperature", Value::real(10.0)),
+            ]),
+            sec(&[("Target Boundaries", ints(&[5, 6, 7, 8]))]),
+            sec(&[
+                ("Target Boundaries", ints(&[1, 2, 3, 4])),
+                ("Temperature", Value::real(0.0)),
+            ]),
+        ],
+        ..Model::default()
+    };
+    let sim = run(model, &mesh).unwrap();
+    let t = temperature(&sim, n);
+    // The dump has 6 significant digits (values up to 10).
+    let want = reference("thermal_pipe2d");
+    assert!(
+        max_diff(&t, &want) < 1e-5,
+        "max diff {:e}",
+        max_diff(&t, &want)
+    );
+}
+
+#[test]
+fn transient_step_applies_dt_once() {
+    // Unit triangle: nodes 2 and 3 held at 0, node 1 starts at 1. With rho cp
+    // = 6, k = 1, dt = 1 one backward-Euler step gives
+    // T1 = (rho cp / (6 dt)) / (K11 + 2 rho cp / (24 dt)) = 1 / 1.5.
+    let mesh = SimMesh::new(read_elmer_mesh(&data("minimal_example"), 2));
+    let mut model = minimal_model();
+    model.simulation = sec(&[
+        ("Simulation Type", st("transient")),
+        ("Timestep Intervals", ints(&[1])),
+        ("Timestep Sizes", Value::real(1.0)),
+        ("Output Intervals", ints(&[0])),
+    ]);
+    model.materials[0].insert("Density", Value::real(2.0));
+    model.materials[0].insert("Heat Capacity", Value::real(3.0));
+    model.boundary_conditions.pop();
+    model.bodies[0].insert("Initial Condition", ints(&[1]));
+    model.initial_conditions = vec![sec(&[("Temperature", Value::real(1.0))])];
+    let sim = run(model, &mesh).unwrap();
+    let t = temperature(&sim, 3);
+    assert!((t[0] - 1.0 / 1.5).abs() < 1e-13, "{t:?}");
+    assert_eq!(t[1], 0.0);
+    assert_eq!(t[2], 0.0);
+}
+
+#[test]
+fn unsupported_cases_are_refused_at_setup() {
+    install();
+    let mesh = SimMesh::new(read_elmer_mesh(&data("minimal_example"), 2));
+    let try_model = |m: Model| {
+        let mut reg = SolverRegistry::new();
+        register(&mut reg);
+        let mut sim = Simulation::new(m);
+        sim.backends.assembly = Some(Box::new(TestAssembly));
+        sim.setup(&mesh, &reg, &NullLogger, &SerialComm)
+            .unwrap_err()
+            .to_string()
+    };
+
+    let mut m = minimal_model();
+    m.boundary_conditions[1].insert("Radiation", st("Idealized"));
+    assert!(try_model(m).contains("Radiation"));
+
+    let mut m = minimal_model();
+    m.equations[0].insert("Convection", st("Constant"));
+    m.solvers[0].insert("Stabilize", Value::Logical(true));
+    assert!(try_model(m).contains("hK"));
+}
