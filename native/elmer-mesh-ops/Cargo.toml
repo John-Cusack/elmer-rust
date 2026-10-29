@@ -1,0 +1,16 @@
+[package]
+name = "elmer-mesh-ops"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Mesh operations of the Rust-native Elmer rewrite: Increase Element Order (quadratic elements) and Discontinuous Boundary mesh splitting, numbered as the Fortran numbers them"
+
+[dependencies]
+elmer-core.workspace = true
+elmer-mesh-levels = { path = "../elmer-mesh-levels" }
+thiserror.workspace = true
+
+[dev-dependencies]
+# Parses the quick tests' Simulation and BC sections into ParamMaps.
+elmer-sif = { path = "../elmer-sif" }

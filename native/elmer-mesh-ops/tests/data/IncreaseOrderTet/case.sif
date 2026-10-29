@@ -1,0 +1,11 @@
+Header
+  Mesh DB "." "mesh"
+End
+
+Simulation
+  Increase Element Order = Logical True
+End
+
+Boundary Condition 1
+  Target Boundaries(4) = 2 3 4 7 
+End
