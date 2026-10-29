@@ -30,8 +30,10 @@
 //!   is the Galerkin projector, and [`generate_mortar_projectors`]
 //!   (`GenerateProjectors`, ProjectorUtils.F90) builds one per `Mortar BC`.
 //! - [`generate_constraint_matrix`] (`GenerateConstraintMatrix`) stacks them
-//!   into the solver's constraint matrix, which [`save_constraint_matrix`]
-//!   writes as `Save Constraint Matrix` does.
+//!   into the solver's constraint matrix, one block per projector or, with
+//!   `Mortar BCs Additive`, summed per node (`Projector Priority` choosing
+//!   the owner of shared nodes); [`save_constraint_matrix`] writes it as
+//!   `Save Constraint Matrix` does.
 //! - [`collection_system`] (`SolveWithLinearRestriction`) builds the
 //!   saddle-point system `[A C^T; C 0]` the linear solver then solves for
 //!   the field and the multipliers.
@@ -42,7 +44,7 @@
 //! edge DOFs or axisymmetric weighting, `Conforming BC`, `Periodic BC Rotate
 //! Automatic`, explicit and Lagrange coefficient periodic conditions,
 //! `Periodic BC Coefficient` jumps; for the constraints, vector fields,
-//! `Mortar BCs Additive`, `Mortar Diag` and mortar jumps, contact and
+//! `Mortar Diag` and mortar jumps, contact and
 //! integral BCs, and eliminated, scaled or residual-mode restricted
 //! systems. Parallel halo handling is out of scope.
 

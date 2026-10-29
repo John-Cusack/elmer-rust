@@ -1,6 +1,9 @@
-//! MortarPoisson2D end to end: Galerkin mortar projectors, their constraint
+//! Mortar cases end to end: Galerkin mortar projectors, their constraint
 //! matrix and the saddle-point solve, compared with the pristine run's
-//! temperature and Lagrange multipliers.
+//! temperature and Lagrange multipliers. MortarPoisson2D has one block of
+//! constraint rows per projector; `mortar_sum2d` and `mortar_priority2d`
+//! (MortarPoisson2Dsum/priority without `Plane Projector`) sum four
+//! projectors (`Mortar BCs Additive`), the second with `Projector Priority`.
 //!
 //! `elmer-solver` has no constrained solve yet, so the system comes from a
 //! `Simulation` run with `Linear System Solver Disabled` (assembly and
@@ -141,9 +144,10 @@ fn max_abs(a: &[f64]) -> f64 {
     a.iter().fold(0.0f64, |m, x| m.max(x.abs()))
 }
 
-#[test]
-fn mortar_poisson2d_constrained_solve() {
-    let case = "mortar_poisson2d";
+/// Solves `fixtures/<case>` and compares it with the pristine run, whose
+/// `Solver 1` norm is `pristine` (8 digits): the temperature to `tol_t`
+/// and the multipliers to `tol_l`, relative to their largest value.
+fn check(case: &str, pristine: f64, tol_t: f64, tol_l: f64) {
     let src = fixture(case);
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join("elmer-mortar-e2e")
@@ -235,17 +239,26 @@ fn mortar_poisson2d_constrained_solve() {
         n_nodes: view.n_nodes(),
     })
     .unwrap();
+    // `Linear System Scaling` (default on) with its method, as
+    // `SolveLinearSystem` applies it.
     let bnorm = coll.rhs.iter().map(|b| b * b).sum::<f64>().sqrt();
-    let scaling = elmer_sparse::scale_system(
-        &mut coll.matrix,
-        Some(&mut coll.rhs[..]),
-        Some(&mut coll.x[..]),
-        &elmer_sparse::ScaleOptions {
-            method: elmer_sparse::ScalingMethod::from_keyword("diagonal").unwrap(),
-            apply: true,
-            rhs_scaling: bnorm != 0.0,
-        },
-    );
+    let scale = solver.logical("linear system skip scaling") != Some(true)
+        && solver.logical("linear system scaling").unwrap_or(true);
+    let scaling = scale.then(|| {
+        let method = solver
+            .string("linear system scaling method")
+            .unwrap_or("diagonal");
+        elmer_sparse::scale_system(
+            &mut coll.matrix,
+            Some(&mut coll.rhs[..]),
+            Some(&mut coll.x[..]),
+            &elmer_sparse::ScaleOptions {
+                method: elmer_sparse::ScalingMethod::from_keyword(method).unwrap(),
+                apply: true,
+                rhs_scaling: bnorm != 0.0,
+            },
+        )
+    });
     let solver_params = &solver;
     match sim
         .backends
@@ -264,11 +277,13 @@ fn mortar_poisson2d_constrained_solve() {
         }
         LinearSolverChoice::Direct(_) => panic!("the case uses an iterative solver"),
     }
-    scaling.unscale(
-        &mut coll.matrix,
-        Some(&mut coll.rhs[..]),
-        Some(&mut coll.x[..]),
-    );
+    if let Some(scaling) = scaling {
+        scaling.unscale(
+            &mut coll.matrix,
+            Some(&mut coll.rhs[..]),
+            Some(&mut coll.x[..]),
+        );
+    }
 
     // The constrained system is solved: residual and constraint.
     let mut ax = vec![0.0; coll.matrix.nrows];
@@ -287,18 +302,36 @@ fn mortar_poisson2d_constrained_solve() {
         max_abs(&want_t),
         max_abs(&want_l)
     );
-    // Pristine: Solver 1 Norm = 4.58536086E-01 (8 digits). The same solver
-    // path on the same system agrees to round-off.
     assert!(
-        (norm - 4.58536086e-1).abs() / 4.58536086e-1 <= 1e-8,
-        "norm {norm}"
+        (norm - pristine).abs() / pristine <= 1e-8,
+        "{case}: norm {norm}, pristine {pristine}"
     );
     assert!(
-        dt <= 1e-12 * max_abs(&want_t),
+        dt <= tol_t * max_abs(&want_t),
         "temperature differs by {dt:e}"
     );
     assert!(
-        dl <= 1e-12 * max_abs(&want_l),
+        dl <= tol_l * max_abs(&want_l),
         "multipliers differ by {dl:e}"
     );
+}
+
+/// The same system through the same solver path: round-off.
+#[test]
+fn mortar_poisson2d_constrained_solve() {
+    check("mortar_poisson2d", 4.58536086e-1, 1e-12, 1e-12);
+}
+
+/// Without `Linear System Scaling` BiCGStabl stops at its 1e-8 tolerance on
+/// a different path, so the solutions agree to that tolerance (about 1e-9
+/// in T and 1e-6 in the multipliers). With the tolerance at 1e-14 in both
+/// runs they agree to 2e-14 in T and 5e-12 in the multipliers.
+#[test]
+fn mortar_sum2d_constrained_solve() {
+    check("mortar_sum2d", 8.74343079e-1, 1e-8, 1e-5);
+}
+
+#[test]
+fn mortar_priority2d_constrained_solve() {
+    check("mortar_priority2d", 8.74334619e-1, 1e-8, 1e-5);
 }
