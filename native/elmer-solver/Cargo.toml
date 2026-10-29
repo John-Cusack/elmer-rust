@@ -15,6 +15,7 @@ elmer-itermethods = { path = "../elmer-itermethods" }
 elmer-krylov = { path = "../elmer-krylov" }
 elmer-sparse = { path = "../elmer-sparse" }
 elmer-timeint = { path = "../elmer-timeint" }
+num-complex.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

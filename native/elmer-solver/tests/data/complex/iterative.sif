@@ -1,0 +1,44 @@
+Header
+  Mesh DB "." "1d"
+End
+Simulation
+  Max Output Level = 5
+  Coordinate System = "Cartesian 1D"
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Angular Frequency = Real 2.0
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Material 1
+  Sound Speed = Real 1.0
+  Sound Damping = Real 0.3
+  Density = Real 1.0
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Solver 1
+  Equation = "Helmholtz"
+  Variable = -dofs 2 Pressure
+  Procedure = "HelmholtzSolve" "HelmholtzSolver"
+  Linear System Solver = "Iterative"
+  Linear System Iterative Method = "BiCGStab"
+  Linear System Preconditioning = Diagonal
+  Linear System Convergence Tolerance = 1e-10
+  Linear System Max Iterations = 200
+  Linear System Residual Output = 1
+  Steady State Convergence Tolerance = 1e-9
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Pressure 1 = Real 1
+  Pressure 2 = Real 0
+End
+Boundary Condition 2
+  Target Boundaries(1) = 2
+  Pressure 1 = Real 0
+  Pressure 2 = Real 0.5
+End
