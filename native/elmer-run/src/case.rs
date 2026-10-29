@@ -19,6 +19,7 @@ use crate::motion::MovableMesh;
 use crate::output::{is_result_output, prepare_vtu_output, MappedTags};
 use elmer_mortar::{generate_periodic_projectors, PeriodicAssembly, ProjectorEnv};
 use elmer_mesh_levels::{extrude, mesh_levels, ExtrudeOptions, Mesh as LevelsMesh, MeshLevelsError};
+use elmer_mesh_ops::{create_discont_mesh, increase_element_order, read_target_names, MeshOpsError};
 
 /// A parsed case and its mesh.
 pub struct Case<'a> {
@@ -292,8 +293,8 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
 /// in the global system and its solution norm, the `Reference Norm`); and
 /// any definition for the solvers that read their DOFs from `elmer-pdofs`
 /// (`ctx.solver_dofs()`) and refuse what they do not port: ModelPDE's
-/// AdvDiffSolver and the test-local `Poisson` `PoissonSolver`,
-/// `ModelPDEsplitted` and `SingleElements` ports.
+/// AdvDiffSolver and the test-local `Poisson` / `PoissonML`
+/// `PoissonSolver`, `ModelPDEsplitted` and `SingleElements` ports.
 pub fn native_element(params: &ParamMap) -> bool {
     let Some(e) = params.string("element") else { return true };
     if normalize_key(e) == "n:1" {
@@ -301,8 +302,9 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 4] = [
+    const P_DOFS: [(&str, &str); 5] = [
         ("poisson", "poissonsolver"),
+        ("poissonml", "poissonsolver"),
         ("modelpde", "advdiffsolver"),
         ("modelpdesplitted", "advdiffsolver"),
         ("singleelements", "singleelements"),
@@ -325,21 +327,46 @@ fn transform_mesh(model: &mut Model, mesh: &dyn MeshView) -> Result<Option<Level
         MeshLevelsError::Unsupported(m) => SolverError::Unsupported(m),
         MeshLevelsError::Invalid(m) => SolverError::fatal("LoadModel", m),
     };
-    let split = mesh_levels(mesh, &model.simulation, &model.boundary_conditions).map_err(err)?;
+    let ops_err = |e: MeshOpsError| match e {
+        MeshOpsError::Unsupported(m) => SolverError::Unsupported(m),
+        MeshOpsError::Invalid(m) => SolverError::fatal("MeshOps", m),
+    };
+    let identity_targets = |model: &mut Model| {
+        for (i, body) in model.bodies.iter_mut().enumerate() {
+            body.insert("Target Bodies", Value::Integer(vec![i as i32 + 1]));
+        }
+        for (i, bc) in model.boundary_conditions.iter_mut().enumerate() {
+            bc.insert("Target Boundaries", Value::Integer(vec![i as i32 + 1]));
+        }
+    };
+    // `CreateDiscontMesh` (LoadMesh2) comes first, on the mapped mesh.
+    let mut base: Option<LevelsMesh> = None;
+    if model.boundary_conditions.iter().any(|bc| bc.logical("discontinuous boundary") == Some(true)) {
+        let d = create_discont_mesh(&MappedTags::new(mesh, model), &model.simulation, &model.boundary_conditions)
+            .map_err(ops_err)?;
+        if let Some(d) = d {
+            base = Some(d.mesh);
+            identity_targets(model);
+        }
+    }
+    let discont: &dyn MeshView = match &base {
+        Some(m) => m,
+        None => mesh,
+    };
+    let split = mesh_levels(discont, &model.simulation, &model.boundary_conditions).map_err(err)?;
+    let split = split.or(base);
     let current: &dyn MeshView = match &split {
         Some(m) => m,
         None => mesh,
     };
     let Some(opts) = ExtrudeOptions::from_params(&model.simulation, current.dim(), None).map_err(err)? else {
+        if model.simulation.logical("increase element order") == Some(true) {
+            return Ok(Some(increase_element_order(current).map_err(ops_err)?));
+        }
         return Ok(split);
     };
     let extruded = extrude(&MappedTags::new(current, model), &opts).map_err(err)?;
-    for (i, body) in model.bodies.iter_mut().enumerate() {
-        body.insert("Target Bodies", Value::Integer(vec![i as i32 + 1]));
-    }
-    for (i, bc) in model.boundary_conditions.iter_mut().enumerate() {
-        bc.insert("Target Boundaries", Value::Integer(vec![i as i32 + 1]));
-    }
+    identity_targets(model);
     Ok(Some(extruded))
 }
 
@@ -449,6 +476,8 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     let globals = job_globals(&mut model.simulation, rank, size)?;
     let fixture_case = fixture_case(&case_dir);
     let registry = solver_registry_for(&fixture_case);
+    read_target_names(&mesh_dir.join("mesh.names"), &model.simulation, &mut model.bodies, &mut model.boundary_conditions)
+        .map_err(|e| SolverError::fatal("ReadTargetNames", e.to_string()))?;
     let transformed = transform_mesh(&mut model, mesh)?;
     let mesh: &dyn MeshView = match &transformed {
         Some(m) => m,
