@@ -1,0 +1,11 @@
+[package]
+name = "elmer-krylov"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "HUTI Krylov solvers (CG, CGS, BiCGStab, BiCGStab(2), GMRES, QMR, TFQMR) with Elmer IterSolve keyword semantics"
+
+[dependencies]
+elmer-core.workspace = true
+num-complex.workspace = true
