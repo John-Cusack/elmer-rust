@@ -1,0 +1,4 @@
+ComputeChange: NS (ITER=1) (NRM,RELC): (  2.1602469      2.0000000     ) :: heat equation
+ComputeChange: NS (ITER=2) (NRM,RELC): (  2.1602469     0.80907507E-11 ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): (  2.1602469      2.0000000     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 2.16024690E+00  RefNorm = 2.16024690E+00

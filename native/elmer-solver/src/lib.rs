@@ -31,6 +31,7 @@ pub mod fortran_fmt;
 pub mod linsys;
 pub mod live;
 mod loads;
+mod lumped;
 mod monolithic;
 pub mod model;
 pub mod norm;
