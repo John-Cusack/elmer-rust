@@ -176,11 +176,27 @@ fn stab_matrices(
     Ok((l, g))
 }
 
-/// Largest `lambda` of `L x = lambda G x` with `G` symmetric positive
-/// definite (the `DSYGV` call of `StabParam`): Cholesky `G = U^T U`, then
-/// cyclic Jacobi on `U^-T L U^-1`. Agrees with LAPACK to rounding, not bit
-/// for bit.
+/// Largest `lambda` of `L x = lambda G x` (the `DSYGV` call of
+/// `StabParam`, upper triangles of the row-major `L`, `G`): the
+/// transliterated reference-LAPACK path, bit for bit. Where that path hits a
+/// branch not transliterated (scaling, non-convergence, `G` not positive
+/// definite), [`jacobi_generalized_eigenvalue`] answers to rounding instead.
 fn largest_generalized_eigenvalue(l: &[f64], g: &[f64], m: usize) -> f64 {
+    let col = |x: &[f64]| {
+        let mut c = vec![0.0; m * m];
+        for i in 0..m {
+            for j in 0..m {
+                c[i + j * m] = x[i * m + j];
+            }
+        }
+        c
+    };
+    crate::lapack::dsygv_max(col(l), col(g), m)
+        .unwrap_or_else(|| jacobi_generalized_eigenvalue(l, g, m))
+}
+
+/// Cholesky `G = U^T U`, then cyclic Jacobi on `U^-T L U^-1`.
+fn jacobi_generalized_eigenvalue(l: &[f64], g: &[f64], m: usize) -> f64 {
     // Upper Cholesky factor, row-major u[i*m+j] for j >= i.
     let mut u = vec![0.0; m * m];
     for j in 0..m {
