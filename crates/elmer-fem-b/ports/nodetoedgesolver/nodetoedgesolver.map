@@ -1,0 +1,7 @@
+{
+  global: extrudedrestart_;
+  global: extrudedrestart_init0_;
+  global: nodetoedgefield_;
+  global: nodetoedgefield_init0_;
+  local: *;
+};

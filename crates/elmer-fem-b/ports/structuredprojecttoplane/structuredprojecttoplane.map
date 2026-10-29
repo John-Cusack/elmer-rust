@@ -1,0 +1,5 @@
+{
+  global: structuredprojecttoplane_;
+  global: structuredprojecttoplane_init_;
+  local: *;
+};

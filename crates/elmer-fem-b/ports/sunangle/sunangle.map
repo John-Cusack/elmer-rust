@@ -1,0 +1,5 @@
+{
+  global: sunanglesolver_;
+  global: sunanglesolver_init_;
+  local: *;
+};

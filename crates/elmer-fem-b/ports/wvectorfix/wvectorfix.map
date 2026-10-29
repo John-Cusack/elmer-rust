@@ -1,0 +1,5 @@
+{
+  global: wvectorfix_;
+  global: wvectorfix_init_;
+  local: *;
+};

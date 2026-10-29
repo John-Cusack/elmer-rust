@@ -1,0 +1,6 @@
+{
+  global:
+    transientphasechange_;
+    transientphasechange_init_;
+  local: *;
+};

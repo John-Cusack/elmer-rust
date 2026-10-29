@@ -1,0 +1,5 @@
+{
+global: scalarpotentialsolver_;
+global: scalarpotentialsolver_init_;
+local: *;
+};

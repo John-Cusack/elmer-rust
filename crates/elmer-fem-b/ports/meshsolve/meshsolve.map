@@ -1,0 +1,5 @@
+{
+  global: meshsolver_;
+  global: meshsolver_init_;
+  local: *;
+};

@@ -1,0 +1,7 @@
+{
+  global: poissonbemsolver_;
+  global: matvec_;
+  global: precond_;
+  global: __globmat_MOD_matrix;
+  local: *;
+};

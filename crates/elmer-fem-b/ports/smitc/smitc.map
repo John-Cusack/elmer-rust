@@ -1,0 +1,5 @@
+{
+  global: smitcsolver_;
+  global: smitcsolver_init0_;
+  local: *;
+};

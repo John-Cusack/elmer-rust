@@ -1,0 +1,6 @@
+{
+  global: wsolve_;
+  global: wsolve_dummy_;
+  global: wsolve_init0_;
+  local: *;
+};
