@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<VTKFile type="UnstructuredGrid" version="0.1" byte_order="LittleEndian">
+  <UnstructuredGrid>
+    <Piece NumberOfPoints="12" NumberOfCells="4">
+      <PointData>
+        <DataArray type="Float64" Name="temperature" NumberOfComponents="1" format="ascii">
+ 0.0 0.0 0.0  2.1428571E-001 0.0 0.0 0.0 0.0  5.0000000E-001  5.0000000E-001  5.0000000E-001  5.0000000E-001
+        </DataArray>
+        <DataArray type="Float64" Name="displacement" NumberOfComponents="3" format="ascii">
+ 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 -3.9608091E-003 -3.9608091E-003 -4.3059418E-003 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0  1.3797494E-004  1.3797494E-004 -4.0349973E-003 -1.3797494E-004  1.3797494E-004 -4.0349973E-003 -1.3797494E-004 -1.3797494E-004 -4.0349973E-003  1.3797494E-004 -1.3797494E-004 -4.0349973E-003
+        </DataArray>
+      </PointData>
+      <CellData>
+        <DataArray type="Int32" Name="GeometryIds" format="ascii">
+ 1 1 101 102
+        </DataArray>
+      </CellData>
+      <Points>
+        <DataArray type="Float64" NumberOfComponents="3" format="ascii">
+ 0.0 0.0 0.0  1.0000000E+000 0.0 0.0 0.0  1.0000000E+000 0.0 0.0 0.0  1.0000000E+000  2.0000000E+000 0.0 0.0  3.0000000E+000 0.0 0.0  3.0000000E+000  1.0000000E+000 0.0  2.0000000E+000  1.0000000E+000 0.0  2.0000000E+000 0.0  1.0000000E+000  3.0000000E+000 0.0  1.0000000E+000  3.0000000E+000  1.0000000E+000  1.0000000E+000  2.0000000E+000  1.0000000E+000  1.0000000E+000
+        </DataArray>
+      </Points>
+      <Cells>
+        <DataArray type="Int32" Name="connectivity" format="ascii">
+ 0 1 2 3 4 5 6 7 8 9 10 11 0 1 2 4 5 6 7
+        </DataArray>
+        <DataArray type="Int32" Name="offsets" format="ascii">
+ 4 12 15 19
+        </DataArray>
+        <DataArray type="Int32" Name="types" FORMAT="ascii">
+ 10 12 5 9
+        </DataArray>
+      </Cells>
+    </Piece>
+  </UnstructuredGrid>
+</VTKFile>
