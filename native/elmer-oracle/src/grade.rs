@@ -28,25 +28,41 @@ pub enum MismatchKind {
     ExceedsTolerance { error: f64, allowed: f64 },
     /// A non-finite value where the golden field is finite.
     NonFinite { index: usize },
+    /// The file itself is inconsistent (e.g. one dof, two values).
+    CorruptFile { detail: String },
 }
 
-/// Map Perm-ordered values back to node space. `perm` holds
-/// `(node_index, value_index)` 1-based pairs; absent Perm (`None`) means
-/// identity ordering.
-pub fn to_node_space(var: &VariableData) -> Vec<f64> {
+/// Map Perm-ordered values back to dof space. `perm` holds 1-based
+/// `(node, dof)` pairs in stored order: the writer emits `Values(Perm(i))`
+/// for each positive entry, so the dof index is the pair's second
+/// element. Duplicate nodes share one dof and must agree bitwise;
+/// disagreement means a corrupt file. Proved against the pristine
+/// Release arm: this mapping plus sequential RMS reproduces the
+/// solver-internal norm exactly (Tolerance-0 rerun, rel err 0).
+pub fn to_node_space(var: &VariableData) -> crate::Result<Vec<f64>> {
     match &var.perm {
-        None => var.values.clone(),
+        None => Ok(var.values.clone()),
         Some(pairs) => {
-            let size = var.perm_size.max(0) as usize;
-            let mut node = vec![f64::NAN; size];
+            let max_dof = pairs.iter().map(|&(_, k)| k).max().unwrap_or(0).max(0) as usize;
+            let mut dof = vec![f64::NAN; max_dof];
             for (i, v) in var.values.iter().enumerate() {
-                if let Some(&(node_idx, _)) = pairs.get(i) {
-                    if node_idx > 0 && (node_idx as usize) <= size {
-                        node[node_idx as usize - 1] = *v;
-                    }
+                let Some(&(_, k)) = pairs.get(i) else {
+                    continue;
+                };
+                if k <= 0 || (k as usize) > max_dof {
+                    continue;
+                }
+                let slot = &mut dof[k as usize - 1];
+                if slot.is_nan() {
+                    *slot = *v;
+                } else if *slot != *v {
+                    return Err(crate::OracleError::GradeFailed(format!(
+                        "variable {}: dof {k} has conflicting values",
+                        var.name
+                    )));
                 }
             }
-            node
+            Ok(dof)
         }
     }
 }
@@ -96,8 +112,14 @@ pub fn grade_variable(
         None => return mk(MismatchKind::MissingVariable),
         Some(c) => c,
     };
-    let g = to_node_space(golden);
-    let c = to_node_space(cand);
+    let g = match to_node_space(golden) {
+        Ok(g) => g,
+        Err(e) => return mk(MismatchKind::CorruptFile { detail: e.to_string() }),
+    };
+    let c = match to_node_space(cand) {
+        Ok(c) => c,
+        Err(e) => return mk(MismatchKind::CorruptFile { detail: e.to_string() }),
+    };
     if g.len() != c.len() {
         return mk(MismatchKind::LengthDiffers {
             golden: g.len(),
@@ -206,18 +228,30 @@ mod tests {
     }
 
     #[test]
-    fn perm_order_maps_to_node_space() {
-        // Values stored as (node 3, node 1): pairs (3,·),(1,·).
+    fn perm_order_maps_to_dof_space() {
+        // Stored order follows positive Perm entries; the dof index is
+        // the pair's second element: Values(Perm(i)).
         let v = VariableData {
             name: "t".to_string(),
             perm: Some(vec![(3, 2), (1, 1)]),
             perm_size: 3,
             values: vec![30.0, 10.0],
         };
-        let node = to_node_space(&v);
-        assert_eq!(node.len(), 3);
-        assert_eq!(node[0], 10.0);
-        assert!(node[1].is_nan());
-        assert_eq!(node[2], 30.0);
+        assert_eq!(to_node_space(&v).unwrap(), vec![10.0, 30.0]);
+    }
+
+    #[test]
+    fn conflicting_duplicate_dofs_are_corrupt() {
+        let v = VariableData {
+            name: "t".to_string(),
+            perm: Some(vec![(1, 1), (2, 1)]),
+            perm_size: 2,
+            values: vec![10.0, 11.0],
+        };
+        assert!(to_node_space(&v).is_err());
+        assert!(matches!(
+            grade_variable("t", 0, &v, Some(&v), 1e-10)[0].kind,
+            MismatchKind::CorruptFile { .. }
+        ));
     }
 }
