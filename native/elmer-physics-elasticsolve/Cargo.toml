@@ -1,0 +1,18 @@
+[package]
+name = "elmer-physics-elasticsolve"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "ElasticSolve (linear, St. Venant-Kirchhoff and neo-Hookean) for the Rust-native Elmer rewrite"
+
+[dependencies]
+elmer-core.workspace = true
+thiserror.workspace = true
+elmer-solver = { path = "../elmer-solver" }
+elmer-expr = { path = "../elmer-expr" }
+elmer-physics-elastic = { path = "../elmer-physics-elastic" }
+
+[dev-dependencies]
+elmer-sif = { path = "../elmer-sif" }
+elmer-run = { path = "../elmer-run" }
