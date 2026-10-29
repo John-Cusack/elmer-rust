@@ -231,13 +231,14 @@ fn basis_coefficients_bitwise() {
         let code: u16 = t[1].parse().unwrap();
         let n: usize = t[2].parse().unwrap();
         let def = element_type(code).unwrap();
-        for i in 0..n {
+        assert_eq!(def.basis.len(), n, "type {code} basis count");
+        for (i, terms) in def.basis.iter().enumerate() {
             let r: Vec<&str> = lines.next().unwrap().split_whitespace().collect();
             let k: usize = r[2].parse().unwrap();
-            assert_eq!(def.basis[i].len(), k, "type {code} basis {i}");
+            assert_eq!(terms.len(), k, "type {code} basis {i}");
             for (j, term) in r[3..].iter().enumerate() {
                 let f: Vec<&str> = term.split(',').collect();
-                let bt = def.basis[i][j];
+                let bt = terms[j];
                 assert_eq!(
                     (bt.p as u32, bt.q as u32, bt.r as u32),
                     (
