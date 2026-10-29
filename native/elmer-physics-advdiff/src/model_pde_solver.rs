@@ -81,16 +81,20 @@ struct PElement {
     nb: usize,
 }
 
-fn p_element(d: &dyn SolverDofs, e: ElemId) -> Result<PElement, SolverError> {
+/// `np` is `Number of Integration Points` (bulk elements, through
+/// `GaussPointsAdapt`).
+fn p_element(d: &dyn SolverDofs, e: ElemId, np: Option<usize>) -> Result<PElement, SolverError> {
     let mut slots = Vec::new();
     d.element_slots(e, &mut slots);
+    let rule = match np {
+        Some(np) => d.element_rule_np(e, np),
+        None => d.element_rule(e),
+    };
     Ok(PElement {
         basis: d
             .element_basis(e)
             .map_err(|m| dofs_error("ElementInfo", m))?,
-        rule: d
-            .element_rule(e)
-            .map_err(|m| dofs_error("GaussPoints", m))?,
+        rule: rule.map_err(|m| dofs_error("GaussPoints", m))?,
         nodes: d.element_nodes(e),
         nd: slots.len(),
         nb: d.local_bubbles(e),
@@ -145,6 +149,12 @@ impl Solver for ModelPdeSolver {
             .params()
             .integer("nonlinear system max iterations")
             .map_or(1, |n| n.max(1));
+        // GaussPointsAdapt: `Number of Integration Points` for the bulk.
+        let np = ctx
+            .params()
+            .integer("number of integration points")
+            .filter(|&n| n > 0)
+            .map(|n| n as usize);
         let elems: Vec<ElemId> = ctx.active_elements().collect();
         let bnd: Vec<ElemId> = ctx.boundary_elements().collect();
         let mut dofs = Vec::new();
@@ -155,7 +165,7 @@ impl Solver for ModelPdeSolver {
                 let el = ctx.mesh.element(e);
                 let etype = el.etype;
                 let pe = match ctx.solver_dofs() {
-                    Some(d) => Some(p_element(d, e)?),
+                    Some(d) => Some(p_element(d, e, np)?),
                     None => None,
                 };
                 let nodes: Vec<u32> = pe
@@ -187,7 +197,7 @@ impl Solver for ModelPdeSolver {
                 };
                 match &pe {
                     None => {
-                        model_pde_bulk_local(&fe, etype, &xyz, &nodal, dim, None, &mut self.local)?
+                        model_pde_bulk_local(&fe, etype, &xyz, &nodal, dim, np, &mut self.local)?
                     }
                     Some(p) => {
                         // LocalMatrix(Element, n, nd+nb), then CondensateP(nd, nb).
@@ -228,7 +238,7 @@ impl Solver for ModelPdeSolver {
                 let el = ctx.mesh.element(e);
                 let etype = el.etype;
                 let pe = match ctx.solver_dofs() {
-                    Some(d) => Some(p_element(d, e)?),
+                    Some(d) => Some(p_element(d, e, None)?),
                     None => None,
                 };
                 let nodes: Vec<u32> = pe

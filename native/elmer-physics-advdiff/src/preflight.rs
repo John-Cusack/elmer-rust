@@ -157,10 +157,6 @@ const MODEL_PDE_SOLVER: &[Rule] = &[
         "GaussPointsAdapt rules other than the element default are not implemented",
     ),
     present(
-        "Number of Integration Points",
-        "GaussPointsAdapt rules other than the element default are not implemented",
-    ),
-    present(
         "Element Integration Points",
         "GaussPointsAdapt rules other than the element default are not implemented",
     ),

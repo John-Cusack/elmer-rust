@@ -376,6 +376,20 @@ fn model_pde_steady_matches_elmer() {
 }
 
 #[test]
+fn model_pde_number_of_integration_points_on_nodal_elements() {
+    // GaussPointsAdapt with Number of Integration Points = 4 on bilinear
+    // quads is the type's default rule: the linear case's solution.
+    let mesh = SimMesh::new(read_elmer_mesh(&data("model_pde"), 2));
+    let n = mesh.mesh.coords.len();
+    let mut model = model_pde_model(false);
+    model.solvers[0].insert("Number of Integration Points", ints(&[4]));
+    let sim = run(model, &mesh).unwrap();
+    let got = nodal(&sim, "field", n);
+    let want = read_solution(&data("model_pde").join("lin_solution.dat"));
+    assert!(max_diff(&got, &want) < 1e-10, "{:e}", max_diff(&got, &want));
+}
+
+#[test]
 fn model_pde_transient_with_reaction_matches_elmer() {
     let mesh = SimMesh::new(read_elmer_mesh(&data("model_pde"), 2));
     let n = mesh.mesh.coords.len();
@@ -442,6 +456,84 @@ fn sd_model_pde_p2_matches_elmer() {
     // Serendipity p:2: no bubbles, the economic 8-point quad rule; Reference
     // Norm 1.0578593.
     check_model_pde_p(true, "sd_p2", 1281, 1.057859263392748);
+}
+
+/// The quick test `QuadraturesBrick`: ModelPDE with `Element = "p:2"` on
+/// a 2x2x2 brick mesh, a flux BC on 3D boundary faces, run (as its three RUN
+/// blocks do) with the default rule and with `Number of Integration Points`
+/// 27 and 64. The solution is linear, so every run gives the pristine
+/// values and the reference norm 0.3.
+#[test]
+fn quadratures_brick_matches_elmer() {
+    let mesh = SimMesh::new(read_elmer_mesh(&data("quadratures_brick"), 3));
+    let want_perm = read_solution(&data("quadratures_brick").join("perm.dat"));
+    let want = read_solution(&data("quadratures_brick").join("solution.dat"));
+    for np in [None, Some(27), Some(64)] {
+        let mut solver = vec![
+            ("Equation", st("ModelPDE")),
+            ("Variable", st("Field")),
+            ("Procedure", st("\"ModelPDE\" \"AdvDiffSolver\"")),
+            ("Element", st("p:2")),
+            ("Linear System Solver", st("Direct")),
+            ("Steady State Convergence Tolerance", real(1e-9)),
+        ];
+        if let Some(n) = np {
+            solver.push(("Number of Integration Points", ints(&[n])));
+        }
+        let model = Model {
+            simulation: sec(&[
+                ("Coordinate System", st("Cartesian")),
+                ("Simulation Type", st("steady")),
+                ("Steady State Max Iterations", ints(&[1])),
+                ("Output Intervals", ints(&[0])),
+                ("Serendipity P Elements", Value::Logical(false)),
+            ]),
+            solvers: vec![sec(&solver)],
+            equations: vec![sec(&[("Active Solvers", ints(&[1]))])],
+            bodies: vec![sec(&[
+                ("Target Bodies", ints(&[1])),
+                ("Equation", ints(&[1])),
+                ("Material", ints(&[1])),
+                ("Body Force", ints(&[1])),
+            ])],
+            materials: vec![sec(&[("diffusion coefficient", real(1.0))])],
+            body_forces: vec![sec(&[("Field Source", real(0.0))])],
+            boundary_conditions: vec![
+                sec(&[("Target Boundaries", ints(&[1]))]),
+                sec(&[("Target Boundaries", ints(&[2])), ("Field", real(0.0))]),
+                sec(&[("Target Boundaries", ints(&[3])), ("Field Flux", real(1.0))]),
+            ],
+            ..Model::default()
+        };
+        let (mut sim, reg) = support::cases::simulation(model);
+        sim.backends.dofs = Some(Box::new(elmer_pdofs::PDofsBackend::new()));
+        sim.setup(
+            &mesh,
+            &reg,
+            &elmer_core::NullLogger,
+            &elmer_core::SerialComm,
+        )
+        .unwrap();
+        sim.run(&mesh, &elmer_core::NullLogger, &elmer_core::SerialComm)
+            .unwrap();
+        let v = sim.vars.get("field").unwrap();
+        // 27 nodes + 54 edges + 36 faces + 8 bubbles.
+        assert_eq!(v.values.len(), 125, "{np:?}");
+        let perm = v.perm.as_deref().unwrap();
+        let ours: Vec<f64> = perm.iter().map(|&p| f64::from(p + 1)).collect();
+        assert_eq!(ours, want_perm, "{np:?}: Perm");
+        let got: Vec<f64> = perm.iter().map(|&p| v.values[p as usize]).collect();
+        assert!(
+            max_diff(&got, &want) < 1e-12,
+            "{np:?}: {:e}",
+            max_diff(&got, &want)
+        );
+        assert!(
+            (v.conv.norm - 0.3).abs() < 1e-12,
+            "{np:?}: norm {}",
+            v.conv.norm
+        );
+    }
 }
 
 fn setup_error(model: Model, mesh: &SimMesh) -> String {
