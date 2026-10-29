@@ -205,6 +205,19 @@ fn check_bc(bc: &ParamMap, var_name: &str) -> Result<(), SolverError> {
     Ok(())
 }
 
+/// `Mesh % Stabilize` (MeshStabParams, MeshBasics.F90:2338): only when some
+/// solver asks for stabilization by keyword does Elmer fill
+/// `Element % StabilizationMK`; otherwise mK stays zero and FlowSolve's
+/// default "stabilized" method assembles with Tau = Delta = 0.
+fn mesh_stabilize(ctx: &SolverCtx<'_>) -> bool {
+    ctx.sim.model.solvers.iter().any(|p| {
+        let method = p.string("stabilization method").map(elmer_core::normalize_key);
+        flag(Some(p), "stabilize")
+            || matches!(method.as_deref(), Some("vms") | Some("stabilized"))
+            || flag(Some(p), "pressure stabilization")
+    })
+}
+
 fn cartesian(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
     match ctx.simulation_params().string("coordinate system") {
         None => Ok(()),
@@ -302,6 +315,49 @@ fn dirichlet_rows(ctx: &SolverCtx<'_>, comps: &[String], dim: usize, noslip: boo
     Ok(fixed.into_iter().collect())
 }
 
+/// `AddEquationBasics` (MainUtils.F90:1241, 1827) creates the variable of
+/// an `Equation = Navier-Stokes` solver filled with 1e-6, which initial
+/// conditions then overwrite. elmer-solver creates it zeroed, so the values
+/// no `Initial Condition` sets (the same element walk as its
+/// `apply_initial_conditions`) get Elmer's start value here.
+fn navier_stokes_init_value(ctx: &mut SolverCtx<'_>, comps: &[String]) -> Result<(), SolverError> {
+    const INIT_VALUE: f64 = 1.0e-6;
+    let is_ns = ctx
+        .params()
+        .string("equation")
+        .is_some_and(|e| elmer_core::normalize_key(e) == "navier-stokes");
+    if !is_ns {
+        return Ok(());
+    }
+    let dofs = comps.len();
+    let n = ctx.primary().map_or(0, |f| f.values.len());
+    let mut set = vec![false; n];
+    let mut slots = Vec::new();
+    let elems: Vec<ElemId> = ctx.active_elements().collect();
+    for e in elems {
+        let Some(ic) = ctx.body_params(e).and_then(|b| b.initial_condition) else { continue };
+        ctx.element_slots(e, &mut slots);
+        for (k, key) in comps.iter().enumerate() {
+            if ic.get(key).is_some() {
+                for &s in &slots {
+                    if s != NO_DOF {
+                        set[s as usize * dofs + k] = true;
+                    }
+                }
+            }
+        }
+    }
+    let var = ctx
+        .primary_mut()
+        .ok_or_else(|| SolverError::fatal(CALLER, "solver has no variable"))?;
+    for (x, done) in var.values.iter_mut().zip(set) {
+        if !done {
+            *x = INIT_VALUE;
+        }
+    }
+    Ok(())
+}
+
 /// `DefaultDirichletBCs` with the component names of the flow variable.
 fn apply_dirichlet(ctx: &mut SolverCtx<'_>, fixed: &[(u32, f64)]) -> Result<(), SolverError> {
     let id = ctx.solver_id();
@@ -373,12 +429,14 @@ impl Solver for FlowSolver {
         for bc in &ctx.sim.model.boundary_conditions {
             check_bc(bc, &var_name)?;
         }
+        let comps = component_names(ctx)?;
+        navier_stokes_init_value(ctx, &comps)?;
         // FlowSolver_init.
         slot_params_mut(ctx).insert("time derivative order", Value::Integer(vec![1]));
         Ok(())
     }
 
-    fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, transient: bool) -> Result<(), SolverError> {
+    fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
         cartesian(ctx)?;
         check_solver_params(ctx.params())?;
         let p = ctx.params().clone();
@@ -387,9 +445,6 @@ impl Solver for FlowSolver {
             Some("stokes") => (false, false),
             _ => (true, transient),
         };
-        if transient {
-            return Err(unsupported("transient simulation (the mass matrix is not wired to Default1stOrderTime)"));
-        }
         let dim = ctx.mesh.dim();
         let comps = component_names(ctx)?;
         let nsdofs = comps.len();
@@ -404,6 +459,7 @@ impl Solver for FlowSolver {
         };
         let h_scale = p.real("h scale").unwrap_or(1.0);
         let long_edge = flag(Some(ctx.simulation_params()), "stabilization use longest element edge");
+        let stabilize_mesh = mesh_stabilize(ctx);
         let nonlinear_tol = p.real("nonlinear system convergence tolerance").unwrap_or(0.0);
         let newton_tol = p.real("nonlinear system newton after tolerance").unwrap_or(0.0);
         let newton_ubound = p.real("nonlinear system newton max tolerance");
@@ -425,31 +481,45 @@ impl Solver for FlowSolver {
         let nonlinear_iter = p.integer("nonlinear system max iterations").unwrap_or(0);
         let max_norm = p.real("nonlinear system max norm return").unwrap_or(f64::MAX);
 
+        // "Enforcing relative pressure relaxation" when no material of the
+        // model names a compressibility model other than incompressible.
+        let all_incompressible = ctx.sim.model.materials.iter().all(|m| {
+            m.string("compressibility model")
+                .is_none_or(|c| elmer_core::normalize_key(c) == "incompressible")
+        });
         {
             let sp = slot_params_mut(ctx);
             if sp.get("nonlinear system norm dofs").is_none() {
                 sp.insert("nonlinear system norm dofs", Value::Integer(vec![nsdofs as i32 - 1]));
             }
-            // Every material is incompressible here (check_body refuses the
-            // rest): "Enforcing relative pressure relaxation".
-            if sp.get("relative pressure relaxation").is_none() {
+            if all_incompressible && sp.get("relative pressure relaxation").is_none() {
                 sp.insert("relative pressure relaxation", Value::Logical(true));
             }
         }
 
         // ElmerSolver's `Initialize Dirichlet Conditions` (default on,
-        // ElmerSolver.F90:1863) runs before any solver; elmer-solver does not
-        // do it yet, so the flow variable gets its boundary values here on
-        // the first visit.
+        // ElmerSolver.F90:1863) runs before any solver and before the first
+        // history commit; elmer-solver does not do it yet, so the flow
+        // variable (and the history the first timestep committed from it)
+        // gets its boundary values here on the first visit.
         if !self.dirichlet_initialized {
             self.dirichlet_initialized = true;
             if ctx.simulation_params().logical("initialize dirichlet conditions") != Some(false) {
                 let fixed = dirichlet_rows(ctx, &comps, dim, false)?;
-                let var = ctx
-                    .primary_mut()
+                let id = ctx.solver_id();
+                let sim = &mut *ctx.sim;
+                let vid = sim
+                    .slots
+                    .iter()
+                    .find(|s| s.id == id)
+                    .and_then(|s| s.variable)
                     .ok_or_else(|| SolverError::fatal(CALLER, "solver has no variable"))?;
+                let var = sim.vars.by_id_mut(vid);
                 for (row, x) in fixed {
                     var.values[row as usize] = x;
+                    if let Some(h) = var.prev_values.first_mut() {
+                        h[row as usize] = x;
+                    }
                 }
             }
         }
@@ -510,6 +580,9 @@ impl Solver for FlowSolver {
 
                 let mut stab = stab_params(el.etype, &xyz, long_edge)?;
                 stab.hk *= h_scale;
+                if !stabilize_mesh {
+                    stab.mk = 0.0;
+                }
                 let inp = FlowBulkInput {
                     etype: el.etype,
                     xyz: &xyz,
@@ -523,10 +596,13 @@ impl Solver for FlowSolver {
                     newton: self.newton,
                     stab,
                     discretization: disc,
-                    want_mass: false,
+                    want_mass: transient,
                     np: None,
                 };
                 flow_bulk_local(&*self.basis, &*self.quad, &inp, &mut self.local)?;
+                if transient {
+                    ctx.default_first_order_time(&mut self.local, e, dt)?;
+                }
                 ctx.default_update(&self.local, e)?;
             }
 

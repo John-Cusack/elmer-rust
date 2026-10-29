@@ -73,6 +73,19 @@ impl Quadrature for TestQuadrature {
                 }
                 v
             }
+            808 => {
+                let n = ((np.unwrap_or(8) as f64).cbrt().round()) as usize;
+                let g = gauss_line(n);
+                let mut v = Vec::new();
+                for (ww, gw) in &g {
+                    for (vv, gv) in &g {
+                        for (uu, gu) in &g {
+                            v.push(pt([*uu, *vv, *ww], gu * gv * gw));
+                        }
+                    }
+                }
+                v
+            }
             504 => match np.unwrap_or(4) {
                 1 => vec![pt([0.25, 0.25, 0.25], 1.0 / 6.0)],
                 4 => {

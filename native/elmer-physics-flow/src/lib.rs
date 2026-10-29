@@ -16,10 +16,10 @@
 //! cartesian 2D and 3D, linear elements, constant or field-dependent density
 //! and viscosity, body forces and hydrostatic gravity, traction, normal
 //! pressure, mass flux and slip-coefficient boundaries, Dirichlet and
-//! no-slip-wall conditions. Transient runs, bubbles, P2/P1, VMS, compressible
-//! models, porous media, rotating frames, non-newtonian viscosity,
-//! normal-tangential and free-surface boundaries are refused instead of
-//! approximated.
+//! no-slip-wall conditions, and transient runs through `Default1stOrderTime`
+//! (`elmer-timeint`). Bubbles, P2/P1, VMS, compressible models, porous
+//! media, rotating frames, non-newtonian viscosity, normal-tangential and
+//! free-surface boundaries are refused instead of approximated.
 #![forbid(unsafe_code)]
 
 pub mod boundary;

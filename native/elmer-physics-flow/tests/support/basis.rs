@@ -1,10 +1,9 @@
-//! Lagrange bases in Elmer node order: 202, 203, 303, 306, 404, 408, 504.
+//! Lagrange bases in Elmer node order: 202, 203, 303, 306, 404, 408, 504, 808.
 //!
 //! `det_j` is the surface/length measure `sqrt(det(J J^T))`, so boundary
-//! elements embedded in a larger space integrate correctly. Gradients are
-//! taken from the leading `d x d` block of `J` (`d` = reference dimension),
-//! which is right for bulk elements in the xy / xyz coordinate axes and is not
-//! meaningful for embedded boundary elements (the kernels never read it there).
+//! elements embedded in a larger space integrate correctly. Gradients use the
+//! metric tensor, `J^T (J J^T)^-1` applied to the reference gradients, as
+//! ElementInfo does for embedded elements; for bulk elements this is `J^-1`.
 
 use elmer_core::{BasisEval, ElementBasis, ElementType};
 
@@ -87,6 +86,17 @@ fn shape(etype: u16, uvw: [f64; 3]) -> Option<(usize, Vec<f64>, Vec<[f64; 3]>)> 
             g[7] = [-(1.0 - v * v) / 2.0, -(1.0 - u) * v, 0.0];
             (2, n, g)
         }
+        808 => {
+            let s = [[-1.0, -1.0, -1.0], [1.0, -1.0, -1.0], [1.0, 1.0, -1.0], [-1.0, 1.0, -1.0], [-1.0, -1.0, 1.0], [1.0, -1.0, 1.0], [1.0, 1.0, 1.0], [-1.0, 1.0, 1.0]];
+            let mut n = vec![0.0; 8];
+            let mut g = vec![[0.0; 3]; 8];
+            for i in 0..8 {
+                let (a, b, c) = (1.0 + s[i][0] * u, 1.0 + s[i][1] * v, 1.0 + s[i][2] * w);
+                n[i] = a * b * c / 8.0;
+                g[i] = [s[i][0] * b * c / 8.0, a * s[i][1] * c / 8.0, a * b * s[i][2] / 8.0];
+            }
+            (3, n, g)
+        }
         504 => (
             3,
             vec![1.0 - u - v - w, u, v, w],
@@ -140,17 +150,19 @@ impl ElementBasis for TestBasis {
                     .sqrt()
             }
         };
-        // Inverse of the leading d x d block of J.
-        let inv = invert(&j, d)?;
+        // d phi / d x_c = sum_ab J[a][c] (J J^T)^-1[a][b] d phi / d u_b.
+        let ginv = invert(&jjt, d)?;
         out.det_j = det_j;
         out.basis = n;
         out.dbasis_dx = g
             .iter()
             .map(|gi| {
                 let mut dx = [0.0; 3];
-                for c in 0..d {
+                for (c, x) in dx.iter_mut().enumerate() {
                     for a in 0..d {
-                        dx[c] += inv[c][a] * gi[a];
+                        for bb in 0..d {
+                            *x += j[a][c] * ginv[a][bb] * gi[bb];
+                        }
                     }
                 }
                 dx

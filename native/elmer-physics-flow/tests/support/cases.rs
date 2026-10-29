@@ -55,12 +55,14 @@ pub fn run(model: Model, mesh: &TestMesh) -> Result<Simulation, SolverError> {
     Ok(sim)
 }
 
-/// A `FlowSolve` solver section with `extra` keywords and a direct solve.
-pub fn flow_solver(extra: &[(&str, Value)]) -> ParamMap {
+/// A `FlowSolve` solver section for a `dim`-dimensional flow variable with
+/// `extra` keywords and a direct solve.
+pub fn flow_solver(dim: usize, extra: &[(&str, Value)]) -> ParamMap {
+    let var = format!("Flow Solution[Velocity:{dim} Pressure:1]");
     let mut v = vec![
         ("Equation", st("Navier-Stokes")),
         ("Procedure", st("\"FlowSolve\" \"FlowSolver\"")),
-        ("Variable", st("Flow Solution[Velocity:2 Pressure:1]")),
+        ("Variable", st(&var)),
         ("Linear System Solver", st("Direct")),
         ("Linear System Direct Method", st("UMFPack")),
     ];
@@ -68,8 +70,17 @@ pub fn flow_solver(extra: &[(&str, Value)]) -> ParamMap {
     sec(&v)
 }
 
-/// A steady single-body model around `solver`.
-pub fn steady_model(solver: ParamMap, material: ParamMap, body_force: Option<ParamMap>, bcs: Vec<ParamMap>) -> Model {
+/// A steady `Simulation` section.
+pub fn steady() -> ParamMap {
+    sec(&[
+        ("Coordinate System", st("Cartesian")),
+        ("Simulation Type", st("Steady State")),
+        ("Steady State Max Iterations", ints(&[1])),
+    ])
+}
+
+/// A single-body model around `solver`.
+pub fn model(simulation: ParamMap, solver: ParamMap, material: ParamMap, body_force: Option<ParamMap>, bcs: Vec<ParamMap>) -> Model {
     let mut body = vec![
         ("Target Bodies", ints(&[1])),
         ("Equation", ints(&[1])),
@@ -79,11 +90,7 @@ pub fn steady_model(solver: ParamMap, material: ParamMap, body_force: Option<Par
         body.push(("Body Force", ints(&[1])));
     }
     Model {
-        simulation: sec(&[
-            ("Coordinate System", st("Cartesian")),
-            ("Simulation Type", st("Steady State")),
-            ("Steady State Max Iterations", ints(&[1])),
-        ]),
+        simulation,
         constants: sec(&[(
             "Gravity",
             Value::Real {
@@ -102,9 +109,9 @@ pub fn steady_model(solver: ParamMap, material: ParamMap, body_force: Option<Par
     }
 }
 
-/// Node-ordered `(u, v, p)` from a pristine ElmerSolver `.result`, as
-/// `node u v p` lines.
-pub fn read_solution(path: &Path) -> Vec<[f64; 3]> {
+/// Node-ordered components (velocity, then pressure) from a pristine
+/// ElmerSolver `.result`, as `node c1 c2 ...` lines.
+pub fn read_solution(path: &Path) -> Vec<Vec<f64>> {
     std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
         .lines()
@@ -112,18 +119,18 @@ pub fn read_solution(path: &Path) -> Vec<[f64; 3]> {
         .map(|(i, l)| {
             let t: Vec<&str> = l.split_whitespace().collect();
             assert_eq!(t[0].parse::<usize>().unwrap(), i + 1);
-            [t[1].parse().unwrap(), t[2].parse().unwrap(), t[3].parse().unwrap()]
+            t[1..].iter().map(|x| x.parse().unwrap()).collect()
         })
         .collect()
 }
 
-/// The flow variable by node, as `(u, v, p)`.
-pub fn nodal(sim: &Simulation, n_nodes: usize) -> Vec<[f64; 3]> {
+/// The flow variable by node.
+pub fn nodal(sim: &Simulation, n_nodes: usize) -> Vec<Vec<f64>> {
     let v = sim.vars.get("flow solution").unwrap();
     (0..n_nodes)
         .map(|n| {
-            let s = v.slot(n as u32).unwrap() * 3;
-            [v.values[s], v.values[s + 1], v.values[s + 2]]
+            let s = v.slot(n as u32).unwrap() * v.dofs;
+            v.values[s..s + v.dofs].to_vec()
         })
         .collect()
 }

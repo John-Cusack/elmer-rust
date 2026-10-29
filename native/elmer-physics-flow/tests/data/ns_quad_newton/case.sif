@@ -1,0 +1,76 @@
+! Stabilized Q1/Q1 Navier-Stokes with Newton from the first iteration,
+! Div Discretization, Noslip Wall BC walls, a hydrostatic body force and a
+! "Pressure 1" outlet traction (derived from the quick test ChannelFlowCoulomb:
+! same rect geometry and boundary numbering).
+Header
+  CHECK KEYWORDS Warn
+  Mesh DB "." "rect"
+  Include Path ""
+  Results Directory ""
+End
+
+Constants
+  Gravity(4) = 0 -1 0 9.82
+End
+
+Equation 1
+  Active Solvers(1) = 1
+End
+
+Simulation
+  Max Output Level = 5
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+  Output File = "case.result"
+  Ascii Output = Logical True
+End
+
+Body 1
+  Target Bodies(1) = 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+
+Body Force 1
+  Hydrostatic Pressure = True
+  Flow BodyForce 2 = 0.5
+End
+
+Solver 1
+  Equation = Navier-Stokes
+  Procedure = "FlowSolve" "FlowSolver"
+  Variable = Flow Solution[Velocity:2 Pressure:1]
+  Stabilize = True
+  Div Discretization = True
+  Nonlinear System Max Iterations = 20
+  Nonlinear System Convergence Tolerance = 1.0e-10
+  Linear System Solver = Direct
+  Linear System Direct Method = UMFPack
+End
+
+Material 1
+  Density = 2.0
+  Viscosity = 0.05
+End
+
+Boundary Condition 1
+  Target Boundaries(2) = 1 3
+  Name = "Walls"
+  Noslip Wall BC = True
+End
+
+Boundary Condition 2
+  Target Boundaries(1) = 2
+  Name = "Outlet"
+  Pressure 1 = -0.1
+End
+
+Boundary Condition 3
+  Target Boundaries(1) = 4
+  Name = "Inflow"
+  Velocity 1 = 1.0
+  Velocity 2 = 0.0
+End
