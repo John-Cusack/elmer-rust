@@ -15,7 +15,9 @@
 //!    `elmer-assembly`'s bandwidth optimisation and CSR setup;
 //! 5. [`basis`]: the `elmer-fe-hp` basis and Gauss rule of one element as
 //!    `ElementInfo` / `GaussPoints` build them for p elements;
-//! 6. [`dirichlet`]: the edge-DOF part of `DefaultDirichletBCs`.
+//! 6. [`dirichlet`]: the edge-DOF part of `DefaultDirichletBCs`;
+//! 7. [`setup`]: all of it for one solver section from its keywords
+//!    ([`PSetup`]), the object a solver framework adapter holds.
 //!
 //! Element systems are glued with `elmer_assembly::CsrAssembler` on the
 //! row indices [`dofs::DofLayout::element_rows`] gives, so no assembly
@@ -33,11 +35,13 @@ pub mod dirichlet;
 pub mod dofs;
 pub mod perm;
 pub mod pmesh;
+pub mod setup;
 
 pub use defs::{initial_max_defs, ElementDefs, Kind, MaxDefs};
 pub use dofs::DofLayout;
 pub use perm::{create_p_system, PSystem};
-pub use pmesh::{PMesh, PMeshOptions, SolverElements};
+pub use pmesh::{MatcDegree, PMesh, PMeshOptions, SolverElements};
+pub use setup::{global_bubbles, is_p_section, ModelFacts, PSetup};
 
 /// Errors of the p-element setup.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

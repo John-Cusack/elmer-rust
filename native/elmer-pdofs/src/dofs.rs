@@ -111,6 +111,13 @@ impl<'a> DofLayout<'a> {
         }
     }
 
+    /// The bubble count of bulk element `e` with its own body's
+    /// definitions (`GetElementNOFBDOFs` without global bubbles).
+    pub(crate) fn local_bubble_count(&self, e: usize) -> usize {
+        let fam = self.mesh.elements[e].family();
+        self.bubble_count(e, fam, self.dof_body(e))
+    }
+
     /// `mGetElementDOFs` for a non-DG solver: the element's slots, nodal
     /// first, then edges, then the parent's edge (boundary line elements)
     /// or the bubbles (bulk elements with global bubbles).

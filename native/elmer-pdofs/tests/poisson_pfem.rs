@@ -233,3 +233,103 @@ fn system_and_solution_match_after_dirichlet() {
     // Reference Norm = 0.19674375E-01 with Elmer's default tolerance 1e-5.
     assert!((norm - 0.19674375e-1).abs() / 0.19674375e-1 < 1e-5);
 }
+
+/// The same case through [`elmer_pdofs::PSetup`] alone, built from the
+/// case keywords, as a solver framework adapter drives it: Perm, element
+/// slots, edge Dirichlet rows, basis and rule per element.
+#[test]
+fn psetup_from_keywords_runs_end_to_end() {
+    use elmer_core::{ParamMap, Value};
+    use elmer_pdofs::{global_bubbles, is_p_section, ModelFacts, PSetup};
+
+    let mesh = TestMesh::read(&data_dir("poisson_pfem"), 2);
+    let mut solver = ParamMap::new();
+    solver.insert("Element", Value::Str(DEF.into()));
+    let mut simulation = ParamMap::new();
+    simulation.insert("Serendipity P Elements", Value::Logical(false));
+    assert!(is_p_section(&solver) && global_bubbles(&solver));
+
+    let n_bulk = mesh.n_bulk();
+    let active = |e: ElemId| (e.0 as usize) < n_bulk;
+    let mut matc = |_: &str, _: [f64; 4]| unreachable!("no MATC degree");
+    let setup = PSetup::new(
+        &mesh,
+        &solver,
+        &simulation,
+        ModelFacts {
+            n_bodies: 2,
+            body_has_equation: &|_| true,
+            active: &active,
+            boundary_body: &|_| 0,
+            matc_degree: &mut matc,
+        },
+        1,
+    )
+    .unwrap();
+    let elmer = read_perm(&data_dir("poisson_pfem").join("perm.dat"));
+    assert_eq!(
+        setup.perm().perm.iter().map(|&p| p + 1).collect::<Vec<_>>(),
+        elmer
+    );
+
+    let mut a = setup.matrix().clone();
+    let mut b = vec![0.0; a.nrows];
+    let mut slots = Vec::new();
+    let mut be = BasisEval::default();
+    {
+        let mut asm = CsrAssembler::new(&mut a, &mut b);
+        for e in (0..n_bulk as u32).map(ElemId) {
+            assert!(setup.is_p_element(e));
+            assert_eq!(setup.local_bubbles(e), 0);
+            setup.element_slots(e, &mut slots);
+            let nd = slots.len();
+            let basis = setup.element_basis(e).unwrap();
+            let rule = setup.gauss_rule(e).unwrap();
+            let nodes = setup.element_nodes(e);
+            let xyz: Vec<[f64; 3]> = nodes.iter().map(|&n| mesh.coord(n)).collect();
+            let mut local = LocalSystem::zeros(nd);
+            for t in 0..rule.len() {
+                let uvw = [rule.u[t], rule.v[t], rule.w[t]];
+                basis
+                    .eval(mesh.element(e).etype, &xyz, uvw, &mut be)
+                    .unwrap();
+                let w = rule.s[t] * be.det_j;
+                let load: f64 = be.basis[..nodes.len()].iter().sum();
+                for i in 0..nd {
+                    for j in 0..nd {
+                        let g: f64 = (0..3)
+                            .map(|k| be.dbasis_dx[i][k] * be.dbasis_dx[j][k])
+                            .sum();
+                        local.stiff[i * nd + j] += w * g;
+                    }
+                    local.force[i] += w * load * be.basis[i];
+                }
+            }
+            asm.add_local(&slots, &local);
+        }
+    }
+    // DefaultDirichletBCs: edge DOFs of the BC elements to 0, then the
+    // nodal values (node slots are the node indices with one DOF per node).
+    let mut fixed = std::collections::BTreeMap::new();
+    for e in (n_bulk as u32..(n_bulk + mesh.n_boundary()) as u32).map(ElemId) {
+        setup.boundary_extra_slots(e, &mut slots);
+        assert_eq!(slots.len(), 1);
+        for &s in &slots {
+            fixed.insert(s, 0.0);
+        }
+        for &n in mesh.element(e).nodes {
+            fixed.insert(setup.perm().perm[n as usize], 0.0);
+        }
+    }
+    let fixed: Vec<(u32, f64)> = fixed.into_iter().collect();
+    apply_dirichlet(&mut a, &mut b, &fixed, DirichletMode::default()).unwrap();
+    compare_matrix(&a, "post_a.dat");
+    compare_rhs(&b, "post_b.dat");
+
+    elmer_direct::set_single_thread();
+    let mut lu = FaerLu::new();
+    lu.factor(&a).unwrap();
+    lu.solve_in_place(&mut b).unwrap();
+    let norm = (b.iter().map(|v| v * v).sum::<f64>() / b.len() as f64).sqrt();
+    assert!((norm - 1.96743752e-2).abs() < 1e-10, "norm {norm:e}");
+}
