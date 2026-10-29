@@ -8,6 +8,7 @@ description = "Solver framework for the Rust-native Elmer: Simulation, SolverCtx
 
 [dependencies]
 elmer-assembly = { path = "../elmer-assembly" }
+elmer-block = { path = "../elmer-block" }
 elmer-core.workspace = true
 elmer-direct = { path = "../elmer-direct" }
 elmer-expr = { path = "../elmer-expr" }
