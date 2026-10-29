@@ -59,14 +59,6 @@ const BOUNDARY: &[Rule] = &[
     present("Target Coordinates", "point BCs (Target Coordinates) are not implemented"),
 ];
 
-/// `<Variable> <suffix>` keywords of `DefaultDirichletBCs`
-/// (BoundaryConditionUtils.F90:842, 1013), read from BCs and body forces.
-const VARIABLE_SUFFIXES: &[(&str, &str)] = &[
-    ("single node", "single-node Dirichlet values"),
-    ("constant", "lumped constant values"),
-    ("profile", "lumped profile values"),
-];
-
 /// `SetNormalizedKeywords` (MainUtils.F90:224): `<keyword> Normalize by
 /// Area|Volume` divides the keyword by the area or volume it acts on.
 const NORMALIZE_SUFFIXES: &[&str] = &[" normalize by area", " normalize by volume"];
@@ -131,18 +123,6 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
                 "Body Force {}: {var}: body-force Dirichlet values are not implemented",
                 i + 1
             )));
-        }
-        for (suffix, what) in VARIABLE_SUFFIXES {
-            let key = format!("{var} {suffix}");
-            let sections = [("Boundary Condition", &model.boundary_conditions), ("Body Force", &model.body_forces)];
-            for (section, maps) in sections {
-                if let Some(i) = maps.iter().position(|m| m.0.contains_key(&key)) {
-                    return Err(SolverError::Unsupported(format!(
-                        "{section} {}: {key}: {what} (<Variable> {suffix}) are not implemented",
-                        i + 1
-                    )));
-                }
-            }
         }
     }
 
@@ -275,11 +255,6 @@ mod tests {
         assert_eq!(
             refusal(&bf("temperature")),
             "Body Force 1: temperature: body-force Dirichlet values are not implemented"
-        );
-        assert_eq!(
-            refusal(&bf("temperature single node")),
-            "Body Force 1: temperature single node: single-node Dirichlet values \
-             (<Variable> single node) are not implemented"
         );
         assert!(check(&bf("heat source")).is_ok());
 
