@@ -171,3 +171,89 @@ fn check_previous_solution(step: i64, x: f64, s: f64, tol: OneDTolerances) -> Re
         _ => Ok(()),
     }
 }
+
+/// Where a fixture's `PRINT *` goes: one record per call, without the
+/// newline.
+pub type PrintSink = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// `PRINT *` to standard output, as the Fortran does.
+pub fn stdout_sink() -> PrintSink {
+    Arc::new(|line| println!("{line}"))
+}
+
+/// A `REAL(dp)` as gfortran's list-directed output writes it after an
+/// earlier item: a separator blank, then `G25.17E3` (`F` form with five
+/// trailing blanks for `0.1 <= |x| < 1e17`, `1PE` form otherwise).
+pub fn list_real(x: f64) -> String {
+    const SIG: usize = 17;
+    // The decimal exponent after rounding to 17 digits picks the form.
+    let e = format!("{:.*e}", SIG - 1, x.abs());
+    let (mantissa, exp) = e.split_once('e').unwrap_or((&e, "0"));
+    let exp: i32 = exp.parse().unwrap_or(0);
+    let sign = if x.is_sign_negative() && x != 0.0 { "-" } else { "" };
+    if x == 0.0 {
+        return format!(" {:>20}{:5}", format!("{:.*}", SIG - 1, 0.0), "");
+    }
+    if (-1..SIG as i32 - 1).contains(&exp) {
+        let decimals = (SIG as i32 - 1 - exp) as usize;
+        let f = format!("{sign}{:.*}", decimals, x.abs());
+        format!(" {f:>20}{:5}", "")
+    } else {
+        let es = format!("{sign}{mantissa}E{}{:03}", if exp < 0 { '-' } else { '+' }, exp.abs());
+        format!(" {es:>25}")
+    }
+}
+
+/// `HeatControlExplicit/AlternatingSource.F90`: a heat source of `+1` or
+/// `-1` whose sign flips when the control value crosses `+-0.07`.
+///
+/// The case calls it as `Variable "cpar, time"`: `x(1)` is the control
+/// value at the centre point, `x(2)` the time. `sgn` (`INTEGER :: sgn = 1`,
+/// `SAVE`d) lives in the instance. Each flip prints `Neg source:` or `Pos
+/// source:` with the time and the control value; the Fortran prints on
+/// rank 0 only (`ParEnv % MyPe == 0`), which `rank0` says.
+pub struct AlternatingSource {
+    sgn: Mutex<i32>,
+    rank0: bool,
+    out: PrintSink,
+}
+
+impl AlternatingSource {
+    /// `tlim`.
+    pub const LIMIT: f64 = 0.07;
+
+    pub fn new(rank0: bool, out: PrintSink) -> Self {
+        Self { sgn: Mutex::new(1), rank0, out }
+    }
+
+    /// The current sign (`sgn`).
+    pub fn sign(&self) -> i32 {
+        *self.sgn.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// `f = sgn * 1.0` after the switching checks for `x = (tcenter, time)`.
+    pub fn eval(&self, tcenter: f64, time: f64) -> f64 {
+        let mut sgn = self.sgn.lock().unwrap_or_else(PoisonError::into_inner);
+        if *sgn == 1 && tcenter > Self::LIMIT {
+            if self.rank0 {
+                (self.out)(&format!(" Neg source:{}{}", list_real(time), list_real(tcenter)));
+            }
+            *sgn = -1;
+        }
+        if *sgn == -1 && tcenter < -Self::LIMIT {
+            if self.rank0 {
+                (self.out)(&format!(" Pos source:{}{}", list_real(time), list_real(tcenter)));
+            }
+            *sgn = 1;
+        }
+        f64::from(*sgn)
+    }
+
+    /// Adapter for the registry: the arguments are `(cpar, time)`.
+    pub fn into_fn(self) -> NodeFn {
+        Arc::new(move |_node, x| match x {
+            [tcenter, time, ..] => self.eval(*tcenter, *time),
+            _ => panic!("AlternatingSource: needs two arguments (control value and time), got {}", x.len()),
+        })
+    }
+}

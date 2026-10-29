@@ -18,20 +18,66 @@ References below are paths under `/home/john/runs/elmer-fork/orig_src/fem/tests/
 | `MySource` | `ConstantParamFunc/MySource.F90` | scalar function, `Variable "time, <const>"` | `udf::my_source`, `my_source_fn` |
 | `InitDist` | `AdvDiffFCT/InitDist.f90` | scalar function reading `Model % Nodes` | `udf::init_dist`, `init_dist_fn` |
 | `Source` | `1dtests/Source.f90`, `1dtests_MeshLevels/Source.f90` | scalar function with per-instance `OldStep` and previous-solution assertions | `udf::OneDSource` |
-| `BulkAssembly`, `BoundaryAssembly` | `PoissonAssembly.f90` of `CoupledPoisson1`..`9`, `BlockPoisson1`, `BlockPoisson2` | element assembly kernels (`Bulk Assembly Procedure`) | `poisson_assembly::PoissonAssembly` |
+| `BulkAssembly`, `BoundaryAssembly` | `PoissonAssembly.f90` of `CoupledPoisson1`..`9`, `BlockPoisson1`, `BlockPoisson2` | element assembly kernels (`Bulk Assembly Procedure`) | `poisson_assembly::PoissonAssembly`; as `elmer-solver` `ElementAssembly` on `elmer-fe`: `hooks::{PoissonBulk, PoissonBoundary}` |
+| `PoissonSolver` | `1dtests/Poisson.f90` (+ `1dtests_MeshLevels`), `ExtrudedMesh/Poisson.f90` (+ `ExtrudedMeshBaseline1`) | solver procedure (`Procedure "Poisson" "PoissonSolver"`) | `poisson_solver` |
+| `AlternatingSource` | `HeatControlExplicit/AlternatingSource.F90` | scalar function, `Variable "cpar, time"`, `SAVE sgn`, prints each flip | `udf::AlternatingSource` (not registered, see below) |
+
+### Cases that match the pristine reference end to end
+
+`tests/end_to_end_*.rs` run the cases' own `.sif` files on ElmerGrid meshes
+through `elmer-run`'s `SifFrontend`, `elmer-mesh`, the mesh-load transforms
+and `elmer-solver` with `elmer-run`'s solver registry plus these fixtures
+(`tests/case/`, a copy of `elmer_run::run_case` that adds them). Each passes
+its reference check and prints the `CompareToReferenceSolution` norm the
+pristine ElmerSolver (26.2-devel, Rev 9f6af2f85, with the compiled `.so`
+plugins) printed:
+
+| Case | Fixtures | Pristine norm |
+|---|---|---|
+| `CoupledPoisson1` (`Assembly Solver`) | `PoissonBulk` | 7.78240309E-02 |
+| `CoupledPoisson3`..`9` (`Coupled Solver`, constraints) | `PoissonBulk` | 6.96052509E-02, 5.10670175E+01, 5.85178077E+01, 7.56321899E-01, 7.84091700E-02, 5.25188761E-01, 2.40813064E+00 |
+| `1dtests`, `1dtests_MeshLevels` (5 transient steps, `Mesh Levels = 8`) | `PoissonSolver`, `Source` | 1.40257363E+00, 1.41393619E+00 |
+| `ExtrudedMesh` (`Extruded Mesh Layers = 3`) | `PoissonSolver` | 3.78170795E-02 |
+
+Refused with a named reason:
+
+- `ExtrudedMeshBaseline1`: its `PoissonSolver` runs on the baseline, boundary
+  elements that a BC's `Body ID = 2` turns into a body. `elmer-solver`'s
+  active elements are bulk elements only, so the solver refuses
+  (`Boundary Condition 5 Body ID`) instead of solving an empty system.
+  Solver 1 (HeatSolve, StructuredMeshMapper) matches the pristine norm.
+- `HeatControlExplicit`: `AlternatingSource` is ported and tested against
+  the pristine run's `PRINT *` lines, but it is **not registered**. Its
+  argument `cpar` exists only through `Apply Explicit Control`, which
+  `elmer-solver` does not implement, and `elmer-expr` evaluates a missing
+  variable as zero where Elmer stops with `Can't find independent
+  variable`. Registered, the case runs to norm 0 (a mismatch) instead of
+  erroring. Register it once explicit control exists or `elmer-run`
+  refuses `Apply Explicit Control`.
+- `BlockPoisson1`, `BlockPoisson2`: registered, but `Block Solver = True` is
+  refused by `elmer-solver` (`coupled.rs`).
 
 `registry::install(case, model, &UdfRegistry)` registers a case's scalar
 fixtures under the names its `.sif` uses, as **new instances**, so two runs in
 one process never share `SAVE`d state. `registry::lookup` builds a single
-instance. Keys are `(case, library, entry)` because plugin names repeat across
-cases: `Source` alone is five different files (see the inventory).
+instance. `registry::register(case, &mut SolverRegistry)` adds the case's
+solver procedures and element assembly routines; each routine the solver
+builds from them starts with fresh `SAVE`d state. Keys are `(case, library,
+entry)` because plugin names repeat across cases: `Source` alone is five
+different files, `Poisson` `PoissonSolver` seven (see the inventory).
+
+A composition running case `case` (the `fem/tests` directory name) does,
+before `Simulation::setup`:
 
 ```rust
-let model: Arc<dyn ModelView> = /* live view of the running simulation */;
-let udfs = elmer_expr::UdfRegistry::new();
-elmer_fixtures::registry::install("1dtests", model, &udfs);
-let prop = elmer_expr::compile_with(&value, &udfs, &Default::default())?;
+let mut registry = elmer_run::solver_registry();
+elmer_fixtures::registry::register(case, &mut registry);
+let mut sim = Simulation::new(model);
+elmer_fixtures::registry::install_live(case, &mut sim, mesh); // Simulation::live_model + Backends::udfs
+sim.setup(mesh, &registry, log, comm)?;
 ```
+
+`elmer_solver::LiveModel` implements `ModelView`.
 
 ### Fidelity notes (each is checked by a test)
 
@@ -71,26 +117,32 @@ export CARGO_BUILD_JOBS=1 RUST_TEST_THREADS=1 OMP_NUM_THREADS=1 RAYON_NUM_THREAD
 cargo test --manifest-path <worktree>/native/Cargo.toml -p elmer-fixtures
 ```
 
-`tests/support/` holds test-only stand-ins (ADR 003, rule 6): a P1 triangle and
-two-node line basis with quadrature, and a mutable model. They go away when
-`elmer-fe` and the solver's live model view land. Reference behaviour was
-checked on the pristine `ElmerSolver`: `1dtests` runs steps 1 to 5 through the
-compiled `Source.so` and passes (`Norm = 1.40257363E+00`, relative error
-`1.9e-12`).
+`tests/support/` holds the stand-ins the kernel unit tests use (ADR 003,
+rule 6): a P1 triangle and two-node line basis with quadrature, and a mutable
+model. The fixtures themselves integrate with `elmer-fe` and read
+`elmer_solver::LiveModel`. `tests/case/` is the end-to-end composition;
+`install_fe` keeps one basis per process, so there is one test binary per
+coordinate dimension (`end_to_end_1d`, `_2d`, `_3d`). Case files and
+ElmerGrid meshes are in `tests/data/` (`meshes/` holds the two shared by
+several cases).
 
-## What an integration needs (not blockers for this crate)
+## What `elmer-run` needs to run these cases (not this crate's directory)
 
-1. A live model view with this exact shape, implemented by the solver side:
-   `pub trait ModelView: elmer_expr::FieldLookup + Send + Sync { fn n_nodes(&self) -> usize; }`
-   (defined in this crate; `FieldLookup::value("potential", node)` must be
-   `None` for nodes outside the variable's permutation, and `time()` must be the
-   simulation `Time`).
-2. A solver-side hook that calls `PoissonAssembly::{bulk, boundary}` per
-   element for `Bulk Assembly Procedure` / `Boundary Assembly Procedure`.
-   `elmer-solver` has none yet. The coupled cases (`Coupled Solver`,
-   `Constraint n Type`, `Variable n`) also need the block/constraint machinery.
-3. The `1dtests` Poisson **solver** is a plugin, not a scalar function; see the
-   inventory.
+1. In `run_case`: `elmer_fixtures::registry::register(case, &mut registry)`
+   after `solver_registry()`, and
+   `elmer_fixtures::registry::install_live(case, &mut sim, mesh)` before
+   `sim.setup`, with `case` the `fem/tests` directory name. `elmer-coverage`
+   stages each test under its test name (`HeatControlExplicit_np3` for the
+   `HeatControlExplicit` directory), so it should hand over the source
+   directory's name rather than `case_dir.file_name()`.
+2. `preflight` refuses `Solver n: no Procedure` for sections with `Assembly
+   Solver = True` or `Coupled Solver = True`, which `elmer-solver` runs itself
+   (`coupled::solver_for_mode`). It should let those through (and `Block
+   Solver`, which `elmer-solver` refuses by name). `tests/case/mod.rs` has the
+   preflight the end-to-end tests use.
+3. `Apply Explicit Control` belongs in `unported.rs` (see `HeatControlExplicit`
+   above). `elmer-expr`'s zero for a missing independent variable, where
+   Elmer's `ListParseStrToValues` is `Fatal`, is the underlying gap.
 
 ## Findings about the quick list
 
@@ -129,16 +181,13 @@ column is a guide to what to read first, not a proof.
 Needs only `ModelView`. `SourceFun` has three bodies: `32(y-y^2+x-x^2)`
 (BDM2D, RaviartThomas2D), `0` (MixedPoisson2D/3D/3D_Brick) and
 `128((y^2-1/4)(z^2-1/4)+(x^2-1/4)(z^2-1/4)+(x^2-1/4)(y^2-1/4))`
-(RaviartThomas3D). `AlternatingSource` takes `x(2) = (temperature, time)`, flips
-a sign when the temperature crosses `+-0.07`, and prints on each flip. Its
-`ParEnv % MyPe == 0` guard is rank 0 in serial. `TangentForce` needs
+(RaviartThomas3D). `TangentForce` needs
 `Model % CurrentElement`, the element normal and the `Displacement Loads`
 variable.
 
 | Path (under `fem/tests/`) | Hook kind and entries | State | Blockers |
 |---|---|---|---|
 | `BDM2D/Source.F90` (+1: RaviartThomas2D) | SourceFun:scalar function | none | none (ModelView only) |
-| `HeatControlExplicit/AlternatingSource.F90` | AlternatingSource:scalar function | SAVE sgn; init tlim=0.07_dp, sgn=1 | ParEnv/MPI use |
 | `MixedPoisson2D/Source.F90` (+2: MixedPoisson3D, MixedPoisson3D_Brick) | SourceFun:scalar function | none | none (ModelView only) |
 | `NormalTangentialDisplacement/TangentForce.f90` | TangentForce:scalar function | SAVE Visited, ElementNodes, LoadPerm, LoadDofs, LoadValues; init Visited=.FALSE. | Model%Variables access; current-element context |
 | `RaviartThomas3D/Source.F90` | SourceFun:scalar function | none | none (ModelView only) |
@@ -164,14 +213,12 @@ largest group and the best next target after the scalar batch; `CountSolver` and
 
 | Path (under `fem/tests/`) | Hook kind and entries | State | Blockers |
 |---|---|---|---|
-| `1dtests/Poisson.f90` (+1: 1dtests_MeshLevels) | PoissonSolver:solver | SAVE STIFF, LOAD, FORCE, AllocationsDone, Nodes; init ; work arrays | default_* solve path; elmer-fe |
 | `AdvReactDG_P/AdvReactDG_P.F90` | AdvectionReactionSolver:solver | SAVE MASS, STIFF, LOAD, FORCE, Velo, MeshVelo, Gamma, &; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; edge/face basis (L15); p/edge/face Element in .sif; writes Solver%Variable |
 | `BDM2D/ComputeError.F90` | IntegrateError:solver | SAVE SolDOFs, Indices, AllocationsDone; init ; work arrays | elmer-fe; edge/face basis (L15); writes Solver%Variable |
 | `CurvedBndryPFEM/Poisson.f90` (+1: SD_CurvedBndryPFEM) | PoissonSolver:solver | SAVE STIFF, LOAD, FORCE, POT, AllocationsDone, Nodes; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; p/edge/face Element in .sif; writes Solver%Variable |
 | `CurvedBndryPFEM2/Poisson.f90` (+1: SD_CurvedBndryPFEM2) | PoissonSolver:solver | SAVE STIFF, LOAD, FORCE, POT, AllocationsDone, Nodes; init ; work arrays | default_* solve path; elmer-fe; p/edge/face Element in .sif |
 | `ElementUnitTest_edge/SingleEdgeElements.F90` (+2: ElementUnitTest_edge_piola, ElementUnitTest_edge_quadratic) | SingleEdgeElements_init:solver _init; SingleEdgeElements:solver | SAVE :: NoTest, cumrt, cumct, Nodes | elmer-fe; edge/face basis (L15); writes Solver%Variable |
 | `ElementUnitTest_h1/SingleElements.F90` (+2: ElementUnitTest_p1, SD_ElementUnitTest_p1) | SingleElements_init:solver _init; SingleElements:solver | SAVE :: NoTest, cumrt, cumct, Nodes | elmer-fe; p/edge/face Element in .sif; writes Solver%Variable |
-| `ExtrudedMesh/Poisson.f90` (+1: ExtrudedMeshBaseline1) | PoissonSolver:solver | SAVE STIFF, LOAD, FORCE, AllocationsDone, Nodes; init ; work arrays | default_* solve path; elmer-fe; Extruded Mesh Levels |
 | `FaceElement2D_BCs/FaceFEInterpolationTest.F90` | BestApproximationSolver:solver | SAVE STIFF, LOAD, FORCE, Acoef, AllocationsDone, Nodes, Indices; init ; work arrays | default_* solve path; elmer-fe; edge/face basis (L15); p/edge/face Element in .sif; writes Solver%Variable |
 | `FaceElement3D_BCs/FaceFEInterpolationTest.F90` | BestApproximationSolver:solver | SAVE STIFF, LOAD, FORCE, Acoef, AllocationsDone, Nodes, Indices; init ; work arrays | default_* solve path; elmer-fe; edge/face basis (L15); p/edge/face Element in .sif; writes Solver%Variable |
 | `HelmholtzEdge/Hrot.f90` | HrotSolver:solver | SAVE STIFF, LOAD, MASS, FORCE, Acoef, Bcoef, &, Nodes; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; edge/face basis (L15); p/edge/face Element in .sif; direct CSR row surgery; current-element context; writes Solver%Variable |

@@ -9,11 +9,20 @@
 //!
 //! Each call builds new fixture state, so two simulations (or two cases in
 //! one test process) never share `SAVE`d Fortran variables.
+//!
+//! Scalar functions go into an [`UdfRegistry`] ([`install`], or
+//! [`install_live`] for a [`Simulation`]); solver procedures and element
+//! assembly routines into a [`SolverRegistry`] ([`register`]). A composition
+//! running case `case` calls both before `Simulation::setup`.
 
 use std::sync::Arc;
 
+use elmer_core::MeshView;
 use elmer_expr::{Udf, UdfRegistry};
+use elmer_solver::{ElementAssembly, Simulation, SolverFactory, SolverRegistry};
 
+use crate::hooks::{PoissonBoundary, PoissonBulk};
+use crate::poisson_solver;
 use crate::udf::{init_dist_fn, my_source_fn, OneDSource, OneDTolerances};
 use crate::ModelView;
 
@@ -30,6 +39,12 @@ const FIXTURES: &[(&str, &str, &str, Build)] = &[
     ("1dtests_MeshLevels", "Source", "Source", |m| {
         Udf::Node(OneDSource::new(m, OneDTolerances::MESH_LEVELS).into_fn())
     }),
+    // `HeatControlExplicit`'s `AlternatingSource` (`udf::AlternatingSource`)
+    // is ported but not listed: its argument `cpar` exists only through
+    // `Apply Explicit Control`, which `elmer-solver` does not implement, and
+    // `elmer-expr` evaluates a missing variable as zero where Elmer stops
+    // (`Can't find independent variable`). Listing it would turn the case's
+    // refusal into a wrong answer.
 ];
 
 /// The `(library, entry)` pairs ported for `case`, empty when none are.
@@ -56,6 +71,79 @@ pub fn install(case: &str, model: Arc<dyn ModelView>, registry: &UdfRegistry) ->
             registry.register_fortran(lib, entry, build(Arc::clone(&model)));
             n += 1;
         }
+    }
+    n
+}
+
+/// [`install`] with the simulation's own live model view and function
+/// registry (`Simulation::live_model`, `Backends::udfs`). Call it before
+/// `Simulation::setup`, so initial conditions can use the functions too.
+pub fn install_live(case: &str, sim: &mut Simulation, mesh: &dyn MeshView) -> usize {
+    let model: Arc<dyn ModelView> = sim.live_model(mesh);
+    install(case, model, &sim.backends.udfs)
+}
+
+/// A solver procedure or an element assembly routine.
+#[derive(Clone, Copy)]
+enum Hook {
+    Solver(SolverFactory),
+    Assembly(fn() -> Box<dyn ElementAssembly>),
+}
+
+/// The `PoissonAssembly.f90` cases. The file is the same in all of them (up
+/// to declaration order and unused `USE` lines).
+const POISSON_ASSEMBLY_CASES: [&str; 11] = [
+    "CoupledPoisson1",
+    "CoupledPoisson2",
+    "CoupledPoisson3",
+    "CoupledPoisson4",
+    "CoupledPoisson5",
+    "CoupledPoisson6",
+    "CoupledPoisson7",
+    "CoupledPoisson8",
+    "CoupledPoisson9",
+    "BlockPoisson1",
+    "BlockPoisson2",
+];
+
+/// `(case, library, entry, hook)` for the cases with one source per case.
+const HOOKS: &[(&str, &str, &str, Hook)] = &[
+    ("1dtests", "Poisson", "PoissonSolver", Hook::Solver(poisson_solver::nodal_factory)),
+    ("1dtests_MeshLevels", "Poisson", "PoissonSolver", Hook::Solver(poisson_solver::nodal_factory)),
+    ("ExtrudedMesh", "Poisson", "PoissonSolver", Hook::Solver(poisson_solver::condensing_factory)),
+    ("ExtrudedMeshBaseline1", "Poisson", "PoissonSolver", Hook::Solver(poisson_solver::condensing_factory)),
+];
+
+fn hooks(case: &str) -> impl Iterator<Item = (&'static str, &'static str, Hook)> + '_ {
+    let assembly = POISSON_ASSEMBLY_CASES.contains(&case).then_some([
+        ("PoissonAssembly", "BulkAssembly", Hook::Assembly(|| Box::new(PoissonBulk::default()))),
+        ("PoissonAssembly", "BoundaryAssembly", Hook::Assembly(|| Box::new(PoissonBoundary::default()))),
+    ]);
+    assembly
+        .into_iter()
+        .flatten()
+        .chain(HOOKS.iter().filter(move |h| h.0 == case).map(|h| (h.1, h.2, h.3)))
+}
+
+/// The `(library, entry)` solver procedures and assembly routines ported for
+/// `case`, empty when none are.
+pub fn hook_procedures(case: &str) -> Vec<(&'static str, &'static str)> {
+    hooks(case).map(|(lib, entry, _)| (lib, entry)).collect()
+}
+
+/// Registers the solver procedures and element assembly routines of `case`
+/// into `registry` under the names its SIF uses (`registry` ignores a
+/// `./` directory part and a `.so` suffix). Every routine instance the
+/// solver builds from them starts with fresh `SAVE`d state. Returns how many
+/// were registered.
+pub fn register(case: &str, registry: &mut SolverRegistry) -> usize {
+    let mut n = 0;
+    for (lib, entry, hook) in hooks(case) {
+        match hook {
+            Hook::Solver(f) => registry.register(lib, entry, f),
+            Hook::Assembly(build) => registry.register_assembly(lib, entry, Arc::new(move |_| Ok(build()))),
+        }
+        n += 1;
     }
     n
 }

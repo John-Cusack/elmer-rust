@@ -4,12 +4,20 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Rust ports of Elmer quick-test local Fortran plugins (swarm decision D12): scalar UDFs and Poisson assembly kernels"
+description = "Rust ports of Elmer quick-test local Fortran plugins (swarm decision D12): scalar UDFs, assembly routines and solver procedures"
 
 [dependencies]
 elmer-core.workspace = true
 elmer-expr = { path = "../elmer-expr" }
+elmer-fe = { path = "../elmer-fe" }
+elmer-solver = { path = "../elmer-solver" }
 thiserror.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
+elmer-cli = { path = "../elmer-cli" }
+elmer-mesh = { path = "../elmer-mesh" }
+elmer-mesh-levels = { path = "../elmer-mesh-levels" }
+elmer-physics-meshtools = { path = "../elmer-physics-meshtools" }
+elmer-run = { path = "../elmer-run" }
+elmer-sif = { path = "../elmer-sif" }
