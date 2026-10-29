@@ -42,3 +42,7 @@ verbatim and the mesh `ElmerGrid 1 2 crucible` makes from its
 `crucible.grd` (as the test's `runtest.cmake` does). The pristine run
 prints `Norm = 8.88220240E-06` for Solver 1 (`MagnetoDynamics2DHarmonic`,
 BiCGStab(l) with ILU to 1e-10 on a nonsingular system).
+
+`InductionHeating4/` holds `fem/tests/InductionHeating4/crucible.sif`
+verbatim and the mesh `ElmerGrid 1 2 crucible-bc` makes; the pristine run
+prints `Norm = 8.85766857E-06` for Solver 1 (surface-current coil).

@@ -132,3 +132,19 @@ fn mgdyn2d_harmonic_induction_heating3() {
     assert!((norm - reference).abs() / reference < 1e-5, "norm {norm}");
     assert_eq!(passed, 1, "CompareToReferenceSolution for Solver 1");
 }
+
+#[test]
+fn mgdyn2d_harmonic_induction_heating4_surface_current() {
+    // fem/tests/InductionHeating4: InductionHeating3 with the coil current
+    // given as `Surface Current` on the coil boundaries (LocalMatrixBC)
+    // instead of a body current density. `Variable` dropped as above.
+    let (norm, n, passed) = run("InductionHeating4", "crucible.sif", |m| {
+        m.solvers[0].0.remove("variable");
+    });
+    assert!(n > 0);
+    // Pristine: Solver 1 Norm = 8.85766857E-06 (RefNorm 8.85766857E-06).
+    let reference = 8.85766857e-06;
+    eprintln!("InductionHeating4: norm {norm:.9e}, rel err {:.3e}", (norm - reference).abs() / reference);
+    assert!((norm - reference).abs() / reference < 1e-5, "norm {norm}");
+    assert_eq!(passed, 1, "CompareToReferenceSolution for Solver 1");
+}
