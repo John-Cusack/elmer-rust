@@ -1,0 +1,93 @@
+Header
+  Mesh DB "." "g"
+  Results Directory ""
+End
+Simulation
+  Max Output Level = 4
+  Coordinate System = "Cartesian"
+  Coordinate Mapping(3) = 1 2 3
+  Simulation Type = "Steady State"
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+End
+Body 1
+  Name = "Body"
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Equation 1
+  Active Solvers(3) = 1 2 3
+End
+Initial Condition 1
+  Temp = Variable Coordinate 1, Coordinate 2
+    Real MATC "tx(0)*0.9 + tx(1)*1.1 + sin(tx(0)*3.0)*0.1"
+End
+Material 1
+  Lin SDep = Variable Temp
+    Real
+      include mat.dat
+    End
+  Cub SDep = Variable Temp
+    Real Cubic
+      include mat.dat
+    End
+  Mono SDep = Variable Temp
+    Real Cubic Monotone
+      include mat.dat
+    End
+  Cond Cubic = Variable Temp
+    Real Cubic
+      include cond.dat
+    End
+  Cond Lin = Variable Temp
+    Real
+      include cond.dat
+    End
+  Two Var = Variable Coordinate 2, Temp
+    Real
+      0.0 1.0
+      2.0 3.0
+      5.0 -1.0
+    End
+  Coord Tab = Variable Coordinate 1
+    Real Cubic
+      0.0 1.0
+      0.5 2.0
+      1.1 1.5
+      2.0 4.0
+      2.6 3.0
+    End
+  Time Tab = Variable Time
+    Real
+      0.0 10.0
+      1.0 20.0
+    End
+End
+Solver 1
+  Equation = "Dummy"
+  Variable = "Temp"
+  Procedure = "HeatSolve" "HeatSolver"
+  Exec Solver = Never
+End
+Solver 2
+  Equation = "SaveMat"
+  Procedure = "SaveData" "SaveMaterials"
+  Parameter 1 = String "Lin SDep"
+  Parameter 2 = String "Cub SDep"
+  Parameter 3 = String "Mono SDep"
+  Parameter 4 = String "Cond Cubic"
+  Parameter 5 = String "Cond Lin"
+  Parameter 6 = String "Two Var"
+  Parameter 7 = String "Coord Tab"
+  Parameter 8 = String "Time Tab"
+End
+Solver 3
+  Equation = "Out"
+  Procedure = "ResultOutputSolve" "ResultOutputSolver"
+  Output File Name = "out"
+  Vtu Format = Logical True
+  Binary Output = Logical True
+  Single Precision = Logical False
+  Save Geometry Ids = Logical False
+End
