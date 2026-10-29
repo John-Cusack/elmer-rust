@@ -281,6 +281,8 @@ pub struct Simulation {
     live: Option<Arc<LiveModel>>,
     /// `SharedWarned` of `CalculateLoads`: warn about shared boundary dofs once.
     pub(crate) flux_shared_warned: bool,
+    /// `SetNormalizedKeywords` has run (`Mesh % EntityWeightsComputed`).
+    pub(crate) keywords_normalized: bool,
 }
 
 /// The run outcome of [`Simulation::run`].
@@ -326,6 +328,7 @@ impl Simulation {
             prev_sizes: vec![0.0; 5],
             live: None,
             flux_shared_warned: false,
+            keywords_normalized: false,
         }
     }
 
@@ -978,6 +981,9 @@ impl Simulation {
         if p.get("stop time").is_some() {
             return Err(SolverError::fatal("SolverActivate", "Use > Exec Condition = Real < instead of > Stop Time <"));
         }
+        // SingleSolver (MainUtils.F90:5709), before the exec condition.
+        self.normalize_keywords(mesh, log)?;
+        let p = &self.slots[ix].params;
         // ListGetCReal (MainUtils.F90:5722): may follow `time` through MATC.
         if self.creal(p, "exec condition", mesh)?.is_some_and(|st| st < 0.0) {
             return Ok(());

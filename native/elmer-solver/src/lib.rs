@@ -35,6 +35,7 @@ mod lumped;
 mod monolithic;
 pub mod model;
 pub mod norm;
+mod normalize;
 pub mod reference;
 pub mod sim;
 pub mod solver;
