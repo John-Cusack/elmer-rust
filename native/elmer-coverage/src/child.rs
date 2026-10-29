@@ -129,14 +129,14 @@ impl Buf {
 }
 
 /// The message of the log's first `ERROR::` line (`ERROR:: Caller: msg`).
-fn fatal_message(log: &str) -> Option<String> {
+pub(crate) fn fatal_message(log: &str) -> Option<String> {
     let line = log.lines().find(|l| l.contains("ERROR::"))?;
     Some(line.split_once("ERROR::").map(|(_, m)| m.trim().to_string()).unwrap_or_default())
 }
 
 /// Lines of the log that carry the verdict: failed comparisons and the
 /// fatal error.
-fn failure_lines(log: &str) -> String {
+pub(crate) fn failure_lines(log: &str) -> String {
     let lines: Vec<&str> = log
         .lines()
         .filter(|l| l.contains("FAILED") || l.contains("ERROR::"))
