@@ -4,6 +4,7 @@
 //! - HeatSolve with `Block Solver` on the LinearSystemNamespace mesh
 //!   (`tests/data/blockdrv/`) follows the pristine ElmerSolver (26.2-devel,
 //!   Rev 9f6af2f85) run up to its fatal: one block cannot be picked.
+//! - Without a Procedure and without `Variable 1`, BlockSolver's fatal.
 //! - The two-component Helmholtz system of `tests/data/complex/direct.sif`:
 //!   one coupled iteration is the `Linear System Solver = Block` solve of
 //!   the same scaled system through `elmer-block`, bit for bit, and the
@@ -100,7 +101,9 @@ fn a_coupled_iteration_is_the_block_solve() {
 }
 
 #[test]
-fn block_solver_without_procedure_is_refused() {
+fn block_solver_without_procedure_needs_variables() {
+    // Without a Procedure the blocks are `Variable 1..n`; none is BlockSolver's
+    // fatal.
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
     let mesh = support::mesh::FileMesh::read(&dir.join("1d"), 1);
     let mut model = sif_model(&dir.join("complex/direct.sif"));
@@ -108,8 +111,9 @@ fn block_solver_without_procedure_is_refused() {
     model.solvers[0].insert("Block Solver", Value::Logical(true));
     let log = Capture::default();
     let mut sim = Simulation::new(model);
-    let r = sim
-        .setup(&mesh, &SolverRegistry::new(), &log, &SerialComm)
-        .and_then(|_| sim.run(&mesh, &log, &SerialComm));
-    assert!(matches!(r, Err(SolverError::Unsupported(_))), "{r:?}");
+    let r = sim.setup(&mesh, &SolverRegistry::new(), &log, &SerialComm);
+    assert!(
+        matches!(&r, Err(SolverError::Fatal { caller, msg }) if caller == "BlockSolver" && msg == "No variables, nothing to do!"),
+        "{r:?}"
+    );
 }

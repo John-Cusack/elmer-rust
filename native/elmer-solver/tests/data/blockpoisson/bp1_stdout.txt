@@ -1,0 +1,17 @@
+BlockSolver: ---------------------------------------
+BlockSolver: Solving system of equations utilizing block strategies
+BlockSolver: ---------------------------------------
+BlockSolver: Number of coupled variables: 1
+BlockSolver: -------------------------------------------------
+BlockSolver: Coupled iteration:                1
+BlockSolver: Setting block system Dirichlet conditions
+BlockSolver: Solving in standard manner
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.77824031E-01  2.0000000     ) :: poisson
+BlockSolver: Coupled iteration:                2
+BlockSolver: Setting block system Dirichlet conditions
+BlockSolver: Solving in standard manner
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.77824031E-01 0.71989569E-10 ) :: poisson
+BlockSolver: All done
+BlockSolver: -------------------------------------------------
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.77824031E-01  2.0000000     ) :: poisson
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 7.78240309E-02  RefNorm = 7.78240310E-02

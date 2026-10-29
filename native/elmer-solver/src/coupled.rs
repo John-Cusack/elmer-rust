@@ -47,9 +47,9 @@ pub fn solver_for_mode(params: &ParamMap, registry: &SolverRegistry) -> Result<O
         }
         // The procedure runs under BlockSolver (`block_driver`).
         Some("block solver") if params.get("procedure").is_some() => Ok(None),
-        Some("block solver") => Err(SolverError::Unsupported(
-            "Block Solver without a Procedure (block-by-block assembly)".into(),
-        )),
+        Some("block solver") => Ok(Some(Box::new(crate::block_system::BlockAssembled::from_section(
+            params, registry,
+        )?))),
         Some(m) => Err(SolverError::Unsupported(format!("{m} = True"))),
     }
 }
@@ -174,6 +174,47 @@ enum ConsType {
     Floating,
     /// Dof by dof equality of two variables.
     Equality,
+}
+
+/// Assembly routines by `ProcName` and the 1-based `(row, column)` blocks
+/// naming them.
+pub(crate) type BlockRoutines = (Vec<(String, Box<dyn ElementAssembly>)>, BTreeMap<(usize, usize), usize>);
+
+/// The `Variable n` count and the `Bulk Assembly Procedure rc` routines
+/// (`Bulk Assembly Procedure` for the (1,1) block) of a block section
+/// (BlockSystemAssembly); blocks naming the same routine share one
+/// instance, as one loaded symbol shares its `SAVE`d state.
+pub(crate) fn block_routines(
+    params: &ParamMap,
+    registry: &SolverRegistry,
+) -> Result<(usize, BlockRoutines), SolverError> {
+    let nvar = (1..).take_while(|i| params.get(&format!("variable {i}")).is_some()).count();
+    let mut routines: Vec<(String, Box<dyn ElementAssembly>)> = Vec::new();
+    let mut factories: BTreeMap<String, usize> = BTreeMap::new();
+    let mut blocks = BTreeMap::new();
+    for r in 1..=nvar {
+        for c in 1..=nvar {
+            let mut found = procedure_value(params, &format!("bulk assembly procedure {r}{c}"));
+            if found.is_none() && r == 1 && c == 1 {
+                found = procedure_value(params, "bulk assembly procedure");
+            }
+            let Some((lib, entry)) = found else { continue };
+            let name = format!("{lib} {entry}");
+            let ix = match factories.get(&name) {
+                Some(&ix) => ix,
+                None => {
+                    let f: crate::solver::AssemblyFactory = registry.assembly(&lib, &entry).ok_or_else(|| {
+                        SolverError::fatal("BlockSystemAssembly", format!("Assembly routine not found: {name}"))
+                    })?;
+                    routines.push((name.clone(), f(params)?));
+                    factories.insert(name, routines.len() - 1);
+                    routines.len() - 1
+                }
+            };
+            blocks.insert((r, c), ix);
+        }
+    }
+    Ok((nvar, (routines, blocks)))
 }
 
 /// The block layout of one visit: variables, constraints and their
@@ -302,32 +343,7 @@ impl CoupledSystem {
                 return Err(SolverError::Unsupported(format!("{k} in a Coupled Solver")));
             }
         }
-        let nvar = (1..).take_while(|i| params.get(&format!("variable {i}")).is_some()).count();
-        let mut routines: Vec<(String, Box<dyn ElementAssembly>)> = Vec::new();
-        let mut factories: BTreeMap<String, usize> = BTreeMap::new();
-        let mut blocks = BTreeMap::new();
-        for r in 1..=nvar {
-            for c in 1..=nvar {
-                let mut found = procedure_value(params, &format!("bulk assembly procedure {r}{c}"));
-                if found.is_none() && r == 1 && c == 1 {
-                    found = procedure_value(params, "bulk assembly procedure");
-                }
-                let Some((lib, entry)) = found else { continue };
-                let name = format!("{lib} {entry}");
-                let ix = match factories.get(&name) {
-                    Some(&ix) => ix,
-                    None => {
-                        let f: crate::solver::AssemblyFactory = registry.assembly(&lib, &entry).ok_or_else(|| {
-                            SolverError::fatal("BlockSystemAssembly", format!("Assembly routine not found: {name}"))
-                        })?;
-                        routines.push((name.clone(), f(params)?));
-                        factories.insert(name, routines.len() - 1);
-                        routines.len() - 1
-                    }
-                };
-                blocks.insert((r, c), ix);
-            }
-        }
+        let (nvar, (routines, blocks)) = block_routines(params, registry)?;
         if nvar == 0 {
             return Err(SolverError::fatal(CALLER, "Coupled Solver without > Variable 1 <"));
         }
@@ -733,7 +749,12 @@ impl Layout {
 /// `CreateBlockVariable` (BlockSolve.F90:138): the nodes of bulk elements
 /// whose equation lists the variable in `Active Variables[solver]` (else
 /// `Active Variables`), numbered in node order.
-fn create_block_variable(ctx: &mut SolverCtx<'_>, no: usize, name: &str, p: &ParamMap) -> Result<VarId, SolverError> {
+pub(crate) fn create_block_variable(
+    ctx: &mut SolverCtx<'_>,
+    no: usize,
+    name: &str,
+    p: &ParamMap,
+) -> Result<VarId, SolverError> {
     let dofs = p.integer(&format!("variable {no} dofs")).unwrap_or(1).max(1) as usize;
     let solver_id = ctx.solver_id();
     let mut mark = vec![false; ctx.mesh.n_nodes()];
