@@ -117,8 +117,11 @@ fn thermal_pipe_2d_solution_matches_elmer() {
 #[test]
 fn transient_step_applies_dt_once() {
     // Unit triangle: nodes 2 and 3 held at 0, node 1 starts at 1. With rho cp
-    // = 6, k = 1, dt = 1 one backward-Euler step gives
-    // T1 = (rho cp / (6 dt)) / (K11 + 2 rho cp / (24 dt)) = 1 / 1.5.
+    // = 6, k = 1, dt = 1 one backward-Euler step gives T1 = 1/3: `Initialize
+    // Dirichlet Conditions` (default on) sets nodes 2 and 3 to 0 before the
+    // step, so the previous values are (1, 0, 0) and
+    // T1 = (rho cp / (12 dt)) / (K11 + 2 rho cp / (24 dt)) = 0.5 / 1.5.
+    // The pristine ElmerSolver gives the same (max T = 3.333333333333E-001).
     let mesh = SimMesh::new(read_elmer_mesh(&data("minimal_example"), 2));
     let mut model = minimal_model();
     model.simulation = sec(&[
@@ -134,7 +137,7 @@ fn transient_step_applies_dt_once() {
     model.initial_conditions = vec![sec(&[("Temperature", Value::real(1.0))])];
     let sim = run(model, &mesh).unwrap();
     let t = temperature(&sim, 3);
-    assert!((t[0] - 1.0 / 1.5).abs() < 1e-13, "{t:?}");
+    assert!((t[0] - 1.0 / 3.0).abs() < 1e-13, "{t:?}");
     assert_eq!(t[1], 0.0);
     assert_eq!(t[2], 0.0);
 }
