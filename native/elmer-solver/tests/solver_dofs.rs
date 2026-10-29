@@ -284,6 +284,16 @@ fn extra_boundary_slots_are_fixed_to_zero() {
 }
 
 #[test]
+fn element_rule_np_defaults_to_a_refusal() {
+    let b = Bubbles {
+        n: 2,
+        pin_last_bubble: false,
+    };
+    let err = b.element_rule_np(ElemId(0), 9).unwrap_err();
+    assert!(err.contains("9 points"), "{err}");
+}
+
+#[test]
 fn procedure_values_on_extra_slots_are_refused() {
     let proc_value = Value::Dependent(Dependent {
         variables: vec!["Coordinate 1".into()],
