@@ -562,9 +562,32 @@ impl<'a> SolverCtx<'a> {
                 .collect()
         };
         let mut fixed: BTreeMap<u32, f64> = BTreeMap::new();
-        // Non-nodal dofs of this solver's own variable (DefUtils.F90:6355).
+        // Non-nodal dofs (DefUtils.F90:6355): of this solver's own variable,
+        // or of a variable numbered over the same dofs (a block variable),
+        // through the dof index each layout slot stands for.
         let slot = &self.sim.slots[self.slot];
-        let layout = slot.dofs.as_deref().filter(|_| slot.variable == Some(id));
+        let own = slot.variable == Some(id);
+        let layout = slot.dofs.as_deref().filter(|d| own || v.perm.as_ref().is_some_and(|p| p.len() == d.perm().perm.len()));
+        let raw: Vec<u32> = match layout {
+            Some(d) if !own => {
+                let perm = d.perm();
+                let mut raw = vec![NO_DOF; perm.n_slots];
+                for (i, &s) in perm.perm.iter().enumerate() {
+                    if s != NO_DOF {
+                        raw[s as usize] = i as u32;
+                    }
+                }
+                raw
+            }
+            _ => Vec::new(),
+        };
+        let extra_slot = |s: u32| -> Option<usize> {
+            if own {
+                Some(s as usize)
+            } else {
+                raw.get(s as usize).copied().filter(|&i| i != NO_DOF).and_then(|i| v.slot(i))
+            }
+        };
         let mut extra = Vec::new();
         for e in self.boundary_elements() {
             let bc = self.bc_params(e).expect("boundary_elements filters on BC");
@@ -586,7 +609,9 @@ impl<'a> SolverCtx<'a> {
                     // Any other value fixes the extra (edge) dofs to zero.
                     Some(_) => {
                         for &s in &extra {
-                            fixed.insert((offset + s as usize * v.dofs + k) as u32, 0.0);
+                            if let Some(t) = extra_slot(s) {
+                                fixed.insert((offset + t * v.dofs + k) as u32, 0.0);
+                            }
                         }
                     }
                     None => {}

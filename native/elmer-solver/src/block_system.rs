@@ -7,16 +7,20 @@
 //! (`BlockKrylovIter`, or `BlockStandardIter` with `Block Preconditioner =
 //! False`), until the change is below `Nonlinear System Convergence
 //! Tolerance`. The solver's variable is then `Primary Variable` (default 1).
+//! Off-diagonal blocks and multi-component variables are assembled as
+//! Elmer does; with `Element = p:...` the dofs come from `Backends::dofs`.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
-use elmer_core::{CsrMatrix, ElemId, LocalSystem, ParamMap, Params, NO_DOF};
+use elmer_core::{CsrMatrix, ElemId, FieldKind, LocalSystem, ParamMap, Params, Value, NO_DOF};
 
 use crate::coupled::{block_routines, create_block_variable, BlockRoutines};
 use crate::error::SolverError;
 use crate::sim::LinearSystem;
 use crate::solver::{ElementAssembly, Solver, SolverCtx, SolverRegistry};
-use crate::variable::VarId;
+use crate::variable::{VarId, Variable};
+use crate::SolverDofs;
 
 const CALLER: &str = "BlockSolver";
 const RULE: &str = "---------------------------------------";
@@ -30,6 +34,9 @@ pub struct BlockAssembled {
     vars: Vec<VarId>,
     /// The assembled blocks, 1-based `(row, column)`.
     systems: BTreeMap<(usize, usize), LinearSystem>,
+    /// Non-nodal (p) dofs of the section (`Element = p:...`) and, for each
+    /// of its slots, the dof index (`GetElementDOFs`' `Indexes`) it numbers.
+    layout: Option<(Arc<dyn SolverDofs>, Vec<u32>)>,
 }
 
 impl BlockAssembled {
@@ -46,43 +53,71 @@ impl BlockAssembled {
         if nvar == 0 {
             return Err(SolverError::fatal(CALLER, "No variables, nothing to do!"));
         }
-        if let Some(&(r, c)) = blocks.keys().find(|(r, c)| r != c) {
-            return Err(SolverError::Unsupported(format!(
-                "Block Solver off-diagonal block ({r},{c}) (off-diagonal Dirichlet conditions)"
-            )));
-        }
         Ok(Self {
             routines,
             blocks,
             nvar,
             vars: Vec::new(),
             systems: BTreeMap::new(),
+            layout: None,
         })
     }
 
-    /// `BlockInitMatrix`: the block variables (created when missing) and
-    /// the pattern of every block with a routine (the list-matrix pass).
+    /// `BlockInitMatrix`: the section's dof layout, the block variables
+    /// (created when missing) and the pattern of every block with a routine
+    /// (the list-matrix pass).
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         let p = ctx.params().clone();
+        let ix = ctx.slot;
+        if let Some(b) = ctx.sim.backends.dofs.as_ref() {
+            let active = ctx.sim.slots[ix].active.clone();
+            if let Some(d) = b.for_solver_id(ctx.mesh, &ctx.sim.model, ctx.solver_id(), &p, &active, 1) {
+                let d: Arc<dyn SolverDofs> = Arc::from(d?);
+                let perm = d.perm();
+                let mut raw = vec![NO_DOF; perm.n_slots];
+                for (i, &s) in perm.perm.iter().enumerate() {
+                    if s != NO_DOF {
+                        raw[s as usize] = i as u32;
+                    }
+                }
+                // Kernels read the layout through `SolverCtx::solver_dofs`.
+                ctx.sim.slots[ix].dofs = Some(Arc::clone(&d));
+                self.layout = Some((d, raw));
+            }
+        }
+        if p.get("element").is_some() && self.layout.is_none() {
+            return Err(SolverError::NotWired("dof layout for a p-element Block Solver (Backends::dofs)".into()));
+        }
         ctx.info(CALLER, &format!("Number of coupled variables: {}", self.nvar), 4);
         for i in 1..=self.nvar {
             let name = elmer_core::normalize_key(p.string(&format!("variable {i}")).expect("counted"));
             let id = match ctx.sim.vars.id(&name) {
                 Some(id) => id,
-                None => create_block_variable(ctx, i, &name, &p)?,
+                None => match &self.layout {
+                    None => create_block_variable(ctx, i, &name, &p)?,
+                    Some(_) => self.create_p_variable(ctx, i, &name, &p)?,
+                },
             };
-            if ctx.sim.vars.by_id(id).dofs != 1 {
-                return Err(SolverError::Unsupported("Block Solver variables of several components".into()));
-            }
             self.vars.push(id);
         }
         for &(r, c) in self.blocks.keys() {
+            let (rd, cd) = (ctx.sim.vars.by_id(self.vars[r - 1]).dofs, ctx.sim.vars.by_id(self.vars[c - 1]).dofs);
+            if rd != cd {
+                return Err(SolverError::Unsupported(format!(
+                    "Block Solver block ({r},{c}) of {rd}- and {cd}-component variables"
+                )));
+            }
             let (rp, cp) = (self.perm(ctx, r), self.perm(ctx, c));
             let mut rows: Vec<BTreeSet<u32>> = vec![BTreeSet::new(); ctx.sim.vars.by_id(self.vars[r - 1]).values.len()];
             for e in (0..ctx.mesh.n_bulk() as u32).map(ElemId) {
-                let Some((ri, ci)) = slots(ctx, e, &rp, &cp) else { continue };
+                let Some((ri, ci)) = self.slots(ctx, e, &rp, &cp) else { continue };
                 for &i in &ri {
-                    rows[i as usize].extend(ci.iter().copied());
+                    for a in 0..rd {
+                        let row = &mut rows[rd * i as usize + a];
+                        for &j in &ci {
+                            row.extend((0..cd).map(|b| (cd * j as usize + b) as u32));
+                        }
+                    }
                 }
             }
             let ncols = ctx.sim.vars.by_id(self.vars[c - 1]).values.len();
@@ -93,27 +128,95 @@ impl BlockAssembled {
         Ok(())
     }
 
+    /// `CreateBlockVariable` with p dofs: the dofs (`GetElementDOFs`) of the
+    /// bulk elements whose equation lists the variable in `Active
+    /// Variables[solver]` (else `Active Variables`), numbered in dof order.
+    fn create_p_variable(&self, ctx: &mut SolverCtx<'_>, no: usize, name: &str, p: &ParamMap) -> Result<VarId, SolverError> {
+        let (layout, raw) = self.layout.as_ref().expect("p layout");
+        let dofs = p.integer(&format!("variable {no} dofs")).unwrap_or(1).max(1) as usize;
+        let solver_id = ctx.solver_id();
+        let n = layout.perm().perm.len();
+        let mut mark = vec![false; n];
+        let mut slots = Vec::new();
+        for e in (0..ctx.mesh.n_bulk() as u32).map(ElemId) {
+            let Some(eq) = ctx.body_params(e).and_then(|b| b.equation) else { continue };
+            let active = match eq.get(&format!("active variables[{solver_id}]")).or_else(|| eq.get("active variables")) {
+                Some(Value::Integer(v)) => v,
+                _ => continue,
+            };
+            if !active.contains(&(no as i32)) {
+                continue;
+            }
+            layout.element_slots(e, &mut slots);
+            for &s in &slots {
+                if let Some(&i) = raw.get(s as usize) {
+                    mark[i as usize] = true;
+                }
+            }
+        }
+        let mut j = 0u32;
+        let perm: Arc<[u32]> = mark
+            .iter()
+            .map(|&m| {
+                if m {
+                    j += 1;
+                    j - 1
+                } else {
+                    NO_DOF
+                }
+            })
+            .collect();
+        let v = Variable::new(name, FieldKind::Nodal, dofs, Some(perm), vec![0.0; j as usize * dofs]);
+        ctx.sim.vars.add(v)
+    }
+
     fn perm(&self, ctx: &SolverCtx<'_>, i: usize) -> Vec<u32> {
         ctx.sim.vars.by_id(self.vars[i - 1]).perm.as_deref().map(<[u32]>::to_vec).unwrap_or_default()
     }
 
+    /// The dof indices of bulk element `e` (`GetElementDOFs`): its nodes, or
+    /// through the p layout.
+    fn element_dofs(&self, ctx: &SolverCtx<'_>, e: ElemId) -> Option<Vec<u32>> {
+        match &self.layout {
+            None => Some(ctx.mesh.element(e).nodes.to_vec()),
+            Some((layout, raw)) => {
+                let mut slots = Vec::new();
+                layout.element_slots(e, &mut slots);
+                slots.iter().map(|&s| raw.get(s as usize).copied()).collect()
+            }
+        }
+    }
+
+    /// The row and column positions of bulk element `e`'s dofs in the two
+    /// variables, when all of them are in both (BlockSystemAssembly).
+    fn slots(&self, ctx: &SolverCtx<'_>, e: ElemId, rp: &[u32], cp: &[u32]) -> Option<(Vec<u32>, Vec<u32>)> {
+        let idx = self.element_dofs(ctx, e)?;
+        let pick = |perm: &[u32]| -> Option<Vec<u32>> {
+            idx.iter().map(|&k| perm.get(k as usize).copied().filter(|&s| s != NO_DOF)).collect()
+        };
+        Some((pick(rp)?, pick(cp)?))
+    }
+
     /// `BlockSystemAssembly(Solver, dt, Transient, r, c)` into block
-    /// `(r, c)`, then `BlockSystemDirichlet`.
+    /// `(r, c)`, then `BlockSystemDirichlet`: the Dirichlet conditions of
+    /// variable `r`, enforced in a diagonal block and only zeroing the rows
+    /// of an off-diagonal one (`EnforceDirichletConditions(OffDiagonal)`).
     fn assemble(&mut self, ctx: &mut SolverCtx<'_>, (r, c): (usize, usize), dt: f64) -> Result<(), SolverError> {
         let ix = self.blocks[&(r, c)];
         ctx.info("BlockSystemAssembly", "Starting block system assembly", 8);
         ctx.info("BlockSystemAssembly", &format!("Using assembly routine: {}", self.routines[ix].0), 8);
         let p = &mut ctx.sim.slots[ctx.slot].params;
-        p.insert("Block Matrix Row", elmer_core::Value::Integer(vec![r as i32]));
-        p.insert("Block Matrix Column", elmer_core::Value::Integer(vec![c as i32]));
+        p.insert("Block Matrix Row", Value::Integer(vec![r as i32]));
+        p.insert("Block Matrix Column", Value::Integer(vec![c as i32]));
         let (rp, cp) = (self.perm(ctx, r), self.perm(ctx, c));
+        let dofs = ctx.sim.vars.by_id(self.vars[r - 1]).dofs;
         let mut sys = self.systems.remove(&(r, c)).expect("pattern built");
         sys.matrix.values.iter_mut().for_each(|v| *v = 0.0);
         sys.rhs.iter_mut().for_each(|v| *v = 0.0);
         let mut result = Ok(());
         for e in (0..ctx.mesh.n_bulk() as u32).map(ElemId) {
-            let Some((ri, ci)) = slots(ctx, e, &rp, &cp) else { continue };
-            let n = ri.len();
+            let Some((ri, ci)) = self.slots(ctx, e, &rp, &cp) else { continue };
+            let n = ri.len() * dofs;
             let mut local = LocalSystem::zeros(n);
             local.mass = Some(vec![0.0; n * n]);
             local.damp = Some(vec![0.0; n * n]);
@@ -122,19 +225,34 @@ impl BlockAssembled {
                 break;
             }
             for (a, &i) in ri.iter().enumerate() {
-                for (b, &j) in ci.iter().enumerate() {
-                    let i = i as usize;
-                    let span = sys.matrix.row_ptr[i]..sys.matrix.row_ptr[i + 1];
-                    let at = span.start + sys.matrix.col_idx[span].binary_search(&j).expect("in the pattern");
-                    sys.matrix.values[at] += local.stiff[a * n + b];
+                for ka in 0..dofs {
+                    let row = dofs * i as usize + ka;
+                    let span = sys.matrix.row_ptr[row]..sys.matrix.row_ptr[row + 1];
+                    for (b, &j) in ci.iter().enumerate() {
+                        for kb in 0..dofs {
+                            let col = (dofs * j as usize + kb) as u32;
+                            let at = span.start + sys.matrix.col_idx[span.clone()].binary_search(&col).expect("in the pattern");
+                            sys.matrix.values[at] += local.stiff[(dofs * a + ka) * n + dofs * b + kb];
+                        }
+                    }
+                    sys.rhs[row] += local.force[dofs * a + ka];
                 }
-                sys.rhs[i as usize] += local.force[a];
             }
         }
         if result.is_ok() && sys.matrix.nrows > 0 {
             ctx.info(CALLER, "Setting block system Dirichlet conditions", 8);
             result = (|| {
                 let fixed = ctx.dirichlet_values_of(self.vars[r - 1], 0)?;
+                if r != c {
+                    for &(d, _) in &fixed {
+                        let d = d as usize;
+                        if d < sys.matrix.nrows {
+                            let span = sys.matrix.row_ptr[d]..sys.matrix.row_ptr[d + 1];
+                            sys.matrix.values[span].iter_mut().for_each(|v| *v = 0.0);
+                        }
+                    }
+                    return Ok(());
+                }
                 let sim = &mut *ctx.sim;
                 let backend = sim
                     .backends
@@ -147,19 +265,6 @@ impl BlockAssembled {
         self.systems.insert((r, c), sys);
         result
     }
-}
-
-/// The row and column slots of bulk element `e`, when all its nodes have
-/// dofs in both permutations.
-fn slots(ctx: &SolverCtx<'_>, e: ElemId, rp: &[u32], cp: &[u32]) -> Option<(Vec<u32>, Vec<u32>)> {
-    let nodes = ctx.mesh.element(e).nodes;
-    let pick = |perm: &[u32]| -> Option<Vec<u32>> {
-        nodes
-            .iter()
-            .map(|&k| perm.get(k as usize).copied().filter(|&s| s != NO_DOF))
-            .collect()
-    };
-    Some((pick(rp)?, pick(cp)?))
 }
 
 /// Sorted rows as a CSR matrix with its diagonal index.
