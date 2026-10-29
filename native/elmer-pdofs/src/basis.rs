@@ -26,7 +26,7 @@ use crate::dofs::DofLayout;
 use crate::pmesh::effective_bubble_p;
 use crate::quadrature::{
     gauss_points_p_triangle, gauss_points_quad_p, gauss_points_triangle_p, p_triangle_rule,
-    triangle_rule_tabulated,
+    p_wedge_rule, triangle_rule_tabulated,
 };
 use crate::Error;
 
@@ -108,6 +108,24 @@ impl DofLayout<'_> {
                     }
                 }
             }
+            706 => {
+                // As bricks: `p - 1` functions per edge, degree-`p` faces
+                // (triangles 1-2, squares 3-5, in the scalar ElementInfo
+                // order), effective-p bubbles.
+                let edofs = pm.edge_dofs_of(e, p);
+                if !el.edges.is_empty() && edofs > 0 {
+                    spec.edge_degree[..9].fill(edofs as i32 + 1);
+                }
+                spec.edge_dir = edge_direction(706, 9, &gind).expect("wedge edge map");
+                if !el.faces.is_empty() {
+                    spec.face_degree[..5].fill(p);
+                }
+                spec.face_dir = face_direction(706, 5, &gind).expect("wedge face map");
+                spec.scalar_face_order = true;
+                if bdofs > 0 {
+                    spec.bubble_p = effective_bubble_p(706, p, bdofs, sd);
+                }
+            }
             808 => {
                 // Edges: `p - 1` functions each; faces: the degree-`p` face
                 // functions, oriented by `getSquareFaceDirection`.
@@ -183,6 +201,7 @@ impl DofLayout<'_> {
                 Some(n) => gauss_points_p_triangle(n),
                 None => p_triangle_rule(n),
             },
+            7 => p_wedge_rule(n, np.is_some()),
             8 => fe(gauss_points_brick(n)),
             _ => Err(Error::Unsupported(format!(
                 "p integration rule for type {}",
