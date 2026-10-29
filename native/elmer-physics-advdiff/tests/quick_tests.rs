@@ -385,6 +385,65 @@ fn model_pde_transient_with_reaction_matches_elmer() {
     assert!(max_diff(&got, &want) < 1e-10, "{:e}", max_diff(&got, &want));
 }
 
+/// The quick tests `ModelPDE` (`Element = "p:2"`, full elements) and
+/// `SD_ModelPDE` (the same on serendipity elements), with the p dofs from
+/// `elmer-pdofs`: Perm, every slot's value and the norm against the pristine
+/// runs (`p2.sif`, `sd_p2.sif`).
+fn model_pde_p(serendipity: bool) -> (Vec<u32>, Vec<f64>, f64) {
+    let mesh = SimMesh::new(read_elmer_mesh(&data("model_pde"), 2));
+    let mut model = model_pde_model(false);
+    model.solvers[0].insert("Element", st("p:2"));
+    if !serendipity {
+        model
+            .simulation
+            .insert("Serendipity P Elements", Value::Logical(false));
+    }
+    let (mut sim, reg) = support::cases::simulation(model);
+    sim.backends.dofs = Some(Box::new(elmer_pdofs::PDofsBackend::new()));
+    sim.setup(
+        &mesh,
+        &reg,
+        &elmer_core::NullLogger,
+        &elmer_core::SerialComm,
+    )
+    .unwrap();
+    sim.run(&mesh, &elmer_core::NullLogger, &elmer_core::SerialComm)
+        .unwrap();
+    let v = sim.vars.get("field").unwrap();
+    let perm = v.perm.as_deref().unwrap().to_vec();
+    (perm, v.values.clone(), v.conv.norm)
+}
+
+fn check_model_pde_p(serendipity: bool, case: &str, n_dofs: usize, norm: f64) {
+    let (perm, values, got_norm) = model_pde_p(serendipity);
+    assert_eq!(values.len(), n_dofs, "{case}");
+    let want_perm = read_solution(&data("model_pde").join(format!("{case}_perm.dat")));
+    let ours: Vec<f64> = perm.iter().map(|&p| f64::from(p + 1)).collect();
+    assert_eq!(ours, want_perm, "{case}: Perm");
+    // x(Perm(i)) slot by slot, from the run's case.result.
+    let want = read_solution(&data("model_pde").join(format!("{case}_solution.dat")));
+    let got: Vec<f64> = perm.iter().map(|&p| values[p as usize]).collect();
+    assert!(
+        max_diff(&got, &want) < 1e-10,
+        "{case}: {:e}",
+        max_diff(&got, &want)
+    );
+    assert!((got_norm - norm).abs() < 1e-10, "{case}: norm {got_norm}");
+}
+
+#[test]
+fn model_pde_p2_matches_elmer() {
+    // 441 nodes + 840 edges + 400 global bubbles; Reference Norm 9.23486039E-01.
+    check_model_pde_p(false, "p2", 1681, 0.9234860388553119);
+}
+
+#[test]
+fn sd_model_pde_p2_matches_elmer() {
+    // Serendipity p:2: no bubbles, the economic 8-point quad rule; Reference
+    // Norm 1.0578593.
+    check_model_pde_p(true, "sd_p2", 1281, 1.057859263392748);
+}
+
 fn setup_error(model: Model, mesh: &SimMesh) -> String {
     let (mut sim, reg) = support::cases::simulation(model);
     sim.setup(mesh, &reg, &elmer_core::NullLogger, &elmer_core::SerialComm)
