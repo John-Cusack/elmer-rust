@@ -7,7 +7,10 @@ use std::sync::OnceLock;
 use elmer_core::{ElemId, ElementBasis, LocalSystem, ParamMap, Params, Quadrature, Value, NO_DOF};
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
-use crate::material::{Conductivity, HeatBcAtNodes, HeatBoundaryConfig, HeatBulkConfig};
+use crate::material::{
+    Conductivity, HeatBcAtNodes, HeatBoundaryConfig, HeatBulkConfig, Stabilization,
+};
+use crate::preflight::stabilized;
 use crate::{
     check_supported, heat_boundary_local, heat_bulk_local, HeatError, HeatMaterialAtNodes,
     HeatSections, PROCEDURE,
@@ -119,6 +122,25 @@ fn conductivity(
     }
 }
 
+/// `Convection = Constant`: `Convection Velocity i` of the material at the
+/// element nodes; a component without its own keyword is zero.
+fn convection_velocity(
+    ctx: &SolverCtx<'_>,
+    m: Option<&ParamMap>,
+    e: ElemId,
+    n: usize,
+) -> Result<Vec<[f64; 3]>, SolverError> {
+    let mut v = vec![[0.0; 3]; n];
+    for i in 0..3 {
+        if let Some(c) = real_at_nodes(ctx, m, &format!("Convection Velocity {}", i + 1), e)? {
+            for (vn, ci) in v.iter_mut().zip(c) {
+                vn[i] = ci;
+            }
+        }
+    }
+    Ok(v)
+}
+
 fn axisymmetric(ctx: &SolverCtx<'_>) -> Result<bool, SolverError> {
     match ctx.simulation_params().string("coordinate system") {
         None => Ok(false),
@@ -138,8 +160,7 @@ fn axisymmetric(ctx: &SolverCtx<'_>) -> Result<bool, SolverError> {
 impl Solver for HeatSolver {
     /// Refuses every keyword in the sections this solver reads that the
     /// kernels would otherwise ignore (see [`check_supported`]), and
-    /// convection, whose SUPG parameters need element sizes that
-    /// `MeshView` does not provide.
+    /// `Convection = Computed`, which needs the flow solution field.
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         axisymmetric(ctx)?;
         let elems: Vec<ElemId> = ctx.active_elements().collect();
@@ -172,12 +193,11 @@ impl Solver for HeatSolver {
             if bp
                 .equation
                 .and_then(|e| e.string("Convection"))
-                .is_some_and(|c| !c.eq_ignore_ascii_case("none"))
+                .is_some_and(|c| c.eq_ignore_ascii_case("computed"))
             {
                 return Err(SolverError::Unsupported(
-                    "Convection: SUPG needs Element % hK and Element % StabilizationMK \
-                     (StabParam, Stabilize.F90), which neither MeshView nor the element \
-                     basis provides yet"
+                    "Convection = Computed: reading the flow solution as the convection \
+                     field is not implemented"
                         .into(),
                 ));
             }
@@ -216,6 +236,14 @@ impl Solver for HeatSolver {
             quad_points: None,
         };
         let mut dofs = Vec::new();
+        // SUPG (`Stabilize`) takes `Element % hK` and `Element %
+        // StabilizationMK`, which `MeshStabParams` fills at mesh load with
+        // `StabParam` in the model dimension.
+        let supg = stabilized(ctx.params());
+        let long_edge = ctx
+            .simulation_params()
+            .logical("Stabilization Use Longest Element Edge")
+            .unwrap_or(false);
 
         for iter in 1..=maxiter {
             ctx.info(CALLER, &format!("Heat solver iteration: {iter}"), 4);
@@ -230,6 +258,10 @@ impl Solver for HeatSolver {
                         SolverError::fatal(CALLER, format!("element {} has no body", e.0))
                     })?;
                     let (m, bf) = (bp.material, bp.body_force);
+                    let convected = bp
+                        .equation
+                        .and_then(|q| q.string("Convection"))
+                        .is_some_and(|c| c.eq_ignore_ascii_case("constant"));
                     HeatMaterialAtNodes {
                         conductivity: match m {
                             Some(m) => conductivity(ctx, m, e, n)?,
@@ -250,8 +282,19 @@ impl Solver for HeatSolver {
                             "Volumetric Heat Source",
                             e,
                         )?,
-                        convection_velocity: None,
+                        convection_velocity: if convected {
+                            Some(convection_velocity(ctx, m, e, n)?)
+                        } else {
+                            None
+                        },
                     }
+                };
+                bulk_cfg.stabilization = if supg && mat.convection_velocity.is_some() {
+                    let (m_k, h_k) = elmer_fe::stab_param(el.etype, &xyz, dim, long_edge)
+                        .map_err(|err| SolverError::fatal(CALLER, err.to_string()))?;
+                    Stabilization::Supg { h_k, m_k }
+                } else {
+                    Stabilization::None
                 };
                 heat_bulk_local(
                     &*self.basis,

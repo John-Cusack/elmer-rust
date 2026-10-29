@@ -37,8 +37,13 @@ time-integration lane forms `M/dt`.
 
 Scalar, diagonal and full-tensor `Heat Conductivity`; `Density`, `Heat
 Capacity`; `Heat Source` (times density) and `Volumetric Heat Source`;
-constant or computed convection velocity with Galerkin or SUPG weighting
-(`hK` and `StabilizationMK` supplied by the caller); `Heat Transfer
+convection in the kernels: constant or computed velocity, with Galerkin or
+SUPG weighting (`hK` and `StabilizationMK` supplied by the caller).
+`HeatSolver` runs `Convection = Constant` (the material's `Convection Velocity
+i`, a missing component being zero) with SUPG. It takes `hK` and
+`StabilizationMK` per element from `elmer_fe::stab_param`, which is what
+`MeshStabParams` computes, honouring `Stabilization Use Longest Element
+Edge`. `Heat Transfer
 Multiplier`; axisymmetric weighting; `Heat Flux`; `Heat Transfer Coefficient`
 with `External Temperature`.
 
@@ -52,13 +57,10 @@ without `Stabilize = True`), `Legacy Assembly`, adaptive refinement,
 
 ## Not yet
 
-- Convection through `HeatSolver` (blocked on `elmer-fe`): the kernels take
-  SUPG `hK` and `StabilizationMK`, but `HeatSolver` cannot get them. Elmer
-  computes both per element at mesh load (`MeshStabParams` ->
-  `StabParam`, Stabilize.F90). Needed from `elmer-fe`, for example
-  `fn stab_param(etype: ElementType, xyz: &[[f64; 3]]) -> (f64 /* mK */, f64 /* hK */)`
-  passed through `install_fe` with the basis, or `hK`/`mK` on `MeshView`'s
-  element. Until then the solver refuses `Convection` at setup.
+- `Convection = Computed` through `HeatSolver`: the kernels support it, but
+  the solver does not yet read the flow solution as the convection field, so
+  it refuses the keyword at setup. ALE (`Mesh Velocity`) subtraction is not
+  applied either.
 - Bitwise identity with Fortran: matrix parity here is 1e-13 relative through
   a test-local glue loop, basis and quadrature (`tests/support/`); bitwise
   needs `elmer-fe` and the oracle lane.
@@ -78,10 +80,13 @@ cargo test --manifest-path native/Cargo.toml -p elmer-physics-heat
   pristine ElmerSolver: `heateq_bdf2` (BDF2, variable step, nodal max diff
   below 1e-13), `heateq_spline_table` (cubic `k(T)` table, Picard converging
   in Elmer's 10 iterations, norm to 1e-10), and Robin and axisymmetric
-  variants of ThermalPipe2D (norms to 1e-13).
+  variants of ThermalPipe2D (norms to 1e-13), and `angle_convection`
+  (constant convection, conductivity 0.01, `Stabilize = True`: SUPG with
+  `elmer-fe`'s `hK`/`mK`, nodal max diff below 1e-12, norm to 1e-13).
   `Simulation` runs with its default `elmer-assembly` and `elmer-timeint`
-  backends, `elmer-krylov` BiCGStab with `elmer-sparse` ILU(0), and a dense LU
-  standing in for UMFPACK (`tests/support/cases.rs`).
+  backends, `elmer-krylov` BiCGStab with `elmer-sparse` ILU(0), a dense LU
+  standing in for UMFPACK, and `elmer-fe`'s basis and Gauss rules
+  (`tests/support/cases.rs`).
 - `tests/kernels.rs`: closed-form local matrices.
 - `tests/mms.rs`: L2 convergence rates for P1/P2 triangles and quads.
 - `tests/preflight.rs`: refusals.

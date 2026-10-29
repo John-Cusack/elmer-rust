@@ -10,6 +10,7 @@ description = "HeatSolve element kernels (bulk and boundary) for the Rust-native
 elmer-core.workspace = true
 thiserror.workspace = true
 elmer-solver = { path = "../elmer-solver" }
+elmer-fe = { path = "../elmer-fe" }
 
 [dev-dependencies]
 # HUTI BiCGStab and ILU(0) for the larger Fortran reference cases.

@@ -1,8 +1,8 @@
 //! Running `HeatSolver` through `elmer-solver`'s `Simulation` with its
 //! default assembly (`elmer-assembly`) and time (`elmer-timeint`) backends,
 //! HUTI BiCGStab with ILU(0) from `elmer-krylov`/`elmer-sparse`, a dense LU
-//! standing in for UMFPACK, and the test-local basis standing in for
-//! `elmer-fe`. Model sections are built by hand until `elmer-sif` merges.
+//! standing in for UMFPACK, and `elmer-fe`'s Lagrange basis and Gauss rules.
+//! Model sections are built by hand until `elmer-sif` merges.
 
 use std::path::{Path, PathBuf};
 
@@ -13,7 +13,6 @@ use elmer_solver::{Model, Simulation, SolverError, SolverRegistry};
 use elmer_sparse::Ilu;
 
 use super::backends::{DenseLu, SimMesh};
-use super::{TestBasis, TestQuadrature};
 
 pub fn data(case: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -47,7 +46,14 @@ pub fn st(s: &str) -> Value {
 
 pub fn install() {
     // Idempotent across tests in this binary.
-    let _ = install_fe(|| (Box::new(TestBasis), Box::new(TestQuadrature)));
+    // cdim 3: the test meshes are flat (z = 0), which gives the same bits
+    // as Elmer's model dimension 2.
+    let _ = install_fe(|| {
+        (
+            Box::new(elmer_fe::LagrangeBasis::new(3)),
+            Box::new(elmer_fe::ElmerQuadrature),
+        )
+    });
 }
 
 pub fn simulation(model: Model) -> (Simulation, SolverRegistry) {

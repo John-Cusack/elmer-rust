@@ -200,3 +200,37 @@ fn thermal_pipe_axisymmetric_matches_elmer() {
     assert!(d < 1e-10, "max diff {d:e}");
     assert_rel(norm(&sim, "temperature"), 35.21274966573315, 1e-13);
 }
+
+/// The `angle` mesh with constant convection, conductivity 0.01 (Peclet
+/// about 10 per element) and `Stabilize = True`: SUPG with `hK` and `mK`
+/// from `elmer_fe::stab_param`, as `MeshStabParams` sets them.
+#[test]
+fn angle_convection_supg_matches_elmer() {
+    let mesh = SimMesh::new(read_elmer_mesh(&data("heateq_bdf2"), 2));
+    let simulation = sec(&[
+        ("Simulation Type", st("Steady State")),
+        ("Coordinate System", st("Cartesian 2D")),
+        ("Steady State Max Iterations", ints(&[1])),
+    ]);
+    let mut solver = direct();
+    solver.extend([
+        ("Stabilize", Value::Logical(true)),
+        ("Nonlinear System Max Iterations", ints(&[1])),
+    ]);
+    let mut model = angle_model(simulation, heat_solver("Temp", &solver));
+    model.equations[0].insert("Convection", st("Constant"));
+    model.materials = vec![sec(&[
+        ("Density", Value::real(1.0)),
+        ("Heat Capacity", Value::real(1.0)),
+        ("Heat Conductivity", Value::real(0.01)),
+        ("Convection Velocity 1", Value::real(2.0)),
+        ("Convection Velocity 2", Value::real(1.0)),
+    ])];
+    let sim = run(model, &mesh).unwrap();
+    let t = nodal(&sim, "temp", mesh.mesh.coords.len());
+    let want = read_solution(&data("angle_convection").join("solution.dat"));
+    let d = max_diff(&t, &want);
+    assert!(d < 1e-12, "max diff {d:e}");
+    // Elmer's full-precision norm (its log prints 0.32784308).
+    assert_rel(norm(&sim, "temp"), 0.3278430808661644, 1e-13);
+}
