@@ -155,7 +155,7 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
         ));
     }
     if let Some(e) = p.string("element") {
-        if e.trim().to_ascii_lowercase() != "n:1" {
+        if !e.trim().eq_ignore_ascii_case("n:1") {
             return Err(unsupported(format!("Element = \"{e}\" (only the nodal \"n:1\" element)")));
         }
     }

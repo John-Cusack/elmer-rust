@@ -13,6 +13,10 @@
 //! ported (the solver refuses them): bubbles and p-elements, compressibility
 //! models, non-newtonian and turbulent viscosity, axisymmetric coordinates.
 
+// A structural transliteration of Fortran loops over `1:dim` that index several
+// arrays by the same component number.
+#![allow(clippy::needless_range_loop)]
+
 use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, Quadrature};
 
 use crate::error::IncompressibleError;
