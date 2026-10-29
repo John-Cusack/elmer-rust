@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use elmer_core::{Communicator, Logger, MeshView};
+use elmer_core::{Communicator, Logger, MeshView, Params};
 use elmer_solver::{
     finalize_reference, solver::procedure_of, Model, RunReport, Simulation, SolverError, SolverRegistry,
 };
@@ -45,6 +45,14 @@ fn preflight(model: &Model, registry: &SolverRegistry) -> Result<(), SolverError
         };
         if registry.get(&lib, &entry).is_none() {
             return Err(SolverError::Unsupported(format!("Solver {}: Procedure \"{lib}\" \"{entry}\"", i + 1)));
+        }
+    }
+    // MapBodiesAndBCs fallbacks `Model::bc_of_tag` does not apply.
+    for (i, bc) in model.boundary_conditions.iter().enumerate() {
+        for k in ["default target", "default bc"] {
+            if bc.logical(k) == Some(true) {
+                return Err(SolverError::Unsupported(format!("Boundary Condition {}: {k}", i + 1)));
+            }
         }
     }
     Ok(())

@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use elmer_core::{FieldKind, FieldSource, MeshView, Params, Value};
+use elmer_core::{ElemId, ElementRef, FieldKind, FieldSource, MeshView, ParamMap, Params};
 use elmer_solver::{variable::Snapshot, Model, Simulation, SolverError};
 use elmer_vtu::{post_file_solver, FileIndexer, GeometryIds, VtuNaming, VtuOptions};
 
@@ -49,7 +49,7 @@ pub fn take_post_file(model: &mut Model, case_dir: &Path, mesh_dir: &Path) -> Re
         return Err(SolverError::Unsupported("a directory in the Post File name".into()));
     }
     if opts.save_geometry_ids {
-        opts = opts.with_geometry(geometry(model)?);
+        opts = opts.with_geometry(geometry(model));
     }
     let dir = match params
         .string("output directory")
@@ -61,34 +61,62 @@ pub fn take_post_file(model: &mut Model, case_dir: &Path, mesh_dir: &Path) -> Re
     Ok(Some(VtuOutput { opts, dir }))
 }
 
-/// Body and BC facts for `GeometryIds`. A BC's tag is the mesh boundary it
-/// targets (Fortran maps `Constraint` to the BC section at load time), so a
-/// BC that targets several boundaries cannot be expressed by `elmer-vtu`'s
-/// one-tag-per-BC `GeometryIds` and is refused.
-fn geometry(model: &Model) -> Result<GeometryIds, SolverError> {
-    let mut bc_tags = Vec::new();
-    for (i, bc) in model.boundary_conditions.iter().enumerate() {
-        match bc.get("target boundaries") {
-            Some(Value::Integer(t)) if t.len() == 1 => bc_tags.push(t[0]),
-            None => bc_tags.push(0),
-            Some(_) => {
-                return Err(SolverError::Unsupported(format!(
-                    "Save Geometry Ids with several Target Boundaries in Boundary Condition {}",
-                    i + 1
-                )))
-            }
-        }
-    }
-    let ids = |secs: &[elmer_core::ParamMap]| secs.iter().map(|s| s.integer("geometry id")).collect();
-    let names = |secs: &[elmer_core::ParamMap]| secs.iter().map(|s| s.string("name").map(str::to_string)).collect();
-    Ok(GeometryIds {
+/// Body and BC facts for `GeometryIds`. The writer sees [`MappedTags`], so
+/// BC `i` has tag `i` (`Model % BCs(i) % Tag = i`, ModelDescription.F90:658).
+fn geometry(model: &Model) -> GeometryIds {
+    let ids = |secs: &[ParamMap]| secs.iter().map(|s| s.integer("geometry id")).collect();
+    let names = |secs: &[ParamMap]| secs.iter().map(|s| s.string("name").map(str::to_string)).collect();
+    GeometryIds {
         n_bodies: model.bodies.len(),
-        bc_tags,
+        bc_tags: (1..=model.boundary_conditions.len() as i32).collect(),
         body_geometry_id: ids(&model.bodies),
         bc_geometry_id: ids(&model.boundary_conditions),
         body_names: names(&model.bodies),
         bc_names: names(&model.boundary_conditions),
-    })
+    }
+}
+
+/// The mesh as Fortran's writers see it after `MapBodiesAndBCs`
+/// (MeshLoad.F90:330-455): a boundary element's tag is the BC that targets
+/// it, or 0 when none does; a bulk element's tag is its body. The solver
+/// keeps the file tags and maps them on lookup, so only the writer needs
+/// this view.
+struct MappedTags<'a> {
+    mesh: &'a dyn MeshView,
+    model: &'a Model,
+}
+
+impl MeshView for MappedTags<'_> {
+    fn dim(&self) -> usize {
+        self.mesh.dim()
+    }
+    fn n_nodes(&self) -> usize {
+        self.mesh.n_nodes()
+    }
+    fn coord(&self, node: u32) -> [f64; 3] {
+        self.mesh.coord(node)
+    }
+    fn n_bulk(&self) -> usize {
+        self.mesh.n_bulk()
+    }
+    fn n_boundary(&self) -> usize {
+        self.mesh.n_boundary()
+    }
+    fn element(&self, e: ElemId) -> ElementRef<'_> {
+        let mut el = self.mesh.element(e);
+        el.tag = if (e.0 as usize) < self.mesh.n_bulk() {
+            self.model.body_of_tag(el.tag).map_or(el.tag, |b| b as i32)
+        } else {
+            self.model.bc_of_tag(el.tag).map_or(0, |b| b as i32)
+        };
+        el
+    }
+    fn element_edges(&self, e: ElemId) -> Option<&[u32]> {
+        self.mesh.element_edges(e)
+    }
+    fn element_faces(&self, e: ElemId) -> Option<&[u32]> {
+        self.mesh.element_faces(e)
+    }
 }
 
 impl VtuOutput {
@@ -129,7 +157,8 @@ impl VtuOutput {
         let name = naming.file_name(&self.opts.output_file_name, ".vtu", index, None, false);
         std::fs::create_dir_all(&self.dir)?;
         let path = self.dir.join(name);
-        elmer_vtu::write_vtu(&path, mesh, &Snapshot { store: &sim.vars }, &self.opts)?;
+        let mapped = MappedTags { mesh, model: &sim.model };
+        elmer_vtu::write_vtu(&path, &mapped, &Snapshot { store: &sim.vars }, &self.opts)?;
         Ok(path)
     }
 }

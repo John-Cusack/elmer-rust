@@ -49,6 +49,17 @@ impl FileMesh {
         elems.extend(rows(&dir.join("mesh.boundary")).iter().map(|r| elem(r, 4)));
         FileMesh { dim, coords, elems, n_bulk }
     }
+
+    /// `Coordinate Scaling` applied at mesh load (MeshUtils `CoordinateScaling`
+    /// for a scalar factor), standing in for `elmer-mesh`.
+    pub fn scaled(mut self, factor: f64) -> Self {
+        for c in &mut self.coords {
+            for x in c.iter_mut() {
+                *x *= factor;
+            }
+        }
+        self
+    }
 }
 
 impl MeshView for FileMesh {
