@@ -107,9 +107,15 @@ fn geometry(model: &Model) -> GeometryIds {
 /// it, or 0 when none does; a bulk element's tag is its body. The solver
 /// keeps the file tags and maps them on lookup, so only the writer needs
 /// this view.
-struct MappedTags<'a> {
+pub(crate) struct MappedTags<'a> {
     mesh: &'a dyn MeshView,
     model: &'a Model,
+}
+
+impl<'a> MappedTags<'a> {
+    pub(crate) fn new(mesh: &'a dyn MeshView, model: &'a Model) -> Self {
+        MappedTags { mesh, model }
+    }
 }
 
 impl MeshView for MappedTags<'_> {

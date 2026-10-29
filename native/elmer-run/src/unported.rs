@@ -29,8 +29,6 @@ const fn flag(key: &'static str, reason: &'static str) -> Rule {
 }
 
 const SIMULATION: &[Rule] = &[
-    present("Mesh Levels", "uniform mesh refinement (SplitMeshEqual) is not implemented"),
-    present("Extruded Mesh Levels", "mesh extrusion (MeshExtrude) is not implemented"),
     flag("Increase Element Order", "quadratic element generation is not implemented"),
 ];
 
