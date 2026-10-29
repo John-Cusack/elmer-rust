@@ -56,6 +56,11 @@ pub fn parse_ctest(text: &str) -> Vec<QuickTest> {
 /// Lists the tests carrying `label` in the pristine build tree. This reads
 /// ctest's registry only; no test is run.
 pub fn list(build_dir: &Path, label: &str) -> Result<Vec<QuickTest>, String> {
+    Ok(parse_ctest(&ctest_listing(build_dir, label)?))
+}
+
+/// The raw `ctest -N -V -L label` output.
+fn ctest_listing(build_dir: &Path, label: &str) -> Result<String, String> {
     let out = Command::new("nice")
         .args(["-n", "10", "ctest", "-N", "-V", "-L", label])
         .current_dir(build_dir)
@@ -64,7 +69,23 @@ pub fn list(build_dir: &Path, label: &str) -> Result<Vec<QuickTest>, String> {
     if !out.status.success() {
         return Err(format!("ctest -N failed: {}", String::from_utf8_lossy(&out.stderr)));
     }
-    Ok(parse_ctest(&String::from_utf8_lossy(&out.stdout)))
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// [`list`] through a cache file holding the raw ctest listing: when `cache`
+/// exists ctest is not run at all; otherwise ctest runs once and its output
+/// is saved there. The listing names absolute paths into the build tree,
+/// which the run then only reads and executes.
+pub fn list_cached(build_dir: &Path, label: &str, cache: &Path) -> Result<Vec<QuickTest>, String> {
+    let text = match std::fs::read_to_string(cache) {
+        Ok(t) => t,
+        Err(_) => {
+            let t = ctest_listing(build_dir, label)?;
+            std::fs::write(cache, &t).map_err(|e| format!("{}: {e}", cache.display()))?;
+            t
+        }
+    };
+    Ok(parse_ctest(&text))
 }
 
 #[cfg(test)]

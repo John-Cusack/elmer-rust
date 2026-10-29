@@ -235,8 +235,10 @@ pub fn render(records: &[Record], meta: &Meta) -> String {
         out,
         "\n## Refreshing\n\n```\n. native/swarm-env.sh\n\
          cargo run --release --manifest-path native/Cargo.toml -p elmer-coverage -- run --out native/elmer-coverage\n```\n\n\
-         Pristine binaries run serially at `nice -n 10`; nothing here builds Fortran. Rerun after each major merge \
-         and commit `COVERAGE.md` and `results.tsv` together."
+         Pristine binaries run serially at `nice -n 10`; nothing here builds Fortran. The quick-test list comes \
+         from `ctest-quick.txt` beside this file (the raw `ctest -N -V -L quick` listing); delete it to list again \
+         with ctest (`--ctest-cache` names another file). Rerun after each major merge and commit `COVERAGE.md`, \
+         `results.tsv` and the cache together."
     );
     out
 }
