@@ -153,7 +153,7 @@ impl Solver for Helmholtz {
 /// iterated `Nonlinear System Max Iterations` times until
 /// `default_converged`: stiffness `k grad N . grad N`, mass `rho c_p N N`
 /// through `Default1stOrderTime`, load `rho * source` interpolated at the
-/// Gauss points.
+/// Gauss points, and the Robin boundary term.
 pub struct HeatNl;
 
 pub fn heat_nl(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
@@ -204,6 +204,35 @@ impl Solver for HeatNl {
                 local.mass = Some(mass);
                 if transient {
                     ctx.default_first_order_time(&mut local, e, dt)?;
+                }
+                ctx.default_update(&local, e)?;
+            }
+            ctx.default_finish_bulk_assembly()?;
+            // Robin: `Heat Transfer Coefficient` h and `External Temperature`
+            // T_ext add h N N and h T_ext N.
+            let boundary: Vec<ElemId> = ctx.boundary_elements().collect();
+            for e in boundary {
+                let n = ctx.mesh.element(e).nodes.len();
+                let Some(bc) = ctx.bc_params(e) else { continue };
+                let Some(h) = ctx.real_at_nodes(bc, "heat transfer coefficient", e)? else { continue };
+                let text = ctx.real_at_nodes(bc, "external temperature", e)?.unwrap_or_else(|| vec![0.0; n]);
+                let el = ctx.mesh.element(e);
+                let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+                let mut local = LocalSystem::zeros(n);
+                let mut ev = BasisEval::default();
+                for qp in super::quad::TestQuadrature.gauss_points(el.etype, None) {
+                    super::basis::TestBasis
+                        .eval(el.etype, &xyz, qp.uvw, &mut ev)
+                        .map_err(|m| SolverError::fatal("HeatSolve", m))?;
+                    let w = qp.weight * ev.det_j;
+                    let hh: f64 = ev.basis.iter().zip(&h).map(|(a, b)| a * b).sum();
+                    let tt: f64 = ev.basis.iter().zip(&text).map(|(a, b)| a * b).sum();
+                    for p in 0..n {
+                        for q in 0..n {
+                            local.stiff[p * n + q] += w * hh * ev.basis[p] * ev.basis[q];
+                        }
+                        local.force[p] += w * hh * tt * ev.basis[p];
+                    }
                 }
                 ctx.default_update(&local, e)?;
             }

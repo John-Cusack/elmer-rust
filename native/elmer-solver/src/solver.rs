@@ -540,6 +540,14 @@ impl<'a> SolverCtx<'a> {
                 }
             }
         }
+        // SetDirichletBoundaries: `<name> Single Node` after the others.
+        for (k, key) in &keys {
+            for (n, x) in self.single_nodes(id, key)? {
+                if let Some(s) = v.slot(n) {
+                    fixed.insert((offset + s * v.dofs + k) as u32, x);
+                }
+            }
+        }
         Ok(fixed.into_iter().collect())
     }
 
@@ -547,6 +555,7 @@ impl<'a> SolverCtx<'a> {
     pub fn default_dirichlet(&mut self) -> Result<(), SolverError> {
         self.default_finish_boundary_assembly()?;
         let fixed = self.dirichlet_values()?;
+        self.lumped_rows()?;
         let sim = &mut *self.sim;
         let backend = sim
             .backends
