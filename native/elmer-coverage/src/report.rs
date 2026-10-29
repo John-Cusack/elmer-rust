@@ -144,7 +144,10 @@ pub fn render(records: &[Record], meta: &Meta) -> String {
          directory, its mesh is generated with the pristine `ElmerGrid` exactly as its `runtest.cmake` does, \
          and its `.sif` is run through `elmer-run`'s `NativeEngine` (the engine behind `elmer-cli`) with \
          `elmer-sif` as parser. The oracle is the case's own `Reference Norm` and `Reference Norm Tolerance` \
-         (default 1e-5), applied by `CompareToReferenceSolution`; a test matches when `TEST.PASSED` is `1`.\n"
+         (default 1e-5), applied by `CompareToReferenceSolution`; a test matches when `TEST.PASSED` is `1`. \
+         A test with more than one process runs under `mpirun -np N elmer-mpi-run` once the static screen \
+         passes, and matches when `TEST.PASSED_N` is `1`; without an `elmer-mpi-run` binary next to the \
+         harness it is refused as `mpi: np=N`.\n"
     );
     let _ = writeln!(out, "## Result\n");
     verdict_table(&mut out, &all);
