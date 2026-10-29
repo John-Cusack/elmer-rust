@@ -139,8 +139,8 @@ fn run(c: &Case) {
         for (dt, val) in &c.dirichlet {
             if *dt == tag {
                 for &nd in bnodes {
-                    for i in 0..c.cdim {
-                        constrained.insert(nd * c.cdim + i, val[i]);
+                    for (i, v) in val.iter().enumerate().take(c.cdim) {
+                        constrained.insert(nd * c.cdim + i, *v);
                     }
                 }
             }
