@@ -23,8 +23,11 @@ fn cases_get_their_own_procedures_under_the_sif_names() {
     assert!(reg.get("Poisson", "PoissonSolver").is_some());
     assert_eq!(registry::hook_procedures("ExtrudedMesh"), vec![("Poisson", "PoissonSolver")]);
 
+    // PoissonPFEM's own `Poisson.f90`, ported in `elmer-pdofs`.
+    assert_eq!(registry::hook_procedures("PoissonPFEM"), vec![("Poisson", "PoissonSolver")]);
+
     // Same file names, different sources: not ported, so not registered.
-    for case in ["PoissonPFEM", "CurvedBndryPFEM", "SolverSpecificMeshes", "BDM2D"] {
+    for case in ["CurvedBndryPFEM", "SolverSpecificMeshes", "BDM2D"] {
         assert_eq!(registry::register(case, &mut SolverRegistry::new()), 0, "{case}");
     }
 }
