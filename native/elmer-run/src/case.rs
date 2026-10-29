@@ -13,6 +13,8 @@ use elmer_solver::{
 
 use crate::compose::{coordinate_system, fe_backend, install_fe, solver_registry_for};
 use crate::matc::SifMatc;
+use elmer_expr::MatcEngine;
+use elmer_pdofs::PDofsBackend;
 use crate::motion::MovableMesh;
 use crate::output::{is_result_output, prepare_vtu_output, MappedTags};
 use elmer_mortar::{generate_periodic_projectors, PeriodicAssembly, ProjectorEnv};
@@ -276,15 +278,23 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
 }
 
 /// Whether the section's `Element` (if any) is one a provider evaluates:
-/// the Lagrange `n:1`, or `p:1` for ThermoElectricSolver. Its `b:N`
-/// bubbles stay refused: the solver condenses them, while Elmer keeps them
-/// in the global system and its solution norm (the `Reference Norm`).
+/// the Lagrange `n:1`; `p:1` for ThermoElectricSolver, whose `b:N`
+/// bubbles stay refused (the solver condenses them, while Elmer keeps them
+/// in the global system and its solution norm, the `Reference Norm`); and
+/// any definition for the test-local `Poisson` `PoissonSolver`, whose
+/// PoissonPFEM port reads its DOFs from `elmer-pdofs` and whose nodal
+/// ports refuse p-elements themselves.
 pub fn native_element(params: &ParamMap) -> bool {
     let Some(e) = params.string("element") else { return true };
     if normalize_key(e) == "n:1" {
         return true;
     }
-    procedure_of(params).is_some_and(|(lib, _)| lib.eq_ignore_ascii_case("thermoelectricsolver"))
+    let Some((lib, entry)) = procedure_of(params) else { return false };
+    let lib = lib.trim_start_matches("./");
+    if lib.eq_ignore_ascii_case("poisson") && entry.eq_ignore_ascii_case("poissonsolver") {
+        return true;
+    }
+    lib.eq_ignore_ascii_case("thermoelectricsolver")
         && elmer_physics_thermoelectric::parse_element(e).is_ok_and(|nb| nb == 0)
 }
 
@@ -386,6 +396,12 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
 
     let mut sim = Simulation::new(model);
     sim.backends.fe = Some(fe_backend(coords.dim));
+    // Solver sections with a non-nodal `Element`; `p:%f` degrees are
+    // `GetMatcReal(f, 4, [body, x, y, z], 'cx')` (MeshBasics.F90).
+    let degree: Arc<elmer_pdofs::solver::MatcFn> = Arc::new(|f: &str, cx: [f64; 4]| {
+        SifMatc.eval_with("cx", f, &cx)?.first().copied().ok_or_else(|| format!("MATC {f}: no value"))
+    });
+    sim.backends.dofs = Some(Box::new(PDofsBackend::new().with_matc(degree)));
     if let Some(periodic) = periodic {
         sim.backends.assembly = Some(Box::new(periodic));
     }
