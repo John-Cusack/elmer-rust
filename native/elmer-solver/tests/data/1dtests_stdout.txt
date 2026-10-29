@@ -1,0 +1,33 @@
+MAIN: Time: 1/5:   1.000E+00
+ComputeChange: SS (ITER=1) (NRM,RELC): (  0.0000000      0.0000000     ) :: poisson
+MAIN: Time: 2/5:   2.000E+00
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.89355196      2.0000000     ) :: poisson
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.89355196      2.0000000     ) :: poisson
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.89355196      0.0000000     ) :: poisson
+ComputeChange: SS (ITER=2) (NRM,RELC): ( 0.89355196      0.0000000     ) :: poisson
+MAIN: Time: 3/5:   3.000E+00
+ComputeChange: NS (ITER=1) (NRM,RELC): (  1.4146839     0.45154129     ) :: poisson
+ComputeChange: SS (ITER=1) (NRM,RELC): (  1.4146839     0.45154129     ) :: poisson
+ComputeChange: NS (ITER=1) (NRM,RELC): (  1.4146839      0.0000000     ) :: poisson
+ComputeChange: SS (ITER=2) (NRM,RELC): (  1.4146839      0.0000000     ) :: poisson
+MAIN: Time: 4/5:   4.000E+00
+ComputeChange: NS (ITER=1) (NRM,RELC): (  1.4032709     0.81001434E-02 ) :: poisson
+ComputeChange: SS (ITER=1) (NRM,RELC): (  1.4032709     0.81001434E-02 ) :: poisson
+ComputeChange: NS (ITER=1) (NRM,RELC): (  1.4026166     0.46641606E-03 ) :: poisson
+ComputeChange: SS (ITER=2) (NRM,RELC): (  1.4026166     0.46641606E-03 ) :: poisson
+ComputeChange: NS (ITER=1) (NRM,RELC): (  1.4025763     0.28714562E-04 ) :: poisson
+ComputeChange: SS (ITER=3) (NRM,RELC): (  1.4025763     0.28714562E-04 ) :: poisson
+ComputeChange: NS (ITER=1) (NRM,RELC): (  1.4025738     0.17895621E-05 ) :: poisson
+ComputeChange: SS (ITER=4) (NRM,RELC): (  1.4025738     0.17895621E-05 ) :: poisson
+ComputeChange: NS (ITER=1) (NRM,RELC): (  1.4025736     0.11192306E-06 ) :: poisson
+ComputeChange: SS (ITER=5) (NRM,RELC): (  1.4025736     0.11192306E-06 ) :: poisson
+ComputeChange: NS (ITER=1) (NRM,RELC): (  1.4025736     0.71339786E-08 ) :: poisson
+ComputeChange: SS (ITER=6) (NRM,RELC): (  1.4025736     0.71339786E-08 ) :: poisson
+ComputeChange: NS (ITER=1) (NRM,RELC): (  1.4025736     0.58544191E-09 ) :: poisson
+ComputeChange: SS (ITER=7) (NRM,RELC): (  1.4025736     0.58544191E-09 ) :: poisson
+MAIN: Time: 5/5:   5.000E+00
+ComputeChange: NS (ITER=1) (NRM,RELC): (  1.4025736     0.17616799E-09 ) :: poisson
+ComputeChange: SS (ITER=1) (NRM,RELC): (  1.4025736     0.17616799E-09 ) :: poisson
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 1.40257363E+00  RefNorm = 1.40257363E+00
+CompareToReferenceSolution: Relative Error to reference norm: 3.926936E-12
+CompareToReferenceSolution: PASSED all 1 tests!

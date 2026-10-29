@@ -3,7 +3,7 @@
 //! nonlinear (`NS`) and steady-state/coupled (`SS`) levels.
 //!
 //! Not ported yet (they return [`SolverError::Unsupported`] when asked
-//! for): residual mode, soft-limiter-aware relaxation, a weight variable for
+//! for): soft-limiter-aware relaxation, a weight variable for
 //! `Set Average Solution`, and parallel residual measures. The convergence
 //! monitor file is not written.
 
@@ -97,6 +97,8 @@ pub fn compute_change(env: &ChangeEnv<'_>, var: &mut Variable, st: &mut SolverSt
     };
 
     let (measure, absolute, mut relaxation, mut relax, aitken, relax_before, relative_p, skip_constraints, nodal_norm);
+    // No residual mode for steady state analysis.
+    let mut residual = false;
     let iter_no = env.iter_no;
     if env.steady {
         if p.logical("skip compute steady state change") == Some(true) {
@@ -141,9 +143,7 @@ pub fn compute_change(env: &ChangeEnv<'_>, var: &mut Variable, st: &mut SolverSt
             env.log.info(CALLER, "Skipping the computation of nonlinear change", 15);
             return Ok(skipped());
         }
-        if p.logical("linear system residual mode") == Some(true) {
-            return Err(SolverError::Unsupported("Linear System Residual Mode".into()));
-        }
+        residual = p.logical("linear system residual mode") == Some(true);
         measure = p.string("nonlinear system convergence measure").unwrap_or("norm").to_string();
         absolute = p
             .logical("nonlinear system convergence absolute")
@@ -263,7 +263,16 @@ pub fn compute_change(env: &ChangeEnv<'_>, var: &mut Variable, st: &mut SolverSt
             }
         }
     };
-    if relax && relax_before {
+    if residual {
+        // The solve gave the update dx of A dx = b - A x0 (SolveSystem).
+        let v0 = x0
+            .as_deref()
+            .ok_or_else(|| SolverError::fatal(CALLER, "residual mode needs the previous iterate"))?;
+        let r = if relax && relax_before { relaxation } else { 1.0 };
+        for i in 0..n {
+            var.values[i] = v0[i] + r * var.values[i];
+        }
+    } else if relax && relax_before {
         relax_now(&mut var.values, x0.as_deref());
     }
 

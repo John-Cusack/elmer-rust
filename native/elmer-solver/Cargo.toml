@@ -16,3 +16,7 @@ elmer-krylov = { path = "../elmer-krylov" }
 elmer-sparse = { path = "../elmer-sparse" }
 elmer-timeint = { path = "../elmer-timeint" }
 thiserror.workspace = true
+
+[dev-dependencies]
+elmer-fixtures = { path = "../elmer-fixtures" }
+elmer-sif = { path = "../elmer-sif" }

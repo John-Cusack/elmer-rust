@@ -2,16 +2,20 @@
 //! scheduling that drives them (ElmerSolver.F90 `ExecSimulation`,
 //! MainUtils.F90 `SolveEquations`/`SolverActivate`/`SingleSolver`).
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use elmer_core::{
     normalize_key, Communicator, CsrMatrix, ElemId, FieldKind, Logger, MeshView, ParamMap, Params, Value, NO_DOF,
 };
+use elmer_expr::MatcEngine;
 
 use crate::backend::{Backends, Perm};
 use crate::change::{compute_change, ChangeEnv, ChangeReport, SolverState};
 use crate::error::SolverError;
+use crate::expr::{SharedMatc, SimFields};
 use crate::fortran_fmt::{es, i2s, list_int};
+use crate::live::LiveModel;
 use crate::model::Model;
 use crate::reference::ReferenceTally;
 use crate::solver::{procedure_of, Solver, SolverCtx, SolverRegistry};
@@ -88,13 +92,16 @@ pub struct SolverSlot {
     pub perm: Option<Arc<[u32]>>,
     /// Bulk elements on bodies whose equation activates this solver.
     pub active: Vec<ElemId>,
-    /// `Solver % TimeOrder` (0 steady, 1 first order).
+    /// `Solver % TimeOrder` (0 steady, 1 first order, 2 second order).
     pub time_order: u8,
     /// `Solver % Order` (BDF order, 1 otherwise).
     pub order: usize,
     /// `Solver % DoneTime`: timesteps initialised so far.
     pub done_time: usize,
     pub times_visited: usize,
+    /// `Solver % dt`: the step size of the current visit (`Timestep Scale`
+    /// applied).
+    pub dt: f64,
     pub state: SolverState,
     pub system: Option<LinearSystem>,
     pub(crate) instance: Option<Box<dyn Solver>>,
@@ -116,6 +123,7 @@ impl SolverSlot {
             order: 1,
             done_time: 0,
             times_visited: 0,
+            dt: 0.0,
             state: SolverState::default(),
             system: None,
             instance: None,
@@ -220,6 +228,8 @@ pub struct Simulation {
     pub reference: ReferenceTally,
     /// Previous step sizes, newest first (`sPrevSizes`, ElmerSolver.F90:3064-3070).
     pub prev_sizes: Vec<f64>,
+    /// The model view handed to user functions, once asked for.
+    live: Option<Arc<LiveModel>>,
 }
 
 /// The run outcome of [`Simulation::run`].
@@ -229,6 +239,23 @@ pub struct RunReport {
     pub steps: usize,
     pub steady_state_reached: bool,
 }
+
+/// Real keywords `ComputeChange` reads (SolverBasics.F90:3571-4100), most
+/// with `ListGetCReal`: evaluated once per call when they are not constants.
+const CHANGE_CREALS: &[&str] = &[
+    "steady state relaxation factor",
+    "nonlinear system relaxation factor",
+    "steady state max norm",
+    "nonlinear system max norm",
+    "steady state convergence tolerance",
+    "steady state divergence limit",
+    "steady state exit condition",
+    "nonlinear system convergence tolerance",
+    "nonlinear system divergence limit",
+    "nonlinear system exit condition",
+    "nonlinear system newton after tolerance",
+    "average solution value",
+];
 
 /// The globals `ExecSimulation` keeps (ElmerSolver.F90:1091-1107).
 const GLOBALS: [&str; 6] = ["time", "timestep", "timestep size", "timestep interval", "nonlin iter", "coupled iter"];
@@ -246,7 +273,44 @@ impl Simulation {
             backends: Backends::default(),
             reference: ReferenceTally::default(),
             prev_sizes: vec![0.0; 5],
+            live: None,
         }
+    }
+
+    /// The live model view for user functions that read node coordinates,
+    /// `Time` or other fields (Elmer passes them `Model`). Created on the
+    /// first call and kept current from then on; see [`LiveModel`].
+    pub fn live_model(&mut self, mesh: &dyn MeshView) -> Arc<LiveModel> {
+        let live = self
+            .live
+            .get_or_insert_with(|| Arc::new(LiveModel::new(mesh, &self.vars)));
+        live.publish(&self.vars);
+        Arc::clone(live)
+    }
+
+    /// Copies the current field values into the live model view, if any.
+    pub(crate) fn publish_live(&self) {
+        if let Some(l) = &self.live {
+            l.publish(&self.vars);
+        }
+    }
+
+    /// Installs the MATC evaluator the front end parsed the `.sif` with, so
+    /// keyword values see the variables and functions it defined.
+    pub fn set_matc(&mut self, matc: Rc<dyn MatcEngine>) {
+        self.backends.matc = Some(Box::new(SharedMatc(matc)));
+    }
+
+    /// The fields as `elmer-expr` reads them.
+    pub fn fields<'a>(&'a self, mesh: &'a dyn MeshView) -> SimFields<'a> {
+        SimFields { vars: &self.vars, mesh }
+    }
+
+    /// `ListGetCReal(section, key)` against this simulation's fields, MATC
+    /// engine and function registry.
+    pub fn creal(&self, section: &ParamMap, key: &str, mesh: &dyn MeshView) -> Result<Option<f64>, SolverError> {
+        let b = &self.backends;
+        crate::expr::eval_creal(section, key, &self.fields(mesh), b.matc.as_deref(), &b.udfs)
     }
 
     pub fn is_transient(&self) -> bool {
@@ -287,6 +351,9 @@ impl Simulation {
                     slot.instance = Some(f(&slot.params)?);
                 }
             }
+            if let Some(s) = crate::coupled::solver_for_mode(&slot.params, registry)? {
+                slot.instance = Some(s);
+            }
             slot.active = (0..mesh.n_bulk() as u32)
                 .map(ElemId)
                 .filter(|&e| {
@@ -300,6 +367,7 @@ impl Simulation {
             }
             if let Some(vs) = slot.params.string("variable").map(str::to_string) {
                 let spec = parse_variable_spec(&vs, slot.params.integer("variable dofs"))?;
+                self.publish_live();
                 self.add_solver_variable(&mut slot, &spec, mesh)?;
             }
             self.slots.push(slot);
@@ -337,11 +405,7 @@ impl Simulation {
             slot.time_order = 0;
             return Ok(());
         }
-        let k = p.integer("time derivative order").unwrap_or(1).clamp(1, 2);
-        if k == 2 {
-            return Err(SolverError::Unsupported("Time Derivative Order = 2".into()));
-        }
-        slot.time_order = 1;
+        slot.time_order = p.integer("time derivative order").unwrap_or(1).clamp(1, 2) as u8;
         Ok(())
     }
 
@@ -365,7 +429,12 @@ impl Simulation {
         let mut v = Variable::new(&spec.name, FieldKind::Nodal, spec.dofs, Some(perm_arc.clone()), values);
         v.output = spec.output;
         if slot.time_order > 0 {
-            let m = slot.order.max(slot.time_order as usize);
+            // MainUtils.F90:2510-2517: seven columns for a second-order equation.
+            let m = if slot.time_order == 2 {
+                7
+            } else {
+                slot.order.max(slot.time_order as usize)
+            };
             v.prev_values = vec![vec![0.0; v.values.len()]; m];
         }
         slot.perm = Some(perm_arc);
@@ -398,10 +467,11 @@ impl Simulation {
             else {
                 continue;
             };
-            let fields = crate::expr::SimFields { vars: &self.vars, mesh };
+            let fields = self.fields(mesh);
             for &(k, key) in &keys {
                 let Some(val) = ic.get(key) else { continue };
-                let xs = crate::expr::eval_at_nodes(val, el.nodes, &fields, self.backends.matc.as_deref())?;
+                let b = &self.backends;
+                let xs = crate::expr::eval_at_nodes_with(val, el.nodes, &fields, b.matc.as_deref(), &b.udfs)?;
                 for (&n, &x) in el.nodes.iter().zip(&xs) {
                     let s = perm[n as usize];
                     if s != NO_DOF {
@@ -439,8 +509,21 @@ impl Simulation {
             return Err(SolverError::Unsupported("Timestep Extrapolation".into()));
         }
         let order = slot.done_time.min(slot.order);
+        let second = slot.time_order == 2;
         let v = self.vars.by_id_mut(id);
         if v.prev_values.is_empty() {
+            return Ok(());
+        }
+        if second {
+            // SolverBasics.F90:2788-2792: x, v, a of the step from the values
+            // and the predicted v, a (and the generalized-alpha column).
+            let pv = &mut v.prev_values;
+            pv[2].copy_from_slice(&v.values);
+            let (lo, hi) = pv.split_at_mut(3);
+            hi[0].copy_from_slice(&lo[0]);
+            hi[1].copy_from_slice(&lo[1]);
+            let (lo, hi) = pv.split_at_mut(6);
+            hi[0].copy_from_slice(&lo[5]);
             return Ok(());
         }
         for i in (1..order).rev() {
@@ -448,6 +531,34 @@ impl Simulation {
             hi[0].copy_from_slice(&lo[i - 1]);
         }
         v.prev_values[0].copy_from_slice(&v.values);
+        Ok(())
+    }
+
+    /// `Update2ndOrder` (SolveCore.F90:3317) after a solve of a second-order
+    /// equation: the predicted velocity and acceleration columns from the
+    /// first `n` new values, with the step's `Solver % dt`.
+    pub fn update_2nd_order(&mut self, ix: usize, n: usize) -> Result<(), SolverError> {
+        let slot = &self.slots[ix];
+        let Some(id) = slot.variable else { return Ok(()) };
+        if slot.time_order != 2 {
+            return Ok(());
+        }
+        let scheme = elmer_timeint::Scheme::from_params(&slot.params, &self.model.simulation, 2)?;
+        let Some((a, b)) = scheme.second_order_params() else {
+            return Ok(());
+        };
+        let dt = slot.dt;
+        let v = self.vars.by_id_mut(id);
+        if v.prev_values.len() < 7 {
+            return Ok(());
+        }
+        let mut state = elmer_timeint::SecondOrderState {
+            cols: std::array::from_fn(|c| std::mem::take(&mut v.prev_values[c])),
+        };
+        elmer_timeint::update_2nd_order(dt, &v.values[..n], &mut state, a, b);
+        for (c, col) in state.cols.into_iter().enumerate() {
+            v.prev_values[c] = col;
+        }
         Ok(())
     }
 
@@ -500,9 +611,17 @@ impl Simulation {
             }
             it
         };
+        let fields = SimFields { vars: &self.vars, mesh };
+        let params = crate::expr::resolve_creals(
+            &slot.params,
+            CHANGE_CREALS,
+            &fields,
+            self.backends.matc.as_deref(),
+            &self.backends.udfs,
+        )?;
         let sys = if use_system { slot.system.as_ref() } else { None };
         let env = ChangeEnv {
-            params: &slot.params,
+            params: &params,
             simulation: &self.model.simulation,
             steady,
             iter_no,
@@ -535,10 +654,9 @@ impl Simulation {
         if p.get("stop time").is_some() {
             return Err(SolverError::fatal("SolverActivate", "Use > Exec Condition = Real < instead of > Stop Time <"));
         }
-        if let Some(v) = p.get("exec condition") {
-            if crate::expr::eval_const(v, self.backends.matc.as_deref())? < 0.0 {
-                return Ok(());
-            }
+        // ListGetCReal (MainUtils.F90:5722): may follow `time` through MATC.
+        if self.creal(p, "exec condition", mesh)?.is_some_and(|st| st < 0.0) {
+            return Ok(());
         }
         let intervals = match p.get("exec intervals").or_else(|| p.get("exec interval")) {
             Some(Value::Integer(v)) => Some(v.clone()),
@@ -567,14 +685,17 @@ impl Simulation {
         let mut dts = 1.0;
         let mut time_derivative_active = transient;
         if !auxiliary {
-            dts = p.real("timestep scale").unwrap_or(1.0);
+            // ListGetConstReal (MainUtils.F90:5796).
+            if let Some(v) = p.get("timestep scale") {
+                dts = crate::expr::eval_const_with(v, self.backends.matc.as_deref(), &self.backends.udfs)?;
+            }
             if p.logical("timestep over intervals") == Some(true) {
                 dts = execi as f64;
             }
             if transient {
                 time_derivative_active = match p.logical("time derivative active") {
                     Some(b) => b,
-                    None => p.real("time derivative condition").is_none_or(|c| c > 0.0),
+                    None => self.creal(p, "time derivative condition", mesh)?.is_none_or(|c| c > 0.0),
                 };
             }
         }
@@ -584,6 +705,8 @@ impl Simulation {
         if !auxiliary {
             self.vars.set_scalar("nonlin iter", 1.0);
         }
+        self.slots[ix].dt = dts * dt;
+        self.publish_live();
         if let Some(mut inst) = self.slots[ix].instance.take() {
             let r = inst.solve(
                 &mut SolverCtx::new(self, ix, mesh, log, comm),
@@ -746,7 +869,7 @@ impl Simulation {
                 }
                 let mut transient_solver = transient;
                 if transient {
-                    if let Some(c) = p.real("steady state condition") {
+                    if let Some(c) = self.creal(p, "steady state condition", mesh)? {
                         if c > 0.0 {
                             transient_solver = false;
                             log.info("SolveEquations", "Running solver in steady state", 6);
@@ -944,7 +1067,7 @@ impl Simulation {
                     self.exec_slots(ExecWhen::BeforeSaving, dt, transient, mesh, log, comm)?;
                     self.exec_slots(ExecWhen::AfterSaving, dt, transient, mesh, log, comm)?;
                 }
-                if simp.real("exit condition").is_some_and(|c| c > 0.0) {
+                if self.creal(&simp, "exit condition", mesh)?.is_some_and(|c| c > 0.0) {
                     log.info("MAIN", "Found a positive exit condition, exiting...", 3);
                     break 'outer;
                 }

@@ -4,9 +4,12 @@
 //! diagonal preconditioner from `elmer-sparse`, keyed as IterSolve.F90 and
 //! DirectSolve.F90 read the `Linear System *` keywords.
 
-use elmer_core::{normalize_key, CsrMatrix, DirectSolver, IterativeSolver, ParamMap, Params, Preconditioner};
+use elmer_core::{
+    normalize_key, Communicator, CsrMatrix, DirectSolver, IterativeSolver, LinalgError, LinearOperator, ParamMap, Params,
+    Preconditioner, SolveStats,
+};
 use elmer_direct::{kind_for_method, BandCholesky, BandLu, DirectKind, FaerCholesky, FaerLu};
-use elmer_itermethods::{BiCgStabL, Gcr, Idrs, IterMethodsConfig};
+use elmer_itermethods::{BiCgStabL, Gcr, Idrs, IterMethodsConfig, Jacobi, Richardson, Sgs};
 use elmer_krylov::{Huti, HutiConfig};
 use elmer_sparse::Ilu;
 
@@ -44,6 +47,7 @@ pub fn elmer_registry() -> LinearSolverRegistry {
     }
     for m in ["jacobi", "richardson", "sgs"] {
         r.register_iterative(m, stationary);
+        r.register_iterative_with_matrix(m, stationary_for);
     }
     for m in DIRECT_METHODS {
         r.register_direct(m, direct);
@@ -71,13 +75,45 @@ fn itermethods(p: &ParamMap) -> Result<Box<dyn IterativeSolver<f64> + Send>, Sol
     })
 }
 
-/// Jacobi, Richardson and SGS are built from the matrix, which the
-/// registry's factories do not receive yet.
+/// Jacobi, Richardson and SGS outside [`LinearSolverRegistry::select_for`]:
+/// they are built from the matrix.
 fn stationary(p: &ParamMap) -> Result<Box<dyn IterativeSolver<f64> + Send>, SolverError> {
     Err(SolverError::NotWired(format!(
         "iterative method {} (needs the matrix at construction)",
         p.string("linear system iterative method").unwrap_or("")
     )))
+}
+
+/// Jacobi, Richardson and SGS (IterativeMethods.F90:296, :404, :178) from
+/// the assembled matrix. They ignore the preconditioner, as the Fortran
+/// does.
+fn stationary_for(p: &ParamMap, a: &CsrMatrix<f64>) -> Result<Box<dyn IterativeSolver<f64> + Send>, SolverError> {
+    let cfg = IterMethodsConfig::from_params(p)?;
+    Ok(match cfg.method_name.as_str() {
+        "jacobi" => Box::new(Jacobi::new(&cfg, a)?),
+        "richardson" => Box::new(Richardson::new(&cfg, a)),
+        _ => Box::new(OwnedSgs { cfg, a: a.clone() }),
+    })
+}
+
+/// [`Sgs`] borrows its matrix; the registry hands out owned solvers, so this
+/// keeps a copy of the assembled matrix for the one solve it is built for.
+struct OwnedSgs {
+    cfg: IterMethodsConfig,
+    a: CsrMatrix<f64>,
+}
+
+impl IterativeSolver<f64> for OwnedSgs {
+    fn solve(
+        &mut self,
+        a: &dyn LinearOperator<f64>,
+        m: &dyn Preconditioner<f64>,
+        b: &[f64],
+        x: &mut [f64],
+        comm: &dyn Communicator,
+    ) -> Result<SolveStats, LinalgError> {
+        Sgs::new(&self.cfg, &self.a).solve(a, m, b, x, comm)
+    }
 }
 
 /// `Linear System Direct Method`, default `banded` (DirectSolve.F90).
