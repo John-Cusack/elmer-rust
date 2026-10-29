@@ -343,7 +343,25 @@ impl<'a> SolverCtx<'a> {
     /// `DefaultInitialize`: run the `Slave Solvers` and `Nonlinear Pre
     /// Solvers`, create the matrix on first use, then zero the matrix values
     /// and the right-hand side.
+    /// `DefaultFinish` (DefUtils.F90:4127), for a solver to call when its
+    /// visit is done: `Apply Explicit Control` updates `cpar` from the new
+    /// field. `Solve Adjoint Equation` is refused (`Post Solvers` already are
+    /// at activation).
+    pub fn default_finish(&mut self) -> Result<(), SolverError> {
+        if self.params().logical("solve adjoint equation") == Some(true) {
+            return Err(SolverError::Unsupported("Solve Adjoint Equation".into()));
+        }
+        if self.params().logical("apply explicit control") == Some(true) {
+            crate::control::apply_explicit_control(self)?;
+        }
+        Ok(())
+    }
+
     pub fn default_initialize(&mut self) -> Result<(), SolverError> {
+        // DefUtils.F90:3897, before the slave solvers.
+        if self.params().logical("apply explicit control") == Some(true) {
+            crate::control::apply_explicit_control(self)?;
+        }
         let (mesh, log, comm) = (self.mesh, self.log, self.comm);
         self.sim.run_slave_solvers(self.slot, "Slave Solvers", mesh, log, comm)?;
         self.sim.run_slave_solvers(self.slot, "Nonlinear Pre Solvers", mesh, log, comm)?;

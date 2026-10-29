@@ -121,7 +121,7 @@ fn nodal_sources(ctx: &SolverCtx<'_>, name: &str) -> Result<Vec<f64>, SolverErro
 /// with a dof nearest to `Control Node Coordinates` (row `i` of a
 /// multi-row array, or `Control Node Coordinates i`), remembered as
 /// `Control Node Index i`. `None` when neither is given.
-fn control_node(ctx: &mut SolverCtx<'_>, i: usize) -> Option<usize> {
+pub(crate) fn control_node(ctx: &mut SolverCtx<'_>, i: usize) -> Option<usize> {
     let p = ctx.params();
     let idx = p
         .integer(&format!("control node index {i}"))
@@ -344,3 +344,56 @@ pub(crate) fn solve_controlled(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverErr
     Ok(ctx.convergence().map_or(0.0, |c| c.norm))
 }
 
+
+/// `ApplyExplicitControl` (SolveCore.F90:6441): for each of `Number Of
+/// Controls`, the solver's field at its control node minus `Control Target
+/// Value [i]`, kept in the global vector `cpar` that keywords may depend on.
+pub(crate) fn apply_explicit_control(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+    const CALLER: &str = "ApplyExplicitControl";
+    let n = ctx.params().integer("number of controls").unwrap_or(0).max(0) as usize;
+    if n == 0 {
+        ctx.warn(CALLER, "Explicit control points requested but no controls available!");
+        return Ok(());
+    }
+    let p = ctx.params();
+    if p.get("control variable").is_some() || (1..=n).any(|i| p.get(&format!("control variable {i}")).is_some()) {
+        return Err(SolverError::Unsupported("Control Variable other than the solver's (explicit control)".into()));
+    }
+    let id = ctx.sim.slots[ctx.slot]
+        .variable
+        .ok_or_else(|| SolverError::fatal("GetControlValue", "Could not find keyword for: Control Variable"))?;
+    let mut vals = Vec::with_capacity(n);
+    for i in 1..=n {
+        let node = control_node(ctx, i).ok_or_else(|| SolverError::fatal("GetControlValue", "Could not find control node!"))?;
+        let v = ctx.sim.vars.by_id(id);
+        let dof = if v.dofs > 1 {
+            ctx.params().integer("control target component").ok_or_else(|| {
+                SolverError::fatal("ListGetInteger", "Requested property: [control target component] not found")
+            })? as usize
+        } else {
+            1
+        };
+        let s = v
+            .slot(node as u32 - 1)
+            .ok_or_else(|| SolverError::fatal("GetControlValue", "Could not find control node!"))?;
+        let val = v.values[v.dofs * s + dof - 1];
+        let p = ctx.params().clone();
+        let target = match ctx.creal(&p, "control target value")? {
+            Some(t) => t,
+            None => ctx.creal(&p, &format!("control target value {i}"))?.unwrap_or(0.0),
+        };
+        vals.push(val - target);
+    }
+    let cpar = match ctx.sim.vars.id("cpar") {
+        Some(c) => c,
+        None => ctx
+            .sim
+            .vars
+            .add(crate::Variable::new("cpar", elmer_core::FieldKind::Global, n, None, vec![0.0; n]))?,
+    };
+    let c = ctx.sim.vars.by_id_mut(cpar);
+    c.values[..n].copy_from_slice(&vals);
+    c.values_changed = true;
+    ctx.sim.publish_live();
+    Ok(())
+}
