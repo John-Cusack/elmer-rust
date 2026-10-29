@@ -642,6 +642,28 @@ impl<'a> SolverCtx<'a> {
                 }
             }
         }
+        // SetDirichletBoundaries' point values (BoundaryConditionUtils.F90:803):
+        // a condition with `Target Nodes` (or `Target Coordinates`) sets the
+        // variable at those nodes.
+        for bc in &self.sim.model.boundary_conditions {
+            if !keys.iter().any(|(_, key)| bc.get(key).is_some()) {
+                continue;
+            }
+            let Some(nodes) = self.target_nodes(bc) else { continue };
+            for (k, key) in &keys {
+                let Some(value) = bc.get(key) else { continue };
+                if bc.get(&format!("{key} condition")).is_some() {
+                    return Err(SolverError::Unsupported(format!("Dirichlet mask > {key} Condition < on target nodes")));
+                }
+                let b = &self.sim.backends;
+                let vals = crate::expr::eval_at_nodes_with(value, &nodes, &self.fields(), b.matc.as_deref(), &b.udfs)?;
+                for (&n, &x) in nodes.iter().zip(&vals) {
+                    if let Some(s) = v.slot(n) {
+                        fixed.insert((offset + s * v.dofs + k) as u32, x);
+                    }
+                }
+            }
+        }
         // SetDirichletBoundaries: `<name> Single Node` after the others.
         for (k, key) in &keys {
             for (n, x) in self.single_nodes(id, key)? {
@@ -726,6 +748,37 @@ impl<'a> SolverCtx<'a> {
             }
         }
         Ok(())
+    }
+
+    /// The nodes of a condition's `Target Nodes` (1-based in the input), or
+    /// of its `Target Coordinates`: for each row the closest node within
+    /// `Target Coordinates Eps` over as many coordinates as given
+    /// (`TargetCoordinatesToTargetNodes`, `FindClosestNode`). `None` without
+    /// either.
+    pub(crate) fn target_nodes(&self, bc: &ParamMap) -> Option<Vec<u32>> {
+        let n = self.mesh.n_nodes();
+        if let Some(Value::Integer(ids)) = bc.get("target nodes") {
+            return Some(ids.iter().filter(|&&i| i >= 1 && i as usize <= n).map(|&i| i as u32 - 1).collect());
+        }
+        let Some(Value::Real { rows, cols, data }) = bc.get("target coordinates") else { return None };
+        let eps = bc.real("target coordinates eps").map_or(f64::MAX, |e| e * e);
+        let mut out = Vec::new();
+        for r in 0..*rows {
+            let c = &data[r * cols..(r + 1) * cols];
+            let mut best: Option<(f64, u32)> = None;
+            for node in 0..n as u32 {
+                let x = self.mesh.coord(node);
+                let d: f64 = c.iter().take(3).enumerate().map(|(k, ck)| (x[k] - ck).powi(2)).sum();
+                if d > eps {
+                    continue;
+                }
+                if best.is_none_or(|(m, _)| d < m) {
+                    best = Some((d, node));
+                }
+            }
+            out.extend(best.map(|(_, node)| node));
+        }
+        Some(out)
     }
 
     /// `DefaultDirichletBCs` + `EnforceDirichletConditions`.
