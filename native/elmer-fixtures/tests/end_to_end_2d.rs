@@ -71,3 +71,17 @@ fn bentonite_matches_pristine() {
     case::assert_norm_prints("bentonite", out.norm(1), "1.95292467E+02");
     assert_eq!(out.log.matches("Bentonite iteration").count(), 29);
 }
+
+/// `fem/tests/ModelPDEsplitted` and `SD_ModelPDEsplitted`
+/// (`ModelPDEsplitted.so`, `ElmerGrid 1 2 square`): ModelPDE as `_bulk` and
+/// `_boundary` steps on `Element = "p:2"` (full and serendipity p
+/// elements), with the dofs from `elmer-pdofs`.
+#[test]
+fn model_pde_splitted_cases_match_pristine() {
+    for (name, pristine) in [("ModelPDEsplitted", "9.23486039E-01"), ("SD_ModelPDEsplitted", "1.05785926E+00")] {
+        let dir = case::stage(name, None);
+        let out = case::run(name, &dir, "case.sif").unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(out.passed, Some(true), "{name}: reference check\n{}", out.log);
+        case::assert_norm_prints(name, out.norm(1), pristine);
+    }
+}

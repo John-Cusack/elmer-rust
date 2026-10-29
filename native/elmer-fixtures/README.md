@@ -26,6 +26,7 @@ References below are paths under `/home/john/runs/elmer-fork/orig_src/fem/tests/
 | `PressureSolver`, `VelocitySolver` | `StokesProj/Pressure.f90`, `StokesProj/Velocity.f90` | two solver procedures of a projection scheme; `SAVE Newton, Norm` | `stokes_proj` |
 | `BentoniteSolver` | `bentonite/BentoniteSolver.F90` | 3-dof coupled solver with `CompEta` initialisation (`SAVE AllocationsDone`), axisymmetric metric, Robin boundaries | `bentonite` |
 | `SingleEdgeElements`, `SingleEdgeElements_init` | `ElementUnitTest_edge*/SingleEdgeElements.F90` | solver procedure on `elmer-fe-hp`'s Whitney and Piola edge bases; the `_init` edit sets the variable, the edge element choice stays in the solver | `single_edge_elements` |
+| `AdvDiffSolver_bulk`, `AdvDiffSolver_boundary` | `ModelPDEsplitted/ModelPDEsplitted.f90` (+ `SD_ModelPDEsplitted`) | two step routines Elmer drives as `SOLVER_MODE_STEPS` (`ExecSolverInSteps`, ported as the driver); p dofs from `elmer-pdofs`, local bubbles condensed | `model_pde_splitted` |
 | `TestSolver` | `L2ndDerivatives/L2ndDerivativesTest.f90` | solver procedure checking basis, gradients and second derivatives (L2 projections, `STOP` on a failed check) | `l2nd_derivatives` |
 | `AlternatingSource` | `HeatControlExplicit/AlternatingSource.F90` | scalar function, `Variable "cpar, time"`, `SAVE sgn`, prints each flip | `udf::AlternatingSource` (not registered, see below) |
 
@@ -51,6 +52,7 @@ plugins) printed:
 | `ElementUnitTest_edge`, `_edge_piola`, `_edge_quadratic` (12 `RUN` blocks each) | `SingleEdgeElements` | all 36 reference values pass |
 | `StokesProj` (45 coupled iterations, as pristine) | `PressureSolver`, `VelocitySolver` | 3.79706752E-01 |
 | `bentonite` (29 nonlinear iterations, as pristine) | `BentoniteSolver` | 1.95292467E+02 |
+| `ModelPDEsplitted`, `SD_ModelPDEsplitted` (`Element = "p:2"`, full and serendipity) | `AdvDiffSolver_bulk`/`_boundary` | 9.23486039E-01, 1.05785926E+00 |
 
 `StokesProj` names `Before Linsolve = "EliminateDirichlet"`, which nothing
 implements and `elmer-solver` ignores. Eliminating Dirichlet rows does not
@@ -183,7 +185,8 @@ cargo test --manifest-path <worktree>/native/Cargo.toml -p elmer-fixtures
 rule 6): a P1 triangle and two-node line basis with quadrature, and a mutable
 model. The fixtures themselves integrate with `elmer-fe` and read
 `elmer_solver::LiveModel`. `tests/case/` is the end-to-end composition;
-`install_fe` keeps one basis per process, so there is one test binary per
+It installs `elmer-pdofs`' `PDofsBackend` for sections with a non-nodal
+`Element`, as `elmer-run` does. `install_fe` keeps one basis per process, so there is one test binary per
 coordinate dimension (`end_to_end_1d`, `_2d`, `_3d`). Case files and
 ElmerGrid meshes are in `tests/data/` (`meshes/` holds the two shared by
 several cases).
@@ -291,7 +294,6 @@ largest group and the best next target after the scalar batch; `CountSolver` and
 | `HelmholtzEdge/Hrot.f90` | HrotSolver:solver | SAVE STIFF, LOAD, MASS, FORCE, Acoef, Bcoef, &, Nodes; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; edge/face basis (L15); p/edge/face Element in .sif; direct CSR row surgery; current-element context; writes Solver%Variable |
 | `HelmholtzFace/Helmholtz.f90` | HelmholtzHDIVSolver:solver | SAVE STIFF, LOAD, MASS, FORCE, Acoef, Bcoef, &, Nodes; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; edge/face basis (L15); p/edge/face Element in .sif; direct CSR row surgery; current-element context; writes Solver%Variable |
 | `MeshColour/MeshColour.F90` | MeshColour_init:solver _init; MeshColour:solver | work arrays | METIS C binding; writes Solver%Variable |
-| `ModelPDEsplitted/ModelPDEsplitted.f90` (+1: SD_ModelPDEsplitted) | AdvDiffSolver_bulk:solver; AdvDiffSolver_boundary:solver | SAVE Nodes | default_* solve path; elmer-fe; boundary parent lookup; p/edge/face Element in .sif |
 | `PoissonML/PoissonML.f90` | PoissonSolver:solver | init diag=0._dp, eCount=0; work arrays | elmer-fe; boundary parent lookup; p/edge/face Element in .sif; writes Solver%Variable |
 | `PoissonPFEM/Poisson.f90` | PoissonSolver:solver | SAVE STIFF, LOAD, FORCE, AllocationsDone, Nodes; init ; work arrays | default_* solve path; elmer-fe; p/edge/face Element in .sif |
 | `Q1Q0/Q1Q0.f90` | StokesSolver:solver | SAVE Nodes; init Norm=0, mu=1.0d0; work arrays | default_* solve path; elmer-fe; p/edge/face Element in .sif; writes Solver%Variable |

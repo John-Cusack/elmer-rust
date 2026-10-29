@@ -25,6 +25,7 @@ use elmer_fe::{element_info, element_info_second, element_type, ElmerQuadrature,
 use elmer_solver::{Solver, SolverCtx, SolverError};
 
 use crate::hooks::coordinate_system;
+use crate::linalg::invert;
 use crate::udf::{list_real, stdout_sink, PrintSink};
 
 const CALLER: &str = "TestSolver";
@@ -55,42 +56,6 @@ pub struct TestSolver {
 /// [`SolverFactory`](elmer_solver::SolverFactory): prints to standard output.
 pub fn factory(_params: &elmer_core::ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     Ok(Box::new(TestSolver { printer: Printer { out: stdout_sink(), partial: String::new() } }))
-}
-
-/// `InvertMatrix`: Gauss-Jordan with partial pivoting, row-major `n x n`.
-fn invert(a: &mut [f64], n: usize) -> Result<(), String> {
-    let mut inv = vec![0.0; n * n];
-    for i in 0..n {
-        inv[i * n + i] = 1.0;
-    }
-    for c in 0..n {
-        let p = (c..n).max_by(|&i, &j| a[i * n + c].abs().total_cmp(&a[j * n + c].abs())).unwrap_or(c);
-        if a[p * n + c] == 0.0 {
-            return Err("InvertMatrix: singular matrix".into());
-        }
-        for k in 0..n {
-            a.swap(c * n + k, p * n + k);
-            inv.swap(c * n + k, p * n + k);
-        }
-        let d = a[c * n + c];
-        for k in 0..n {
-            a[c * n + k] /= d;
-            inv[c * n + k] /= d;
-        }
-        for r in 0..n {
-            if r != c {
-                let f = a[r * n + c];
-                if f != 0.0 {
-                    for k in 0..n {
-                        a[r * n + k] -= f * a[c * n + k];
-                        inv[r * n + k] -= f * inv[c * n + k];
-                    }
-                }
-            }
-        }
-    }
-    a.copy_from_slice(&inv);
-    Ok(())
 }
 
 /// `CheckValue(f1, f2, 1e-12, str)`.

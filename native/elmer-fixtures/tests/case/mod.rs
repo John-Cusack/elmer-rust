@@ -300,6 +300,8 @@ pub fn run(case: &str, dir: &Path, sif: &str) -> Result<Outcome, SolverError> {
     let comm = SerialComm;
     let mut sim = Simulation::new(model);
     sim.backends.fe = Some(elmer_run::fe_backend(coords.dim));
+    // Solver sections with a non-nodal `Element`, as `elmer-run` installs it.
+    sim.backends.dofs = Some(Box::new(elmer_pdofs::PDofsBackend::new()));
     sim.set_matc(Rc::new(SifMatc));
     elmer_fixtures::registry::install_live(case, &mut sim, mesh);
     sim.setup(mesh, &registry, &log, &comm)?;
