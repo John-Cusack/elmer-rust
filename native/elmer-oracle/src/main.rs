@@ -4,7 +4,7 @@ use elmer_oracle::manifest::{hash_tree, Manifest};
 use elmer_oracle::runner::{
     discover_tests, known_bins, parse_cmakelists, plan_test, read_startinfo, run_plan, Arm,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn usage() -> ! {
     eprintln!("usage:");
@@ -20,15 +20,27 @@ fn usage() -> ! {
 fn arm_from_build(build_dir: PathBuf, name: &str) -> Arm {
     Arm {
         name: name.to_string(),
-        elmergrid: build_dir.join("fem/src/ElmerGrid"),
-        elmersolver: build_dir.join("fem/src/ElmerSolver"),
-        viewfactors: build_dir.join("fem/src/ViewFactors"),
-        radiators: build_dir.join("fem/src/Radiators"),
-        mesh2d: Some(build_dir.join("meshgen2d/src/Mesh2D")),
+        elmergrid: resolve_tool(&build_dir, &["elmergrid/src/ElmerGrid", "fem/src/ElmerGrid"]),
+        elmersolver: resolve_tool(&build_dir, &["fem/src/ElmerSolver"]),
+        viewfactors: resolve_tool(&build_dir, &["fem/src/ViewFactors"]),
+        radiators: resolve_tool(&build_dir, &["fem/src/Radiators"]),
+        mesh2d: Some(resolve_tool(&build_dir, &["meshgen2d/src/Mesh2D"])),
         mpiexec: Some(PathBuf::from("mpiexec")),
         with_mpi: true,
         build_dir,
     }
+}
+
+/// First existing candidate wins; matches the `-D..._BIN=` paths the
+/// configure records in the arm's own `CTestTestfile.cmake` files.
+fn resolve_tool(build_dir: &Path, candidates: &[&str]) -> PathBuf {
+    for c in candidates {
+        let p = build_dir.join(c);
+        if p.exists() {
+            return p;
+        }
+    }
+    build_dir.join(candidates[0])
 }
 
 fn main() {

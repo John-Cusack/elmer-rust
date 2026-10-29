@@ -102,7 +102,7 @@ case "$ARM" in
 esac
 
 cmake -S "$SRC" -B "$DEST" "${common_flags[@]}" "${extra_flags[@]}"
-cmake --build "$DEST" --parallel "$(nproc)"
+cmake --build "$DEST" --parallel 4
 
 {
     echo "arm: $ARM"
