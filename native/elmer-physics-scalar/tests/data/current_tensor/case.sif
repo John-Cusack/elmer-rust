@@ -1,0 +1,70 @@
+Check Keywords Warn
+
+Header
+  Mesh DB "." "Step"
+End
+
+Simulation
+  Max Output Level = 7
+  Coordinate System = Cartesian 2D
+  Simulation Type = Steady
+  Steady State Max Iterations = 1
+  Output File = "case.result"
+!  Post File = "current.vtu"
+  Output Version Numbers = Logical True
+End
+
+Body 1
+  Equation = 1
+  Material = 1
+End
+
+Equation 1
+  Active Solvers = 1
+End
+
+Solver 1
+  Equation = Static Current
+  Variable = Potential
+  Variable DOFs = 1
+  Procedure = "StatCurrentSolve" "StatCurrentSolver"
+
+  Calculate Joule Heating = Logical True
+  Calculate Volume Current = Logical True
+  Calculate Electric Field = Logical True
+  Calculate Nodal Heating = Logical True
+  Calculate Nodal Current = Logical True
+  Linear System Solver = Direct
+  Linear System Direct Method = UMFPack
+  Linear System Iterative Method = BiCGStab
+  Linear System Preconditioning = ILU1
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Nonlinear System Newton After Tolerance = 1.0e-3
+  Nonlinear System Newton After Iterations = 20
+  Nonlinear System Max Iterations = 1000
+  Nonlinear System Convergence Tolerance = 1.0e-5
+  Nonlinear System Relaxation Factor = 1.0
+  Steady State Convergence Tolerance = 1.0e-4
+End
+
+Material 1
+  Electric Conductivity(2,2) = Real 1.0e-3 2.0e-4 2.0e-4 5.0e-4
+  Relative Permittivity = 4.0
+End
+
+Boundary Condition 1
+  Target Boundaries = 1
+  External Conductivity = Real 3.0e-3
+  External Potential = Real 2.0
+End
+
+Boundary Condition 2
+  Target Boundaries = 2
+  Potential = 0
+End
+
+RUN
+
+!End Of File
+
