@@ -422,7 +422,7 @@ pub unsafe fn slidcoef_contact(m: *mut c_void, n: *const c_int, v: *const c_doub
                         (unsafe { var_value_at_idx(h_dist, dp) }) <= thresh
                     };
                     if do_retreat {
-                        unsafe { var_set_at(h_gmask, nn, -1.0) };
+                        unsafe { var_set_at(h_gmask, nid, -1.0) };
                         gl_retreat += 1;
                         let msg = unsafe { write_msg_star_arr("Retreat of the Grounding Line : ", xs[k], ys[k]) };
                         unsafe { info(USF_NAME, &msg, 4) };
@@ -484,7 +484,7 @@ pub unsafe fn slidcoef_contact(m: *mut c_void, n: *const c_int, v: *const c_doub
                             continue;
                         }
                         if unsafe { var_value_at_idx(h_gmask, nn) } == 1.0 {
-                            unsafe { var_set_at(h_gmask, nn, 0.0) };
+                            unsafe { var_set_at(h_gmask, nid, 0.0) };
                         }
                     }
                 }
