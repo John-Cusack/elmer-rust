@@ -143,7 +143,7 @@ fn scan(params: &dyn Params, section: &'static str, rules: &[Rule]) -> Result<()
 
 /// Elmer's `GetStabilizeFlag`: `Stabilize`, overridden by `Stabilization
 /// Method` (`stabilized` on, `bubbles` and `none` off).
-fn stabilized(solver: &dyn Params) -> bool {
+pub(crate) fn stabilized(solver: &dyn Params) -> bool {
     let mut s = solver.logical("Stabilize").unwrap_or(false);
     if let Some(m) = solver.string("Stabilization Method") {
         match m.to_ascii_lowercase().as_str() {

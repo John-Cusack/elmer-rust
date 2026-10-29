@@ -43,3 +43,15 @@ test.
   the test.
 
 Each directory keeps the sif that was run.
+
+## Convection (`angle_convection/`)
+
+`case.sif` is a new steady case on the `heateq_bdf2` `angle` mesh, which the
+test reads from `heateq_bdf2/`. It sets `Convection = Constant` with velocity
+(2, 1), `Heat Conductivity = 0.01`, `Density = Heat Capacity = 1`, `Heat
+Source = 1`, `Temp = 0` on boundary 1, and `Stabilize = True`. The pristine
+ElmerSolver ran it serially with `Output File = "case.result"`.
+`solution.dat` holds the nodal temperatures (norm 0.3278430808661644; the log
+prints 0.32784308). A gdb breakpoint in `LocalMatrixVec` confirmed that the
+SUPG block reads `Element % StabilizationMK = 1/3` and `Element % hK` equal to
+`ElementDiameter`, as `elmer_fe::stab_param` returns them.

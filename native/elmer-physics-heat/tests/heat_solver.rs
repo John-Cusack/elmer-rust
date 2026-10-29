@@ -157,9 +157,14 @@ fn unsupported_cases_are_refused_at_setup() {
     assert!(try_model(m).contains("Radiation"));
 
     let mut m = minimal_model();
-    m.equations[0].insert("Convection", st("Constant"));
+    m.equations[0].insert("Convection", st("Computed"));
     m.solvers[0].insert("Stabilize", Value::Logical(true));
-    assert!(try_model(m).contains("StabilizationMK"));
+    assert!(try_model(m).contains("Convection = Computed"));
+
+    // Convection without SUPG would need Elmer's residual-free bubble.
+    let mut m = minimal_model();
+    m.equations[0].insert("Convection", st("Constant"));
+    assert!(try_model(m).contains("bubble"));
 
     let mut m = minimal_model();
     m.materials[0].insert("Heat Conductivity At IP", Value::Logical(true));
