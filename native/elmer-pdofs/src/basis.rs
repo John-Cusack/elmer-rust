@@ -24,7 +24,10 @@ use elmer_fe_hp::{PElementBasis, PElementSpec, MAX_EDGES, MAX_FACES};
 use crate::defs::Kind;
 use crate::dofs::DofLayout;
 use crate::pmesh::effective_bubble_p;
-use crate::quadrature::{gauss_points_quad_p, p_triangle_rule};
+use crate::quadrature::{
+    gauss_points_p_triangle, gauss_points_quad_p, gauss_points_triangle_p, p_triangle_rule,
+    triangle_rule_tabulated,
+};
 use crate::Error;
 
 impl DofLayout<'_> {
@@ -89,9 +92,6 @@ impl DofLayout<'_> {
                 }
             }
             303 | 404 => {
-                if pd.is_edge {
-                    return unsupported("p face elements of a 3D mesh");
-                }
                 let edofs = pm.edge_dofs_of(e, p);
                 let ne = el.n_edges();
                 if !el.edges.is_empty() && edofs > 0 {
@@ -100,6 +100,12 @@ impl DofLayout<'_> {
                 spec.edge_dir = edge_direction(el.code, ne, &gind).expect("2D edge map");
                 if bdofs > 0 {
                     spec.bubble_p = effective_bubble_p(el.code, p, bdofs, sd);
+                    // A face of a 3D mesh orients its bubbles
+                    // (getTriangleFaceDirection / getSquareFaceDirection).
+                    if pd.is_edge {
+                        let dir = face_direction(el.code, 1, &gind).expect("2D face map");
+                        spec.bubble_face_dir = Some(dir[0]);
+                    }
                 }
             }
             808 => {
@@ -133,16 +139,27 @@ impl DofLayout<'_> {
     /// quad rule (economic for serendipity elements of degree 2 to 7
     /// without low-degree bubbles) or the p reference triangle rule.
     pub fn gauss_rule(&self, e: usize) -> Result<GaussRule, Error> {
+        self.p_gauss_rule(e, None)
+    }
+
+    /// `GaussPoints(Element, np)` for an active p element: the same
+    /// dispatch on `np` points, except that a triangle takes a tabulated
+    /// rule only when `np` is one (`TriangleRuleTabulated`).
+    pub fn gauss_rule_np(&self, e: usize, np: usize) -> Result<GaussRule, Error> {
+        self.p_gauss_rule(e, Some(np))
+    }
+
+    fn p_gauss_rule(&self, e: usize, np: Option<usize>) -> Result<GaussRule, Error> {
         let el = &self.mesh.elements[e];
         let etype = ElementType(el.code);
         let fe = |r: Result<GaussRule, elmer_fe::FeError>| {
             r.map_err(|err| Error::Unsupported(err.to_string()))
         };
         let Some(pd) = el.pdefs.as_ref().filter(|_| self.is_active_p(e)) else {
-            return fe(gauss_points(etype, None));
+            return fe(gauss_points(etype, np));
         };
         // `IF (n == 0) n = elmt % GaussPoints`, still on the p reference element.
-        let n = match pd.gauss_points {
+        let n = match np.unwrap_or(pd.gauss_points) {
             0 => {
                 elmer_fe::element_type(el.code)
                     .map_err(|err| Error::Unsupported(err.to_string()))?
@@ -161,7 +178,11 @@ impl DofLayout<'_> {
                     gauss_points_quad_p(n, economic)
                 }
             }
-            3 => p_triangle_rule(n),
+            3 => match np {
+                Some(n) if triangle_rule_tabulated(n) => gauss_points_triangle_p(n),
+                Some(n) => gauss_points_p_triangle(n),
+                None => p_triangle_rule(n),
+            },
             8 => fe(gauss_points_brick(n)),
             _ => Err(Error::Unsupported(format!(
                 "p integration rule for type {}",

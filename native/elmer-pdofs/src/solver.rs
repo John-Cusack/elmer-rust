@@ -82,6 +82,12 @@ impl SolverDofs for PSetup {
             .map_err(|err| err.to_string())
     }
 
+    fn element_rule_np(&self, e: ElemId, np: usize) -> Result<Vec<QuadPoint>, String> {
+        self.gauss_rule_np(e, np)
+            .map(|r| r.points())
+            .map_err(|err| err.to_string())
+    }
+
     fn element_nodes(&self, e: ElemId) -> Vec<u32> {
         PSetup::element_nodes(self, e).to_vec()
     }

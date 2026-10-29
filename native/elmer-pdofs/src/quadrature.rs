@@ -69,6 +69,12 @@ pub fn triangle_simplex_rule_points(np: usize) -> usize {
     }
 }
 
+/// `TriangleRuleTabulated(n)`: whether `n` is one of the tabulated
+/// triangle rules.
+pub fn triangle_rule_tabulated(n: usize) -> bool {
+    [1, 3, 4, 6, 7, 11, 12, 17, 20].contains(&n)
+}
+
 /// `GaussPointsTriangle(n, PReferenceElement=.TRUE.)`.
 pub fn gauss_points_triangle_p(n: usize) -> Result<GaussRule, Error> {
     let mut p = fe(gauss_points_triangle(n))?;
