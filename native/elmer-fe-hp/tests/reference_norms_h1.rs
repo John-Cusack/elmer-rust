@@ -9,6 +9,9 @@
 //! reference element; Elmer's own tables are exact for these integrands, the
 //! pyramid's rational gradients included).
 
+// The reference values are the solver's 17-digit prints, kept verbatim.
+#![allow(clippy::excessive_precision)]
+
 use elmer_core::fe::{BasisEval, ElementBasis};
 use elmer_core::mesh::ElementType;
 use elmer_fe_hp::{PElementBasis, PElementSpec};

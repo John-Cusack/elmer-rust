@@ -291,17 +291,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "elmer-direct"
-version = "0.1.0"
-dependencies = [
- "approx",
- "elmer-core",
- "elmer-sparse",
- "faer",
- "num-complex",
-]
-
-[[package]]
 name = "elmer-expr"
 version = "0.1.0"
 dependencies = [
@@ -317,98 +306,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "elmer-guicompat"
-version = "0.1.0"
-dependencies = [
- "elmer-core",
- "elmer-keywords",
- "quick-xml",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "elmer-itermethods"
-version = "0.1.0"
-dependencies = [
- "elmer-core",
- "num-complex",
-]
-
-[[package]]
-name = "elmer-keywords"
-version = "0.1.0"
-dependencies = [
- "elmer-core",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "elmer-krylov"
-version = "0.1.0"
-dependencies = [
- "elmer-core",
- "elmer-sparse",
- "num-complex",
-]
-
-[[package]]
-name = "elmer-physics-elastic"
-version = "0.1.0"
-dependencies = [
- "elmer-core",
- "elmer-solver",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "elmer-physics-heat"
-version = "0.1.0"
-dependencies = [
- "elmer-core",
- "elmer-solver",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "elmer-saveio"
-version = "0.1.0"
-dependencies = [
- "elmer-core",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "elmer-solver"
 version = "0.1.0"
 dependencies = [
- "elmer-assembly",
- "elmer-core",
- "elmer-expr",
- "elmer-timeint",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "elmer-sparse"
-version = "0.1.0"
-dependencies = [
- "elmer-core",
- "num-complex",
-]
-
-[[package]]
-name = "elmer-timeint"
-version = "0.1.0"
-dependencies = [
  "elmer-core",
  "thiserror 2.0.21",
-]
-
-[[package]]
-name = "elmer-vtu"
-version = "0.1.0"
-dependencies = [
- "elmer-core",
 ]
 
 [[package]]
