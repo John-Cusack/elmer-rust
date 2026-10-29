@@ -63,6 +63,10 @@ const SOLVER: &[Rule] = &[
         "constraint modes are not implemented",
     ),
     present("Radiator Coordinates", "radiators are not implemented"),
+    flag(
+        "Nonlinear System Linesearch",
+        "DefaultLinesearch is not implemented",
+    ),
 ];
 
 const EQUATION: &[Rule] = &[
@@ -83,7 +87,15 @@ const MATERIAL: &[Rule] = &[
     present("Effective Heat Capacity", "phase change is not implemented"),
     present("Enthalpy", "phase change is not implemented"),
     present("Specific Enthalpy", "phase change is not implemented"),
+    flag("Heat Conductivity At IP", AT_IP),
+    flag("Density At IP", AT_IP),
+    flag("Heat Capacity At IP", AT_IP),
+    flag("Heat Transfer Multiplier At IP", AT_IP),
 ];
+
+/// `ListInitElementKeyword`'s `<name> At IP`: evaluate the property at the
+/// integration points instead of interpolating its nodal values.
+const AT_IP: &str = "evaluation at integration points is not implemented";
 
 const BODY_FORCE: &[Rule] = &[
     present("Smart Heater Control", "not implemented"),
@@ -92,6 +104,8 @@ const BODY_FORCE: &[Rule] = &[
     flag("Joule Heat", "coupled Joule heating is not implemented"),
     present("Perfusion Rate", "perfusion is not implemented"),
     present("Radiator Coordinates", "radiators are not implemented"),
+    flag("Heat Source At IP", AT_IP),
+    flag("Volumetric Heat Source At IP", AT_IP),
 ];
 
 const BOUNDARY: &[Rule] = &[
