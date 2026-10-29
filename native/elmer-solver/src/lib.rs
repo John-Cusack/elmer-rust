@@ -20,6 +20,7 @@ pub mod change;
 pub mod error;
 pub mod expr;
 pub mod fortran_fmt;
+pub mod linsys;
 pub mod model;
 pub mod norm;
 pub mod reference;
