@@ -58,6 +58,21 @@ pub fn legacy_procedure(equation: &str) -> Option<(&'static str, &'static str)> 
     }
 }
 
+/// A SaveData section with `Exec Solver = Never` never runs and creates no
+/// field another solver reads, but `elmer-solver` builds every slot and
+/// `elmer-savedata` refuses some operators (`cpu time`) when built. Such a
+/// section is blanked, as an unset solver id is (MortarPoisson2D's timing
+/// SaveScalars).
+fn drop_never_savedata(model: &mut Model) {
+    for p in &mut model.solvers {
+        let never = p.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never"));
+        let savedata = procedure_of(p).is_some_and(|(lib, _)| lib.eq_ignore_ascii_case("savedata"));
+        if never && savedata {
+            *p = ParamMap::new();
+        }
+    }
+}
+
 /// The historical solvers `AddEquationBasics` (MainUtils.F90:1221-1305)
 /// completes from the solver's `Equation` name when it has no `Procedure`,
 /// for the ones whose procedure this build has. Others stay without a
@@ -492,6 +507,7 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     let mut outputs = prepare_vtu_output(&mut model, &case_dir, &mesh_dir)?;
     let coords = coordinate_system(&model, mesh)?;
     legacy_solvers(&mut model, coords);
+    drop_never_savedata(&mut model);
     preflight(&model, &registry)?;
     check_mesh_and_elements(&model)?;
     check_reloads(&model, &reloads, &registry)?;
