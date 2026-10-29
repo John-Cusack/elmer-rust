@@ -1,0 +1,22 @@
+BlockSolver: ---------------------------------------
+BlockSolver: Solving system of equations utilizing block strategies
+BlockSolver: ---------------------------------------
+BlockSolver: Number of coupled variables: 2
+BlockSolver: -------------------------------------------------
+BlockSolver: Coupled iteration:                1
+BlockSolver: Setting block system Dirichlet conditions
+BlockSolver: Setting block system Dirichlet conditions
+BlockSolver: Using block solution strategy
+BlockStandardIter: Block Jacobi iteration: 1
+BlockStandardIter: Block 1 norms:    3.456E-02   1.000E+00
+BlockStandardIter: Block 2 norms:    7.133E-02   1.000E+00
+BlockStandardIter: Sum of norms:    1.059E-01   1.000E+00
+BlockStandardIter: Block Jacobi iteration: 2
+BlockStandardIter: Block 1 norms:    3.456E-02   1.662E-16
+BlockStandardIter: Block 2 norms:    7.133E-02   1.522E-13
+BlockStandardIter: Sum of norms:    1.059E-01   1.522E-13
+BlockStandardIter: Converged after iterations: 2
+BlockSolver: All done
+BlockSolver: -------------------------------------------------
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.34560838E-01  2.0000000     ) :: poisson
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 3.45608381E-02  RefNorm = 3.45608380E-02

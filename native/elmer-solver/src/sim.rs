@@ -1051,12 +1051,10 @@ impl Simulation {
         self.publish_live();
         // MainUtils.F90:1392, 1518: `Block Solver` runs BlockSolver around
         // the procedure; without one the blocks are assembled one by one.
-        let block = self.slots[ix].params.logical("block solver") == Some(true);
-        if block && self.slots[ix].instance.is_none() {
-            return Err(SolverError::Unsupported(
-                "Block Solver without a Procedure (block-by-block assembly)".into(),
-            ));
-        }
+        // Without one, the slot's instance is the block assembly
+        // (`block_system`).
+        let block = self.slots[ix].params.logical("block solver") == Some(true)
+            && self.slots[ix].params.get("procedure").is_some();
         if let Some(mut inst) = self.slots[ix].instance.take() {
             let r = if block {
                 crate::block_driver::block_solver(self, ix, &mut inst, dts * dt, time_derivative_active, mesh, log, comm)

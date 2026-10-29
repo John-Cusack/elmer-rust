@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use elmer_core::{SerialComm, Value};
-use elmer_solver::{Model, Simulation, SolverError, SolverRegistry};
+use elmer_solver::{Model, Simulation, SolverRegistry};
 use support::fixtures::Bulk;
 use support::{i, r, s, sec, split_change, Capture};
 
@@ -98,6 +98,7 @@ fn missing_and_unregistered_routines_are_fatal() {
     let mut m = model();
     m.solvers[0].insert("Block Solver", Value::Logical(true));
     m.solvers[0].insert("Assembly Solver", Value::Logical(false));
+    // A Block Solver counts its blocks from `Variable 1..n`; none here.
     let err = Simulation::new(m).setup(&mesh, &SolverRegistry::new(), &log, &SerialComm).unwrap_err();
-    assert!(matches!(err, SolverError::Unsupported(_)), "{err}");
+    assert_eq!(err.to_string(), "BlockSolver: No variables, nothing to do!");
 }

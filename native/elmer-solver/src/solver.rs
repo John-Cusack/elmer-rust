@@ -646,29 +646,7 @@ impl<'a> SolverCtx<'a> {
             return self.default_solve_in_namespace();
         }
         self.info("DefaultSolve", &format!("Linear system namespace number: {}", crate::fortran_fmt::i2s(ns)), 7);
-        let prefix = format!("linsys{ns}:");
-        let params = &mut self.sim.slots[self.slot].params;
-        let scoped: Vec<(String, Value)> = params
-            .0
-            .iter()
-            .filter_map(|(k, v)| Some((k.strip_prefix(&prefix)?.trim_start().to_string(), v.clone())))
-            .collect();
-        let saved: Vec<(String, Option<Value>)> = scoped
-            .into_iter()
-            .map(|(k, v)| {
-                let old = params.0.insert(k.clone(), v);
-                (k, old)
-            })
-            .collect();
-        let r = self.default_solve_in_namespace();
-        let params = &mut self.sim.slots[self.slot].params;
-        for (k, old) in saved {
-            match old {
-                Some(v) => params.0.insert(k, v),
-                None => params.0.remove(&k),
-            };
-        }
-        r
+        crate::block_system::with_namespace(self, &format!("linsys{ns}:"), |ctx| ctx.default_solve_in_namespace())
     }
 
     fn default_solve_in_namespace(&mut self) -> Result<f64, SolverError> {
