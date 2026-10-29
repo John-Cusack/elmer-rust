@@ -29,7 +29,6 @@ const fn flag(key: &'static str, reason: &'static str) -> Rule {
 }
 
 const SIMULATION: &[Rule] = &[
-    flag("Increase Element Order", "quadratic element generation is not implemented"),
     flag("Set Dirichlet BCs by BC Numbering", "Dirichlet conditions in BC numbering order are not implemented"),
 ];
 
@@ -46,13 +45,10 @@ const BODY_FORCE: &[Rule] = &[];
 
 const BOUNDARY: &[Rule] = &[
     // MapBodiesAndBCs fallbacks `Model::bc_of_tag` does not apply.
-    flag("Default Target", "default BC targets are not implemented"),
-    flag("Default BC", "default BC targets are not implemented"),
     flag("Default Internal BC", "default BC targets are not implemented"),
     flag("Default External BC", "default BC targets are not implemented"),
     present("Intersection BC", "intersection BCs are not implemented"),
     present("Intersection Body", "intersection BCs are not implemented"),
-    flag("Discontinuous Boundary", "discontinuous boundaries (mesh splitting) are not implemented"),
     present("Conforming BC", "conforming BCs are not implemented"),
     present("Target Nodes", "point BCs (Target Nodes) are not implemented"),
     present("Target Coordinates", "point BCs (Target Coordinates) are not implemented"),
@@ -199,12 +195,12 @@ mod tests {
     #[test]
     fn keyword_rules() {
         let model = Model {
-            simulation: pm(&[("increase element order", Value::Logical(true))]),
+            simulation: pm(&[("set dirichlet bcs by bc numbering", Value::Logical(true))]),
             ..Model::default()
         };
         assert_eq!(
             refusal(&model),
-            "Simulation 1: Increase Element Order: quadratic element generation is not implemented"
+            "Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented"
         );
 
         let model = Model {

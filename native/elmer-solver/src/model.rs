@@ -93,6 +93,11 @@ impl Model {
         self.boundary_conditions
             .iter()
             .position(|bc| int_list(bc, "target boundaries").contains(&tag))
+            .or_else(|| {
+                self.boundary_conditions.iter().rposition(|bc| {
+                    bc.logical("default target") == Some(true) || bc.logical("default bc") == Some(true)
+                })
+            })
             .map(|i| i + 1)
     }
 
