@@ -36,7 +36,7 @@ pub mod sif;
 pub mod unported;
 
 pub use case::{run_case, Case, Outcome};
-pub use compose::{coordinate_system, fe_provider, install_fe, solver_registry};
+pub use compose::{coordinate_system, fe_backend, fe_provider, install_fe, solver_registry};
 pub use matc::SifMatc;
 pub use engine::{Frontend, LoadedCase, NativeEngine};
 pub use sif::{MeshLoader, SifFrontend};

@@ -11,7 +11,7 @@ use elmer_solver::{
     finalize_reference, solver::procedure_of, Model, RunReport, Simulation, SolverError, SolverRegistry,
 };
 
-use crate::compose::{coordinate_system, install_fe, solver_registry};
+use crate::compose::{coordinate_system, fe_backend, install_fe, solver_registry};
 use crate::matc::SifMatc;
 use crate::output::{is_result_output, prepare_vtu_output};
 
@@ -238,6 +238,7 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
     install_fe(coords.dim)?;
 
     let mut sim = Simulation::new(model);
+    sim.backends.fe = Some(fe_backend(coords.dim));
     sim.set_matc(Rc::new(SifMatc));
     sim.setup(mesh, &registry, log, comm)?;
     // Field lists are fixed once every variable exists, before the run, so a
