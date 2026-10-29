@@ -35,7 +35,8 @@ pub struct Outcome {
 
 /// Refuses solver sections this build cannot run: `Simulation` skips a
 /// procedure missing from the registry, which would drop a solver silently.
-/// `Exec Solver = Never` sections are exempt.
+/// `Exec Solver = Never` sections are exempt. Then refuses the model
+/// features no provider implements ([`crate::unported`]).
 fn preflight(model: &Model, registry: &SolverRegistry) -> Result<(), SolverError> {
     for (i, params) in model.solvers.iter().enumerate() {
         // A section that never runs needs no implementation (heateq_bdf2's SaveScalars).
@@ -49,15 +50,7 @@ fn preflight(model: &Model, registry: &SolverRegistry) -> Result<(), SolverError
             return Err(SolverError::Unsupported(format!("Solver {}: Procedure \"{lib}\" \"{entry}\"", i + 1)));
         }
     }
-    // MapBodiesAndBCs fallbacks `Model::bc_of_tag` does not apply.
-    for (i, bc) in model.boundary_conditions.iter().enumerate() {
-        for k in ["default target", "default bc"] {
-            if bc.logical(k) == Some(true) {
-                return Err(SolverError::Unsupported(format!("Boundary Condition {}: {k}", i + 1)));
-            }
-        }
-    }
-    Ok(())
+    crate::unported::check(model)
 }
 
 /// Runs `case` serially. Unsupported input comes back as
