@@ -23,6 +23,7 @@ pub fn solver_registry() -> SolverRegistry {
     elmer_physics_advdiff::register(&mut reg);
     elmer_physics_meshtools::register(&mut reg);
     elmer_physics_thermoelectric::register(&mut reg);
+    elmer_physics_magneto::register(&mut reg);
     elmer_savedata::register(&mut reg);
     reg
 }
