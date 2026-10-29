@@ -70,9 +70,7 @@ fn preflight(model: &Model, registry: &elmer_solver::SolverRegistry) -> Result<(
     let sim = &model.simulation;
     // The solver sections go to the Simulation as given; the parallel
     // switches are applied once the variables exist (`prepare_slot`).
-    if sim.integer("mesh levels").unwrap_or(1) > 1 {
-        return Err(unsupported("Mesh Levels in parallel"));
-    }
+    crate::levels::splits(sim, &model.boundary_conditions)?;
     for key in ["post file", "output file", "coordinate transformation", "extruded mesh levels"] {
         if sim.get(key).is_some() {
             return Err(unsupported(format!("Simulation {key} in parallel")));
@@ -173,7 +171,10 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     }
 
     let scale = model.simulation.real("coordinate scaling").unwrap_or(1.0);
-    let mesh = agree(&*ex, load_mesh(&loaded.mesh_dir, rank, np, scale))?;
+    let mut mesh = agree(&*ex, load_mesh(&loaded.mesh_dir, rank, np, scale))?;
+    for _ in 0..crate::levels::splits(&model.simulation, &model.boundary_conditions)? {
+        mesh = crate::levels::split(&mesh, &*ex)?;
+    }
     let coords = elmer_run::coordinate_system(&model, &mesh)?;
     elmer_run::install_fe(coords.dim)?;
     let n_ghost = mesh.n_ghost();

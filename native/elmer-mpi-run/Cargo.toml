@@ -10,6 +10,7 @@ description = "Partitioned (ElmerSolver_mpi) runs of the Rust-native Elmer: part
 elmer-core.workspace = true
 elmer-assembly = { path = "../elmer-assembly" }
 elmer-cli = { path = "../elmer-cli" }
+elmer-mesh-levels = { path = "../elmer-mesh-levels" }
 elmer-mesh = { path = "../elmer-mesh" }
 elmer-fe = { path = "../elmer-fe" }
 elmer-dist = { path = "../elmer-dist" }
