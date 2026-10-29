@@ -5,11 +5,14 @@
 //! registries so this crate builds before those crates merge.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use elmer_core::{
     normalize_key, CsrMatrix, DirectSolver, ElemId, IterativeSolver, LocalSystem, MeshView, ParamMap,
     Preconditioner,
 };
+
+use elmer_expr::UdfRegistry;
 
 use crate::error::SolverError;
 
@@ -94,15 +97,27 @@ pub struct TimeTerms<'a> {
     pub dts: &'a [f64],
 }
 
-/// Local time discretisation (`Default1stOrderTime`, `Add1stOrderTime`).
-/// `elmer-timeint` provides the implementation.
+/// Local time discretisation (`Default1stOrderTime`, `Add1stOrderTime`;
+/// `Default2ndOrderTime`, `Add2ndOrderTime`). `elmer-timeint` provides the
+/// implementation.
 pub trait TimeBackend: Send + Sync {
-    /// Folds `local.mass` (and `local.damp` for 2nd order) into
-    /// `local.stiff`/`local.force` for one step.
+    /// Folds `local.mass` into `local.stiff`/`local.force` for one step of a
+    /// first-order equation.
     fn add_time_terms(&self, local: &mut LocalSystem, terms: &TimeTerms<'_>) -> Result<(), SolverError>;
+
+    /// Folds `local.mass` and `local.damp` into `local.stiff`/`local.force`
+    /// for one step of a second-order equation. `terms.prev` holds the seven
+    /// `PrevValues` columns of a `Time Derivative Order = 2` variable.
+    fn add_2nd_order_time_terms(&self, _local: &mut LocalSystem, _terms: &TimeTerms<'_>) -> Result<(), SolverError> {
+        Err(SolverError::NotWired("second-order time discretisation".into()))
+    }
 }
 
 pub type IterativeFactory = fn(&ParamMap) -> Result<Box<dyn IterativeSolver<f64> + Send>, SolverError>;
+/// An iterative method built from the assembled matrix (Jacobi, Richardson,
+/// SGS read its entries).
+pub type IterativeMatrixFactory =
+    fn(&ParamMap, &CsrMatrix<f64>) -> Result<Box<dyn IterativeSolver<f64> + Send>, SolverError>;
 pub type DirectFactory = fn(&ParamMap) -> Result<Box<dyn DirectSolver<f64> + Send>, SolverError>;
 pub type PrecondFactory =
     fn(&ParamMap, &CsrMatrix<f64>) -> Result<Box<dyn Preconditioner<f64> + Send>, SolverError>;
@@ -114,6 +129,7 @@ pub type PrecondFactory =
 #[derive(Default)]
 pub struct LinearSolverRegistry {
     iterative: BTreeMap<String, IterativeFactory>,
+    iterative_matrix: BTreeMap<String, IterativeMatrixFactory>,
     /// Serves iterative method names not registered explicitly.
     iterative_default: Option<IterativeFactory>,
     direct: BTreeMap<String, DirectFactory>,
@@ -143,6 +159,14 @@ impl LinearSolverRegistry {
         self.iterative.insert(normalize_key(method), f);
     }
 
+    /// Registers a method built from the assembled matrix. It is used by
+    /// [`select_for`](Self::select_for), which has the matrix, and takes
+    /// precedence over a [`register_iterative`](Self::register_iterative)
+    /// entry of the same name there.
+    pub fn register_iterative_with_matrix(&mut self, method: &str, f: IterativeMatrixFactory) {
+        self.iterative_matrix.insert(normalize_key(method), f);
+    }
+
     /// The factory for iterative method names with no explicit entry (it
     /// reads the name itself, as IterSolve's `CASE DEFAULT` does).
     pub fn set_iterative_default(&mut self, f: IterativeFactory) {
@@ -164,6 +188,27 @@ impl LinearSolverRegistry {
     /// `none` (IterSolve.F90:1053); an unknown name is warned about and
     /// treated as `none`, as IterSolve.F90:1095-1097 does.
     pub fn select(&self, params: &ParamMap, log: &dyn elmer_core::Logger) -> Result<LinearSolverChoice, SolverError> {
+        self.select_impl(params, None, log)
+    }
+
+    /// [`select`](Self::select) once the system is assembled, so methods
+    /// registered with [`register_iterative_with_matrix`](Self::register_iterative_with_matrix)
+    /// can be built.
+    pub fn select_for(
+        &self,
+        params: &ParamMap,
+        matrix: &CsrMatrix<f64>,
+        log: &dyn elmer_core::Logger,
+    ) -> Result<LinearSolverChoice, SolverError> {
+        self.select_impl(params, Some(matrix), log)
+    }
+
+    fn select_impl(
+        &self,
+        params: &ParamMap,
+        matrix: Option<&CsrMatrix<f64>>,
+        log: &dyn elmer_core::Logger,
+    ) -> Result<LinearSolverChoice, SolverError> {
         use elmer_core::Params;
         let kind = params.string("linear system solver").map(normalize_key).ok_or_else(|| {
             SolverError::fatal("SolveLinearSystem", "Give \"Linear System Solver\", e.g. \"iterative\" or \"direct\"")
@@ -185,11 +230,15 @@ impl LinearSolverRegistry {
                     .string("linear system iterative method")
                     .map(normalize_key)
                     .unwrap_or_else(|| "bicgstab".into());
+                let with_matrix = match (matrix, self.iterative_matrix.get(&m)) {
+                    (Some(a), Some(f)) => Some(f(params, a)?),
+                    _ => None,
+                };
                 let f = self
                     .iterative
                     .get(&m)
                     .or(self.iterative_default.as_ref())
-                    .ok_or_else(|| SolverError::NotWired(format!("iterative method {m}")))?;
+                    .ok_or_else(|| SolverError::NotWired(format!("iterative method {m}")));
                 let p = params
                     .string("linear system preconditioning")
                     .map(normalize_key)
@@ -205,7 +254,11 @@ impl LinearSolverRegistry {
                         None
                     }
                 };
-                Ok(LinearSolverChoice::Iterative { solver: f(params)?, precond })
+                let solver = match with_matrix {
+                    Some(s) => s,
+                    None => f?(params)?,
+                };
+                Ok(LinearSolverChoice::Iterative { solver, precond })
             }
             other => Err(SolverError::Unsupported(format!("Linear System Solver = {other}"))),
         }
@@ -214,13 +267,19 @@ impl LinearSolverRegistry {
 
 /// The installed backends of a [`crate::Simulation`]. The default has
 /// [`crate::assembly::ElmerAssembly`], [`crate::time::ElmerTime`],
-/// [`crate::linsys::elmer_registry`] and no MATC engine.
+/// [`crate::linsys::elmer_registry`], no MATC engine and an empty
+/// function registry.
 pub struct Backends {
     pub assembly: Option<Box<dyn AssemblyBackend>>,
     pub time: Option<Box<dyn TimeBackend>>,
     pub linear: LinearSolverRegistry,
-    /// MATC for `MATC` keyword values (the MATC binding, S1).
+    /// MATC for `MATC` keyword values (the MATC binding, S1). Share the
+    /// front end's evaluator with [`crate::Simulation::set_matc`].
     pub matc: Option<Box<dyn elmer_expr::MatcEngine>>,
+    /// `Procedure` functions of keyword values (`Real Procedure "lib"
+    /// "entry"`), looked up before the process-wide registry. Fixtures that
+    /// read the model take [`crate::Simulation::live_model`].
+    pub udfs: Arc<UdfRegistry>,
 }
 
 impl Default for Backends {
@@ -230,6 +289,7 @@ impl Default for Backends {
             time: Some(Box::new(crate::time::ElmerTime)),
             linear: crate::linsys::elmer_registry(),
             matc: None,
+            udfs: Arc::new(UdfRegistry::new()),
         }
     }
 }

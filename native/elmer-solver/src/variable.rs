@@ -311,6 +311,25 @@ impl VariableStore {
         }
     }
 
+    /// The same names and current values without histories or convergence
+    /// state ([`crate::LiveModel`]).
+    pub(crate) fn values_snapshot(&self) -> VariableStore {
+        let vars = self
+            .vars
+            .iter()
+            .map(|v| {
+                let mut c = Variable::new(&v.name, v.kind, v.dofs, v.perm.clone(), v.values.clone());
+                c.output = v.output;
+                c
+            })
+            .collect();
+        VariableStore {
+            vars,
+            names: self.names.clone(),
+            order: self.order.clone(),
+        }
+    }
+
     /// Primary variables in registration order.
     pub fn iter(&self) -> impl Iterator<Item = (VarId, &Variable)> + '_ {
         self.order.iter().map(|&id| (id, &self.vars[id.0]))

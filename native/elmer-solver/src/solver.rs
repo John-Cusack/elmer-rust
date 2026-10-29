@@ -3,6 +3,7 @@
 //! gets of the running simulation (Elmer's `Solver_t` plus DefUtils.F90).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use elmer_core::{
     normalize_key, Communicator, ElemId, FieldRef, LocalSystem, Logger, MeshView, ParamMap, Params, Value, NO_DOF,
@@ -34,11 +35,36 @@ pub trait Solver: Send {
 /// Builds a solver from its section.
 pub type SolverFactory = fn(&ParamMap) -> Result<Box<dyn Solver>, SolverError>;
 
-/// `(library, entry)` -> factory. Names are matched case-insensitively and
-/// a library suffix such as `.so` is ignored.
+/// An element assembly routine named by `Bulk Assembly Procedure` or
+/// `Boundary Assembly Procedure` (Elmer's 11-argument `BulkAssembly(Model,
+/// Solver, dt, Transient, Mass, Damp, Stiff, Force, Element, Nrow, Ncol)`,
+/// called through `ExecLocalAssembly`).
+pub trait ElementAssembly: Send {
+    /// Adds element `e`'s contributions to `local`, which arrives zeroed and
+    /// sized for the element's dofs with `mass` and `damp` present.
+    /// `ctx` is the solver the routine assembles for
+    /// (`CurrentModel % CurrentElement` is `e`).
+    fn assemble(
+        &mut self,
+        ctx: &SolverCtx<'_>,
+        e: ElemId,
+        dt: f64,
+        transient: bool,
+        local: &mut LocalSystem,
+    ) -> Result<(), SolverError>;
+}
+
+/// Builds an assembly routine from its solver section. A closure, so the
+/// composition can hand it the basis and quadrature it needs.
+pub type AssemblyFactory = Arc<dyn Fn(&ParamMap) -> Result<Box<dyn ElementAssembly>, SolverError> + Send + Sync>;
+
+/// `(library, entry)` -> factory, for solver procedures and for element
+/// assembly routines. Names are matched case-insensitively and a library
+/// suffix such as `.so` and any directory part are ignored.
 #[derive(Default)]
 pub struct SolverRegistry {
     map: BTreeMap<(String, String), SolverFactory>,
+    assembly: BTreeMap<(String, String), AssemblyFactory>,
 }
 
 fn proc_key(library: &str, entry: &str) -> (String, String) {
@@ -61,12 +87,28 @@ impl SolverRegistry {
     pub fn get(&self, library: &str, entry: &str) -> Option<SolverFactory> {
         self.map.get(&proc_key(library, entry)).copied()
     }
+
+    /// Registers an element assembly routine, e.g.
+    /// `("PoissonAssembly", "BulkAssembly")`.
+    pub fn register_assembly(&mut self, library: &str, entry: &str, f: AssemblyFactory) {
+        self.assembly.insert(proc_key(library, entry), f);
+    }
+
+    pub fn assembly(&self, library: &str, entry: &str) -> Option<AssemblyFactory> {
+        self.assembly.get(&proc_key(library, entry)).cloned()
+    }
 }
 
 /// Reads a `Procedure` keyword: a `Dependent` procedure value, or a string
 /// holding the two (optionally quoted) names.
 pub fn procedure_of(params: &ParamMap) -> Option<(String, String)> {
-    match params.get("procedure")? {
+    procedure_value(params, "procedure")
+}
+
+/// [`procedure_of`] for any procedure-valued keyword (`Bulk Assembly
+/// Procedure`, ...).
+pub fn procedure_value(params: &ParamMap, key: &str) -> Option<(String, String)> {
+    match params.get(key)? {
         Value::Dependent(d) => match &d.kind {
             elmer_core::DependentKind::Procedure { library, entry } => Some((library.clone(), entry.clone())),
             _ => None,
@@ -248,7 +290,23 @@ impl<'a> SolverCtx<'a> {
     pub fn real_at_nodes(&self, section: &ParamMap, key: &str, e: ElemId) -> Result<Option<Vec<f64>>, SolverError> {
         let Some(v) = section.get(key) else { return Ok(None) };
         let nodes = self.mesh.element(e).nodes;
-        crate::expr::eval_at_nodes(v, nodes, &self.fields(), self.sim.backends.matc.as_deref()).map(Some)
+        let b = &self.sim.backends;
+        crate::expr::eval_at_nodes_with(v, nodes, &self.fields(), b.matc.as_deref(), &b.udfs).map(Some)
+    }
+
+    /// `ListGetCReal(section, key)`: a scalar keyword at node 1, so it may
+    /// depend on `time` or a field (MATC, tables, procedures). `None` when
+    /// the section lacks it.
+    pub fn creal(&self, section: &ParamMap, key: &str) -> Result<Option<f64>, SolverError> {
+        let b = &self.sim.backends;
+        crate::expr::eval_creal(section, key, &self.fields(), b.matc.as_deref(), &b.udfs)
+    }
+
+    /// Publishes the current field values to the [`crate::LiveModel`], for a
+    /// solver that changed values itself before calling a property that reads
+    /// them through a user function. The `default_*` steps do it already.
+    pub fn sync_model(&self) {
+        self.sim.publish_live();
     }
 
     pub fn info(&self, caller: &str, msg: &str, level: u8) {
@@ -262,6 +320,7 @@ impl<'a> SolverCtx<'a> {
     /// `DefaultInitialize`: create the matrix on first use, then zero the
     /// matrix values and the right-hand side.
     pub fn default_initialize(&mut self) -> Result<(), SolverError> {
+        self.sim.publish_live();
         let sim = &mut *self.sim;
         let slot = &mut sim.slots[self.slot];
         if slot.system.is_none() {
@@ -296,6 +355,10 @@ impl<'a> SolverCtx<'a> {
     /// the solver's time scheme, using this slot's committed histories at
     /// the element's dofs.
     pub fn default_first_order_time(&mut self, local: &mut LocalSystem, e: ElemId, dt: f64) -> Result<(), SolverError> {
+        self.time_terms(local, e, dt, false)
+    }
+
+    fn time_terms(&mut self, local: &mut LocalSystem, e: ElemId, dt: f64, second: bool) -> Result<(), SolverError> {
         let mut idx = Vec::new();
         self.element_dofs(e, &mut idx);
         let id = self.sim.slots[self.slot]
@@ -328,7 +391,25 @@ impl<'a> SolverCtx<'a> {
             order: slot.order,
             dts: &self.sim.prev_sizes,
         };
-        backend.add_time_terms(local, &terms)
+        if second {
+            backend.add_2nd_order_time_terms(local, &terms)
+        } else {
+            backend.add_time_terms(local, &terms)
+        }
+    }
+
+    /// `Default2ndOrderTime`: fold `local.mass` and `local.damp` into the
+    /// local system with the solver's second-order scheme (Bossak or
+    /// generalized-alpha), using the seven `PrevValues` columns at the
+    /// element's dofs.
+    pub fn default_second_order_time(&mut self, local: &mut LocalSystem, e: ElemId, dt: f64) -> Result<(), SolverError> {
+        self.time_terms(local, e, dt, true)
+    }
+
+    /// The solver variable's convergence record (`Norm`, `NonlinChange`, ...).
+    pub fn convergence(&self) -> Option<&crate::variable::Convergence> {
+        let id = self.sim.slots[self.slot].variable?;
+        Some(&self.sim.vars.by_id(id).conv)
     }
 
     /// `DefaultUpdateEquations`: add a local system at element `e`'s dofs.
@@ -409,6 +490,14 @@ impl<'a> SolverCtx<'a> {
         let (mesh, log, comm, slot_ix) = (self.mesh, self.log, self.comm, self.slot);
         let sim = &mut *self.sim;
         let nonlin_iter = sim.vars.scalar("nonlin iter");
+        // SolveCore.F90:3150-3163 (ListGetCReal).
+        let relaxation = crate::expr::eval_creal(
+            &sim.slots[slot_ix].params,
+            "nonlinear system relaxation factor",
+            &crate::expr::SimFields { vars: &sim.vars, mesh },
+            sim.backends.matc.as_deref(),
+            &sim.backends.udfs,
+        )?;
         let slot = &mut sim.slots[slot_ix];
         let id = slot
             .variable
@@ -432,9 +521,21 @@ impl<'a> SolverCtx<'a> {
         let var = sim.vars.by_id_mut(id);
         let n = sys.matrix.nrows;
 
-        // SolveCore.F90:3158-3186: keep the previous iterate when relaxing or
-        // measuring the solution change.
-        let need_prev = p.real("nonlinear system relaxation factor").is_some_and(|r| r != 1.0)
+        // SolveCore.F90:3150-3186: keep the previous iterate in residual
+        // mode, when relaxing or when measuring the solution change.
+        let residual_mode = p.logical("linear system residual mode") == Some(true);
+        if residual_mode
+            && matches!(
+                p.string("nonlinear system convergence measure"),
+                Some("residual") | Some("linear system residual")
+            )
+        {
+            return Err(SolverError::Unsupported(
+                "Linear System Residual Mode with a residual convergence measure".into(),
+            ));
+        }
+        let need_prev = residual_mode
+            || relaxation.is_some_and(|r| r != 1.0)
             || matches!(
                 p.string("nonlinear system convergence measure"),
                 Some("residual") | Some("solution")
@@ -443,8 +544,28 @@ impl<'a> SolverCtx<'a> {
             var.nonlin_values = Some(var.values[..n].to_vec());
         }
 
-        // SolveCore.F90:1502-1527: b = 0 has only the trivial solution.
-        let mut bb = [sys.rhs[..n].iter().fold(0.0, |s, b| s + b * b)];
+        // SolveCore.F90:3177-3189: in residual mode solve A dx = b - A x0
+        // from dx = 0; ComputeChange adds x0 back.
+        let mut res = if residual_mode {
+            let mut r = vec![0.0; n];
+            elmer_core::LinearOperator::apply(&sys.matrix, &var.values[..n], &mut r);
+            for (ri, bi) in r.iter_mut().zip(&sys.rhs[..n]) {
+                *ri = bi - *ri;
+            }
+            var.values[..n].iter_mut().for_each(|x| *x = 0.0);
+            Some(r)
+        } else {
+            None
+        };
+        let b: &mut [f64] = match &mut res {
+            Some(r) => r,
+            None => &mut sys.rhs[..n],
+        };
+
+        // SolveCore.F90:1502-1527: b = 0 has only the trivial solution. In
+        // residual mode that zeroes the solution too, as in Elmer: the
+        // early return skips ComputeChange, which would add x0 back.
+        let mut bb = [b.iter().fold(0.0, |s, b| s + b * b)];
         comm.sum_f64(&mut bb);
         let bnorm = bb[0].sqrt();
         if bnorm <= f64::MIN_POSITIVE && p.logical("skip zero rhs test") != Some(true) {
@@ -458,6 +579,8 @@ impl<'a> SolverCtx<'a> {
             let var = sim.vars.by_id_mut(id);
             var.conv.norm = 0.0;
             var.conv.nonlin_converged = 1;
+            sim.update_2nd_order(slot_ix, n)?;
+            sim.publish_live();
             return Ok(0.0);
         }
 
@@ -476,7 +599,7 @@ impl<'a> SolverCtx<'a> {
                 apply: true,
                 rhs_scaling: bnorm != 0.0,
             };
-            Some(elmer_sparse::scale_system(&mut sys.matrix, Some(&mut sys.rhs[..n]), Some(&mut *x), &opts))
+            Some(elmer_sparse::scale_system(&mut sys.matrix, Some(&mut *b), Some(&mut *x), &opts))
         } else {
             None
         };
@@ -487,12 +610,12 @@ impl<'a> SolverCtx<'a> {
             x.iter_mut().for_each(|v| *v = 0.0);
         }
 
-        let solved = match sim.backends.linear.select(p, log) {
+        let solved = match sim.backends.linear.select_for(p, &sys.matrix, log) {
             Err(e) => Err(e),
             Ok(LinearSolverChoice::Direct(mut d)) => d
                 .factor(&sys.matrix)
                 .and_then(|_| {
-                    let mut y = sys.rhs[..n].to_vec();
+                    let mut y = b.to_vec();
                     d.solve_in_place(&mut y).map(|_| x.copy_from_slice(&y))
                 })
                 .map_err(SolverError::from),
@@ -503,7 +626,7 @@ impl<'a> SolverCtx<'a> {
                 };
                 m.and_then(|m| {
                     solver
-                        .solve(&sys.matrix, &*m, &sys.rhs[..n], x, comm)
+                        .solve(&sys.matrix, &*m, b, x, comm)
                         .map(|_| ())
                         .map_err(SolverError::from)
                 })
@@ -511,11 +634,13 @@ impl<'a> SolverCtx<'a> {
         };
         // BackScaleLinearSystem before anything else reads the system.
         if let Some(rs) = scaling {
-            rs.unscale(&mut sys.matrix, Some(&mut sys.rhs[..n]), Some(x));
+            rs.unscale(&mut sys.matrix, Some(b), Some(x));
         }
         solved?;
         var.values_changed = true;
         sim.compute_change(slot_ix, false, Some(n), true, mesh, log, comm)?;
+        sim.update_2nd_order(slot_ix, n)?;
+        sim.publish_live();
         Ok(sim.vars.by_id(id).conv.norm)
     }
 
