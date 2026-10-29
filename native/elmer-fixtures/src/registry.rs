@@ -134,6 +134,8 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
         "SingleEdgeElements",
         Hook::Solver(single_edge_elements::factory),
     ),
+    // `PoissonPFEM/Poisson.f90` on p-elements, ported in `elmer-pdofs`.
+    ("PoissonPFEM", "Poisson", "PoissonSolver", Hook::Solver(elmer_pdofs::solver::poisson_pfem)),
 ];
 
 /// Edits a solver section.
