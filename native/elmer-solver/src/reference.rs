@@ -41,21 +41,27 @@ pub fn compare_to_reference(
         if ref_norm.is_none() && !compare_solution {
             continue;
         }
-        let Some(id) = slot.variable else {
-            // The Fortran prints its loop index `i`, not the solver id.
-            log.warn(
-                CALLER,
-                &format!("Variable in Solver {} not associated, cannot compare", i2s(solver_id as i64)),
-            );
-            continue;
+        // A solver without `Variable` has AddEquationBasics' nameless null
+        // variable (MainUtils.F90:1504): no values, norm 0.
+        let null = slot.variable.is_none() && p.get("variable").is_none() && !compare_solution;
+        let var = match slot.variable {
+            Some(id) => Some(sim.vars.by_id(id)),
+            None if null => None,
+            None => {
+                // The Fortran prints its loop index `i`, not the solver id.
+                log.warn(
+                    CALLER,
+                    &format!("Variable in Solver {} not associated, cannot compare", i2s(solver_id as i64)),
+                );
+                continue;
+            }
         };
-        let var = sim.vars.by_id(id);
         sim.reference.test_count += 1;
         let mut success = true;
 
         if let Some(ref_norm) = ref_norm {
             let tol = p.real("reference norm tolerance").unwrap_or(1.0e-5);
-            let norm = var.conv.norm;
+            let norm = var.map_or(0.0, |v| v.conv.norm);
             let mut absolute = p.logical("reference norm absolute").unwrap_or(false);
             let mut err = (norm - ref_norm).abs();
             if !absolute {
@@ -91,7 +97,7 @@ pub fn compare_to_reference(
             log.info(CALLER, &format!("{kind} Error to reference norm:{}", es(err, 13, 6)), 3);
         }
 
-        if compare_solution {
+        if let (true, Some(var)) = (compare_solution, var) {
             let tol = p.real("reference solution tolerance").unwrap_or(1.0e-5);
             let dofs = var.dofs;
             let (mut n, mut rn, mut nn, mut en) = (0usize, 0.0f64, 0.0f64, 0.0f64);
