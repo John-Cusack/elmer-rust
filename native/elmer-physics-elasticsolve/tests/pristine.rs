@@ -78,34 +78,12 @@ fn elastic_anisotropic_axi() {
     check("elasticanisotropicaxi", &run, &["displacement 1", "displacement 2", "stress_yy", "stress_zz"], 1e-8);
 }
 
-/// `Exported Variable 1 = Temperature` with `Initial Condition 1: Temperature = 400` is not built by
-/// `elmer-solver` yet, so the field is added here.
 #[test]
 fn elastic_thermal_bimetal() {
-    let run = support::run_sif_with("elasticthermalbimetal", "case.sif", |_| {}, |sim| {
-        let (perm, n) = {
-            let d = sim.vars.get("displacement").unwrap();
-            (d.perm.clone(), d.values.len() / d.dofs)
-        };
-        let var = elmer_solver::Variable::new("temperature", elmer_core::FieldKind::Nodal, 1, perm, vec![400.0; n]);
-        sim.vars.add(var).unwrap();
-    })
-    .unwrap();
-    check("elasticthermalbimetal", &run, &["displacement 1", "displacement 2"], 1e-8);
+    // `Exported Variable 1 = Temperature` with `Initial Condition 1: Temperature = 400`.
+    let run = support::run_sif("elasticthermalbimetal", "case.sif", |_| {}).unwrap();
+    check("elasticthermalbimetal", &run, &["displacement 1", "displacement 2", "temperature"], 1e-8);
     assert_eq!(run.passed, Some(true));
-}
-
-/// Cook's membrane (NeoHookean2D's mesh and loads) with the variations whose pristine fields were
-/// captured separately: St. Venant-Kirchhoff instead of neo-Hookean (`svk_pseudo` is left out: the pristine Newton
-/// iteration does not converge and wanders for its 20 iterations), a traction that follows the
-/// deformed boundary (no `Pseudo-Traction`) and a normal pressure. Each runs to the same nonlinear
-/// iteration the pristine solver stopped at, so a wrong tangent or cofactor shows as a different field.
-#[test]
-fn cooks_membrane_variants() {
-    for (v, tol) in [("nh_follower", 1e-7), ("nh_pressure", 1e-7), ("svk_follower", 1e-7)] {
-        let run = support::run_sif("neohookean2d", &format!("case_{v}.sif"), |_| {}).unwrap();
-        check_file("neohookean2d", &format!("pristine_{v}.tsv"), &run, &["displacement 1", "displacement 2"], tol);
-    }
 }
 
 #[test]

@@ -1,6 +1,6 @@
 //! Test-local P1 Lagrange basis and Gauss rules, standing in for `elmer-fe`
 //! until S1 lands. Test-only by design (swarm plan 4.4 rule 5).
-#![allow(dead_code)]
+#![allow(dead_code, clippy::needless_range_loop)]
 
 use elmer_core::{BasisEval, ElementBasis, ElementType, QuadPoint, Quadrature};
 
