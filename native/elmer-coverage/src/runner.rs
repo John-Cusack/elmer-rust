@@ -3,11 +3,12 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::analyze::sort_blockers;
-use crate::child::{ChildReport, Verdict};
+use crate::analyze::{self, sort_blockers};
+use crate::child::{failure_lines, fatal_message, ChildReport, Verdict};
 use crate::discover::QuickTest;
 use crate::record::Record;
 use crate::stage::{self, Recipe, Step};
@@ -21,6 +22,9 @@ pub struct Config {
     pub timeout: Duration,
     /// Delete a staged directory once its test is classified.
     pub clean: bool,
+    /// `elmer-mpi-run`, which runs the tests with more than one process
+    /// under `mpirun`; without it they are refused as `mpi: np=N`.
+    pub mpi_run: Option<PathBuf>,
 }
 
 /// `ELMERSOLVER_STARTINFO`'s first line: the case the test runs.
@@ -112,11 +116,94 @@ fn run_child(cfg: &Config, dir: &Path, sif: &str, recipe: &Recipe, static_only: 
     }
 }
 
+/// `mpirun -np N elmer-mpi-run sif` in `dir`, waiting up to the timeout.
+/// Rank 0 writes `TEST.PASSED_N`; the exit codes are `elmer-cli`'s (0
+/// solved, 78 refused with `elmer-mpi-run: refused: ...` lines on stderr).
+fn run_mpi(cfg: &Config, mpi_run: &Path, dir: &Path, sif: &str, np: u32) -> ChildReport {
+    let fail = |detail: String| ChildReport { verdict: Verdict::Error, detail, blockers: vec![], libs: vec![] };
+    let (out_path, err_path) = (dir.join("mpi.out"), dir.join("mpi.err"));
+    let (Ok(out), Ok(err)) = (fs::File::create(&out_path), fs::File::create(&err_path)) else {
+        return fail("cannot create mpirun output files".into());
+    };
+    let passed = dir.join(format!("TEST.PASSED_{np}"));
+    let _ = fs::remove_file(&passed);
+    let mut cmd = Command::new("nice");
+    cmd.args(["-n", "10", "mpirun", "--oversubscribe", "-np", &np.to_string()])
+        .arg(mpi_run)
+        .arg(sif)
+        .current_dir(dir)
+        .env("HWLOC_COMPONENTS", "-gl")
+        .env("OMP_NUM_THREADS", "1")
+        .env("RAYON_NUM_THREADS", "1")
+        .env("RUST_BACKTRACE", "0")
+        .stdin(Stdio::null())
+        .stdout(out)
+        .stderr(err)
+        // Its own process group, so a timeout kills the ranks with mpirun.
+        .process_group(0);
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => return fail(format!("spawn mpirun: {e}")),
+    };
+    let start = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break st,
+            Ok(None) if start.elapsed() > cfg.timeout => {
+                let _ = Command::new("kill").args(["-KILL", "--", &format!("-{}", child.id())]).status();
+                let _ = child.wait();
+                let mut r = fail(format!("timeout after {}s", cfg.timeout.as_secs()));
+                r.blockers.push("crash: timeout".to_string());
+                return r;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+            Err(e) => return fail(format!("wait: {e}")),
+        }
+    };
+    let stdout = fs::read_to_string(&out_path).unwrap_or_default();
+    let stderr = fs::read_to_string(&err_path).unwrap_or_default();
+    let refusals: Vec<&str> = stderr.lines().filter_map(|l| l.split_once("refused: ").map(|(_, r)| r.trim())).collect();
+    let passed = fs::read_to_string(&passed).ok().map(|s| s.trim().to_string());
+    let mut r = ChildReport { verdict: Verdict::Error, detail: String::new(), blockers: vec![], libs: vec![] };
+    match (status.code(), passed.as_deref()) {
+        (Some(78), _) if !refusals.is_empty() => {
+            r.blockers = refusals.iter().map(|m| analyze::from_refusal(m)).collect();
+            r.verdict = Verdict::Refused;
+            r.detail = refusals.join("; ");
+        }
+        (Some(0), Some("1")) => r.verdict = Verdict::Match,
+        (Some(0), Some(_)) => {
+            r.verdict = Verdict::Mismatch;
+            r.detail = failure_lines(&stdout);
+        }
+        (Some(0), None) => r.verdict = Verdict::NoOracle,
+        (code, _) => match fatal_message(&stdout) {
+            Some(m) => match analyze::capability_gap(&m) {
+                Some(gap) => {
+                    r.blockers.push(gap);
+                    r.verdict = Verdict::Refused;
+                    r.detail = m;
+                }
+                None => {
+                    r.blockers.push(format!("fatal: {}", analyze::generic(&m)));
+                    r.detail = format!("fatal: {m}");
+                }
+            },
+            None => {
+                let last = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+                r.detail = format!("mpirun exit {code:?}: {last}");
+            }
+        },
+    }
+    r
+}
+
 /// Runs one test and classifies it.
 pub fn run_test(cfg: &Config, test: &QuickTest) -> Record {
     let recipe = stage::recipe(test);
     let mut blockers = Vec::new();
-    if test.nprocs > 1 {
+    let mpi_run = cfg.mpi_run.as_deref().filter(|_| test.nprocs > 1);
+    if test.nprocs > 1 && mpi_run.is_none() {
         blockers.push(format!("mpi: np={}", test.nprocs));
     }
     for s in &recipe.steps {
@@ -169,7 +256,18 @@ pub fn run_test(cfg: &Config, test: &QuickTest) -> Record {
     let mut verdict: Option<Verdict> = None;
     let mut libs = Vec::new();
     for sif in &sifs {
-        let r = run_child(cfg, &dir, sif, &recipe, static_only);
+        let r = match mpi_run {
+            // The static screen first: a case it refuses is not run.
+            Some(bin) if !static_only => {
+                let screen = run_child(cfg, &dir, sif, &recipe, true);
+                if screen.verdict == Verdict::Refused && screen.blockers.is_empty() {
+                    ChildReport { libs: screen.libs, ..run_mpi(cfg, bin, &dir, sif, test.nprocs) }
+                } else {
+                    screen
+                }
+            }
+            _ => run_child(cfg, &dir, sif, &recipe, static_only),
+        };
         verdict = Some(match verdict {
             None => r.verdict.clone(),
             Some(v) => v.worst(r.verdict.clone()),
