@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use elmer_core::{Communicator, Logger, MeshView, Params, Value, NO_DOF};
+use elmer_core::{Communicator, Logger, MeshView, Params, NO_DOF};
 
 use crate::error::SolverError;
 use crate::fortran_fmt::{es, i2s};
@@ -34,8 +34,7 @@ pub fn compare_to_reference(
         let p = &slot.params;
         let solver_id = slot.id;
         let ref_norm = match p.get("reference norm") {
-            Some(Value::Real { data, .. }) if data.len() == 1 => Some(data[0]),
-            Some(_) => return Err(SolverError::NotWired("non-constant Reference Norm (elmer-expr)".into())),
+            Some(v) => Some(crate::expr::eval_const(v, sim.backends.matc.as_deref())?),
             None => None,
         };
         let compare_solution = p.0.keys().any(|k| k.starts_with("reference solution"));
@@ -110,15 +109,9 @@ pub fn compare_to_reference(
                     } else {
                         format!("reference solution {k}")
                     };
-                    let refval = match p.get(&key) {
-                        Some(Value::Real { data, .. }) if data.len() == 1 => data[0],
-                        Some(_) => {
-                            return Err(SolverError::NotWired(
-                                "non-constant Reference Solution (elmer-expr)".into(),
-                            ))
-                        }
-                        None => continue,
-                    };
+                    let Some(rv) = p.get(&key) else { continue };
+                    let fields = crate::expr::SimFields { vars: &sim.vars, mesh };
+                    let refval = crate::expr::eval_at_nodes(rv, &[node], &fields, sim.backends.matc.as_deref())?[0];
                     let val = var.values[dofs * j as usize + k - 1];
                     rn += refval * refval;
                     nn += val * val;
