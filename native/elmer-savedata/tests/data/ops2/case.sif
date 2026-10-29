@@ -1,0 +1,167 @@
+Header
+  CHECK KEYWORDS Warn
+  Mesh DB "." "mesh"
+End
+
+Simulation
+  Coordinate System = Cartesian 2D
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 0
+  Comment = String "ops two"
+End
+
+Body 1
+  Target Bodies(1) = 1
+  Equation = 1
+  Material = 1
+End
+
+Body 2
+  Target Bodies(1) = 2
+  Equation = 1
+  Material = 1
+  Body Force = 1
+  Save This = Logical True
+End
+
+Equation 1
+  Active Solvers(6) = 1 2 3 4 5 6
+End
+
+Material 1
+  Heat Conductivity = 1.0
+  Density = 1.0
+  Save This = Logical True
+End
+
+Body Force 1
+  Heat Source = 4.0
+  Save This = Logical True
+End
+
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Heat Flux = 0.0
+  Save This = Logical True
+  Save Line = Logical True
+End
+
+Boundary Condition 2
+  Target Boundaries(1) = 3
+  Heat Flux = 0.0
+  Flux Integrate = Logical True
+  Save Line = Logical True
+  Other Line = Logical True
+End
+
+Boundary Condition 3
+  Target Boundaries(1) = 4
+  Temperature = 0.0
+  Other Line = Logical True
+End
+
+Boundary Condition 4
+  Target Boundaries(1) = 2
+  Temperature = 10.0
+  Save This = Logical True
+End
+
+Solver 1
+  Equation = Heat Equation
+  Procedure = "HeatSolve" "HeatSolver"
+  Variable = Temperature
+  Linear System Solver = Direct
+  Linear System Direct Method = Banded
+End
+
+Solver 2
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Temperature
+  Mask Name 1 = Save This
+  Operator 1 = int square
+  Operator 2 = int square mean
+  Operator 3 = int rms
+  Operator 4 = int abs
+  Operator 5 = int abs mean
+  Operator 6 = int variance
+  Operator 7 = potential energy
+  Operator 8 = diffusive energy
+  Operator 9 = sum abs
+  Operator 10 = sum square
+  Operator 11 = mean abs
+  Operator 12 = mean square
+  Operator 13 = rms
+  Operator 14 = max abs
+  Operator 15 = min abs
+  Operator 16 = deviation
+  Operator 17 = boundary dofs
+  Operator 18 = boundary max
+  Operator 19 = boundary min
+  Operator 20 = boundary mean
+  Operator 21 = boundary max abs
+  Operator 22 = boundary min abs
+  Operator 23 = material mean
+  Operator 24 = body force max
+  Operator 25 = body int mean
+  Operator 26 = body force int
+  Nodal Variable 27 = Logical True
+  Operator 27 = mean
+  Nodal Variable 28 = Logical False
+  Operator 28 = sum
+  Operator 29 = partitions
+  Operator 30 = nans
+  Operator 31 = steady state change
+  Operator 32 = nonlin iter
+  Operator 33 = partition checksum
+  Operator 34 = elements
+  Operator 35 = boundary int
+End
+
+Solver 3
+  Equation = Second
+  Procedure = "SaveData" "SaveScalars"
+  Filename = second.dat
+  Comment = String "second scalars"
+  Line Marker = Integer 5
+  File Append = Logical True
+  Live Graph = Logical True
+  Partition Numbering = Logical True
+  Variable 1 = Temperature
+  Operator 1 = max
+  Operator 2 = min
+  Operator 3 = mean
+  Show Norm Name = String "mean: temperature"
+  Cost Function Index = Integer 2
+End
+
+Solver 4
+  Equation = Lines
+  Procedure = "SaveData" "SaveLine"
+  Filename = lines.dat
+  Variable 1 = Temperature
+  Line Marker = Integer 7
+  Optimize Node Ordering = Logical False
+  Comment = String "line one"
+End
+
+Solver 5
+  Equation = Lines2
+  Procedure = "SaveData" "SaveLine"
+  Filename = other.dat
+  Save Mask = String "Other Line"
+  Variable 1 = Temperature
+  Skip Boundary Info = Logical True
+End
+
+Solver 6
+  Equation = Ref
+  Procedure = "SaveData" "SaveScalars"
+  Filename = ref.dat
+  Variable 1 = Temperature
+  Operator 1 = max
+  Operator 2 = min
+  Reference Values(2,1) = Real 8.0 0.0
+End

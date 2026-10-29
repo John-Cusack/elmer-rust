@@ -1,0 +1,46 @@
+ops two
+Metadata for SaveScalars file: ./scalars.dat
+Elmer version: 26.2
+Elmer revision: 9f6af2f85
+Elmer compilation date: 2026-09-23
+Solver input file: case.sif
+File started at: 2026/10/29 11:23:02
+ 
+Variables in columns of matrix: 
+   1: int square: temperature mask save this
+   2: int square mean: temperature
+   3: int rms: temperature
+   4: int abs: temperature
+   5: int abs mean: temperature
+   6: int variance: temperature
+   7: potential energy: temperature
+   8: diffusive energy: temperature
+   9: sum abs: temperature
+  10: sum square: temperature
+  11: mean abs: temperature
+  12: mean square: temperature
+  13: rms: temperature
+  14: max abs: temperature
+  15: min abs: temperature
+  16: deviation: temperature
+  17: boundary dofs: temperature over bc save this
+  18: boundary max: temperature over bc save this
+  19: boundary min: temperature over bc save this
+  20: boundary mean: temperature over bc save this
+  21: boundary max abs: temperature over bc save this
+  22: boundary min abs: temperature over bc save this
+  23: material mean: temperature
+  24: body force max: temperature
+  25: body int mean: temperature
+  26: body force int: temperature
+  27: mean: temperature nodal
+  28: sum: temperature non-nodal
+  29: value: number of partitions
+  30: nans: temperature non-nodal
+  31: steady state change: temperature non-nodal
+  32: nonlin iter: temperature non-nodal
+  33: value: partition checksum
+  34: elements: temperature
+  35: boundary int: temperature over bc 1
+  36: boundary int:  over bc 2
+  37: boundary int:  over bc 4
