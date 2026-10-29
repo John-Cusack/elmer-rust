@@ -1,0 +1,22 @@
+[package]
+name = "elmer-coverage"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Quick-suite coverage harness: runs every ctest quick test through the native elmer-run path and ranks what is missing"
+
+[dependencies]
+elmer-core.workspace = true
+elmer-sif = { path = "../elmer-sif" }
+elmer-solver = { path = "../elmer-solver" }
+elmer-physics-heat = { path = "../elmer-physics-heat" }
+elmer-physics-elastic = { path = "../elmer-physics-elastic" }
+elmer-physics-flux = { path = "../elmer-physics-flux" }
+elmer-savedata = { path = "../elmer-savedata" }
+elmer-run = { path = "../elmer-run" }
+elmer-cli = { path = "../elmer-cli" }
+
+[[bin]]
+name = "elmer-coverage"
+path = "src/main.rs"
