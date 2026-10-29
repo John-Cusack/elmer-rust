@@ -125,7 +125,7 @@ fn check(case: &Case, sp: &ParamMap) -> Result<(), MagnetoError> {
     for bc in case.bcs.iter().flatten() {
         for k in REFUSED_BC_PREFIXES
             .iter()
-            .chain(&["layer electric conductivity", "thin sheet thickness", "component"])
+            .chain(&["layer electric conductivity", "component"])
         {
             if has_prefix(bc, k) {
                 return Err(MagnetoError::unsupported(format!("boundary condition '{k}'")));
@@ -186,7 +186,9 @@ pub fn solve_harmonic(case: &Case, solver_id: usize) -> Result<HarmonicSolution,
         }
         let omega = angular_frequency(case, sp, el.body)?
             .ok_or_else(|| MagnetoError::Input("Harmonic solution requires frequency!".into()))?;
-        omega_used.get_or_insert(omega);
+        // The module-level Omega the boundary kernels read is the last
+        // bulk element's.
+        omega_used = Some(omega);
         let co = BulkCoeffs {
             nu: vec![nu; nn],
             sigma: vec![sigma; nn],
@@ -219,7 +221,8 @@ pub fn solve_harmonic(case: &Case, solver_id: usize) -> Result<HarmonicSolution,
         };
         let etc = const_real(bc, "electric transfer coefficient")?;
         let gap = const_real(bc, "air gap length")?;
-        if gap.is_none() && h.is_none() && transfer.is_none() && jn.is_none() && etc.is_none() {
+        let sheet = const_real(bc, "thin sheet thickness")?;
+        if gap.is_none() && sheet.is_none() && h.is_none() && transfer.is_none() && jn.is_none() && etc.is_none() {
             // LocalMatrixBC with all-zero coefficients adds nothing.
             continue;
         }
@@ -235,18 +238,29 @@ pub fn solve_harmonic(case: &Case, solver_id: usize) -> Result<HarmonicSolution,
             .ok_or_else(|| MagnetoError::Input("boundary element outside the active elements".into()))?;
         let nn = b.nodes.len();
         let (xyz, gindex) = geometry(case, &b.nodes);
-        let loc = if let Some(gap) = gap {
+        let (loc, damp) = if let Some(gap) = gap {
             let mu = const_real(bc, "air gap relative permeability")?.unwrap_or(1.0);
-            local::air_gap_matrix(b.code, &xyz, &gindex, nn, &vec![gap; nn], &vec![mu; nn])?
+            (local::air_gap_matrix(b.code, &xyz, &gindex, nn, &vec![gap; nn], &vec![mu; nn])?, None)
+        } else if let Some(d) = sheet {
+            let mu = const_real(bc, "thin sheet relative permeability")?.unwrap_or(1.0);
+            let sigma = const_real(bc, "thin sheet electric conductivity")?.unwrap_or(1.0);
+            let (loc, damp) =
+                local::thin_sheet_matrix(b.code, &xyz, &gindex, nn, &vec![d; nn], &vec![mu; nn], &vec![sigma; nn])?;
+            (loc, Some(damp))
         } else {
             let h = h.unwrap_or([0.0; 3]);
             let co = BcCoeffs {
                 transfer: vec![transfer.unwrap_or(0.0); nn],
                 load: vec![[h[0], h[1], h[2], jn.unwrap_or(0.0), etc.unwrap_or(0.0)]; nn],
             };
-            local::bc_matrix(b.code, &xyz, &gindex, nn, &co)?
+            (local::bc_matrix(b.code, &xyz, &gindex, nn, &co)?, None)
         };
-        let stiff: Vec<Complex64> = loc.stiff.iter().map(|&v| Complex64::new(v, 0.0)).collect();
+        let omega = omega_used.unwrap_or(0.0);
+        let stiff: Vec<Complex64> = match damp {
+            // STIFF = -omega^2 MASS + i omega DAMP + STIFF, MASS = 0.
+            Some(d) => loc.stiff.iter().zip(&d).map(|(&k, &d)| Complex64::new(k, omega * d)).collect(),
+            None => loc.stiff.iter().map(|&v| Complex64::new(v, 0.0)).collect(),
+        };
         let force: Vec<Complex64> = loc.force.iter().map(|&v| Complex64::new(v, 0.0)).collect();
         glue(&mut a, &mut rhs, &lay.dofs_of(&b.nodes, &eids), &stiff, &force);
     }
