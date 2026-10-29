@@ -13,11 +13,15 @@ use crate::poisson_assembly::{BoundaryProps, BulkProps, Element, PoissonAssembly
 /// System` on its mesh, as `elmer-run` installs `elmer-fe` for the physics
 /// crates.
 pub(crate) fn lagrange_basis(ctx: &SolverCtx<'_>) -> Result<LagrangeBasis, SolverError> {
+    Ok(LagrangeBasis::new(coordinate_system(ctx)?.dim))
+}
+
+/// `SetCoordinateSystem`: the case's `Coordinate System` on its mesh.
+pub(crate) fn coordinate_system(ctx: &SolverCtx<'_>) -> Result<CoordinateSystem, SolverError> {
     let keyword = ctx.simulation_params().string("coordinate system");
-    let coords = CoordinateSystem::from_keyword(keyword, ctx.mesh.dim()).ok_or_else(|| {
+    CoordinateSystem::from_keyword(keyword, ctx.mesh.dim()).ok_or_else(|| {
         SolverError::fatal("SetCoordinateSystem", format!("Unknown Coordinate System: {}", keyword.unwrap_or("")))
-    })?;
-    Ok(LagrangeBasis::new(coords.dim))
+    })
 }
 
 /// `GetElementNodes`: the element's node coordinates in Elmer order.

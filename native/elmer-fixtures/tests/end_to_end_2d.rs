@@ -49,3 +49,25 @@ fn model_pde_handle_matches_pristine() {
     assert_eq!(out.passed, Some(true), "reference check\n{}", out.log);
     case::assert_norm_prints("ModelPDEhandle", out.norm(1), "1.79722562E+00");
 }
+
+/// `fem/tests/StokesProj` (`Pressure.so`, `Velocity.so`): the projection
+/// scheme converges in 45 coupled iterations, as the pristine run does.
+#[test]
+fn stokes_proj_matches_pristine() {
+    let dir = case::stage("StokesProj", None);
+    let out = case::run("StokesProj", &dir, "ns.sif").unwrap_or_else(|e| panic!("StokesProj: {e}"));
+    assert_eq!(out.passed, Some(true), "reference check\n{}", out.log);
+    case::assert_norm_prints("StokesProj", out.norm(2), "3.79706752E-01");
+    assert_eq!(out.log.matches("SS (ITER=").count(), 2 * 45, "45 coupled iterations of both solvers");
+}
+
+/// `fem/tests/bentonite` (`BentoniteSolver.so`, axisymmetric 1D mesh):
+/// 29 nonlinear iterations, as the pristine run.
+#[test]
+fn bentonite_matches_pristine() {
+    let dir = case::stage("bentonite", None);
+    let out = case::run("bentonite", &dir, "Bentonite.sif").unwrap_or_else(|e| panic!("bentonite: {e}"));
+    assert_eq!(out.passed, Some(true), "reference check\n{}", out.log);
+    case::assert_norm_prints("bentonite", out.norm(1), "1.95292467E+02");
+    assert_eq!(out.log.matches("Bentonite iteration").count(), 29);
+}

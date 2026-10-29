@@ -23,6 +23,8 @@ References below are paths under `/home/john/runs/elmer-fork/orig_src/fem/tests/
 | `TrescaSolver` | `tresca/Tresca.f90` | solver procedure; creates `Tresca` on `Stress`'s permutation (`SAVE TrescaValues`) | `tresca` |
 | `SingleElements`, `SingleElements_init` | `ElementUnitTest_h1/SingleElements.F90` | solver procedure plus a `_init` section edit (`registry::init_sections`); `SAVE NoTest, NoMode` | `single_elements` |
 | `AdvDiffSolver` | `ModelPDEhandle/ModelPDEhandle.F90` | solver procedure, keyword handles at integration points | `model_pde_handle` |
+| `PressureSolver`, `VelocitySolver` | `StokesProj/Pressure.f90`, `StokesProj/Velocity.f90` | two solver procedures of a projection scheme; `SAVE Newton, Norm` | `stokes_proj` |
+| `BentoniteSolver` | `bentonite/BentoniteSolver.F90` | 3-dof coupled solver with `CompEta` initialisation (`SAVE AllocationsDone`), axisymmetric metric, Robin boundaries | `bentonite` |
 | `AlternatingSource` | `HeatControlExplicit/AlternatingSource.F90` | scalar function, `Variable "cpar, time"`, `SAVE sgn`, prints each flip | `udf::AlternatingSource` (not registered, see below) |
 
 ### Cases that match the pristine reference end to end
@@ -44,6 +46,15 @@ plugins) printed:
 | `tresca` (StressSolve, then the plugin) | `TrescaSolver` | 2.19639953E+01 |
 | `ModelPDEhandle` | `AdvDiffSolver` | 1.79722562E+00 |
 | `ElementUnitTest_h1` (12 `RUN` blocks) | `SingleElements` | all 12 reference values pass |
+| `StokesProj` (45 coupled iterations, as pristine) | `PressureSolver`, `VelocitySolver` | 3.79706752E-01 |
+| `bentonite` (29 nonlinear iterations, as pristine) | `BentoniteSolver` | 1.95292467E+02 |
+
+`StokesProj` names `Before Linsolve = "EliminateDirichlet"`, which nothing
+implements and `elmer-solver` ignores. Eliminating Dirichlet rows does not
+change the solution of the system, and the run matches the pristine
+iteration count and final norm. The intermediate pressure-correction norms
+differ from about the sixth digit (`0.59287902E-03` against `0.59287805E-03`
+at iteration 45), within the iterative solver's tolerance.
 
 `ElementUnitTest_h1` prints its per-element values. The six `SUM(MASS)`
 values and four of the six `SUM(ABS(STIFF))` values are the pristine run's
@@ -265,9 +276,6 @@ largest group and the best next target after the scalar batch; `CountSolver` and
 | `SlaveSolverSlots/CountSolver.F90` | CountSolver:solver | init VisitedTimes=0 | writes Solver%Variable |
 | `SlaveSolverSlotsScan/CountSolver2.F90` | CountSolver:solver | init VisitedTimes=0 | writes Solver%Variable |
 | `StokesPFEM/Stokes.f90` | StokesSolver:solver | SAVE STIFF, MASS, LOAD, FORCE, rho, mu, Velocity, AllocationsDone, Nodes; init Norm=0, mu=1.0d0; work arrays | default_* solve path; elmer-fe; p/edge/face Element in .sif |
-| `StokesProj/Velocity.f90` | VelocitySolver:solver | SAVE STIFF, LOAD, FORCE, rho, mu, Velocity, Pressure, AllocationsDone, Nodes; init Norm=0, mu=1.0d0; work arrays | default_* solve path; elmer-fe |
-| `StokesProj/Pressure.f90` | PressureSolver:solver | SAVE STIFF, LOAD, FORCE, Velocity, AllocationsDone, Nodes; init Norm=0; work arrays | default_* solve path; elmer-fe; writes Solver%Variable |
-| `bentonite/BentoniteSolver.F90` | BentoniteSolver:solver | SAVE STIFF, MASS, FORCE, ElementNodes, &; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; writes Solver%Variable |
 
 ### UMAT
 

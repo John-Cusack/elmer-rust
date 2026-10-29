@@ -23,10 +23,12 @@ use elmer_expr::{Udf, UdfRegistry};
 use elmer_solver::solver::procedure_of;
 use elmer_solver::{ElementAssembly, Model, Simulation, SolverFactory, SolverRegistry};
 
+use crate::bentonite;
 use crate::hooks::{PoissonBoundary, PoissonBulk};
 use crate::model_pde_handle;
 use crate::poisson_solver;
 use crate::single_elements;
+use crate::stokes_proj;
 use crate::tresca;
 use crate::udf::{init_dist_fn, my_source_fn, OneDSource, OneDTolerances};
 use crate::ModelView;
@@ -120,6 +122,9 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("tresca", "Tresca", "TrescaSolver", Hook::Solver(tresca::factory)),
     ("ElementUnitTest_h1", "SingleElements", "SingleElements", Hook::Solver(single_elements::factory)),
     ("ModelPDEhandle", "ModelPDEhandle", "AdvDiffSolver", Hook::Solver(model_pde_handle::factory)),
+    ("StokesProj", "Pressure", "PressureSolver", Hook::Solver(stokes_proj::pressure_factory)),
+    ("StokesProj", "Velocity", "VelocitySolver", Hook::Solver(stokes_proj::velocity_factory)),
+    ("bentonite", "BentoniteSolver", "BentoniteSolver", Hook::Solver(bentonite::factory)),
 ];
 
 /// Edits a solver section.
