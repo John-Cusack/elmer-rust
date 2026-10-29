@@ -1,0 +1,22 @@
+[package]
+name = "elmer-core"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Cross-lane types and traits for the Rust-native Elmer rewrite"
+
+[dependencies]
+num-complex.workspace = true
+thiserror.workspace = true
+
+# Pins the whole workspace allowlist in native/Cargo.lock without building it:
+# `cfg(any())` is never true, but cargo still resolves and locks these.
+[target.'cfg(any())'.dev-dependencies]
+faer.workspace = true
+rayon.workspace = true
+approx.workspace = true
+proptest.workspace = true
+quick-xml.workspace = true
+base64.workspace = true
+bytemuck.workspace = true

@@ -1,0 +1,32 @@
+# Rust-native Elmer workspace (zero Fortran, LGPL-2.1-or-later).
+# Layout and ownership rules: docs/adr/003-swarm-layout.md.
+[workspace]
+resolver = "2"
+# Glob: every native/elmer-* crate is a member, so no lane ever edits this line.
+members = ["elmer-*"]
+# The oracle is its own workspace with its own lockfile, so the grader never
+# shares a resolution with any candidate crate it grades.
+exclude = ["elmer-oracle"]
+
+[workspace.package]
+edition = "2021"
+license = "LGPL-2.1-or-later"
+repository = "https://github.com/John-Cusack/elmer-rust"
+
+# Pre-resolved allowlist (swarm plan 4.2). A new external crate needs
+# firstmate's OK and must be named in the PR description.
+[workspace.dependencies]
+elmer-core = { path = "elmer-core" }
+faer = "0.24"
+num-complex = "0.4"
+rayon = "1.12"
+thiserror = "2"
+approx = "0.5"
+proptest = "1"
+quick-xml = "0.39"
+base64 = "0.22"
+bytemuck = "1"
+
+# `elmer-core` above is consumed by lanes that are not merged yet.
+[workspace.lints.cargo]
+unused_workspace_dependencies = "allow"
