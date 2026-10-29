@@ -21,6 +21,8 @@ pub(crate) struct AssemblyState {
     pub boundary_done: bool,
     /// A boundary element added a nonzero contribution.
     pub boundary_touched: bool,
+    /// The Dirichlet dofs of this assembly (`A % ConstrainedDOF`).
+    pub constrained: Vec<(u32, f64)>,
 }
 
 /// Whether `DefaultFinishBulkAssembly` keeps the bulk system: `Calculate

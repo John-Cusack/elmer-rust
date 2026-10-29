@@ -1,0 +1,33 @@
+ComputeChange: NS (ITER=1) (NRM,RELC): (  1.9906290      2.0000000     ) :: heatsolver
+ControlLinearSystem: Applied Control Amplitude 1:    9.847747E+00
+ControlLinearSystem: Applied Control Amplitude 2:    1.095738E+01
+ControlLinearSystem: Applied Control Amplitude 3:    1.099393E+01
+ControlLinearSystem: Applied Control Amplitude 4:    1.101220E+01
+ComputeChange: SS (ITER=1) (NRM,RELC): (  42.239860      2.0000000     ) :: heatsolver
+ComputeChange: NS (ITER=1) (NRM,RELC): (  20.190070     0.70638524     ) :: heatsolver
+ControlLinearSystem: Applied Control Amplitude 1:    1.084775E+01
+ControlLinearSystem: Applied Control Amplitude 2:    1.195738E+01
+ControlLinearSystem: Applied Control Amplitude 3:    1.199393E+01
+ControlLinearSystem: Applied Control Amplitude 4:    1.201220E+01
+ComputeChange: SS (ITER=2) (NRM,RELC): (  23.534088     0.56878969     ) :: heatsolver
+ComputeChange: NS (ITER=1) (NRM,RELC): (  22.028180     0.66103298E-01 ) :: heatsolver
+ControlLinearSystem: Applied Control Amplitude 1:    1.084775E+01
+ControlLinearSystem: Applied Control Amplitude 2:    1.195738E+01
+ControlLinearSystem: Applied Control Amplitude 3:    1.199393E+01
+ControlLinearSystem: Applied Control Amplitude 4:    1.201220E+01
+ComputeChange: SS (ITER=3) (NRM,RELC): (  22.028180     0.66103309E-01 ) :: heatsolver
+ComputeChange: NS (ITER=1) (NRM,RELC): (  22.028180     0.40529426E-09 ) :: heatsolver
+ControlLinearSystem: Applied Control Amplitude 1:    1.084775E+01
+ControlLinearSystem: Applied Control Amplitude 2:    1.195738E+01
+ControlLinearSystem: Applied Control Amplitude 3:    1.199393E+01
+ControlLinearSystem: Applied Control Amplitude 4:    1.201220E+01
+ComputeChange: SS (ITER=4) (NRM,RELC): (  22.028180     0.11646240E-07 ) :: heatsolver
+ComputeChange: NS (ITER=1) (NRM,RELC): (  22.028180     0.44122411E-08 ) :: heatsolver
+ControlLinearSystem: Applied Control Amplitude 1:    1.084775E+01
+ControlLinearSystem: Applied Control Amplitude 2:    1.195738E+01
+ControlLinearSystem: Applied Control Amplitude 3:    1.199393E+01
+ControlLinearSystem: Applied Control Amplitude 4:    1.201220E+01
+ComputeChange: SS (ITER=5) (NRM,RELC): (  22.028180     0.34678200E-08 ) :: heatsolver
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 2.20281802E+01  RefNorm = 2.20281802E+01
+CompareToReferenceSolution: Relative Error to reference norm: 1.360991E-09
+CompareToReferenceSolution: PASSED all 1 tests!
