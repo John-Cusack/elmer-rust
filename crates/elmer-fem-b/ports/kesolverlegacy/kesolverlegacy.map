@@ -1,0 +1,5 @@
+{
+  global: kesolverlegacy_;
+  global: kesolverlegacy_init_;
+  local: *;
+};

@@ -1,0 +1,4 @@
+{
+  global: emportsolver_; emportsolver_init0_; emportpotential_; emportpotential_init_;
+  local: *;
+};

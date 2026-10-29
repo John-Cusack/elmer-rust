@@ -1,0 +1,5 @@
+{
+  global: timoshenkosolver_;
+  global: timoshenkosolver_init0_;
+  local: *;
+};

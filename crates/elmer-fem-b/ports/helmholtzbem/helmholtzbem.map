@@ -1,0 +1,7 @@
+{
+  global: helmholtzbemsolver_;
+  global: matvec_;
+  global: precond_;
+  global: __globmatc_MOD_matrix;
+  local: *;
+};

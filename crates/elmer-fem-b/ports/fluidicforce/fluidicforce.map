@@ -1,0 +1,4 @@
+{
+  global: forcecompute_;
+  local: *;
+};

@@ -1,0 +1,15 @@
+[package]
+name = "filmcompressibility"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "filmcompressibility"
+crate-type = ["cdylib"]
+
+# Standalone package: the fem-b lane has no workspace manifest, so this
+# port keeps itself out of the root workspace and builds on its own —
+# the same shape as the T020 poisson port.
+[workspace]
+
+[build-dependencies]

@@ -1,0 +1,6 @@
+{
+  global:
+    advectiondiffusionsolver_;
+    advectiondiffusionsolver_init_;
+  local: *;
+};

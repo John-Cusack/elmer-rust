@@ -1,0 +1,5 @@
+{
+  global: gmshoutputreader_;
+  global: gmshoutputreader_init_;
+  local: *;
+};

@@ -1,0 +1,10 @@
+{
+  global:
+    rotmsolver_;
+    rotmsolver_init_;
+    __vecutils_MOD_jac;
+    __vecutils_MOD_norm2;
+    __vecutils_MOD_normalized;
+    __vecutils_MOD_transform2rank;
+  local: *;
+};

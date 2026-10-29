@@ -1,0 +1,7 @@
+{
+  global: coilsolver_;
+  global: coilsolver_init_;
+  global: coilpotential_;
+  global: coilpotentialnormalized_;
+  local: *;
+};

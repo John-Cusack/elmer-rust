@@ -1,0 +1,9 @@
+{
+  global: getjouleheat_;
+  global: helmholtz_smoluchowski_;
+  global: helmholtz_smoluchowski1_;
+  global: helmholtz_smoluchowski2_;
+  global: helmholtz_smoluchowski3_;
+  global: helmholtz_smoluchowski_comp_;
+  local: *;
+};

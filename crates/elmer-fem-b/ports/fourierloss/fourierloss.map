@@ -1,0 +1,4 @@
+{
+  global: fourierlosssolver_; fourierlosssolver_init_;
+  local: *;
+};

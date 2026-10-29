@@ -1,0 +1,5 @@
+{
+  global: acousticssolver_;
+  global: acousticssolver_init_;
+  local: *;
+};

@@ -1,0 +1,5 @@
+{
+  global: komegalegacy_;
+  global: komegalegacy_init_;
+  local: *;
+};
