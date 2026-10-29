@@ -10,15 +10,21 @@ use elmer_interp::{build_projector, Extras, InterpOptions, Locator};
 use crate::interface::{create_interface_meshes, map_interface_coordinate, InterfaceMesh};
 use crate::overlay::overlay_interface_meshes;
 use crate::save::save_projector;
+use crate::weighted::weighted_projector;
 use crate::MortarError;
 
 const CALLER: &str = "PeriodicProjector";
 
-/// A boundary projector (`Model % BCs(i) % PMatrix`): row `i` ties parent
-/// node `inv_perm[i]` of this boundary to the target-side parent nodes in
-/// `cols[rows[i]..rows[i+1]]` with the weights in `values`. Columns keep the
-/// element order of the Fortran (they are not sorted); rows of nodes that
-/// were not found are empty.
+/// A boundary projector (`Model % BCs(i) % PMatrix`, or a solver's
+/// `MortarBCs(i) % Projector`): row `i` belongs to parent node
+/// `inv_perm[i]` of this boundary and holds parent mesh nodes in
+/// `cols[rows[i]..rows[i+1]]` with the weights in `values`.
+///
+/// A nodal projector ties the node to target-side nodes (columns in the
+/// element order of the Fortran, not sorted; rows of nodes that were not
+/// found are empty). A Galerkin projector ([`Projector::galerkin`]) holds
+/// the weak form of `u_this - scale * u_target` tested with the node's basis
+/// function, columns ascending.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Projector {
     /// Length `n_rows + 1`.
@@ -31,6 +37,8 @@ pub struct Projector {
     pub inv_perm: Vec<u32>,
     /// The boundary condition the projector belongs to (`ProjectorBC`), 1-based.
     pub projector_bc: usize,
+    /// `ProjectorType == PROJECTOR_TYPE_GALERKIN`.
+    pub galerkin: bool,
 }
 
 impl Projector {
@@ -116,6 +124,7 @@ pub fn nodal_projector(
         values: p.values,
         inv_perm: b1.inv_perm.clone(),
         projector_bc: 0,
+        galerkin: false,
     })
 }
 
@@ -143,8 +152,9 @@ fn flag(p: &dyn Params, k: &str) -> bool {
 }
 
 /// `PeriodicProjector(Model, Mesh, This, Trgt, Galerkin)` for the generic
-/// nodal projector. `galerkin` is the optional argument; without it the
-/// boundary's `Galerkin Projector` decides. Returns `None` where the Fortran
+/// projector, nodal ([`nodal_projector`]) or Galerkin
+/// ([`weighted_projector`]). `galerkin` is the optional argument; without it
+/// the boundary's `Galerkin Projector` decides. Returns `None` where the Fortran
 /// returns a null projector (`This` or `Trgt` not positive, or an empty side).
 /// Saving is left to the caller ([`save_request`], [`save_projector`]).
 pub fn periodic_projector(
@@ -202,12 +212,56 @@ pub fn periodic_projector(
         overlay_interface_meshes(&b1, &mut b2, bc, env.log)?;
     }
 
-    if weak {
-        return Err(MortarError::Unsupported(
-            "Galerkin Projector (WeightedProjector)".into(),
-        ));
-    }
-    let mut p = nodal_projector(&b2, &b1, env.interp_options(), env.coord_dim, env.log)?;
+    let mut p = if weak {
+        env.log.info(
+            CALLER,
+            "Weighted projector is very suboptimal, do not use it!",
+            3,
+        );
+        env.log.warn(
+            CALLER,
+            "Use \"Normal Projector\" or \"Level Projector\" instead!",
+        );
+        let solver_flag = |k: &str| env.solver.is_some_and(|s| flag(s, k));
+        if solver_flag("edge basis") {
+            return Err(MortarError::Unsupported(
+                "Galerkin projector with Edge Basis".into(),
+            ));
+        }
+        let cs = env
+            .simulation
+            .string("coordinate system")
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if cs.contains("symmetric") {
+            // AxisSym weighting depends on Projector Metrics and the nodal
+            // jump keywords.
+            return Err(MortarError::Unsupported(
+                "Galerkin projector in axisymmetric coordinates".into(),
+            ));
+        }
+        let rel_order = env
+            .solver
+            .and_then(|s| s.integer("projector relative integration order"))
+            .unwrap_or(0);
+        if !(-1..=1).contains(&rel_order) {
+            return Err(MortarError::Fatal(format!(
+                "{CALLER}: Projector Relative Integration Order {rel_order} not in [-1, 1]"
+            )));
+        }
+        let scale = bc.real("mortar bc scaling").unwrap_or(1.0);
+        weighted_projector(
+            &b2,
+            &b1,
+            env.interp_options(),
+            env.coord_dim,
+            rel_order,
+            scale,
+            env.log,
+        )?
+    } else {
+        nodal_projector(&b2, &b1, env.interp_options(), env.coord_dim, env.log)?
+    };
 
     p.projector_bc = this;
     if flag(bc, "projector set rowsum") {
@@ -224,6 +278,11 @@ pub fn periodic_projector(
     env.log.info(CALLER, "Projector created, now exiting...", 8);
     Ok(Some(p))
 }
+
+/// The projectors of a model, `[i]` from boundary condition `i + 1`, and
+/// whether a `Save Projector And Stop` fired (the Fortran stops the run
+/// there).
+pub type GeneratedProjectors = (Vec<Option<Projector>>, bool);
 
 /// What `Save Projector` asks for on one boundary condition.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -259,7 +318,7 @@ pub fn generate_periodic_projectors(
     env: &ProjectorEnv<'_>,
     save_dir: &Path,
     timestep: i32,
-) -> Result<(Vec<Option<Projector>>, bool), MortarError> {
+) -> Result<GeneratedProjectors, MortarError> {
     if env.bcs.iter().any(|bc| bc.get("conforming bc").is_some()) {
         return Err(MortarError::Unsupported("Conforming BC".into()));
     }
@@ -271,17 +330,118 @@ pub fn generate_periodic_projectors(
             continue;
         };
         let p = periodic_projector(env, i, k.max(0) as usize, None)?;
-        if let (Some(p), Some(req)) = (&p, save_request(bc, i, timestep)) {
-            save_projector(p, &save_dir.join(&req.prefix))
-                .map_err(|e| MortarError::Fatal(format!("SaveProjector: {}: {e}", req.prefix)))?;
-            if req.and_stop {
-                out.push(Some(p.clone()));
-                return Ok((out, true));
-            }
-        }
+        let stop = save_if_requested(bc, p.as_ref(), i, save_dir, timestep)?;
         out.push(p);
+        if stop {
+            return Ok((out, true));
+        }
     }
     Ok((out, false))
+}
+
+/// The `Save Projector` step at the end of `PeriodicProjector`; true when
+/// `Save Projector And Stop` fired.
+fn save_if_requested(
+    bc: &dyn Params,
+    p: Option<&Projector>,
+    this: usize,
+    save_dir: &Path,
+    timestep: i32,
+) -> Result<bool, MortarError> {
+    let (Some(p), Some(req)) = (p, save_request(bc, this, timestep)) else {
+        return Ok(false);
+    };
+    save_projector(p, &save_dir.join(&req.prefix))
+        .map_err(|e| MortarError::Fatal(format!("SaveProjector: {}: {e}", req.prefix)))?;
+    Ok(req.and_stop)
+}
+
+/// `GenerateProjectors(Model, Solver, Nonlinear)` (ProjectorUtils.F90) for
+/// `Mortar BC`: the Galerkin projector of every boundary condition with
+/// `Mortar BC = j` onto boundary condition `j` (index `i` holds boundary
+/// condition `i + 1`), saved into `save_dir` where `Save Projector` asks for
+/// it. `env.solver` is the solver the projectors are for; `nonlinear`
+/// selects the call made inside the nonlinear iteration, which only builds
+/// the projectors with `Mortar BC Nonlinear`, the other call the rest.
+///
+/// Returns `None` when the solver applies no mortar conditions (no `Apply
+/// Mortar BCs`). The flag is true when a `Save Projector And Stop` fired.
+/// Contact, integral and shared (`Mortar BC Master Solver`) projectors are
+/// refused.
+pub fn generate_mortar_projectors(
+    env: &ProjectorEnv<'_>,
+    body_forces: &[&dyn Params],
+    nonlinear: bool,
+    save_dir: &Path,
+    timestep: i32,
+) -> Result<Option<GeneratedProjectors>, MortarError> {
+    const CALLER: &str = "GenerateProjectors";
+    let solver = env
+        .solver
+        .ok_or_else(|| MortarError::Fatal(format!("{CALLER}: no solver")))?;
+    if flag(solver, "apply contact bcs") {
+        return Err(MortarError::Unsupported("Apply Contact BCs".into()));
+    }
+    let integral = flag(solver, "apply integral bcs");
+    if !flag(solver, "apply mortar bcs") && !integral {
+        return Ok(None);
+    }
+    if solver.get("mortar bc master solver").is_some() {
+        return Err(MortarError::Unsupported("Mortar BC Master Solver".into()));
+    }
+    env.log
+        .info(CALLER, "Generating various boundary projectors", 8);
+    let n_bcs = env.bcs.len();
+    let mut out = Vec::with_capacity(n_bcs);
+    for i in 1..=n_bcs + body_forces.len() {
+        let (bc, body_force) = if i > n_bcs {
+            (body_forces[i - n_bcs - 1], true)
+        } else {
+            (env.bc(i), false)
+        };
+        let mortar = bc.integer("mortar bc");
+        let contact = bc.integer("contact bc");
+        let integral_bc = flag(bc, "integral bc");
+        let k = usize::from(mortar.is_some())
+            + usize::from(contact.is_some())
+            + usize::from(integral_bc);
+        if k == 0 {
+            out.push(None);
+            continue;
+        }
+        if k > 1 {
+            return Err(MortarError::Fatal(format!(
+                "{CALLER}: Boundary {i} can only be one of mortar, contact and integral!"
+            )));
+        }
+        if body_force && !integral_bc {
+            return Err(MortarError::Fatal(format!(
+                "{CALLER}: Body Force {i} can only have integral bc!"
+            )));
+        }
+        if contact.is_some() {
+            return Err(MortarError::Unsupported(format!(
+                "Boundary {i}: Contact BC"
+            )));
+        }
+        if integral_bc {
+            return Err(MortarError::Unsupported(format!(
+                "Boundary {i}: Integral BC"
+            )));
+        }
+        if bc.logical("mortar bc nonlinear").unwrap_or(false) != nonlinear {
+            out.push(None);
+            continue;
+        }
+        let j = mortar.unwrap_or(0).max(0) as usize;
+        let p = periodic_projector(env, i, j, Some(true))?;
+        let stop = save_if_requested(bc, p.as_ref(), i, save_dir, timestep)?;
+        out.push(p);
+        if stop {
+            return Ok(Some((out, true)));
+        }
+    }
+    Ok(Some((out, false)))
 }
 
 #[cfg(test)]
@@ -296,6 +456,7 @@ mod tests {
             values: vec![1.0, -3.0, 0.5],
             inv_perm: vec![0, 1],
             projector_bc: 1,
+            galerkin: false,
         };
         p.set_rowsum();
         assert_eq!(p.values, vec![0.25, -0.75, 1.0]);

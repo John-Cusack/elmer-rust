@@ -32,6 +32,17 @@ impl InterfaceMesh {
     pub fn n_elements(&self) -> usize {
         self.elems.len()
     }
+
+    /// A node set without elements (the Gauss points `WeightedProjector`
+    /// puts in place of `BMesh1 % Nodes`).
+    pub fn points(coords: Vec<[f64; 3]>) -> Self {
+        let n = coords.len() as u32;
+        InterfaceMesh {
+            coords,
+            inv_perm: (0..n).collect(),
+            elems: Vec::new(),
+        }
+    }
 }
 
 impl MeshView for InterfaceMesh {

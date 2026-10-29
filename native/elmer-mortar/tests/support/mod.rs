@@ -70,6 +70,22 @@ impl FileMesh {
     }
 }
 
+impl FileMesh {
+    /// The dimension of the bulk elements (Elmer `MeshDim`).
+    pub fn bulk_dim(&self) -> usize {
+        self.elems[..self.n_bulk]
+            .iter()
+            .map(|e| match e.etype.0 / 100 {
+                1 => 0,
+                2 => 1,
+                3 | 4 => 2,
+                _ => 3,
+            })
+            .max()
+            .unwrap_or(0)
+    }
+}
+
 impl MeshView for FileMesh {
     fn dim(&self) -> usize {
         self.dim
