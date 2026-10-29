@@ -81,6 +81,39 @@ impl MatcEngine for SharedMatc {
     }
 }
 
+/// A [`MatcEngine`] over a text MATC evaluator such as
+/// `elmer_sif::matc::matc_eval` (Elmer's `matc_c`, Load.c). Arguments are
+/// bound the way `SetGetMatcParams` (Lists.F90:128) does through
+/// `MatcSetParams`: the array `tx` (or `st`) becomes the 1 x n row of
+/// argument values, here by an assignment whose numbers round-trip
+/// exactly; no arguments bind nothing (`GetMatcReal`). The printed result
+/// is read back as `READ(res,*)` does, so values carry MATC's 12 printed
+/// digits, as in Elmer.
+///
+/// Binding and evaluating are two calls into one process-wide evaluator:
+/// install it in one simulation at a time ([`crate::Simulation::set_matc`]
+/// takes a non-`Send` handle for that reason).
+pub struct TextMatc<F>(pub F);
+
+impl<F: Fn(&str) -> Result<String, String>> MatcEngine for TextMatc<F> {
+    fn eval(&self, expr: &str, args: &[f64]) -> Result<Vec<f64>, String> {
+        self.eval_with("tx", expr, args)
+    }
+
+    fn eval_with(&self, var: &str, expr: &str, args: &[f64]) -> Result<Vec<f64>, String> {
+        if !args.is_empty() {
+            // `{:e}` is the shortest exact form and never has a space after a
+            // sign, so MATC reads one row element per number.
+            let row: Vec<String> = args.iter().map(|a| format!("{a:e}")).collect();
+            (self.0)(&format!("{var} = {}", row.join(" ")))?;
+        }
+        let out = (self.0)(expr)?;
+        out.split_whitespace()
+            .map(|t| t.parse::<f64>().map_err(|_| format!("MATC result {out:?} of {expr:?} is not numeric")))
+            .collect()
+    }
+}
+
 /// [`compile_with`] against `udfs`, falling back to the process-wide
 /// registry for procedures `udfs` does not know. Any other compile error
 /// comes back from the property's evaluation, as with [`compile`].

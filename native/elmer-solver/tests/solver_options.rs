@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use elmer_core::{
     CsrMatrix, Dependent, DependentKind, ElemId, ElementRef, ElementType, LinearOperator,
-    LocalSystem, MeshView, NullLogger, ParamMap, SerialComm, Value,
+    LocalSystem, MeshView, NullLogger, ParamMap, Params, SerialComm, Value,
 };
 use elmer_expr::MatcEngine;
 use elmer_solver::backend::LinearSolverChoice;
@@ -378,4 +378,62 @@ fn bossak_and_generalized_alpha_follow_the_fortran_recurrence() {
         // The oscillator actually oscillates: period 2 pi sqrt(m/k) = 1.26.
         assert!(got.iter().any(|&u| u < -0.5), "{method:?}: {got:?}");
     }
+}
+
+/// The bridge to the real MATC (`elmer-sif`'s vendored C library). One test,
+/// because MATC's variables are process-wide and binding plus evaluation are
+/// two calls.
+#[test]
+fn text_matc_over_the_c_library() {
+    let m = elmer_solver::TextMatc(elmer_sif::matc::matc_eval);
+    assert_eq!(m.eval_with("tx", "tx(0)*2+tx(1)", &[1.5, -0.25]).unwrap(), vec![2.75]);
+    assert_eq!(m.eval_with("tx", "tx", &[-1.0e-3, 4.0, 0.5]).unwrap(), vec![-1.0e-3, 4.0, 0.5]);
+    assert_eq!(m.eval_with("st", "st - 2.5", &[2.0]).unwrap(), vec![-0.5]);
+    // Constant expressions bind nothing; results carry MATC's 12 digits.
+    assert_eq!(m.eval("1/3", &[]).unwrap(), vec![0.333333333333]);
+    assert!(m.eval("1+*2", &[]).is_err());
+
+    // Through the simulation: a time-dependent Exec Condition and a
+    // relaxation factor, both MATC.
+    let sim = run(
+        poisson_model(
+            true,
+            &[("Exec Condition", matc("st - 2.5")), ("Nonlinear System Relaxation Factor", matc("0.5"))],
+        ),
+        |sim| sim.set_matc(Rc::new(elmer_solver::TextMatc(elmer_sif::matc::matc_eval))),
+    );
+    assert_eq!(sim.slots[0].times_visited, 2);
+    let want = run(
+        poisson_model(
+            true,
+            &[("Exec Condition", matc("st - 2.5")), ("Nonlinear System Relaxation Factor", r(0.5))],
+        ),
+        |sim| sim.set_matc(Rc::new(StubMatc::default())),
+    );
+    assert_eq!(potential(&sim), potential(&want));
+}
+
+#[test]
+fn init_can_raise_the_time_derivative_order() {
+    struct Second;
+    impl elmer_solver::Solver for Second {
+        fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+            ctx.set_time_derivative_order(2)
+        }
+        fn solve(&mut self, _: &mut SolverCtx<'_>, _: f64, _: bool) -> Result<(), SolverError> {
+            Ok(())
+        }
+    }
+    fn second(_: &ParamMap) -> Result<Box<dyn elmer_solver::Solver>, SolverError> {
+        Ok(Box::new(Second))
+    }
+    let mut reg = SolverRegistry::new();
+    reg.register("S", "S", second);
+    let mut m = poisson_model(true, &[]);
+    m.solvers[0].insert("Procedure", s("\"S\" \"S\""));
+    let mut sim = Simulation::new(m);
+    sim.setup(&line_mesh(), &reg, &NullLogger, &SerialComm).unwrap();
+    assert_eq!(sim.slots[0].time_order, 2);
+    assert_eq!(sim.vars.get("potential").unwrap().prev_values.len(), 7);
+    assert_eq!(sim.slots[0].params.integer("time derivative order"), Some(2));
 }

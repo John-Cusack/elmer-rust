@@ -406,6 +406,33 @@ impl<'a> SolverCtx<'a> {
         self.time_terms(local, e, dt, true)
     }
 
+    /// `ListAddInteger(Params, 'Time Derivative Order', k)` from a solver's
+    /// `init`, as Elmer's `_Init` routines do (ElasticSolver_Init sets 2).
+    /// Those run before the variable's histories are allocated and `init`
+    /// runs after, so in a transient run this also sets `Solver % TimeOrder`
+    /// and reallocates the `PrevValues` columns (seven for order 2).
+    pub fn set_time_derivative_order(&mut self, k: u8) -> Result<(), SolverError> {
+        let k = k.clamp(1, 2);
+        let slot = &mut self.sim.slots[self.slot];
+        if slot.done_time > 0 {
+            return Err(SolverError::fatal(
+                "SetTimeDerivativeOrder",
+                "Time Derivative Order changed after time stepping started",
+            ));
+        }
+        slot.params.insert("Time Derivative Order", Value::Integer(vec![i32::from(k)]));
+        if slot.time_order == 0 {
+            return Ok(());
+        }
+        slot.time_order = k;
+        let m = if k == 2 { 7 } else { slot.order };
+        if let Some(id) = slot.variable {
+            let v = self.sim.vars.by_id_mut(id);
+            v.prev_values = vec![vec![0.0; v.values.len()]; m];
+        }
+        Ok(())
+    }
+
     /// The solver variable's convergence record (`Norm`, `NonlinChange`, ...).
     pub fn convergence(&self) -> Option<&crate::variable::Convergence> {
         let id = self.sim.slots[self.slot].variable?;

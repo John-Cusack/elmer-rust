@@ -41,6 +41,7 @@ pub use backend::{AssemblyBackend, Backends, LinearSolverRegistry, Perm, TimeBac
 pub use coupled::AssemblySolver;
 pub use change::{compute_change, ChangeEnv, ChangeReport, SolverState};
 pub use error::SolverError;
+pub use expr::{SharedMatc, TextMatc};
 pub use live::LiveModel;
 pub use model::{BodyParams, Model};
 pub use norm::{compute_norm, NormSpec};
