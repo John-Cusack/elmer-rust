@@ -3331,7 +3331,6 @@ contains
       NormInd = ListGetInteger( Params,'Show Norm Index',GotIt)
     END IF
 
-    IF (NoValues > 0) PRINT *, 'DEBUG T023: Values(1)=', Values(1)
     IF( NormInd > 0 .AND. NormInd <= NoValues ) THEN
       Norm = Values( NormInd )
         GotNorm = .TRUE.
