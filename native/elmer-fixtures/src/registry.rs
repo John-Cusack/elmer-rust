@@ -136,6 +136,8 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ),
     // `PoissonPFEM/Poisson.f90` on p-elements, ported in `elmer-pdofs`.
     ("PoissonPFEM", "Poisson", "PoissonSolver", Hook::Solver(elmer_pdofs::solver::poisson_pfem)),
+    // The same source up to blank lines.
+    ("SD_PoissonPFEM", "Poisson", "PoissonSolver", Hook::Solver(elmer_pdofs::solver::poisson_pfem)),
 ];
 
 /// Edits a solver section.
