@@ -29,6 +29,8 @@ pub struct HarmonicSolution {
     /// `[V (nodal slots) | A (edge slots)]`, complex.
     pub values: Vec<Complex64>,
     pub node_slot: Vec<u32>,
+    /// The edge numbering behind the edge slots.
+    pub edges: crate::topology::Edges,
     /// The angular frequency used.
     pub omega: f64,
     /// Iterations and final residual of the linear solve.
@@ -323,6 +325,7 @@ pub fn solve_harmonic(case: &Case, solver_id: usize) -> Result<HarmonicSolution,
         n_edges: lay.edges.n,
         values: x,
         node_slot: lay.node_slot,
+        edges: lay.edges,
         omega: omega_used.unwrap_or(0.0),
         stats,
         norm,

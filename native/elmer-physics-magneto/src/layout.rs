@@ -82,35 +82,44 @@ impl AvLayout {
         d
     }
 
-    /// The zero matrix on the element pattern: sorted columns per row, with
-    /// the diagonal.
+    /// The zero matrix on the element pattern.
     pub fn matrix<T: Scalar>(&self) -> CsrMatrix<T> {
-        let n = self.n();
-        let mut rows: Vec<Vec<u32>> = (0..n).map(|i| vec![i as u32]).collect();
-        for dofs in &self.elem_dofs {
-            for &r in dofs {
-                rows[r as usize].extend_from_slice(dofs);
-            }
-        }
-        let mut row_ptr = vec![0];
-        let mut col_idx = Vec::new();
-        let mut diag = Vec::with_capacity(n);
-        for (i, r) in rows.iter_mut().enumerate() {
-            r.sort_unstable();
-            r.dedup();
-            diag.push(col_idx.len() + r.iter().position(|&c| c as usize == i).expect("diagonal"));
-            col_idx.extend_from_slice(r);
-            row_ptr.push(col_idx.len());
-        }
-        CsrMatrix {
-            nrows: n,
-            ncols: n,
-            values: vec![T::zero(); col_idx.len()],
-            row_ptr,
-            col_idx,
-            diag: Some(diag),
+        pattern(self.n(), &self.elem_dofs)
+    }
+}
+
+/// The zero `n x n` matrix on the pattern of element DOF lists: sorted
+/// columns per row, with the diagonal.
+pub fn pattern<T: Scalar>(n: usize, elem_dofs: &[Vec<u32>]) -> CsrMatrix<T> {
+    let mut rows: Vec<Vec<u32>> = (0..n).map(|i| vec![i as u32]).collect();
+    for dofs in elem_dofs {
+        for &r in dofs {
+            rows[r as usize].extend_from_slice(dofs);
         }
     }
+    let mut row_ptr = vec![0];
+    let mut col_idx = Vec::new();
+    let mut diag = Vec::with_capacity(n);
+    for (i, r) in rows.iter_mut().enumerate() {
+        r.sort_unstable();
+        r.dedup();
+        diag.push(col_idx.len() + r.iter().position(|&c| c as usize == i).expect("diagonal"));
+        col_idx.extend_from_slice(r);
+        row_ptr.push(col_idx.len());
+    }
+    CsrMatrix {
+        nrows: n,
+        ncols: n,
+        values: vec![T::zero(); col_idx.len()],
+        row_ptr,
+        col_idx,
+        diag: Some(diag),
+    }
+}
+
+/// A real zero matrix on the element pattern and a zero right-hand side.
+pub fn nodal_matrix(n: usize, elem_dofs: &[Vec<u32>]) -> (CsrMatrix<f64>, Vec<f64>) {
+    (pattern(n, elem_dofs), vec![0.0; n])
 }
 
 /// Adds a local `nd x nd` row-major matrix and vector at `dofs`.

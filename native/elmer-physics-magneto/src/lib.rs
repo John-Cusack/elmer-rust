@@ -1,7 +1,10 @@
 //! Magnetodynamics on Whitney edge elements: the steady-state branch of
 //! `WhitneyAVSolver` (`fem/src/modules/MagnetoDynamics/WhitneyAVSolver.F90`,
 //! [`steady`]) and `WhitneyAVHarmonicSolver` (`WhitneyAVHarmonicSolver.F90`,
-//! [`harmonic`]) for the lowest-order (non-Piola) Whitney basis.
+//! [`harmonic`]) for the lowest-order (non-Piola) Whitney basis, and the
+//! nodal-field part of `MagnetoDynamicsCalcFields` (`CalcFields.F90`,
+//! [`calcfields`]) for a real potential. [`register`] installs all three
+//! under their `.sif` procedure names.
 //!
 //! The solver couples the vector potential `A` (one DOF per mesh edge) with
 //! the electric scalar potential `V` (one DOF per node, only with `Static
@@ -26,6 +29,7 @@
 //! approximated.
 #![forbid(unsafe_code)]
 
+pub mod calcfields;
 pub mod case;
 pub mod error;
 pub mod harmonic;
@@ -36,6 +40,7 @@ pub mod solver;
 pub mod steady;
 pub mod topology;
 
+pub use calcfields::{calc_fields, CalcFieldsResult, Potential};
 pub use case::Case;
 pub use error::MagnetoError;
 pub use harmonic::{solve_harmonic, HarmonicSolution};

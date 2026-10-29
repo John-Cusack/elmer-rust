@@ -26,6 +26,8 @@ pub struct AvSolution {
     pub values: Vec<f64>,
     /// Slot of each mesh node (`u32::MAX` when not in the system).
     pub node_slot: Vec<u32>,
+    /// The edge numbering behind the edge slots.
+    pub edges: crate::topology::Edges,
     /// `ComputeNorm` with `Norm Permutation = nNodes+1`: the RMS of the
     /// edge DOFs.
     pub norm: f64,
@@ -117,7 +119,7 @@ fn check_solver(case: &Case, sp: &ParamMap) -> Result<(), MagnetoError> {
 
 /// `Static Conductivity`, or implied by a boundary `Electric Current
 /// Density` (WhitneyAVSolver_Init0): the scalar potential is solved too.
-fn static_conductivity(case: &Case, sp: &ParamMap) -> bool {
+pub(crate) fn static_conductivity(case: &Case, sp: &ParamMap) -> bool {
     sp.logical("static conductivity")
         .unwrap_or_else(|| case.bcs.iter().flatten().any(|bc| has_prefix(bc, "electric current density")))
 }
@@ -299,6 +301,7 @@ pub fn solve_steady(case: &Case, solver_id: usize) -> Result<AvSolution, Magneto
         n_edges: lay.edges.n,
         values: x,
         node_slot: lay.node_slot,
+        edges: lay.edges,
         norm,
     })
 }

@@ -104,3 +104,30 @@ fn unported_harmonic_options_are_refused() {
         Err(MagnetoError::Unsupported(_))
     ));
 }
+
+#[test]
+fn mgdyn_airgap_solver2_calcfields_norm() {
+    use elmer_physics_magneto::{calc_fields, calcfields::target_solver, Potential};
+    let case = load("mgdyn_airgap", "airgap.sif");
+    let (pot_id, harmonic) = target_solver(&case, case.solver(2).unwrap()).unwrap();
+    assert_eq!((pot_id, harmonic), (1, false));
+    let av = solve_steady(&case, pot_id).unwrap();
+    let pot = Potential {
+        edges: &av.edges,
+        n_nodal: av.n_nodal,
+        dofs: 1,
+        values: &av.values,
+    };
+    let res = calc_fields(&case, 2, &pot).unwrap();
+    let names: Vec<_> = res.fields.iter().map(|f| f.name).collect();
+    assert_eq!(names, ["magnetic flux density", "magnetic field strength"]);
+    // Pristine: Solver 2 Norm = 3.06334699E+03 (RefNorm 3.06334400E+03), the
+    // norm of the last component solved, Magnetic Field Strength 3.
+    let reference = 3.06334699e3;
+    let rel = (res.norm - reference).abs() / reference;
+    eprintln!(
+        "mgdyn_airgap CalcFields: {} nodes, B norms {:?}, H norms {:?}, norm {:.9e}, rel err {rel:.3e}",
+        res.n, res.fields[0].norms, res.fields[1].norms, res.norm
+    );
+    assert!(rel < REL_TOL, "norm {} vs {reference}", res.norm);
+}
