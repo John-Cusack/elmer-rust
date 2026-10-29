@@ -150,6 +150,8 @@ pub struct SolverSlot {
     pub(crate) own_constraints: Option<crate::constraints::ConstraintMatrix>,
     /// Non-nodal dofs from [`crate::DofsBackend`]; `None` for a nodal solver.
     pub(crate) dofs: Option<Arc<dyn crate::SolverDofs>>,
+    /// Boundaries (body forces past them) with a Robin projector so far.
+    pub(crate) robin_projectors: std::collections::BTreeSet<usize>,
 }
 
 impl SolverSlot {
@@ -176,6 +178,7 @@ impl SolverSlot {
             constraints: None,
             own_constraints: None,
             dofs: None,
+            robin_projectors: Default::default(),
         })
     }
 

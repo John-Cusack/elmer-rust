@@ -147,3 +147,60 @@ fn own_constraints_with_integral_bcs_are_refused() {
     let e = own_constraints(|perm| (perm[126], perm[126], 0.25), true).err().unwrap();
     assert!(matches!(e, elmer_solver::SolverError::Unsupported(_)), "{e}");
 }
+
+/// `Flux Integral BC` on the Robin boundary of
+/// `fem/tests/FluxIntegralBCTemperature` (`tests/data/intbc/flux/`, its
+/// SaveScalars solver left out): the Robin projector and its constraint,
+/// the restricted BiCGStab solve with loads and boundary fluxes, the
+/// exported multiplier, against the pristine run at output level 10.
+#[test]
+fn flux_integral_on_a_robin_boundary() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/intbc/flux");
+    let mesh = support::mesh::FileMesh::read(&dir, 2);
+    let mut model = sif_model(&dir.join("case.sif"));
+    model.solvers.truncate(1);
+    let mut reg = SolverRegistry::new();
+    reg.register("HeatSolve", "HeatSolver", support::poisson::heat_nl);
+    let log = Level10(Capture::default());
+    let mut sim = Simulation::new(model);
+    sim.backends.fe = Some(FeBackend {
+        basis: Box::new(support::basis::TestBasis),
+        quadrature: Box::new(support::quad::TestQuadrature),
+    });
+    sim.setup(&mesh, &reg, &log, &SerialComm).unwrap();
+    sim.run(&mesh, &log, &SerialComm).unwrap();
+
+    let stdout = std::fs::read_to_string(dir.join("stdout.txt")).unwrap();
+    let want: Vec<&str> = stdout.lines().collect();
+    let got = log.0.lines(&[
+        "GenerateRobinProjector",
+        "RobinProjector",
+        "GenerateConstraintMatrix",
+        "SolveWithLinearRestriction",
+        "CalculateLoads",
+        "ComputeChange",
+        "CompareToReferenceSolution: Solver 1",
+    ]);
+    let got: Vec<&str> = got.iter().map(String::as_str).collect();
+    assert_eq!(got.len(), want.len(), "{got:#?}");
+    for (i, (g, w)) in got.iter().zip(&want).enumerate() {
+        if w.contains("(NRM,RELC)") {
+            let (gh, gn, gr, gt) = split_change(g);
+            let (wh, wn, wr, wt) = split_change(w);
+            assert_eq!((gh, gn, gt), (wh, wn, wt), "line {i}");
+            assert!((gr - wr).abs() <= 1e-6 * wr, "line {i}\n{g}\n{w}");
+        } else if w.contains("Flux over BC 2:") {
+            // Zero up to the iterative solve's tolerance.
+            let v = |l: &str| l.rsplit(' ').next().unwrap().parse::<f64>().unwrap();
+            assert!(v(g).abs() < 1e-9 && v(w).abs() < 1e-9, "line {i}\n{g}\n{w}");
+        } else if w.starts_with("CompareTo") {
+            let cut = w.find("Norm =").unwrap() + 14;
+            assert_eq!(g[..cut], w[..cut], "line {i}");
+        } else {
+            assert_eq!(g, w, "line {i}");
+        }
+    }
+    assert_eq!((sim.reference.test_count, sim.reference.pass_count), (1, 1));
+    let m = sim.vars.get("lagrange multiplier heatequation").unwrap();
+    assert_eq!(m.values.len(), 1);
+}

@@ -711,6 +711,45 @@ impl<'a> SolverCtx<'a> {
             .system
             .as_mut()
             .ok_or_else(|| SolverError::fatal("DefaultSolve", "no assembled system"))?;
+        // SolveWithLinearRestriction: `Export Lagrange Multiplier` keeps the
+        // multipliers in `Lagrange Multiplier <equation>` (or `Lagrange
+        // Multiplier Name`), the initial guess of the next solve.
+        let mult: Option<(crate::VarId, Vec<f64>)> = match slot.constraints.as_ref().or(slot.own_constraints.as_ref()) {
+            Some(c) if slot.params.logical("export lagrange multiplier") == Some(true) => {
+                let name = match slot.params.string("lagrange multiplier name") {
+                    Some(n) => normalize_key(n),
+                    None => normalize_key(&format!(
+                        "lagrange multiplier {}",
+                        slot.params.string("equation").unwrap_or("")
+                    )),
+                };
+                let m = c.matrix.nrows;
+                let mid = match sim.vars.id(&name) {
+                    Some(mid) => mid,
+                    None => {
+                        log.info("SolveWithLinearRestriction", "Creating variable for Lagrange multiplier", 8);
+                        sim.vars.add(crate::Variable::new(
+                            &name,
+                            elmer_core::FieldKind::Global,
+                            1,
+                            None,
+                            vec![0.0; m],
+                        ))?
+                    }
+                };
+                let mv = sim.vars.by_id_mut(mid);
+                if mv.values.len() < m {
+                    log.info(
+                        "SolveWithLinearRestriction",
+                        &format!("Increasing Lagrange multiplier size to: {}", crate::fortran_fmt::i2s(m as i64)),
+                        8,
+                    );
+                    mv.values.resize(m, 0.0);
+                }
+                Some((mid, mv.values[..m].to_vec()))
+            }
+            _ => None,
+        };
         let var = sim.vars.by_id_mut(id);
         let n = sys.matrix.nrows;
         // SolveSystem's RestrictionMode: SolveWithLinearRestriction solves
@@ -727,6 +766,9 @@ impl<'a> SolverCtx<'a> {
                 let (a, b) = crate::constraints::collection(&sys.matrix, &sys.rhs, c, &slot.asm.constrained, p, log);
                 let mut x = var.values.clone();
                 x.resize(a.nrows, 0.0);
+                if let Some((_, init)) = &mult {
+                    x[n..n + init.len()].copy_from_slice(init);
+                }
                 Some((a, b, x))
             }
         };
@@ -821,12 +863,35 @@ impl<'a> SolverCtx<'a> {
                 var.nonlin_values = Some(prev);
             }
             var.values_changed = true;
+            // CalculateLoads with the original matrix (BulkMatrix =
+            // StiffMatrix) on the first n entries.
+            sim.calculate_loads(slot_ix, n, true, mesh, log)?;
             sim.compute_change(slot_ix, false, Some(nc), true, mesh, log, comm)?;
+            sim.calculate_loads(slot_ix, n, false, mesh, log)?;
             log.info("SolveWithLinearRestriction", "Picking solution from collection solution", 10);
             let var = sim.vars.by_id_mut(id);
+            let tail = var.values[n..].to_vec();
             var.values.truncate(n);
             if own_x0 {
                 var.nonlin_values = None;
+            }
+            if let Some((mid, _)) = mult {
+                log.info("SolveWithLinearRestriction", "Separating Lagrange multiplier from collection solution", 10);
+                let relax = crate::expr::eval_creal(
+                    &sim.slots[slot_ix].params,
+                    "lagrange multiplier relaxation factor",
+                    &crate::expr::SimFields { vars: &sim.vars, mesh },
+                    sim.backends.matc.as_deref(),
+                    &sim.backends.udfs,
+                )?;
+                let mv = sim.vars.by_id_mut(mid);
+                for (old, new) in mv.values.iter_mut().zip(&tail) {
+                    *old = match relax {
+                        Some(r) => (1.0 - r) * *old + r * new,
+                        None => *new,
+                    };
+                }
+                mv.values_changed = true;
             }
             log.info("SolveWithLinearRestriction", "All done", 10);
         } else {

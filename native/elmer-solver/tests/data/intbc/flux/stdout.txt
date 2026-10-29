@@ -1,0 +1,22 @@
+GenerateRobinProjector: Generating flux integral conditions for BC: 2
+RobinProjector: Creating Robin flux constraint matrix for boundary: 2
+GenerateConstraintMatrix: There are 1 initial rows in constraint matrices
+GenerateConstraintMatrix: Adding flux constraint for BC: 2
+GenerateConstraintMatrix: Allocating 1 rows and 21 nonzeros
+GenerateConstraintMatrix: Used 1 rows and 21 nonzeros
+SolveWithLinearRestriction: Creating variable for Lagrange multiplier
+SolveWithLinearRestriction: Adding ConstraintMatrix into CollectionMatrix
+SolveWithLinearRestriction: Reverting CollectionMatrix back to CRS matrix
+SolveWithLinearRestriction: Collection matrix increased with 1 rows and 41 non-zeros
+SolveWithLinearRestriction: Now solving the linear system with constraints!
+CalculateLoads: Computing boundary fluxes from nodal loads
+CalculateLoads: temperature Flux over BC 1: -1.50000E+01
+CalculateLoads: temperature Flux over BC 2:  4.79208E-12
+CalculateLoads: temperature Flux over all BCs: -1.50000E+01
+ComputeChange: WARNING: Possible mismatch in length of vectors (426 vs. 425)!
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.54983485      2.0000000     ) :: heatequation
+SolveWithLinearRestriction: Picking solution from collection solution
+SolveWithLinearRestriction: Separating Lagrange multiplier from collection solution
+SolveWithLinearRestriction: All done
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.54915984      2.0000000     ) :: heatequation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 5.49159842E-01  RefNorm = 5.49159842E-01

@@ -4,7 +4,9 @@
 //! MeshBasics.F90:3353, then `GenerateConstraintMatrix`,
 //! ProjectorUtils.F90:440) turns every boundary condition or body force with
 //! `Integral BC` and an `Integral BC <var>` value into one row: the integral
-//! of each basis function over its elements, equal to the value. A solver
+//! of each basis function over its elements, equal to the value. One with
+//! `Flux Integral BC` gets `RobinProjector`'s row, the flux of its Robin
+//! terms, and the multiplier is exported (`Lagrange Multiplier <equation>`). A solver
 //! may instead hand over its own rows ([`SolverCtx::set_constraint_matrix`],
 //! Elmer's initial `Matrix % ConstraintMatrix`). Either way the system is
 //! solved as `[A C^T; C 0]` (`SolveWithLinearRestriction`,
@@ -45,6 +47,70 @@ impl SolverCtx<'_> {
 struct Projector {
     entries: BTreeMap<u32, f64>,
     node: u32,
+}
+
+/// A boundary's (or body force's) projector: an integral condition, or
+/// `RobinProjector`'s one row per component over equation indices.
+enum Proj {
+    Integral(Projector),
+    Robin(Vec<BTreeMap<u32, f64>>),
+}
+
+/// `RobinProjector` (ProjectorUtils.F90:296): for the dofs of the
+/// boundary's (body force's) elements, minus the boundary part of their
+/// rows (`A % Values - A % BulkValues`) over the same dofs, summed per
+/// component; the flux the Robin terms carry.
+fn robin_projector(ctx: &SolverCtx<'_>, bc: usize, nbc: usize, created: bool) -> Result<Vec<BTreeMap<u32, f64>>, SolverError> {
+    const CALLER: &str = "RobinProjector";
+    if created {
+        ctx.info(CALLER, &format!("Updating Robin flux constraint matrix for boundary: {}", i2s(bc as i64)), 6);
+    } else {
+        ctx.info(CALLER, &format!("Creating Robin flux constraint matrix for boundary: {}", i2s(bc as i64)), 6);
+    }
+    let slot = &ctx.sim.slots[ctx.slot];
+    let sys = slot
+        .system
+        .as_ref()
+        .ok_or_else(|| SolverError::fatal(CALLER, "no assembled system"))?;
+    let bulk = slot
+        .asm
+        .bulk
+        .as_ref()
+        .map(|(v, _)| v)
+        .ok_or_else(|| SolverError::fatal(CALLER, "BulkValues are needed to aveluate Robin terms!"))?;
+    let id = slot.variable.expect("checked by the caller");
+    let v = ctx.sim.vars.by_id(id);
+    let dofs = v.dofs;
+    let a = &sys.matrix;
+    let nb = ctx.mesh.n_bulk() as u32;
+    let range = if bc > nbc { 0..nb } else { nb..nb + ctx.mesh.n_boundary() as u32 };
+    let mut active = vec![false; a.nrows];
+    for e in range.map(ElemId) {
+        if !belongs(ctx, e, bc, nbc) {
+            continue;
+        }
+        let slots: Option<Vec<usize>> = ctx.mesh.element(e).nodes.iter().map(|&k| v.slot(k)).collect();
+        let Some(slots) = slots else { continue };
+        for s in slots {
+            for i in 0..dofs {
+                active[dofs * s + i] = true;
+            }
+        }
+    }
+    let mut rows = vec![BTreeMap::new(); dofs];
+    for j in 0..a.nrows {
+        if !active[j] {
+            continue;
+        }
+        for k in a.row_ptr[j]..a.row_ptr[j + 1] {
+            let col = a.col_idx[k];
+            if !active[col as usize] {
+                continue;
+            }
+            *rows[j % dofs].entry(col).or_insert(0.0) += -(a.values[k] - bulk[k]);
+        }
+    }
+    Ok(rows)
 }
 
 /// Whether element `e` belongs to boundary condition `bc` or, past the
@@ -172,18 +238,19 @@ pub(crate) fn generate(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
 
     let model = &ctx.sim.model;
     let (nbc, nbf) = (model.boundary_conditions.len(), model.body_forces.len());
-    let mut projectors: Vec<Option<Projector>> = Vec::with_capacity(nbc + nbf);
+    let mut projectors: Vec<Option<Proj>> = Vec::with_capacity(nbc + nbf);
     for i in 1..=nbc + nbf {
         let s = if i > nbc {
             &ctx.sim.model.body_forces[i - nbc - 1]
         } else {
             &ctx.sim.model.boundary_conditions[i - 1]
         };
-        if s.logical("flux integral bc") == Some(true) {
-            return Err(SolverError::Unsupported("Flux Integral BC (Robin projector)".into()));
-        }
+        let robin = s.logical("flux integral bc") == Some(true);
         let mortar = s.get("mortar bc").is_some() || s.get("contact bc").is_some();
         let integral = s.logical("integral bc") == Some(true);
+        if robin && integral {
+            return Err(SolverError::Unsupported("Integral BC and Flux Integral BC on one boundary".into()));
+        }
         if mortar && integral {
             return Err(SolverError::fatal(
                 "GenerateProjectors",
@@ -193,9 +260,40 @@ pub(crate) fn generate(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         if mortar {
             return Err(SolverError::Unsupported("Mortar BC / Contact BC projectors".into()));
         }
-        projectors.push(if integral { Some(integral_projector(ctx, i, nbc)?) } else { None });
+        projectors.push(if integral { Some(Proj::Integral(integral_projector(ctx, i, nbc)?)) } else { None });
     }
-    let nrows = projectors.iter().flatten().count();
+    // GenerateRobinProjectors (ProjectorUtils.F90:253), at DefaultSolve.
+    let mut robins = false;
+    for i in 1..=nbc + nbf {
+        let s = if i > nbc {
+            &ctx.sim.model.body_forces[i - nbc - 1]
+        } else {
+            &ctx.sim.model.boundary_conditions[i - 1]
+        };
+        if s.logical("flux integral bc") != Some(true) {
+            continue;
+        }
+        ctx.info("GenerateRobinProjector", &format!("Generating flux integral conditions for BC: {}", i2s(i as i64)), 4);
+        let created = ctx.sim.slots[ix].robin_projectors.contains(&i);
+        projectors[i - 1] = Some(Proj::Robin(robin_projector(ctx, i, nbc, created)?));
+        ctx.sim.slots[ix].robin_projectors.insert(i);
+        robins = true;
+    }
+    if robins {
+        // A multiplier of a physical meaning (ListAddNewLogical).
+        let p = &mut ctx.sim.slots[ix].params;
+        if p.get("export lagrange multiplier").is_none() {
+            p.insert("Export Lagrange Multiplier", elmer_core::Value::Logical(true));
+        }
+    }
+    let nrows: usize = projectors
+        .iter()
+        .flatten()
+        .map(|p| match p {
+            Proj::Integral(_) => 1,
+            Proj::Robin(rows) => rows.len(),
+        })
+        .sum();
     if nrows == 0 {
         ctx.info(CALLER, "Nothing to do since there are no constrained dofs!", 12);
         return Ok(());
@@ -203,6 +301,7 @@ pub(crate) fn generate(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
     if dofs != 1 {
         return Err(SolverError::Unsupported(format!("Integral BCs for a field of {dofs} components")));
     }
+    let n = ctx.sim.vars.by_id(id).values.len();
     ctx.info(CALLER, &format!("There are {} initial rows in constraint matrices", i2s(nrows as i64)), 10);
 
     let constrained: std::collections::HashSet<u32> = ctx.sim.slots[ix].asm.constrained.iter().map(|&(d, _)| d).collect();
@@ -220,6 +319,35 @@ pub(crate) fn generate(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
     };
     for bc in (1..=nbc + nbf).rev() {
         let Some(proj) = &projectors[bc - 1] else { continue };
+        let proj = match proj {
+            Proj::Integral(p) => p,
+            Proj::Robin(rows) => {
+                // AddScalarConstraint for a Robin projector: the row as it
+                // is, the diagonal entry -rsum at column `arows + j`
+                // (MortarBC % Diag = 1), no right-hand side, no InvPerm.
+                ctx.info(CALLER, &format!("Adding flux constraint for BC: {}", i2s(bc as i64)), 8);
+                ctx.info(CALLER, &format!("Adding projector rows: {}", i2s(rows.len() as i64)), 12);
+                for row in rows {
+                    let valsum = row.values().fold(0.0, |s, v: &f64| s + v.abs());
+                    let mut rsum = 0.0;
+                    for (&col, &v) in row {
+                        if v.abs() < eps * valsum {
+                            continue;
+                        }
+                        rsum += v;
+                        c.matrix.col_idx.push(col);
+                        c.matrix.values.push(v);
+                    }
+                    c.matrix.col_idx.push(n as u32);
+                    c.matrix.values.push(-rsum);
+                    c.matrix.row_ptr.push(c.matrix.values.len());
+                    c.matrix.nrows += 1;
+                    c.rhs.push(0.0);
+                    c.inv_perm.push(NO_DOF);
+                }
+                continue;
+            }
+        };
         let s = if bc > nbc {
             &ctx.sim.model.body_forces[bc - nbc - 1]
         } else {
@@ -276,15 +404,12 @@ pub(crate) fn refuse_options(p: &ParamMap) -> Result<(), SolverError> {
         "use tree gauge",
         "restricted system norm",
         "restriction system residual mode",
-        "export lagrange multiplier",
         "linear system residual mode",
         "linear system complex",
         "linear system block mode",
         "nonlinear system convergence without constraints",
         "nonlinear system consistent norm",
         "nonlinear system aitken relaxation",
-        "calculate loads",
-        "calculate residual",
     ] {
         if p.logical(k) == Some(true) {
             return Err(SolverError::Unsupported(format!("{k} with linear constraints")));
