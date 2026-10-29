@@ -4,7 +4,7 @@
 //! `<var> Loads` / `<var> Residual` fields computed from it after the solve
 //! (`CalculateLoads`, SolveCore.F90:364, called at :1739 and :1769).
 
-use elmer_core::{CsrMatrix, ElemId, LinearOperator, MeshView, ParamMap, Params};
+use elmer_core::{CsrMatrix, ElemId, LinearOperator, Logger, MeshView, ParamMap, Params};
 
 use crate::error::SolverError;
 use crate::sim::{Simulation, VarSpec};
@@ -61,8 +61,12 @@ impl Simulation {
     /// Boundary Fluxes` implies loads), with the solver variable's perm
     /// (AddEquationBasics, MainUtils.F90:2342-2390).
     pub(crate) fn add_load_variables(&mut self, params: &mut ParamMap, spec: &VarSpec, primary: VarId) -> Result<(), SolverError> {
+        // MainUtils.F90:2345: fluxes are summed from the nodal loads.
         if params.logical("calculate boundary fluxes") == Some(true) {
-            return Err(SolverError::Unsupported("Calculate Boundary Fluxes".into()));
+            if params.logical("calculate boundary weights") == Some(true) {
+                return Err(SolverError::Unsupported("Calculate Boundary Weights".into()));
+            }
+            params.insert("Calculate Loads", elmer_core::Value::Logical(true));
         }
         for what in ["loads", "residual"] {
             if params.logical(&format!("calculate {what}")) != Some(true) {
@@ -161,7 +165,14 @@ impl Simulation {
     /// `CalculateLoads` into `<var> Loads` from the kept bulk system (after
     /// the solve, before the nonlinear change) or into `<var> Residual`
     /// from the solved system (after it), over the first `n` dofs.
-    pub(crate) fn calculate_loads(&mut self, ix: usize, n: usize, from_bulk: bool) -> Result<(), SolverError> {
+    pub(crate) fn calculate_loads(
+        &mut self,
+        ix: usize,
+        n: usize,
+        from_bulk: bool,
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+    ) -> Result<(), SolverError> {
         let slot = &self.slots[ix];
         let Some(id) = slot.variable else { return Ok(()) };
         let what = if from_bulk { "loads" } else { "residual" };
@@ -191,6 +202,90 @@ impl Simulation {
         let m = loads.values.len().min(r.len());
         loads.values[..m].copy_from_slice(&r[..m]);
         loads.values_changed = true;
+        if from_bulk && self.slots[ix].params.logical("calculate boundary fluxes") == Some(true) {
+            self.boundary_fluxes(id, lid, mesh, log)?;
+        }
+        Ok(())
+    }
+
+    /// The `Calculate Boundary Fluxes` part of `CalculateLoads`
+    /// (SolveCore.F90:536-640): each boundary condition's sum of the nodal
+    /// loads of its boundary nodes, a node counted for the first boundary
+    /// that reaches it (`Calculate Boundary Flux` on some boundary limits the
+    /// sums to those), stored as the Simulation entry `res: <var> Flux over
+    /// BC i` (`<var> j Flux ...` per component) for SaveScalars.
+    fn boundary_fluxes(&mut self, id: VarId, lid: VarId, mesh: &dyn MeshView, log: &dyn Logger) -> Result<(), SolverError> {
+        let (name, dofs) = {
+            let v = self.vars.by_id(id);
+            (v.name.clone(), v.dofs)
+        };
+        log.info("CalculateLoads", "Computing boundary fluxes from nodal loads", 6);
+        let nbc = self.model.boundary_conditions.len();
+        let only_given = self.model.boundary_conditions.iter().any(|b| b.get("calculate boundary flux").is_some());
+        let loads = self.vars.by_id(lid);
+        let nslots = loads.values.len() / dofs.max(1);
+        let mut sum = vec![0.0; nbc * dofs];
+        let mut active = vec![false; nbc];
+        let mut shared = vec![false; nbc];
+        let mut summed = vec![0usize; nslots];
+        let nb = mesh.n_bulk() as u32;
+        for e in (nb..nb + mesh.n_boundary() as u32).map(ElemId) {
+            let el = mesh.element(e);
+            let Some(bc) = self.model.bc_of_tag(el.tag) else { continue };
+            if only_given && self.model.boundary_conditions[bc - 1].logical("calculate boundary flux") != Some(true) {
+                continue;
+            }
+            for &n in el.nodes {
+                let Some(ind) = loads.slot(n) else { continue };
+                if summed[ind] == 0 {
+                    for j in 0..dofs {
+                        sum[dofs * (bc - 1) + j] += loads.values[dofs * ind + j];
+                    }
+                    summed[ind] = bc;
+                    active[bc - 1] = true;
+                } else if summed[ind] != bc {
+                    shared[bc - 1] = true;
+                    shared[summed[ind] - 1] = true;
+                }
+            }
+        }
+        let mut n_active = 0;
+        for i in 0..nbc {
+            if !active[i] {
+                continue;
+            }
+            if shared[i] {
+                let msg = format!("Boundary {} includes inseparable dofs!", i + 1);
+                if self.flux_shared_warned {
+                    log.info("CalculateLoads", &msg, 8);
+                } else {
+                    log.warn("CalculateLoads", &msg);
+                }
+            }
+            n_active += 1;
+            for j in 0..dofs {
+                let what = if dofs == 1 {
+                    format!("{name} Flux over BC {}", i + 1)
+                } else {
+                    format!("{name} {} Flux over BC {}", j + 1, i + 1)
+                };
+                let v = sum[dofs * i + j];
+                self.model.simulation.insert(&format!("res: {what}"), elmer_core::Value::real(v));
+                log.info("CalculateLoads", &format!("{what}: {}", crate::fortran_fmt::es(v, 12, 5)), 6);
+            }
+        }
+        self.flux_shared_warned = true;
+        if n_active > 1 {
+            for j in 0..dofs {
+                let what = if dofs == 1 {
+                    format!("{name} Flux over all BCs")
+                } else {
+                    format!("{name} {} Flux over all BCs", j + 1)
+                };
+                let total: f64 = sum.iter().skip(j).step_by(dofs).sum();
+                log.info("CalculateLoads", &format!("{what}: {}", crate::fortran_fmt::es(total, 12, 5)), 6);
+            }
+        }
         Ok(())
     }
 }

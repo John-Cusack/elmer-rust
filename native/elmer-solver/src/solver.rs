@@ -768,9 +768,9 @@ impl<'a> SolverCtx<'a> {
         solved?;
         var.values_changed = true;
         // SolveCore.F90:1727-1741, then the change, then :1763-1771.
-        sim.calculate_loads(slot_ix, n, true)?;
+        sim.calculate_loads(slot_ix, n, true, mesh, log)?;
         sim.compute_change(slot_ix, false, Some(n), true, mesh, log, comm)?;
-        sim.calculate_loads(slot_ix, n, false)?;
+        sim.calculate_loads(slot_ix, n, false, mesh, log)?;
         sim.update_2nd_order(slot_ix, n)?;
         sim.publish_live();
         sim.run_slave_solvers(slot_ix, "Nonlinear Post Solvers", mesh, log, comm)?;

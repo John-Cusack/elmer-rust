@@ -1,0 +1,7 @@
+CalculateLoads: Computing boundary fluxes from nodal loads
+CalculateLoads: temperature Flux over BC 1: -2.56553E+00
+CalculateLoads: temperature Flux over BC 2:  2.56553E+00
+CalculateLoads: temperature Flux over all BCs: -1.08466E-08
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.69286247      2.0000000     ) :: heat equation
+SaveScalars:    1: res: temperature flux over bc 1  -2.565533095660E+000
+SaveScalars:    2: res: temperature flux over bc 2   2.565533084814E+000
