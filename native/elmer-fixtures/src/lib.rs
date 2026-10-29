@@ -16,7 +16,8 @@
 //! * [`poisson_solver`]: the `Poisson` `PoissonSolver` solver procedure of
 //!   `1dtests` and `ExtrudedMesh`; [`tresca`]: the `tresca` case's
 //!   `TrescaSolver`; [`single_elements`]: the `ElementUnitTest_h1` element
-//!   checks; [`model_pde_handle`]: `ModelPDEhandle`'s `AdvDiffSolver`;
+//!   checks and [`single_edge_elements`] their H(curl) version;
+//!   [`model_pde_handle`]: `ModelPDEhandle`'s `AdvDiffSolver`;
 //!   [`stokes_proj`]: `StokesProj`'s velocity and pressure solvers;
 //!   [`bentonite`]: the `bentonite` case's coupled 3-dof solver.
 //! * [`registry`]: case-qualified keys. Plugin libraries share names across
@@ -35,6 +36,7 @@ pub mod model_pde_handle;
 pub mod poisson_assembly;
 pub mod poisson_solver;
 pub mod registry;
+pub mod single_edge_elements;
 pub mod single_elements;
 pub mod stokes_proj;
 pub mod tresca;

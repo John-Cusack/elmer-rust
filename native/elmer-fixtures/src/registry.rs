@@ -27,6 +27,7 @@ use crate::bentonite;
 use crate::hooks::{PoissonBoundary, PoissonBulk};
 use crate::model_pde_handle;
 use crate::poisson_solver;
+use crate::single_edge_elements;
 use crate::single_elements;
 use crate::stokes_proj;
 use crate::tresca;
@@ -125,6 +126,14 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("StokesProj", "Pressure", "PressureSolver", Hook::Solver(stokes_proj::pressure_factory)),
     ("StokesProj", "Velocity", "VelocitySolver", Hook::Solver(stokes_proj::velocity_factory)),
     ("bentonite", "BentoniteSolver", "BentoniteSolver", Hook::Solver(bentonite::factory)),
+    ("ElementUnitTest_edge", "SingleEdgeElements", "SingleEdgeElements", Hook::Solver(single_edge_elements::factory)),
+    ("ElementUnitTest_edge_piola", "SingleEdgeElements", "SingleEdgeElements", Hook::Solver(single_edge_elements::factory)),
+    (
+        "ElementUnitTest_edge_quadratic",
+        "SingleEdgeElements",
+        "SingleEdgeElements",
+        Hook::Solver(single_edge_elements::factory),
+    ),
 ];
 
 /// Edits a solver section.
@@ -132,8 +141,12 @@ type SectionInit = fn(&mut ParamMap);
 
 /// `<Proc>_init` routines that only edit their solver section, before its
 /// variable exists: `(case, library, entry, edit)`.
-const SECTION_INITS: &[(&str, &str, &str, SectionInit)] =
-    &[("ElementUnitTest_h1", "SingleElements", "SingleElements", single_elements::init_section)];
+const SECTION_INITS: &[(&str, &str, &str, SectionInit)] = &[
+    ("ElementUnitTest_h1", "SingleElements", "SingleElements", single_elements::init_section),
+    ("ElementUnitTest_edge", "SingleEdgeElements", "SingleEdgeElements", single_edge_elements::init_section),
+    ("ElementUnitTest_edge_piola", "SingleEdgeElements", "SingleEdgeElements", single_edge_elements::init_section),
+    ("ElementUnitTest_edge_quadratic", "SingleEdgeElements", "SingleEdgeElements", single_edge_elements::init_section),
+];
 
 fn hooks(case: &str) -> impl Iterator<Item = (&'static str, &'static str, Hook)> + '_ {
     let assembly = POISSON_ASSEMBLY_CASES.contains(&case).then_some([

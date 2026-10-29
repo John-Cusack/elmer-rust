@@ -25,6 +25,7 @@ References below are paths under `/home/john/runs/elmer-fork/orig_src/fem/tests/
 | `AdvDiffSolver` | `ModelPDEhandle/ModelPDEhandle.F90` | solver procedure, keyword handles at integration points | `model_pde_handle` |
 | `PressureSolver`, `VelocitySolver` | `StokesProj/Pressure.f90`, `StokesProj/Velocity.f90` | two solver procedures of a projection scheme; `SAVE Newton, Norm` | `stokes_proj` |
 | `BentoniteSolver` | `bentonite/BentoniteSolver.F90` | 3-dof coupled solver with `CompEta` initialisation (`SAVE AllocationsDone`), axisymmetric metric, Robin boundaries | `bentonite` |
+| `SingleEdgeElements`, `SingleEdgeElements_init` | `ElementUnitTest_edge*/SingleEdgeElements.F90` | solver procedure on `elmer-fe-hp`'s Whitney and Piola edge bases; the `_init` edit sets the variable, the edge element choice stays in the solver | `single_edge_elements` |
 | `AlternatingSource` | `HeatControlExplicit/AlternatingSource.F90` | scalar function, `Variable "cpar, time"`, `SAVE sgn`, prints each flip | `udf::AlternatingSource` (not registered, see below) |
 
 ### Cases that match the pristine reference end to end
@@ -46,6 +47,7 @@ plugins) printed:
 | `tresca` (StressSolve, then the plugin) | `TrescaSolver` | 2.19639953E+01 |
 | `ModelPDEhandle` | `AdvDiffSolver` | 1.79722562E+00 |
 | `ElementUnitTest_h1` (12 `RUN` blocks) | `SingleElements` | all 12 reference values pass |
+| `ElementUnitTest_edge`, `_edge_piola`, `_edge_quadratic` (12 `RUN` blocks each) | `SingleEdgeElements` | all 36 reference values pass |
 | `StokesProj` (45 coupled iterations, as pristine) | `PressureSolver`, `VelocitySolver` | 3.79706752E-01 |
 | `bentonite` (29 nonlinear iterations, as pristine) | `BentoniteSolver` | 1.95292467E+02 |
 
@@ -62,6 +64,16 @@ digits exactly. The stiffness sums of 808 and 404 differ in the last place
 (`5.3333333333333321` against `...330`, `...348` against `...339`). The mass
 sums agree, so the difference is in `elmer-fe`'s `dBasisdx` rounding, not in
 the kernel.
+
+The edge cases print 36 values. All 24 Piola values, and 10 of the 12
+Whitney values, are the pristine run's 17 digits (the values in
+`elmer-fe-hp`'s `edge_unit_norms` test). The Whitney mass sums of 808 and
+706 differ in the last place (`2.3333333333333330` against `...326`,
+`0.99999999999999956` against `...967`). `SingleEdgeElements_init` writes an
+`Element = "n:0 e:1 ..."` keyword that only the plugin's own `ElementInfo`
+reads. The port keeps that choice in the solver instead, so `elmer-run`'s
+element check and `elmer-pdofs` never see a non-nodal section for a
+solver whose variable is a global.
 
 The `tresca` test supplies one step the composition lacks: `StressSolver_Init0`
 (StressSolve.F90:292) gives a section without `Variable` the default
@@ -254,7 +266,6 @@ largest group and the best next target after the scalar batch; `CountSolver` and
 | `BDM2D/ComputeError.F90` | IntegrateError:solver | SAVE SolDOFs, Indices, AllocationsDone; init ; work arrays | elmer-fe; edge/face basis (L15); writes Solver%Variable |
 | `CurvedBndryPFEM/Poisson.f90` (+1: SD_CurvedBndryPFEM) | PoissonSolver:solver | SAVE STIFF, LOAD, FORCE, POT, AllocationsDone, Nodes; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; p/edge/face Element in .sif; writes Solver%Variable |
 | `CurvedBndryPFEM2/Poisson.f90` (+1: SD_CurvedBndryPFEM2) | PoissonSolver:solver | SAVE STIFF, LOAD, FORCE, POT, AllocationsDone, Nodes; init ; work arrays | default_* solve path; elmer-fe; p/edge/face Element in .sif |
-| `ElementUnitTest_edge/SingleEdgeElements.F90` (+2: ElementUnitTest_edge_piola, ElementUnitTest_edge_quadratic) | SingleEdgeElements_init:solver _init; SingleEdgeElements:solver | SAVE :: NoTest, cumrt, cumct, Nodes | elmer-fe; edge/face basis (L15); writes Solver%Variable |
 | `ElementUnitTest_p1/SingleElements.F90` (+1: SD_ElementUnitTest_p1; the same source as the ported `_h1`, run on p-elements) | SingleElements_init:solver _init; SingleElements:solver | SAVE :: NoTest, cumrt, cumct, Nodes | elmer-fe; p/edge/face Element in .sif; writes Solver%Variable |
 | `FaceElement2D_BCs/FaceFEInterpolationTest.F90` | BestApproximationSolver:solver | SAVE STIFF, LOAD, FORCE, Acoef, AllocationsDone, Nodes, Indices; init ; work arrays | default_* solve path; elmer-fe; edge/face basis (L15); p/edge/face Element in .sif; writes Solver%Variable |
 | `FaceElement3D_BCs/FaceFEInterpolationTest.F90` | BestApproximationSolver:solver | SAVE STIFF, LOAD, FORCE, Acoef, AllocationsDone, Nodes, Indices; init ; work arrays | default_* solve path; elmer-fe; edge/face basis (L15); p/edge/face Element in .sif; writes Solver%Variable |
