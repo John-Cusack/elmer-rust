@@ -1,0 +1,47 @@
+two cell savedata reference
+Metadata for SaveScalars file: ./scalars.dat
+Elmer version: 26.2
+Elmer revision: 9f6af2f85
+Elmer compilation date: 2026-09-23
+Solver input file: case.sif
+File started at: 2026/10/29 11:11:35
+ 
+Variables in columns of matrix: 
+   1: max: temperature
+   2: min: temperature
+   3: mean: temperature
+   4: sum: temperature
+   5: range: temperature
+   6: variance: temperature
+   7: int: temperature
+   8: int mean: temperature
+   9: volume: temperature
+  10: body int: temperature mask save this
+  11: body mean: temperature
+  12: boundary sum: temperature over bc save this
+  13: boundary int: temperature over bc 1
+  14: boundary int:  over bc 2
+  15: boundary int mean: temperature over bc 1
+  16: boundary int mean:  over bc 2
+  17: area: temperature over bc 1
+  18: area:  over bc 2
+  19: nodes: temperature
+  20: elements: temperature
+  21: dofs: temperature
+  22: norm: temperature
+  23: bounding box min x
+  24: bounding box max x
+  25: bounding box min y
+  26: bounding box max y
+  27: value: coordinate 1 at node 1
+  28: value: coordinate 2 at node 1
+  29: value: coordinate 3 at node 1
+  30: value: temperature at node 1
+  31: value: coordinate 1 at node 5
+  32: value: coordinate 2 at node 5
+  33: value: coordinate 3 at node 5
+  34: value: temperature at node 5
+  35: value: coordinate 1 at node 6
+  36: value: coordinate 2 at node 6
+  37: value: coordinate 3 at node 6
+  38: value: temperature at node 6

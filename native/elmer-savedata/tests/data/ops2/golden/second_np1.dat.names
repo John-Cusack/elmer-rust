@@ -1,0 +1,14 @@
+ops two
+second scalars
+Metadata for SaveScalars file: ./second_np1.dat
+Elmer version: 26.2
+Elmer revision: 9f6af2f85
+Elmer compilation date: 2026-09-23
+Solver input file: case.sif
+File started at: 2026/10/29 11:23:02
+ 
+Variables in columns of matrix: 
+   1: Line Marker
+   2: max: temperature
+   3: min: temperature
+   4: mean: temperature
