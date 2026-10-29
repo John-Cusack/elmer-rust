@@ -11,7 +11,7 @@ const DEFAULT_SCRATCH: &str = "/home/john/firstmate/data/elmer-swarm-w4coverage/
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage:\n  elmer-coverage run [--build-dir D] [--scratch D] [--out D] [--ctest-cache F] [--only a,b] [--timeout S] [--commit SHA] [--keep]\n  \
+        "usage:\n  elmer-coverage run [--build-dir D] [--scratch D] [--out D] [--ctest-cache F] [--only a,b] [--timeout S] [--commit SHA] [--keep] [--mpi-run BIN]\n  \
          elmer-coverage report --results results.tsv [--out COVERAGE.md] [--commit SHA]\n  \
          elmer-coverage one --dir D --sif S [--modules a,b] [--static]   (internal)"
     );
@@ -55,6 +55,10 @@ fn main() -> ExitCode {
                 scratch: PathBuf::from(args.value("--scratch").unwrap_or(DEFAULT_SCRATCH)),
                 timeout: Duration::from_secs(args.value("--timeout").and_then(|t| t.parse().ok()).unwrap_or(120)),
                 clean: !args.has("--keep"),
+                mpi_run: args.value("--mpi-run").map(PathBuf::from).or_else(|| {
+                    let sibling = std::env::current_exe().ok()?.with_file_name("elmer-mpi-run");
+                    sibling.is_file().then_some(sibling)
+                }),
             };
             let only: Vec<&str> = args.value("--only").map(|o| o.split(',').collect()).unwrap_or_default();
             let cache = args.value("--ctest-cache").map(PathBuf::from).unwrap_or_else(|| out.join("ctest-quick.txt"));
