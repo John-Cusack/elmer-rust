@@ -208,10 +208,15 @@ pub fn run(
 
 /// Entry point shared by both binaries.
 pub fn main_entry(variant: Variant) -> ! {
+    main_entry_with(variant, &NoEngine)
+}
+
+/// [`main_entry`] with a native engine (`elmer-run` supplies one).
+pub fn main_entry_with(variant: Variant, engine: &dyn Engine) -> ! {
     let env = Environment::from_process();
     let os_args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let log = ElmerLogger::stdout();
-    let action = run(variant, &os_args, &env, &NoEngine, &log, &mut std::io::stderr());
+    let action = run(variant, &os_args, &env, engine, &log, &mut std::io::stderr());
     match action {
         Action::Exit(code) => std::process::exit(code.code()),
         Action::Delegate { path, args } => {
