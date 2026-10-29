@@ -281,9 +281,10 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
 /// the Lagrange `n:1`; `p:1` for ThermoElectricSolver, whose `b:N`
 /// bubbles stay refused (the solver condenses them, while Elmer keeps them
 /// in the global system and its solution norm, the `Reference Norm`); and
-/// any definition for the test-local `Poisson` `PoissonSolver`, whose
-/// PoissonPFEM port reads its DOFs from `elmer-pdofs` and whose nodal
-/// ports refuse p-elements themselves.
+/// any definition for the solvers that read their DOFs from `elmer-pdofs`
+/// (`ctx.solver_dofs()`) and refuse what they do not port: ModelPDE's
+/// AdvDiffSolver and the test-local `Poisson` `PoissonSolver` and
+/// `SingleElements` ports.
 pub fn native_element(params: &ParamMap) -> bool {
     let Some(e) = params.string("element") else { return true };
     if normalize_key(e) == "n:1" {
@@ -291,7 +292,9 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    if lib.eq_ignore_ascii_case("poisson") && entry.eq_ignore_ascii_case("poissonsolver") {
+    const P_DOFS: [(&str, &str); 3] =
+        [("poisson", "poissonsolver"), ("modelpde", "advdiffsolver"), ("singleelements", "singleelements")];
+    if P_DOFS.iter().any(|(l, n)| lib.eq_ignore_ascii_case(l) && entry.eq_ignore_ascii_case(n)) {
         return true;
     }
     lib.eq_ignore_ascii_case("thermoelectricsolver")
@@ -451,6 +454,9 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
 
     let periodic = periodic_assembly(&model, mesh, coords.dim, &case_dir, log)?;
 
+    // The test-local plugins' `<Proc>_init` section edits (before Elmer
+    // creates their variables).
+    elmer_fixtures::registry::init_sections(&fixture_case, &mut model);
     let mut sim = Simulation::new(model);
     sim.backends.fe = Some(fe_backend(coords.dim));
     // Solver sections with a non-nodal `Element`; `p:%f` degrees are

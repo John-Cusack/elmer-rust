@@ -20,7 +20,7 @@ pub enum Step {
     Solve(Option<String>),
     /// Any other tool the test runs first; the native path has no
     /// equivalent (`Mesh2D`, ...). `ViewFactors` and `Radiators` need no
-    /// step: the heat solver computes their factors itself.
+    /// step in a serial run: the heat solver computes their factors itself.
     Other(String),
 }
 
@@ -128,7 +128,10 @@ pub fn steps(runtest: &str, nprocs: u32, source: &Path) -> Vec<Step> {
                         cmd[1..].iter().flat_map(|a| a.split(';')).filter(|a| !a.is_empty()).map(str::to_string).collect(),
                     )),
                     // `elmer-physics-heat` computes the view and radiator
-                    // factors in process (`elmer-viewfactors`).
+                    // factors in process (`elmer-viewfactors`), serially
+                    // only: a partitioned run still needs the prestep.
+                    Some("${VIEWFACTORS_BIN}") if nprocs > 1 => steps.push(Step::Other("ViewFactors".into())),
+                    Some("${RADIATORS_BIN}") if nprocs > 1 => steps.push(Step::Other("Radiators".into())),
                     Some("${VIEWFACTORS_BIN}") | Some("${RADIATORS_BIN}") => {}
                     Some("${MESH2D_BIN}") => steps.push(Step::Other("Mesh2D".into())),
                     Some(other) => steps.push(Step::Other(other.trim_matches(&['$', '{', '}'][..]).to_string())),
@@ -296,6 +299,7 @@ mod tests {
     fn other_tools() {
         let text = "execute_process(COMMAND ${VIEWFACTORS_BIN} a)\nexecute_process(COMMAND ${MESH2D_BIN} k.mif .)\n";
         assert_eq!(steps(text, 1, Path::new("/s")), vec![Step::Other("Mesh2D".into())]);
+        assert_eq!(steps(text, 2, Path::new("/s")), vec![Step::Other("ViewFactors".into()), Step::Other("Mesh2D".into())]);
     }
 
     #[test]
