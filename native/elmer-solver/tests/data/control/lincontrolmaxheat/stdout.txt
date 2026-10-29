@@ -1,0 +1,10 @@
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.37817080E-01  2.0000000     ) :: heatsolver
+ControlLinearSystem: Applied Control Amplitude:    1.345623E+03
+ComputeChange: NS (ITER=2) (NRM,RELC): (  50.925348      1.9970318     ) :: heatsolver
+ControlLinearSystem: Applied Control Amplitude:    1.345623E+03
+ComputeChange: NS (ITER=3) (NRM,RELC): (  50.925348     0.16978388E-09 ) :: heatsolver
+ControlLinearSystem: Applied Control Amplitude:    1.345623E+03
+ComputeChange: SS (ITER=1) (NRM,RELC): (  50.925348      2.0000000     ) :: heatsolver
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 5.09253477E+01  RefNorm = 5.09253491E+01
+CompareToReferenceSolution: Relative Error to reference norm: 2.654627E-08
+CompareToReferenceSolution: PASSED all 1 tests!

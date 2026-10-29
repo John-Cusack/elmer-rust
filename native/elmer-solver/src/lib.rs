@@ -22,6 +22,7 @@
 pub mod assembly;
 pub mod backend;
 pub mod change;
+mod control;
 pub mod coupled;
 pub mod error;
 pub mod expr;

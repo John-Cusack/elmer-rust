@@ -558,7 +558,10 @@ impl<'a> SolverCtx<'a> {
             .system
             .as_mut()
             .ok_or_else(|| SolverError::fatal("DefaultDirichletBCs", "call default_initialize first"))?;
-        backend.try_apply_dirichlet(&mut sys.matrix, &mut sys.rhs, &fixed, &slot.params)
+        backend.try_apply_dirichlet(&mut sys.matrix, &mut sys.rhs, &fixed, &slot.params)?;
+        // `A % ConstrainedDOF`, which source control reads.
+        slot.asm.constrained = fixed;
+        Ok(())
     }
 
     /// `DefaultSolve` (DefUtils.F90:4470): returns early when `Linear System
@@ -570,6 +573,9 @@ impl<'a> SolverCtx<'a> {
         if self.params().logical("linear system solver disabled") == Some(true) {
             self.info("DefaultSolve", "Solver disabled, exiting early!", 10);
             return Ok(self.convergence().map_or(0.0, |c| c.norm));
+        }
+        if self.params().logical("apply source control") == Some(true) {
+            return crate::control::solve_controlled(self);
         }
         if self.params().logical("monolithic slave") == Some(true) {
             return crate::monolithic::solve_merged(self);
@@ -684,87 +690,10 @@ impl<'a> SolverCtx<'a> {
         // one is solved in complex arithmetic. EnforceDirichletConditions
         // scaled the Dirichlet rows by the real diagonal, where Elmer takes
         // the complex one's modulus; that changes their scaling, not x.
-        let complex = p.logical("linear system complex") == Some(true)
-            && p.logical("linear system skip complex") != Some(true);
-        if complex {
-            log.info("SolveLinearSystem", "Assuming complex valued linear system", 6);
-        }
-        let scale = p.logical("linear system skip scaling") != Some(true)
-            && p.logical("linear system scaling").unwrap_or(true);
-        let scale_opts = || -> Result<elmer_sparse::ScaleOptions, SolverError> {
-            let method = if p.logical("linear system row equilibration") == Some(true) {
-                elmer_sparse::ScalingMethod::RowEquilibration
-            } else {
-                elmer_sparse::ScalingMethod::from_keyword(p.string("linear system scaling method").unwrap_or("diagonal"))?
-            };
-            Ok(elmer_sparse::ScaleOptions {
-                method,
-                apply: true,
-                rhs_scaling: bnorm != 0.0,
-            })
-        };
         let nullify = p.logical("linear system nullify guess") == Some(true)
             || (p.logical("linear system nullify first guess") == Some(true) && nonlin_iter.is_some_and(|i| i.round() <= 1.0));
         let x = &mut var.values[..n];
-        let solved = if complex {
-            let mut ac = crate::linsys::to_complex(&sys.matrix)?;
-            let mut bc = crate::linsys::pair_up(b);
-            let mut xc = crate::linsys::pair_up(x);
-            let scaling = if scale {
-                Some(elmer_sparse::scale_system(&mut ac, Some(&mut bc[..]), Some(&mut xc[..]), &scale_opts()?))
-            } else {
-                None
-            };
-            if nullify {
-                xc.iter_mut().for_each(|v| *v = num_complex::Complex64::new(0.0, 0.0));
-            }
-            let r = crate::linsys::solve_complex(p, &ac, &bc, &mut xc, log, comm);
-            if let Some(rs) = scaling {
-                rs.unscale(&mut ac, Some(&mut bc[..]), Some(&mut xc[..]));
-            }
-            for (k, z) in xc.iter().enumerate() {
-                x[2 * k] = z.re;
-                x[2 * k + 1] = z.im;
-            }
-            r
-        } else {
-            // SolveCore.F90:1263-1268, 1540 and MatrixScaling.F90 method choice.
-            let scaling = if scale {
-                Some(elmer_sparse::scale_system(&mut sys.matrix, Some(&mut *b), Some(&mut *x), &scale_opts()?))
-            } else {
-                None
-            };
-            if nullify {
-                x.iter_mut().for_each(|v| *v = 0.0);
-            }
-            let solved = match sim.backends.linear.select_for(p, &sys.matrix, log) {
-                Err(e) => Err(e),
-                Ok(LinearSolverChoice::Direct(mut d)) => d
-                    .factor(&sys.matrix)
-                    .and_then(|_| {
-                        let mut y = b.to_vec();
-                        d.solve_in_place(&mut y).map(|_| x.copy_from_slice(&y))
-                    })
-                    .map_err(SolverError::from),
-                Ok(LinearSolverChoice::Iterative { mut solver, precond }) => {
-                    let m: Result<Box<dyn elmer_core::Preconditioner<f64> + Send>, SolverError> = match precond {
-                        Some(f) => f(p, &sys.matrix),
-                        None => Ok(Box::new(elmer_core::IdentityPrecond)),
-                    };
-                    m.and_then(|m| {
-                        solver
-                            .solve(&sys.matrix, &*m, b, x, comm)
-                            .map(|_| ())
-                            .map_err(SolverError::from)
-                    })
-                }
-            };
-            // BackScaleLinearSystem before anything else reads the system.
-            if let Some(rs) = scaling {
-                rs.unscale(&mut sys.matrix, Some(b), Some(x));
-            }
-            solved
-        };
+        let solved = solve_linear(&sim.backends.linear, p, &mut sys.matrix, b, x, bnorm, nullify, log, comm);
         solved?;
         var.values_changed = true;
         // SolveCore.F90:1727-1741, then the change, then :1763-1771.
@@ -802,5 +731,101 @@ impl<'a> SolverCtx<'a> {
 
     pub fn system_mut(&mut self) -> Option<&mut LinearSystem> {
         self.sim.slots[self.slot].system.as_mut()
+    }
+}
+
+/// `SolveLinearSystem`'s scaling, solve and back-scaling of `A x = b`
+/// (SolveCore.F90:1254-1700): `Linear System Scaling` (with the complex
+/// form for `Linear System Complex`), the nullify-guess flag, the solver
+/// the section selects. `bnorm` is `|b|`, which turns the rhs scaling on.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn solve_linear(
+    linear: &crate::LinearSolverRegistry,
+    p: &ParamMap,
+    matrix: &mut elmer_core::CsrMatrix<f64>,
+    b: &mut [f64],
+    x: &mut [f64],
+    bnorm: f64,
+    nullify: bool,
+    log: &dyn Logger,
+    comm: &dyn Communicator,
+) -> Result<(), SolverError> {
+    let complex = p.logical("linear system complex") == Some(true)
+        && p.logical("linear system skip complex") != Some(true);
+    if complex {
+        log.info("SolveLinearSystem", "Assuming complex valued linear system", 6);
+    }
+    let scale = p.logical("linear system skip scaling") != Some(true)
+        && p.logical("linear system scaling").unwrap_or(true);
+    let scale_opts = || -> Result<elmer_sparse::ScaleOptions, SolverError> {
+        let method = if p.logical("linear system row equilibration") == Some(true) {
+            elmer_sparse::ScalingMethod::RowEquilibration
+        } else {
+            elmer_sparse::ScalingMethod::from_keyword(p.string("linear system scaling method").unwrap_or("diagonal"))?
+        };
+        Ok(elmer_sparse::ScaleOptions {
+            method,
+            apply: true,
+            rhs_scaling: bnorm != 0.0,
+        })
+    };
+    if complex {
+        let mut ac = crate::linsys::to_complex(matrix)?;
+        let mut bc = crate::linsys::pair_up(b);
+        let mut xc = crate::linsys::pair_up(x);
+        let scaling = if scale {
+            Some(elmer_sparse::scale_system(&mut ac, Some(&mut bc[..]), Some(&mut xc[..]), &scale_opts()?))
+        } else {
+            None
+        };
+        if nullify {
+            xc.iter_mut().for_each(|v| *v = num_complex::Complex64::new(0.0, 0.0));
+        }
+        let r = crate::linsys::solve_complex(p, &ac, &bc, &mut xc, log, comm);
+        if let Some(rs) = scaling {
+            rs.unscale(&mut ac, Some(&mut bc[..]), Some(&mut xc[..]));
+        }
+        for (k, z) in xc.iter().enumerate() {
+            x[2 * k] = z.re;
+            x[2 * k + 1] = z.im;
+        }
+        r
+    } else {
+        // SolveCore.F90:1263-1268, 1540 and MatrixScaling.F90 method choice.
+        let scaling = if scale {
+            Some(elmer_sparse::scale_system(matrix, Some(&mut *b), Some(&mut *x), &scale_opts()?))
+        } else {
+            None
+        };
+        if nullify {
+            x.iter_mut().for_each(|v| *v = 0.0);
+        }
+        let solved = match linear.select_for(p, matrix, log) {
+            Err(e) => Err(e),
+            Ok(LinearSolverChoice::Direct(mut d)) => d
+                .factor(matrix)
+                .and_then(|_| {
+                    let mut y = b.to_vec();
+                    d.solve_in_place(&mut y).map(|_| x.copy_from_slice(&y))
+                })
+                .map_err(SolverError::from),
+            Ok(LinearSolverChoice::Iterative { mut solver, precond }) => {
+                let m: Result<Box<dyn elmer_core::Preconditioner<f64> + Send>, SolverError> = match precond {
+                    Some(f) => f(p, matrix),
+                    None => Ok(Box::new(elmer_core::IdentityPrecond)),
+                };
+                m.and_then(|m| {
+                    solver
+                        .solve(matrix, &*m, b, x, comm)
+                        .map(|_| ())
+                        .map_err(SolverError::from)
+                })
+            }
+        };
+        // BackScaleLinearSystem before anything else reads the system.
+        if let Some(rs) = scaling {
+            rs.unscale(matrix, Some(b), Some(x));
+        }
+        solved
     }
 }
