@@ -11,6 +11,7 @@ elmer-core.workspace = true
 thiserror.workspace = true
 elmer-solver = { path = "../elmer-solver" }
 elmer-fe = { path = "../elmer-fe" }
+elmer-viewfactors = { path = "../elmer-viewfactors" }
 
 [dev-dependencies]
 # HUTI BiCGStab and ILU(0) for the larger Fortran reference cases.

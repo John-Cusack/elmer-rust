@@ -11,6 +11,7 @@ use crate::material::{
     Conductivity, HeatBcAtNodes, HeatBoundaryConfig, HeatBulkConfig, Stabilization,
 };
 use crate::preflight::stabilized;
+use crate::radiation::{is_diffuse_gray, temps4, DiffuseGray};
 use crate::{
     check_supported, heat_boundary_local, heat_bulk_local, HeatError, HeatMaterialAtNodes,
     HeatSections, PROCEDURE,
@@ -57,6 +58,8 @@ pub struct HeatSolver {
     pub(crate) basis: Box<dyn ElementBasis + Send>,
     pub(crate) quad: Box<dyn Quadrature + Send>,
     pub(crate) local: LocalSystem,
+    /// The diffuse gray radiation, found and factored on the first solve.
+    diffuse: Option<Option<DiffuseGray>>,
 }
 
 impl HeatSolver {
@@ -65,6 +68,7 @@ impl HeatSolver {
             basis,
             quad,
             local: LocalSystem::zeros(0),
+            diffuse: None,
         }
     }
 }
@@ -309,9 +313,35 @@ impl Solver for HeatSolver {
             .logical("Stabilization Use Longest Element Edge")
             .unwrap_or(false);
 
+        if self.diffuse.is_none() {
+            self.diffuse = Some(DiffuseGray::setup(ctx, &bnd, axisym)?);
+        }
+        let stefan = ctx.constants().real("Stefan Boltzmann");
+        if self.diffuse.as_ref().is_some_and(Option::is_some) && stefan.is_none() {
+            return Err(SolverError::fatal(
+                CALLER,
+                "Stefan Boltzmann is not defined".to_string(),
+            ));
+        }
+
         for iter in 1..=maxiter {
             ctx.info(CALLER, &format!("Heat solver iteration: {iter}"), 4);
             ctx.default_initialize()?;
+            if let Some(Some(dg)) = self.diffuse.as_mut() {
+                dg.extend_topology(ctx)?;
+            }
+            let newton = {
+                let id = ctx.solver_id();
+                ctx.sim
+                    .slots
+                    .iter()
+                    .find(|s| s.id == id)
+                    .is_some_and(|s| s.state.newton_active)
+            };
+            let t4 = match self.diffuse {
+                Some(Some(_)) => temps4(ctx, &bnd),
+                _ => Default::default(),
+            };
 
             for &e in &elems {
                 let el = ctx.mesh.element(e);
@@ -358,21 +388,26 @@ impl Solver for HeatSolver {
                         external_temperature: real_at_nodes(ctx, p, "External Temperature", e)?,
                     }
                 };
-                if bc.heat_flux.is_none() && bc.heat_transfer_coefficient.is_none() {
-                    continue;
+                if bc.heat_flux.is_some() || bc.heat_transfer_coefficient.is_some() {
+                    let el = ctx.mesh.element(e);
+                    let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
+                    heat_boundary_local(
+                        &*self.basis,
+                        &*self.quad,
+                        el.etype,
+                        &xyz,
+                        &bc,
+                        &bnd_cfg,
+                        &mut self.local,
+                    )?;
+                    ctx.default_update(&self.local, e)?;
                 }
-                let el = ctx.mesh.element(e);
-                let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
-                heat_boundary_local(
-                    &*self.basis,
-                    &*self.quad,
-                    el.etype,
-                    &xyz,
-                    &bc,
-                    &bnd_cfg,
-                    &mut self.local,
-                )?;
-                ctx.default_update(&self.local, e)?;
+                if let Some(Some(dg)) = &self.diffuse {
+                    if is_diffuse_gray(ctx, e) {
+                        let sigma = stefan.expect("checked above");
+                        dg.assemble(ctx, &*self.basis, &*self.quad, e, &t4, newton, sigma)?;
+                    }
+                }
             }
 
             ctx.default_dirichlet()?;

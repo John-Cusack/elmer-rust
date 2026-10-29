@@ -24,7 +24,10 @@
 //! axisymmetric weighting, heat flux and Robin (heat transfer coefficient and
 //! external temperature) boundary terms. With `Legacy Assembly = True` (the
 //! HeatSolveLegacy path, see `legacy`) also `Smart Heater Control` and
-//! `Radiation = Idealized`. Everything else HeatSolve can do is refused by
+//! `Radiation = Idealized`. `Radiation = Diffuse Gray` on axisymmetric
+//! two-node boundaries runs through `elmer-viewfactors` (view factors,
+//! normalisation, Gebhart factors, computed on the first solve) and widens
+//! the matrix pattern by the factors' couplings. Everything else HeatSolve can do is refused by
 //! [`check_supported`] instead of being approximated; `Convection = Computed`
 //! and `Compressibility Model` wait for the solve, so a solver with `Exec
 //! Solver = Never` passes setup as it does in Elmer.
@@ -36,6 +39,7 @@ mod error;
 mod legacy;
 mod material;
 mod preflight;
+mod radiation;
 mod solver;
 
 pub use boundary::heat_boundary_local;

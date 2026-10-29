@@ -58,7 +58,10 @@ fn refuses_radiation_and_phase_change() {
     // `none` is no radiation at all.
     bc.insert("Radiation", Value::Str("none".into()));
     check_supported(&sections(&s, None, None, vec![&bc])).unwrap();
+    // Diffuse gray radiation is the default path's.
     bc.insert("Radiation", Value::Str("diffuse gray".into()));
+    check_supported(&sections(&s, None, None, vec![&bc])).unwrap();
+    bc.insert("Radiation", Value::Str("weird".into()));
     assert_eq!(
         keyword(check_supported(&sections(&s, None, None, vec![&bc])).unwrap_err()),
         "Radiation"

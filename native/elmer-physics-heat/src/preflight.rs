@@ -135,8 +135,9 @@ fn scan(params: &dyn Params, section: &'static str, rules: &[Rule]) -> Result<()
 }
 
 /// `Radiation`: `Idealized` is the Newton-linearised grey radiation to a given
-/// external temperature, which the legacy path implements; the diffuse gray
-/// and radiosity models need view factors.
+/// external temperature, which the legacy path implements; `Diffuse Gray`
+/// (view factors, then Gebhart factors) the default path does, for
+/// axisymmetric geometry.
 fn check_radiation(bc: &dyn Params, legacy: bool) -> Result<(), HeatError> {
     let Some(v) = bc.get("Radiation") else {
         return Ok(());
@@ -144,7 +145,7 @@ fn check_radiation(bc: &dyn Params, legacy: bool) -> Result<(), HeatError> {
     let ok = match v {
         Value::Str(s) => {
             let s = s.to_ascii_lowercase();
-            s == "none" || (legacy && s == "idealized")
+            s == "none" || (legacy && s == "idealized") || (!legacy && s == "diffuse gray")
         }
         _ => false,
     };
