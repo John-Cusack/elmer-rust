@@ -28,6 +28,15 @@ pub fn solver_registry() -> SolverRegistry {
     reg
 }
 
+/// [`solver_registry`] plus the test-local procedures `elmer-fixtures`
+/// ports for the `fem/tests` case named `case` (the case directory's name),
+/// as ElmerSolver loads a test's own compiled modules.
+pub fn solver_registry_for(case: &str) -> SolverRegistry {
+    let mut reg = solver_registry();
+    elmer_fixtures::registry::register(case, &mut reg);
+    reg
+}
+
 /// The case's coordinate system (`SetCoordinateSystem`); its `dim` is
 /// `CoordinateSystemDimension()`.
 pub fn coordinate_system(model: &Model, mesh: &dyn MeshView) -> Result<CoordinateSystem, SolverError> {
