@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use elmer_core::{Dependent, DependentKind, FieldKind, NullLogger, ParamMap, SerialComm, Value};
 use elmer_krylov::{Huti, HutiConfig};
-use elmer_solver::{FeBackend, Model, Simulation, SolverError, SolverRegistry, TextMatc};
+use elmer_solver::{FeBackend, Model, Simulation, SolverError, SolverRegistry};
 use elmer_sparse::Ilu;
 
 use super::simmesh::SimMesh;
@@ -54,6 +54,23 @@ pub fn matc(vars: &[&str], expr: &str) -> Value {
     })
 }
 
+/// MATC through `elmer-sif`, binding the arguments and evaluating under one
+/// lock: the tests of a binary run in parallel on one process-wide MATC.
+struct LockedMatc;
+
+impl elmer_expr::MatcEngine for LockedMatc {
+    fn eval(&self, expr: &str, args: &[f64]) -> Result<Vec<f64>, String> {
+        self.eval_with("tx", expr, args)
+    }
+
+    fn eval_with(&self, var: &str, expr: &str, args: &[f64]) -> Result<Vec<f64>, String> {
+        let out = elmer_sif::matc::matc_eval_args(var, args, expr)?;
+        out.split_whitespace()
+            .map(|t| t.parse::<f64>().map_err(|_| format!("MATC result {out:?} of {expr:?} is not numeric")))
+            .collect()
+    }
+}
+
 /// A simulation with the real element layer, MATC, and BiCGStab with ILU(0..2).
 pub fn simulation(model: Model) -> (Simulation, SolverRegistry) {
     let _ = elmer_physics_heat::install_fe(|| {
@@ -66,7 +83,7 @@ pub fn simulation(model: Model) -> (Simulation, SolverRegistry) {
     elmer_physics_heat::register(&mut reg);
     elmer_physics_meshtools::register(&mut reg);
     let mut sim = Simulation::new(model);
-    sim.set_matc(Rc::new(TextMatc(elmer_sif::matc::matc_eval)));
+    sim.set_matc(Rc::new(LockedMatc));
     sim.backends.fe = Some(FeBackend {
         basis: Box::new(elmer_fe::LagrangeBasis::default()),
         quadrature: Box::new(elmer_fe::ElmerQuadrature),

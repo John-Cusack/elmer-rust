@@ -18,3 +18,4 @@ elmer-fe = { path = "../elmer-fe" }
 elmer-krylov = { path = "../elmer-krylov" }
 elmer-sparse = { path = "../elmer-sparse" }
 elmer-sif = { path = "../elmer-sif" }
+elmer-expr = { path = "../elmer-expr" }
