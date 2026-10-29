@@ -24,7 +24,7 @@ References below are paths under `/home/john/runs/elmer-fork/orig_src/fem/tests/
 fixtures under the names its `.sif` uses, as **new instances**, so two runs in
 one process never share `SAVE`d state. `registry::lookup` builds a single
 instance. Keys are `(case, library, entry)` because plugin names repeat across
-cases: `Source` alone is four different functions (see the inventory).
+cases: `Source` alone is five different files (see the inventory).
 
 ```rust
 let model: Arc<dyn ModelView> = /* live view of the running simulation */;
