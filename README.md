@@ -32,3 +32,6 @@ crates/
 
 One workspace; lanes land per-crate so the merge path never reorders
 archives (cf. rustsmith ADR-027/028).
+The Rust-native rewrite is a separate workspace in `native/` (see
+`native/README.md` and `native/docs/adr/001-*`); it never depends on the
+trees above.

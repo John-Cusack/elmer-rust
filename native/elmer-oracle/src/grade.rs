@@ -1,0 +1,223 @@
+//! External grading of candidate output against frozen golden fields.
+//!
+//! The grader compares full-precision captured fields, never the
+//! self-graded `TEST.PASSED`. Errors are measured in node space: values
+//! stored in Perm order are mapped back through the Perm pairs before
+//! comparison, and the per-field bar is `max(10·σ_F, cap)` from the
+//! tolerance table (Tier A). This module owns the comparison mechanics;
+//! tolerance values themselves are oracle data, loaded from the committed
+//! table.
+
+use crate::result::VariableData;
+
+/// One field-level mismatch found by the grader.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Mismatch {
+    pub variable: String,
+    pub step: usize,
+    pub kind: MismatchKind,
+}
+
+/// How a field comparison failed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MismatchKind {
+    MissingVariable,
+    MissingStep,
+    LengthDiffers { golden: usize, candidate: usize },
+    /// Relative Linf error above the allowed bar.
+    ExceedsTolerance { error: f64, allowed: f64 },
+    /// A non-finite value where the golden field is finite.
+    NonFinite { index: usize },
+}
+
+/// Map Perm-ordered values back to node space. `perm` holds
+/// `(node_index, value_index)` 1-based pairs; absent Perm (`None`) means
+/// identity ordering.
+pub fn to_node_space(var: &VariableData) -> Vec<f64> {
+    match &var.perm {
+        None => var.values.clone(),
+        Some(pairs) => {
+            let size = var.perm_size.max(0) as usize;
+            let mut node = vec![f64::NAN; size];
+            for (i, v) in var.values.iter().enumerate() {
+                if let Some(&(node_idx, _)) = pairs.get(i) {
+                    if node_idx > 0 && (node_idx as usize) <= size {
+                        node[node_idx as usize - 1] = *v;
+                    }
+                }
+            }
+            node
+        }
+    }
+}
+
+/// Relative Linf error of `candidate` against `golden`, normalized by
+/// ‖golden‖∞. Returns `None` when the golden field is all zeros (exact
+/// zero then requires exact zero; any nonzero is reported as infinite).
+pub fn relative_linf(golden: &[f64], candidate: &[f64]) -> Option<f64> {
+    if golden.len() != candidate.len() {
+        return None;
+    }
+    let norm = golden.iter().fold(0.0f64, |m, &v| m.max(v.abs()));
+    if norm == 0.0 {
+        if candidate.iter().all(|&v| v == 0.0) {
+            return Some(0.0);
+        }
+        return None;
+    }
+    let mut worst = 0.0;
+    for (g, c) in golden.iter().zip(candidate.iter()) {
+        if !c.is_finite() && g.is_finite() {
+            return None;
+        }
+        let e = (c - g).abs() / norm;
+        if e > worst {
+            worst = e;
+        }
+    }
+    Some(worst)
+}
+
+/// Grade one variable at one step. `allowed` is the Tier bar for this
+/// field and step.
+pub fn grade_variable(
+    variable: &str,
+    step: usize,
+    golden: &VariableData,
+    candidate: Option<&VariableData>,
+    allowed: f64,
+) -> Vec<Mismatch> {
+    let mk = |kind| vec![Mismatch {
+        variable: variable.to_string(),
+        step,
+        kind,
+    }];
+    let cand = match candidate {
+        None => return mk(MismatchKind::MissingVariable),
+        Some(c) => c,
+    };
+    let g = to_node_space(golden);
+    let c = to_node_space(cand);
+    if g.len() != c.len() {
+        return mk(MismatchKind::LengthDiffers {
+            golden: g.len(),
+            candidate: c.len(),
+        });
+    }
+    for (i, (&gv, &cv)) in g.iter().zip(c.iter()).enumerate() {
+        if gv.is_finite() && !cv.is_finite() {
+            return mk(MismatchKind::NonFinite { index: i });
+        }
+    }
+    match relative_linf(&g, &c) {
+        None => mk(MismatchKind::ExceedsTolerance {
+            error: f64::INFINITY,
+            allowed,
+        }),
+        Some(e) if e > allowed => mk(MismatchKind::ExceedsTolerance { error: e, allowed }),
+        _ => Vec::new(),
+    }
+}
+
+/// Perturbations for the mutation suite (§4.3 item 3): every mutated golden
+/// copy must fail grading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mutation {
+    /// Add 1e-6 relative noise to every value.
+    Noise,
+    /// Reverse the value order (node permutation).
+    Reverse,
+    /// Change one boundary value by 10%.
+    OneValue,
+    /// Drop the last value (length change).
+    DropLast,
+}
+
+/// Apply a mutation to node-space values.
+pub fn mutate(values: &[f64], mutation: Mutation) -> Vec<f64> {
+    match mutation {
+        Mutation::Noise => values.iter().map(|&v| v * (1.0 + 1e-6)).collect(),
+        Mutation::Reverse => values.iter().rev().copied().collect(),
+        Mutation::OneValue => {
+            let mut out = values.to_vec();
+            if let Some(first) = out.first_mut() {
+                *first *= 1.1;
+            }
+            out
+        }
+        Mutation::DropLast => values[..values.len().saturating_sub(1)].to_vec(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn var(values: Vec<f64>) -> VariableData {
+        VariableData {
+            name: "t".to_string(),
+            perm: None,
+            perm_size: values.len() as i32,
+            values,
+        }
+    }
+
+    #[test]
+    fn identical_fields_pass() {
+        let g = var(vec![1.0, 2.0, 3.0]);
+        let c = var(vec![1.0, 2.0, 3.0]);
+        assert!(grade_variable("t", 0, &g, Some(&c), 1e-10).is_empty());
+    }
+
+    #[test]
+    fn each_mutation_is_caught() {
+        let golden = var(vec![300.0, 310.0, 295.0, 305.0]);
+        for m in [
+            Mutation::Noise,
+            Mutation::Reverse,
+            Mutation::OneValue,
+            Mutation::DropLast,
+        ] {
+            let mutated = var(mutate(&golden.values, m));
+            let mismatches = grade_variable("t", 0, &golden, Some(&mutated), 1e-10);
+            assert!(!mismatches.is_empty(), "mutation {m:?} escaped grading");
+        }
+    }
+
+    #[test]
+    fn small_noise_within_loose_bar_passes() {
+        let golden = var(vec![300.0, 310.0]);
+        let close = var(vec![300.0 + 1e-9, 310.0]);
+        assert!(grade_variable("t", 0, &golden, Some(&close), 1e-6).is_empty());
+    }
+
+    #[test]
+    fn missing_and_short_candidates_fail() {
+        let golden = var(vec![1.0, 2.0]);
+        assert_eq!(
+            grade_variable("t", 1, &golden, None, 1e-10)[0].kind,
+            MismatchKind::MissingVariable
+        );
+        let short = var(vec![1.0]);
+        assert!(matches!(
+            grade_variable("t", 1, &golden, Some(&short), 1e-10)[0].kind,
+            MismatchKind::LengthDiffers { .. }
+        ));
+    }
+
+    #[test]
+    fn perm_order_maps_to_node_space() {
+        // Values stored as (node 3, node 1): pairs (3,·),(1,·).
+        let v = VariableData {
+            name: "t".to_string(),
+            perm: Some(vec![(3, 2), (1, 1)]),
+            perm_size: 3,
+            values: vec![30.0, 10.0],
+        };
+        let node = to_node_space(&v);
+        assert_eq!(node.len(), 3);
+        assert_eq!(node[0], 10.0);
+        assert!(node[1].is_nan());
+        assert_eq!(node[2], 30.0);
+    }
+}

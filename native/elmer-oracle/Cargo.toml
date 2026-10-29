@@ -1,0 +1,24 @@
+[package]
+name = "elmer-oracle"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-2.1-or-later"
+repository = "https://github.com/John-Cusack/elmer-rust"
+description = "External oracle for the Rust-native Elmer rewrite: direct test runner, golden capture, grader, and tolerance tables"
+keywords = ["elmer", "fem", "oracle", "verification"]
+categories = ["science"]
+
+[[bin]]
+name = "elmer-oracle"
+path = "src/main.rs"
+
+[lib]
+name = "elmer_oracle"
+path = "src/lib.rs"
+
+[dependencies]
+sha2 = "0.10"
+
+[dev-dependencies]
+
+[workspace]

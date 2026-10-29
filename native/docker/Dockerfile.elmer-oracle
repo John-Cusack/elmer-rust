@@ -1,0 +1,37 @@
+# Pinned Fortran build image for the S0 oracle arms.
+#
+# One image serves every arm (Release golden, FMA, OpenBLAS, LISTUSAGE):
+# arm selection happens through `oracle-arms/build-arm.sh` cmake flags,
+# never through image variants, so all arms share one toolchain record.
+#
+# Pin: rebuilt images record `docker images --digests` output plus the
+# toolchain versions from `build-arm.sh` (see `versions.txt` in each arm
+# build dir). Rebuild with `--no-cache` to re-pin; the Dockerfile itself
+# carries no versioned behaviour beyond the package set below.
+#
+# Build from the repo root, e.g.:
+#   docker build -f native/docker/Dockerfile.elmer-oracle -t elmer-oracle-fortran .
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV HWLOC_COMPONENTS=-gl
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gfortran \
+    cmake \
+    ninja-build \
+    git \
+    ca-certificates \
+    pkg-config \
+    openmpi-bin \
+    libopenmpi-dev \
+    libblas-dev \
+    liblapack-dev \
+    libopenblas-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Elmer's MPI start-up hangs without this (campaign standing rule).
+ENV HWLOC_COMPONENTS=-gl
+
+WORKDIR /work
