@@ -112,9 +112,10 @@ impl Parser {
                 let dir = it.next().unwrap_or(".").to_string();
                 let name = it.next().unwrap_or("").trim().to_string();
                 if name.is_empty() {
-                    header.mesh_db = Some((dir.clone(), ".".to_string()));
+                    header.mesh_db = Some((dir.clone(), String::new()));
                 } else {
-                    header.mesh_db = Some((dir.clone(), format!("{dir}/{name}")));
+                    // Raw parts (Elmer keeps MeshDir/MeshName separate).
+                    header.mesh_db = Some((dir.clone(), name.to_string()));
                 }
             } else if text == "header" {
                 // explicit `Header` opener; fields follow until `end`.
@@ -134,6 +135,7 @@ impl Parser {
             }
         }
         header.present = true;
+        header.numbering = self.numbering;
         header.check_keywords = match self.check_abort {
             1 => CheckLevel::Warn,
             2 => CheckLevel::Silent,
@@ -533,9 +535,11 @@ impl Parser {
                         });
                     } else if size_given {
                         let vals = self.take_reals(n1 * n2, size_unknown, section, name, &chunk_tok, &rest)?;
+                        // `(*)`: Elmer keeps the number actually read.
+                        let n1 = if size_unknown { vals.len() } else { n1 };
                         target.set(Entry {
                             name: name.to_string(),
-                            value: Value::RealArray { n1: vals.0, n2, values: vals.1 },
+                            value: Value::RealArray { n1, n2, values: vals },
                             partag,
                             distribute,
                         });
@@ -543,7 +547,7 @@ impl Parser {
                         let vals = self.take_reals(1, false, section, name, &chunk_tok, &rest)?;
                         target.set(Entry {
                             name: name.to_string(),
-                            value: Value::RealArray { n1: 1, n2: 1, values: vals.1 },
+                            value: Value::RealArray { n1: 1, n2: 1, values: vals },
                             partag,
                             distribute,
                         });
@@ -569,7 +573,7 @@ impl Parser {
                             self.take_ints(n1, size_unknown, section, name, &chunk_tok, &rest)?;
                         target.set(Entry {
                             name: name.to_string(),
-                            value: Value::IntArray { values: vals.1 },
+                            value: Value::IntArray { values: vals },
                             partag,
                             distribute,
                         });
@@ -577,7 +581,7 @@ impl Parser {
                         let vals = self.take_ints(1, false, section, name, &chunk_tok, &rest)?;
                         target.set(Entry {
                             name: name.to_string(),
-                            value: Value::IntArray { values: vals.1 },
+                            value: Value::IntArray { values: vals },
                             partag,
                             distribute,
                         });
@@ -794,7 +798,7 @@ impl Parser {
         name: &str,
         tok: &Token,
         first: &str,
-    ) -> Result<(usize, Vec<f64>), SifError> {
+    ) -> Result<Vec<f64>, SifError> {
         let mut words: Vec<String> = first.split_whitespace().map(|s| s.to_string()).collect();
         if !unknown {
             while words.len() < count {
@@ -826,7 +830,7 @@ impl Parser {
             }
         }
         if unknown {
-            return Ok((vals.len(), vals));
+            return Ok(vals);
         }
         if vals.len() < count {
             return Err(self.err(tok, format!("syntax error in {section}: {name}")));
@@ -843,7 +847,7 @@ impl Parser {
                 ));
             }
         }
-        Ok((count, vals))
+        Ok(vals)
     }
 
     fn take_ints(
@@ -854,7 +858,7 @@ impl Parser {
         name: &str,
         tok: &Token,
         first: &str,
-    ) -> Result<(usize, Vec<i32>), SifError> {
+    ) -> Result<Vec<i32>, SifError> {
         let mut words: Vec<String> = first.split_whitespace().map(|s| s.to_string()).collect();
         if !unknown {
             while words.len() < count {
@@ -886,7 +890,7 @@ impl Parser {
             }
         }
         if unknown {
-            return Ok((vals.len(), vals));
+            return Ok(vals);
         }
         if vals.len() < count {
             return Err(self.err(tok, format!("syntax error in {section}: {name}")));
@@ -903,7 +907,7 @@ impl Parser {
                 ));
             }
         }
-        Ok((count, vals))
+        Ok(vals)
     }
 
 

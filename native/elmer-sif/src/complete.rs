@@ -131,10 +131,10 @@ fn add_vtu_output_solver(run: &mut Model) {
     let ascii = sim.get("ascii output").map(|e| e.value.clone());
     let binary = sim.get("binary output").map(|e| e.value.clone());
     let s = append_solver(run);
-    set_entry(s, "procedure", Value::Text { text: "resultoutputsolve resultoutputsolver".to_string(), is_file: false });
-    set_entry(s, "equation", Value::Text { text: "internalvtuoutputsolver".to_string(), is_file: false });
+    set_entry(s, "procedure", Value::Text { text: "ResultOutputSolve ResultOutputSolver".to_string(), is_file: true });
+    set_entry(s, "equation", Value::Text { text: "InternalVtuOutputSolver".to_string(), is_file: false });
     set_entry(s, "output format", Value::Text { text: "vtu".to_string(), is_file: false });
-    set_entry(s, "output file name", Value::Text { text: stem, is_file: false });
+    set_entry(s, "output file name", Value::Text { text: stem, is_file: true });
     set_entry(s, "no matrix", Value::Logical(true));
     set_entry(s, "variable", Value::Text { text: "-global vtu_internal_dummy".to_string(), is_file: false });
     set_entry(s, "exec solver", Value::Text { text: "after saving".to_string(), is_file: false });
@@ -185,9 +185,9 @@ fn add_save_scalars_solver(run: &mut Model) {
         })
         .collect();
     let s = append_solver(run);
-    set_entry(s, "procedure", Value::Text { text: "savedata savescalars".to_string(), is_file: false });
-    set_entry(s, "equation", Value::Text { text: "internalsavescalars".to_string(), is_file: false });
-    set_entry(s, "filename", Value::Text { text: scalars, is_file: false });
+    set_entry(s, "procedure", Value::Text { text: "SaveData SaveScalars".to_string(), is_file: true });
+    set_entry(s, "equation", Value::Text { text: "InternalSaveScalars".to_string(), is_file: false });
+    set_entry(s, "filename", Value::Text { text: scalars, is_file: true });
     set_entry(s, "exec solver", Value::Text { text: "after saving".to_string(), is_file: false });
     for (n, v) in prefix_hits {
         set_entry(s, &n, v);

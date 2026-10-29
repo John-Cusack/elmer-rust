@@ -17,11 +17,14 @@ fn main() {
         dump_logical(&args[2]);
         return;
     }
+    if args.get(1).map(|s| s.as_str()) == Some("--roundtrip") {
+        roundtrip(&args[2], &args[3]);
+        return;
+    }
     let tests_dir = args[1].clone();
     let times_file = args[2].clone();
     let out_path = args[3].clone();
     let only = args.get(4).cloned();
-
     let times = std::fs::read_to_string(&times_file).unwrap();
     let mut names: Vec<String> = times
         .lines()
@@ -190,4 +193,106 @@ fn collect_sifs(dir: &str, out: &mut Vec<String>) {
             }
         }
     }
+}
+
+/// Round-trip proof: parse each sif, serialize the model, re-parse, and
+/// require model equality (proves the serializer preserves semantics).
+/// Forks one child per test like the main mode: Elmer runs each test in
+/// a fresh process with a fresh MATC environment.
+fn roundtrip(tests_dir: &str, times_file: &str) {
+    let only = std::env::var("SIFPROOF_ROUNDTRIP_ONLY").ok();
+    if let Some(one) = only {
+        let (ok, fail) = roundtrip_one(tests_dir, &one);
+        println!("ROUNDTRIP ok={ok} fail={}", fail.len());
+        for f in fail {
+            println!("FAIL {f}");
+        }
+        return;
+    }
+    let exe = std::env::current_exe().unwrap();
+    let mut ok = 0usize;
+    let mut fails = Vec::new();
+    let times = std::fs::read_to_string(times_file).unwrap();
+    let mut names: Vec<String> = times
+        .lines()
+        .map(|l| l.split_whitespace().next().unwrap().to_string())
+        .collect();
+    names.sort();
+    names.dedup();
+    for name in &names {
+        let out = std::process::Command::new(&exe)
+            .arg("--roundtrip")
+            .arg(tests_dir)
+            .arg(times_file)
+            .env("SIFPROOF_ROUNDTRIP_ONLY", name)
+            .output()
+            .expect("spawn roundtrip child");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        for line in stdout.lines() {
+            if line.starts_with("ROUNDTRIP ") {
+                for kv in line.strip_prefix("ROUNDTRIP ").unwrap_or("").split_whitespace() {
+                    let (k, v) = kv.split_once('=').unwrap();
+                    if k == "ok" {
+                        ok += v.parse::<usize>().unwrap();
+                    }
+                }
+            } else if line.starts_with("FAIL ") {
+                fails.push(line.strip_prefix("FAIL ").unwrap_or("").to_string());
+            }
+        }
+    }
+    println!("roundtrip: {ok} ok, {} fail", fails.len());
+    for f in fails.iter().take(30) {
+        println!("FAIL {f}");
+    }
+}
+
+
+
+fn roundtrip_one(tests_dir: &str, name: &str) -> (usize, Vec<String>) {
+    let mut ok = 0usize;
+    let mut fail = Vec::new();
+    {
+        let mut dir = format!("{tests_dir}/{name}");
+        if !std::path::Path::new(&dir).is_dir() {
+            let base = name.rsplit_once("_np").map(|(b, _)| b).unwrap_or(name);
+            dir = format!("{tests_dir}/{base}");
+        }
+        let mut sifs = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(&dir) {
+            let mut entries: Vec<_> = rd.filter_map(|e| e.ok()).collect();
+            entries.sort_by_key(|e| e.file_name());
+            for e in entries {
+                let p = e.path();
+                if !p.is_dir() && p.extension().and_then(|s| s.to_str()).map(|x| x.eq_ignore_ascii_case("sif")).unwrap_or(false) {
+                    sifs.push(p.to_string_lossy().into_owned());
+                }
+            }
+        }
+        std::env::set_current_dir(&dir).unwrap_or(());
+        for sif in &sifs {
+            let r1 = match elmer_sif::parse_file(sif) {
+                Ok(r) => r,
+                Err(e) => {
+                    fail.push(format!("{sif}: parse: {e}"));
+                    continue;
+                }
+            };
+            let text = elmer_sif::write_sif(&r1.sif, None);
+            let tmp = format!("/tmp/sifrt-{}.sif", std::process::id());
+            std::fs::write(&tmp, &text).unwrap();
+            match elmer_sif::parse_file(&tmp) {
+                Ok(r2) => {
+                    if r1.sif.merged() == r2.sif.merged() {
+                        ok += 1;
+                    } else {
+                        fail.push(format!("{sif}: model mismatch after roundtrip"));
+                    }
+                }
+                Err(e) => fail.push(format!("{sif}: reparse: {e}")),
+            }
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }
+    (ok, fail)
 }

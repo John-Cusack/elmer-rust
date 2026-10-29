@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 
 /// Whole input file: one model per `RUN`-terminated block.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Sif {
     /// Blocks in file order; `runs[0]` is the base load.
     pub runs: Vec<Model>,
@@ -32,7 +32,7 @@ impl Sif {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Model {
     pub header: Header,
     pub control: Option<Section>,
@@ -94,7 +94,7 @@ fn merge_vec(dst: &mut Vec<Section>, src: &[Section]) {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Header {
     pub present: bool,
     /// `Check Keywords ignore|warn|silent|abort` (default: ignore).
@@ -119,7 +119,7 @@ pub enum CheckLevel {
 }
 
 /// One `Name ... End` section body: ordered entries with replacement.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Section {
     /// Section index for numbered sections (0 for singletons).
     pub id: u32,
@@ -151,13 +151,13 @@ impl Section {
 }
 
 /// A `Boundary N` section carries its mesh boundary id separately.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct NumberedSection {
     pub id: u32,
     pub section: Section,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     /// Lowercased keyword name.
     pub name: String,
@@ -168,7 +168,7 @@ pub struct Entry {
     pub distribute: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     RealArray { n1: usize, n2: usize, values: Vec<f64> },
     IntArray { values: Vec<i32> },
@@ -183,7 +183,7 @@ pub enum Value {
     Table(Table),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Table {
     /// Dependency variable (`Variable Time` -> `time`).
     pub dep: String,
