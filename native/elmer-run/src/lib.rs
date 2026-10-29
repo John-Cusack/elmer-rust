@@ -15,6 +15,7 @@
 //! * [`matc`]: [`SifMatc`], run-time MATC on `elmer-sif`'s binding.
 //! * [`case`]: [`run_case`], the `ExecSimulation` path from a [`Case`] to an
 //!   [`Outcome`], refusing unsupported input before any side effect.
+//! * `mortar`: `Apply Mortar BCs` through `elmer-mortar`'s constraint matrix.
 //! * `motion`: node coordinates the mesh mappers move.
 //! * [`output`]: the `Post File = *.vtu` auto-solver, written with `elmer-vtu`.
 //! * [`sif`]: [`SifFrontend`], `elmer-sif` as the case reader, with the mesh
@@ -35,6 +36,7 @@ pub mod case;
 pub mod compose;
 pub mod engine;
 pub mod matc;
+mod mortar;
 mod motion;
 pub mod output;
 pub mod sif;
