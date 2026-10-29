@@ -409,15 +409,102 @@ pub struct RunOutcome {
     pub real_time: Option<f64>,
 }
 
-/// Stage a test by copying its source tree, then run the plan steps.
-pub fn run_plan(
-    arm: &Arm,
-    spec: &TestSpec,
-    plan: &Plan,
-    source_dir: &Path,
-    run_dir: &Path,
-) -> Result<RunOutcome> {
-    stage_tree(source_dir, run_dir)?;
+/// Golden-capture augmentation for staged `.sif` files. The keywords use
+/// the exact forms the pristine parser accepts (verified against
+/// `ModelDescription.F90` and the quick suite): quoted `Output File`
+/// needs a `file`-typed keyword, and logicals need the `Logical` word.
+/// `Linear System Save Prefix` is deliberately absent: it is not a
+/// declared keyword and the parser rejects it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SifInject {
+    /// Append `Output File` + `Binary Output` to the Simulation section.
+    pub o2: bool,
+    /// Append `Linear System Save` + `Save Perm` to every Solver section.
+    pub o2m: bool,
+}
+
+/// Insert capture keywords into every root-level `.sif` in `dir`.
+/// Returns the modified file names. Sections already carrying the
+/// keywords are left untouched.
+pub fn inject_sif(dir: &Path, inj: &SifInject) -> Result<Vec<String>> {
+    let mut modified = Vec::new();
+    let entries = std::fs::read_dir(dir).map_err(|e| io_with(dir, e))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| io_with(dir, e))?;
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "sif") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).map_err(|e| io_with(&path, e))?;
+        let out = inject_text(&text, inj);
+        if out != text {
+            std::fs::write(&path, &out).map_err(|e| io_with(&path, e))?;
+            modified.push(path.file_name().unwrap_or_default().to_string_lossy().to_string());
+        }
+    }
+    Ok(modified)
+}
+
+fn inject_text(text: &str, inj: &SifInject) -> String {
+    let mut out = String::new();
+    let mut section = String::new();
+    let mut block: Vec<String> = Vec::new();
+    let flush = |out: &mut String, section: &str, block: &[String]| {
+        let is_simulation = section.eq_ignore_ascii_case("simulation");
+        let is_solver = section.to_lowercase().starts_with("solver");
+        let has_output = block.iter().any(|l| l.to_lowercase().contains("output file"));
+        let has_save = block.iter().any(|l| l.to_lowercase().contains("linear system save"));
+        for line in block {
+            out.push_str(line);
+            out.push('\n');
+        }
+        if inj.o2 && is_simulation && !has_output {
+            out.push_str("  Output File = \"case.result\"\n");
+            out.push_str("  Binary Output = Logical True\n");
+        }
+        if inj.o2m && is_solver && !has_save {
+            out.push_str("  Linear System Save = Logical True\n");
+            out.push_str("  Linear System Save Perm = Logical True\n");
+        }
+    };
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.eq_ignore_ascii_case("end") && !section.is_empty() {
+            flush(&mut out, &section, &block);
+            block.clear();
+            section.clear();
+            out.push_str(line);
+            out.push('\n');
+        } else if section.is_empty() && !trimmed.is_empty() && !trimmed.starts_with('!') && !trimmed.contains('=') && !trimmed.starts_with('$') {
+            section = trimmed.to_string();
+            block.clear();
+            out.push_str(line);
+            out.push('\n');
+        } else {
+            block.push(line.to_string());
+        }
+    }
+    // Unterminated trailing block: flush without injection.
+    for line in &block {
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+ /// Stage a test by copying its source tree, then run the plan steps.
+ pub fn run_plan(
+     arm: &Arm,
+     spec: &TestSpec,
+     plan: &Plan,
+     source_dir: &Path,
+     run_dir: &Path,
+    inject: Option<&SifInject>,
+ ) -> Result<RunOutcome> {
+     stage_tree(source_dir, run_dir)?;
+    if let Some(inj) = inject {
+        inject_sif(run_dir, inj)?;
+    }
     for step in &plan.steps {
         match step {
             Step::Tool { bin, args } => {
@@ -771,5 +858,30 @@ mod tests {
     fn compare_lines_selects_solver_verdicts() {
         let out = "foo\nCompareToReferenceSolution: Norm 1.0 vs 1.0\nbar\n";
         assert_eq!(compare_lines(out).len(), 1);
+    }
+
+    #[test]
+    fn injection_targets_sections_and_is_idempotent() {
+        let sif = "Header\n  Mesh DB = \".\" \"m\"\nEnd\n\nSimulation\n  Simulation Type = \"Steady State\"\nEnd\n\nSolver 1\n  Equation = \"Heat Equation\"\nEnd\n";
+        let inj = SifInject { o2: true, o2m: true };
+        let once = inject_text(sif, &inj);
+        assert!(once.contains("Output File = \"case.result\""));
+        assert!(once.contains("Binary Output = Logical True"));
+        assert!(once.contains("Linear System Save = Logical True"));
+        assert!(once.contains("Linear System Save Perm = Logical True"));
+        // Simulation section must not gain solver keywords and vice versa.
+        let sim = once.split("Solver 1").next().unwrap();
+        assert!(!sim.contains("Linear System Save"));
+        let solver = once.split("Solver 1").nth(1).unwrap();
+        assert!(!solver.contains("Output File"));
+        // Second pass changes nothing.
+        assert_eq!(inject_text(&once, &inj), once);
+    }
+
+    #[test]
+    fn injection_skips_files_without_target_sections() {
+        let sif = "Header\n  Mesh DB = \".\" \"m\"\nEnd\n";
+        let inj = SifInject { o2: true, o2m: true };
+        assert_eq!(inject_text(sif, &inj), sif);
     }
 }

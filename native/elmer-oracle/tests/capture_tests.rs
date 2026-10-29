@@ -45,7 +45,11 @@ fn fixture_tree(root: &Path) {
     )
     .unwrap();
     std::fs::write(t.join("ELMERSOLVER_STARTINFO"), "case.sif\n").unwrap();
-    std::fs::write(t.join("case.sif"), "Header: dummy\n").unwrap();
+    std::fs::write(
+        t.join("case.sif"),
+        "Header\n  Mesh DB = \".\" \"m\"\nEnd\n\nSimulation\n  Simulation Type = \"Steady State\"\nEnd\n\nSolver 1\n  Equation = \"Heat Equation\"\nEnd\n",
+    )
+    .unwrap();
     write_exe(&build.join("bin-grid"), "#!/bin/sh\nexit 0\n");
     let femsrc = build.join("fem").join("src");
     std::fs::create_dir_all(&femsrc).unwrap();
@@ -76,6 +80,8 @@ fn capture_freezes_stub_run_as_golden() {
             "faketest",
             &golden.display().to_string(),
             &manifest.display().to_string(),
+            "--o2",
+            "--o2m",
         ])
         .output()
         .unwrap();
@@ -87,6 +93,10 @@ fn capture_freezes_stub_run_as_golden() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("passed: true"), "stdout: {stdout}");
     assert!(golden.join("run").join("TEST.PASSED").exists());
+    // Injection lands in the staged sif the solver actually read.
+    let staged = std::fs::read_to_string(golden.join("run").join("case.sif")).unwrap();
+    assert!(staged.contains("Output File = \"case.result\""));
+    assert!(staged.contains("Linear System Save = Logical True"));
     let text = std::fs::read_to_string(&manifest).unwrap();
     assert!(text.contains("faketest/TEST.PASSED"));
     assert!(text.contains("faketest/test-stdout.log"));
