@@ -9,3 +9,4 @@ description = "Linear elasticity kernels (StressSolve / ElasticSolve small-strai
 [dependencies]
 elmer-core.workspace = true
 thiserror.workspace = true
+elmer-solver = { path = "../elmer-solver" }

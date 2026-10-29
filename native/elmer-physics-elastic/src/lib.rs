@@ -15,11 +15,13 @@ pub mod boundary;
 pub mod bulk;
 pub mod error;
 pub mod material;
+pub mod solver;
 
 pub use boundary::{stress_boundary_local, Spring, StressBoundaryInput};
 pub use bulk::{stress_bulk_local, CoordSystem, StressBulkInput};
 pub use error::StressError;
 pub use material::{diagonal_c, ElasticLaw};
+pub use solver::{install_fe, register, FeServices, StressSolver};
 
 /// Registry entry: `Procedure = "StressSolve" "StressSolver"`.
 pub const REGISTRY_ENTRY: (&str, &str) = ("StressSolve", "StressSolver");
