@@ -6,7 +6,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use elmer_viewfactors::{
-    radiator_factors, saved_rows, surface_direction, ParentInfo, RadiatorParams, RadiatorSurface,
+    radiator_factors, saved_rows, surface_direction, ParentInfo, Radiator, RadiatorParams,
+    RadiatorSurface,
 };
 
 fn data() -> PathBuf {
@@ -88,7 +89,10 @@ fn matches_the_viewfactors_program() {
     assert_eq!(s.len(), 600);
     // Viewfactor area tolerance 0.001, factor tolerance 0.001, 8 rays.
     let params = RadiatorParams::from_keywords(Some(0.001), Some(0.001), Some(8), None, None, None);
-    let radiators = [[0.15, 0.15, 0.15], [0.85, 0.85, 0.85]];
+    let radiators = [
+        Radiator::Point([0.15, 0.15, 0.15]),
+        Radiator::Point([0.85, 0.85, 0.85]),
+    ];
     let mut f = radiator_factors(&s, &radiators, &params).unwrap();
     let n = s.len();
     for row in f.chunks_mut(n) {
@@ -112,4 +116,29 @@ fn matches_the_viewfactors_program() {
         }
     }
     assert!(worst < 1e-9, "worst relative difference {worst:e}");
+}
+
+/// A short line radiator inside the cube sends its power to the walls and
+/// emits the cylinder's projected share (pi/4) of what a point there does. The factors of a line radiator were
+/// compared with the pristine program on `fem/tests/beamer3d_box` (four lines
+/// in a hollow box, 2400 elements, 1e-9 relative) when they were ported; that
+/// mesh is too large to keep here.
+#[test]
+fn short_line_radiator_sends_pi_over_four_of_a_point() {
+    let s = surfaces();
+    let params = RadiatorParams::from_keywords(Some(0.001), Some(0.001), Some(8), None, None, None);
+    let line = Radiator::Line {
+        start: [0.5, 0.5, 0.45],
+        end: [0.5, 0.5, 0.55],
+    };
+    let point = Radiator::Point([0.5, 0.5, 0.5]);
+    let f = radiator_factors(&s, &[line, point], &params).unwrap();
+    let n = s.len();
+    let sum = |r: &[f64]| r.iter().sum::<f64>();
+    let (a, b) = (sum(&f[..n]), sum(&f[n..]));
+    assert!(
+        (a / b - std::f64::consts::FRAC_PI_4).abs() < 1e-2,
+        "line {a} vs point {b}"
+    );
+    assert!(f.iter().all(|x| x.is_finite() && *x >= 0.0));
 }

@@ -8,11 +8,106 @@
 //! factor is below `factor_eps`, or whose area is below `area_eps`, gets
 //! `n_rays` rays towards the source; the elements the rays pass through
 //! unblocked count, the others are cut again (odd levels are always cut).
-//! Blocking is tested against the radiating elements themselves. Line
-//! radiators (`Radiator Coordinates(n, 6)`, a cylinder shading itself) are
-//! not ported.
+//! Blocking is tested against the radiating elements themselves. A line
+//! radiator (`Radiator Coordinates(n, 6)`) is a cylinder of a 25th of its
+//! length in radius: the view of the line is integrated along it and the
+//! cylinder's surface supplies the normal of the emitting side.
 
 use crate::Error;
+
+/// A radiator: a point source, or a line source from `start` to `end` (the
+/// six-column `Radiator Coordinates`), which also shades itself as a
+/// cylinder of a 25th of its length in radius.
+#[derive(Copy, Clone, Debug)]
+pub enum Radiator {
+    Point([f64; 3]),
+    Line { start: [f64; 3], end: [f64; 3] },
+}
+
+/// `Cylinder_t`: the shading cylinder around a line radiator.
+struct Cyl {
+    radius: f64,
+    centre: [f64; 3],
+    rot: [[f64; 3]; 3],
+}
+
+impl Cyl {
+    /// `GetMatrixToRotateVectorToZAxis` for the unit vector `(x, y, z)`.
+    fn new(start: [f64; 3], n: [f64; 3]) -> Self {
+        let r = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        let (x, y, z) = (n[0] / r, n[1] / r, n[2] / r);
+        let a = y.atan2(z);
+        let rr = y * a.sin() + z * a.cos();
+        let b = x.atan2(rr);
+        let rot = if a.abs() < 1.0e-12 && b.abs() < 1.0e-12 {
+            [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
+        } else {
+            [
+                [b.cos(), -a.sin() * b.sin(), -a.cos() * b.sin()],
+                [0.0, a.cos(), -a.sin()],
+                [b.sin(), a.sin() * b.cos(), a.cos() * b.cos()],
+            ]
+        };
+        Self {
+            radius: r / 25.0,
+            centre: [
+                (2.0 * start[0] + n[0]) / 2.0,
+                (2.0 * start[1] + n[1]) / 2.0,
+                (2.0 * start[2] + n[2]) / 2.0,
+            ],
+            rot,
+        }
+    }
+
+    fn rotate(&self, v: [f64; 3]) -> [f64; 3] {
+        let m = &self.rot;
+        [0, 1, 2].map(|i| m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2])
+    }
+
+    /// `CylinderNormal`: the outward normal of the cylinder where the
+    /// segment from `f` along `d` leaves it, zero if it does not.
+    fn normal(&self, f: [f64; 3], d: [f64; 3]) -> [f64; 3] {
+        let eps = 1e-12;
+        let fc = self.rotate([
+            f[0] - self.centre[0],
+            f[1] - self.centre[1],
+            f[2] - self.centre[2],
+        ]);
+        let dr = self.rotate(d);
+        let a = dr[0] * dr[0] + dr[1] * dr[1];
+        let b = 2.0 * (fc[0] * dr[0] + fc[1] * dr[1]);
+        let c = fc[0] * fc[0] + fc[1] * fc[1] - self.radius * self.radius;
+        let t = if a < eps {
+            -c / b
+        } else if b.abs() < eps {
+            let tt = (-c / a).sqrt();
+            if (0.0..=1.0).contains(&tt) {
+                tt
+            } else {
+                -tt
+            }
+        } else {
+            let disc = b * b - 4.0 * a * c;
+            // The C exits on a negative discriminant.
+            let disc = if disc >= 0.0 { disc.sqrt() } else { f64::NAN };
+            let tt = (-b + disc) / (2.0 * a);
+            if (0.0..=1.0).contains(&tt) {
+                tt
+            } else {
+                (-b - disc) / (2.0 * a)
+            }
+        };
+        if (0.0..=1.0).contains(&t) {
+            let v = [fc[0] + t * dr[0], fc[1] + t * dr[1], 0.0];
+            let m = &self.rot;
+            let w = [0, 1, 2].map(|j| m[0][j] * v[0] + m[1][j] * v[1] + m[2][j] * v[2]);
+            let r = (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt();
+            [w[0] / r, w[1] / r, w[2] / r]
+        } else {
+            [0.0; 3]
+        }
+    }
+}
 
 /// A radiating surface element: 3 or 4 corner points in Elmer node order and
 /// the unit normal that points where the element receives radiation from
@@ -556,6 +651,13 @@ fn ray_hit_quad(p: &Poly, f: [f64; 3], d: [f64; 3], eps: f64) -> bool {
     false
 }
 
+/// One radiator as the integration sees it.
+struct Source {
+    start: [f64; 3],
+    dir: [f64; 3],
+    cyl: Option<Cyl>,
+}
+
 struct Ctx<'a> {
     params: RadiatorParams,
     rules: &'a Rules,
@@ -573,7 +675,7 @@ impl Ctx<'_> {
 
     /// `Linear/BiLinear/TriangleIntegrateDiffToArea` for a point source:
     /// `integral cosB / R^2 dA` over the node's element.
-    fn diff_to_area(&self, n: &Node, src: [f64; 3]) -> f64 {
+    fn diff_to_area(&self, n: &Node, src: [f64; 3], cyl: Option<&Cyl>) -> f64 {
         let r = self.rules;
         let p = &n.poly;
         match n.kind {
@@ -593,11 +695,22 @@ impl Ctx<'_> {
                         bilin(u, v, &p[2]) - src[2],
                     ];
                     let rr = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                    let cos_a = match cyl {
+                        Some(c) => {
+                            let nf = c.normal(src, d);
+                            let ca = (d[0] * nf[0] + d[1] * nf[1] + d[2] * nf[2]) / rr;
+                            if ca < 1.0e-8 {
+                                continue;
+                            }
+                            ca
+                        }
+                        None => 1.0,
+                    };
                     let cos_b = (-d[0] * nt[0] - d[1] * nt[1] - d[2] * nt[2]) / rr;
                     if cos_b < 1.0e-8 {
                         continue;
                     }
-                    f += eof_a(u, v, p, Kind::Quad) * cos_b * r.sq[i] / (rr * rr);
+                    f += eof_a(u, v, p, Kind::Quad) * cos_a * cos_b * r.sq[i] / (rr * rr);
                 }
                 f
             }
@@ -615,11 +728,22 @@ impl Ctx<'_> {
                         tri(u, v, &p[2]) - src[2],
                     ];
                     let rr = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                    let cos_a = match cyl {
+                        Some(c) => {
+                            let nf = c.normal(src, d);
+                            let ca = (d[0] * nf[0] + d[1] * nf[1] + d[2] * nf[2]) / rr;
+                            if ca < 1.0e-8 {
+                                continue;
+                            }
+                            ca
+                        }
+                        None => 1.0,
+                    };
                     let cos_b = (-d[0] * nt[0] - d[1] * nt[1] - d[2] * nt[2]) / rr;
                     if cos_b < 1.0e-8 {
                         continue;
                     }
-                    f += 2.0 * n.area * cos_b * r.st[i] / (rr * rr);
+                    f += 2.0 * n.area * cos_a * cos_b * r.st[i] / (rr * rr);
                 }
                 f
             }
@@ -628,11 +752,11 @@ impl Ctx<'_> {
 
     /// `*ComputeRadiatorFactors` and `ComputeViewFactorValue` in one: the
     /// sum over the leaves of `area * view factor` below `node`.
-    fn factor(&mut self, node: &Node, level: usize, src: [f64; 3]) -> f64 {
+    fn factor(&mut self, node: &Node, level: usize, src: &Source) -> f64 {
         let pr = self.params;
         let mut subdivide = level & 1 == 1;
         if !subdivide {
-            let fa = self.diff_to_area(node, src);
+            let fa = self.source_integral(node, src);
             if fa < 1.0e-10 {
                 return 0.0;
             }
@@ -676,7 +800,7 @@ impl Ctx<'_> {
 
     /// A random point of the node's element and the ray from it to the
     /// source.
-    fn sample_ray(&mut self, node: &Node, src: [f64; 3]) -> ([f64; 3], [f64; 3]) {
+    fn sample_ray(&mut self, node: &Node, src: &Source) -> ([f64; 3], [f64; 3]) {
         let p = &node.poly;
         let (mut u, mut v) = (self.rng.next(), self.rng.next());
         let f = match node.kind {
@@ -689,7 +813,38 @@ impl Ctx<'_> {
             }
             Kind::Quad => [bilin(u, v, &p[0]), bilin(u, v, &p[1]), bilin(u, v, &p[2])],
         };
-        (f, [src[0] - f[0], src[1] - f[1], src[2] - f[2]])
+        // A line radiator is aimed at a point of the line: the C takes the
+        // next random number for a triangle and `1 - v` for a quad.
+        let mut to = src.start;
+        if src.cyl.is_some() {
+            let t = match node.kind {
+                Kind::Tri => self.rng.next(),
+                Kind::Quad => 1.0 - v,
+            };
+            for i in 0..3 {
+                to[i] += t * src.dir[i];
+            }
+        }
+        (f, [to[0] - f[0], to[1] - f[1], to[2] - f[2]])
+    }
+
+    /// `Fa`: the integral for a point, or the line integral of it with the
+    /// 1D rule for a line radiator.
+    fn source_integral(&self, node: &Node, src: &Source) -> f64 {
+        match &src.cyl {
+            None => self.diff_to_area(node, src.start, None),
+            Some(c) => (0..self.rules.u1.len())
+                .map(|i| {
+                    let u = self.rules.u1[i];
+                    let at = [
+                        src.start[0] + u * src.dir[0],
+                        src.start[1] + u * src.dir[1],
+                        src.start[2] + u * src.dir[2],
+                    ];
+                    self.rules.s1[i] * self.diff_to_area(node, at, Some(c))
+                })
+                .sum(),
+        }
     }
 }
 
@@ -698,7 +853,7 @@ impl Ctx<'_> {
 /// the normalisation to one that `ViewFactors` applies to a closed set.
 pub fn radiator_factors(
     surfaces: &[RadiatorSurface],
-    radiators: &[[f64; 3]],
+    radiators: &[Radiator],
     params: &RadiatorParams,
 ) -> Result<Vec<f64>, Error> {
     let rules = Rules::new(params)?;
@@ -720,12 +875,28 @@ pub fn radiator_factors(
     };
     let n = surfaces.len();
     let mut out = vec![0.0; radiators.len() * n];
-    for (i, src) in radiators.iter().enumerate() {
+    for (i, r) in radiators.iter().enumerate() {
+        let src = match *r {
+            Radiator::Point(p) => Source {
+                start: p,
+                dir: [0.0; 3],
+                cyl: None,
+            },
+            Radiator::Line { start, end } => {
+                let dir = [end[0] - start[0], end[1] - start[1], end[2] - start[2]];
+                let len2 = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2];
+                Source {
+                    start,
+                    dir,
+                    cyl: (len2 != 0.0).then(|| Cyl::new(start, dir)),
+                }
+            }
+        };
         for (j, root) in roots.iter().enumerate() {
             if root.area < 1.0e-10 {
                 continue;
             }
-            out[i * n + j] = ctx.factor(root, 0, *src);
+            out[i * n + j] = ctx.factor(root, 0, &src);
         }
     }
     Ok(out)
