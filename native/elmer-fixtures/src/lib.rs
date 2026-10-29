@@ -7,22 +7,32 @@
 //! decision D12): they exist so those cases can run, not as product code.
 //!
 //! * [`udf`]: scalar `Procedure` functions (`MySource`, `InitDist`, the
-//!   1dtests `Source`), registered into an [`elmer_expr::UdfRegistry`].
+//!   1dtests `Source`, `AlternatingSource`), registered into an
+//!   [`elmer_expr::UdfRegistry`].
 //! * [`poisson_assembly`]: the `BulkAssembly` / `BoundaryAssembly` element
-//!   kernels shared by the nine `CoupledPoisson*` cases.
+//!   kernels shared by the nine `CoupledPoisson*` cases, and [`hooks`], the
+//!   same kernels as `elmer-solver` [`ElementAssembly`] routines on
+//!   `elmer-fe`.
+//! * [`poisson_solver`]: the `Poisson` `PoissonSolver` solver procedure of
+//!   `1dtests` and `ExtrudedMesh`.
 //! * [`registry`]: case-qualified keys. Plugin libraries share names across
 //!   cases (`Source` is four different functions), so a fixture is selected
 //!   by case, library and entry together, and every `install` builds fresh
 //!   per-instance state like a fresh process would.
 //!
+//! [`ElementAssembly`]: elmer_solver::ElementAssembly
+//!
 //! The README lists every other quick-test plugin with its blockers.
 #![forbid(unsafe_code)]
 
+pub mod hooks;
 pub mod poisson_assembly;
+pub mod poisson_solver;
 pub mod registry;
 pub mod udf;
 
 use elmer_expr::FieldLookup;
+use elmer_solver::LiveModel;
 
 /// The part of Elmer's `Model_t` a scalar fixture reads: node coordinates
 /// (`Model % Nodes`), the node count, `Time` and nodal variable values
@@ -34,6 +44,13 @@ use elmer_expr::FieldLookup;
 pub trait ModelView: FieldLookup + Send + Sync {
     /// `Model % NumberOfNodes`.
     fn n_nodes(&self) -> usize;
+}
+
+/// The simulation's own view, kept current by `elmer-solver`.
+impl ModelView for LiveModel {
+    fn n_nodes(&self) -> usize {
+        LiveModel::n_nodes(self)
+    }
 }
 
 /// A fixture stopped the run, or was called in a state its Fortran leaves

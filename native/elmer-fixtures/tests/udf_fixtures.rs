@@ -5,7 +5,10 @@ use std::sync::Arc;
 use elmer_core::{Dependent, DependentKind, Value};
 use elmer_expr::{compile_with, CompileOptions, UdfRegistry};
 use elmer_fixtures::registry;
-use elmer_fixtures::udf::{init_dist, my_source, OneDSource, OneDTolerances, INIT_DIST_RADIUS_SQ};
+use elmer_fixtures::udf::{
+    init_dist, list_real, my_source, AlternatingSource, OneDSource, OneDTolerances, PrintSink, INIT_DIST_RADIUS_SQ,
+};
+use std::sync::Mutex;
 use elmer_fixtures::FixtureError;
 use support::{NoMatc, TestModel};
 
@@ -243,4 +246,67 @@ fn unported_cases_and_plugins_are_not_found() {
     assert!(registry::lookup("1dtests", "Poisson", "PoissonSolver", m.clone()).is_none());
     assert!(registry::lookup("1dtests", "Source", "source", m).is_some(), "entry names are case-insensitive");
     assert_eq!(registry::procedures("AdvDiffFCT"), vec![("InitDist", "InitDist")]);
+}
+
+/// `PRINT *` records of an [`AlternatingSource`], kept for the test.
+fn recorder() -> (PrintSink, Arc<Mutex<Vec<String>>>) {
+    let lines = Arc::new(Mutex::new(Vec::new()));
+    let l = Arc::clone(&lines);
+    (Arc::new(move |s: &str| l.lock().unwrap().push(s.to_string())), lines)
+}
+
+#[test]
+// The literals are the printed digits, so the record reads back verbatim.
+#[allow(clippy::excessive_precision)]
+fn list_real_matches_gfortran_list_directed_output() {
+    // Lines of the pristine HeatControlExplicit run (AlternatingSource.so).
+    assert_eq!(
+        format!(" Neg source:{}{}", list_real(0.19000000000000003), list_real(7.0621978480336370E-002)),
+        " Neg source:  0.19000000000000003        7.0621978480336370E-002"
+    );
+    assert_eq!(
+        format!(" Pos source:{}{}", list_real(0.40000000000000019), list_real(-7.0170777577930402E-002)),
+        " Pos source:  0.40000000000000019       -7.0170777577930402E-002"
+    );
+    assert_eq!(list_real(1.5), "   1.5000000000000000     ");
+    assert_eq!(list_real(-250.0), "  -250.00000000000000     ");
+    assert_eq!(list_real(1.0e20), "   1.0000000000000000E+020");
+}
+
+#[test]
+fn alternating_source_flips_beyond_the_limit_and_prints_each_flip() {
+    let (out, lines) = recorder();
+    let src = AlternatingSource::new(true, out);
+    assert_eq!(src.eval(0.0, 0.01), 1.0);
+    assert_eq!(src.eval(0.07, 0.02), 1.0, "the limit itself does not flip");
+    assert_eq!(src.eval(0.0706, 0.19), -1.0);
+    assert_eq!(src.eval(0.0, 0.2), -1.0, "the sign is kept between the limits");
+    assert_eq!(src.eval(-0.0702, 0.4), 1.0);
+    assert_eq!(src.sign(), 1);
+    let lines = lines.lock().unwrap();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].starts_with(" Neg source:  0.19000000000000000"), "{}", lines[0]);
+    assert!(lines[1].starts_with(" Pos source:  0.40000000000000002"), "{}", lines[1]);
+}
+
+#[test]
+fn alternating_source_state_is_per_instance_and_prints_on_rank_zero_only() {
+    let (out, lines) = recorder();
+    let a = AlternatingSource::new(false, out);
+    let b = AlternatingSource::new(true, stdout_free());
+    assert_eq!(a.eval(0.1, 1.0), -1.0);
+    assert_eq!(b.sign(), 1, "a second instance starts from sgn = 1");
+    assert!(lines.lock().unwrap().is_empty(), "other ranks do not print");
+    let f = AlternatingSource::new(true, stdout_free()).into_fn();
+    assert_eq!(f(0, &[0.08, 0.5]), -1.0, "arguments are (cpar, time)");
+}
+
+fn stdout_free() -> PrintSink {
+    Arc::new(|_| {})
+}
+
+#[test]
+fn alternating_source_is_not_registered_until_its_control_value_exists() {
+    let m = Arc::new(TestModel::line(&XS));
+    assert_eq!(registry::install("HeatControlExplicit", m, &UdfRegistry::new()), 0);
 }
