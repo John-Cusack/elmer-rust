@@ -37,7 +37,6 @@ const SIMULATION: &[Rule] = &[
 const SOLVER: &[Rule] = &[
     present("Mesh", "solver-specific meshes are not implemented"),
     flag("Apply Integral BCs", "integral constraints are not implemented"),
-    flag("Apply Source Control", "source control (Control Target Value) is not implemented"),
     flag("Apply Conforming BCs", "conforming BCs are not implemented"),
     flag("Apply Mortar BCs", "mortar BCs are not implemented"),
     present("Namespace", "solver keyword namespaces are not implemented"),
@@ -55,7 +54,6 @@ const BOUNDARY: &[Rule] = &[
     present("Intersection BC", "intersection BCs are not implemented"),
     present("Intersection Body", "intersection BCs are not implemented"),
     flag("Discontinuous Boundary", "discontinuous boundaries (mesh splitting) are not implemented"),
-    present("Periodic BC", "periodic BCs are not implemented"),
     present("Mortar BC", "mortar BCs are not implemented"),
     present("Conforming BC", "conforming BCs are not implemented"),
     flag("Integral BC", "integral constraints are not implemented"),
@@ -232,18 +230,12 @@ mod tests {
             "Simulation 1: Increase Element Order: quadratic element generation is not implemented"
         );
 
-        let model = Model { solvers: vec![heat(&[("apply source control", Value::Logical(true))])], ..Model::default() };
-        assert_eq!(
-            refusal(&model),
-            "Solver 1: Apply Source Control: source control (Control Target Value) is not implemented"
-        );
-
         let model = Model {
             solvers: vec![heat(&[]), heat(&[("exec solver", st("never")), ("mesh", st("local"))])],
-            boundary_conditions: vec![pm(&[]), pm(&[("periodic bc", Value::Integer(vec![2]))])],
+            boundary_conditions: vec![pm(&[]), pm(&[("mortar bc", Value::Integer(vec![2]))])],
             ..Model::default()
         };
-        assert_eq!(refusal(&model), "Boundary Condition 2: Periodic BC: periodic BCs are not implemented");
+        assert_eq!(refusal(&model), "Boundary Condition 2: Mortar BC: mortar BCs are not implemented");
 
         let model = Model {
             solvers: vec![heat(&[])],

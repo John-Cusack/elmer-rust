@@ -83,7 +83,10 @@ fn section_features(kind: &str, p: &ParamMap, out: &mut Vec<String>) {
             "linear system solver" if t == "block" => feature("block linear system"),
             _ => {}
         }
-        if kind == "boundary condition" && (key.contains("mortar") || key.contains("periodic") || key.contains("contact")) {
+        // `Periodic BC` (nodal projectors) is served by `elmer-mortar`, which
+        // refuses its unported variants at run time.
+        let periodic = key.starts_with("periodic bc");
+        if kind == "boundary condition" && (key.contains("mortar") || (key.contains("periodic") && !periodic) || key.contains("contact")) {
             feature("mortar / periodic / contact BC");
         }
     }
