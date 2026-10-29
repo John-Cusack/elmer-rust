@@ -16,7 +16,16 @@
 use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, Quadrature};
 
 use crate::error::FlowError;
-use crate::stab::{reference_nodes, StabParams};
+
+/// `Element % hK` (already multiplied by `H scale`) and
+/// `Element % StabilizationMK` of the element, as `elmer_fe::stab_param`
+/// computes them; `mk = 0` when the mesh is not stabilized
+/// (`Mesh % Stabilize`), which turns the stabilization off.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct StabParams {
+    pub hk: f64,
+    pub mk: f64,
+}
 
 /// The discretization switches of the solver section.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -100,11 +109,12 @@ pub fn flow_bulk_local(
 
     // dnodal[k][a]: gradient of basis function a at element node k.
     let mut be = BasisEval::default();
-    let refs = reference_nodes(inp.etype)?;
+    let def = elmer_fe::element_type(inp.etype.0).map_err(|e| FlowError::Unsupported(e.to_string()))?;
     let mut dnodal = vec![vec![[0.0; 3]; n]; n];
-    for (k, uvw) in refs.iter().enumerate() {
+    for k in 0..n {
+        let uvw = [def.node_u[k], def.node_v[k], def.node_w[k]];
         basis
-            .eval(inp.etype, inp.xyz, *uvw, &mut be)
+            .eval(inp.etype, inp.xyz, uvw, &mut be)
             .map_err(FlowError::Basis)?;
         dnodal[k].copy_from_slice(&be.dbasis_dx[..n]);
     }

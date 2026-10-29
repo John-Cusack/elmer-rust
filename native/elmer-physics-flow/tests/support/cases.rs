@@ -1,16 +1,15 @@
 //! Running `FlowSolver` through `elmer-solver`'s `Simulation` with its
-//! default backends (assembly, faer LU for `Direct`), the test-local basis
-//! standing in for `elmer-fe` and hand-built model sections standing in for
+//! default backends (assembly, faer LU for `Direct`), the `elmer-fe` basis
+//! and Gauss rules, and hand-built model sections standing in for
 //! `elmer-sif`.
 
 use std::path::{Path, PathBuf};
 
 use elmer_core::{NullLogger, ParamMap, SerialComm, Value};
-use elmer_physics_flow::{install_fe, register};
+use elmer_physics_flow::register;
 use elmer_solver::{Model, Simulation, SolverError, SolverRegistry};
 
 use super::mesh::TestMesh;
-use super::{TestBasis, TestQuadrature};
 
 pub fn data(case: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data").join(case)
@@ -40,13 +39,7 @@ pub fn logical(b: bool) -> Value {
     Value::Logical(b)
 }
 
-pub fn install() {
-    // Idempotent across tests in this binary.
-    let _ = install_fe(|| (Box::new(TestBasis), Box::new(TestQuadrature)));
-}
-
 pub fn run(model: Model, mesh: &TestMesh) -> Result<Simulation, SolverError> {
-    install();
     let mut reg = SolverRegistry::new();
     register(&mut reg);
     let mut sim = Simulation::new(model);

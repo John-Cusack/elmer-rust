@@ -12,19 +12,19 @@ use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 use crate::boundary::{element_center, flow_boundary_local, FlowBoundaryInput};
 use crate::bulk::{flow_bulk_local, Discretization, FlowBulkInput};
 use crate::error::FlowError;
-use crate::stab::stab_params;
+use crate::bulk::StabParams;
 
 const CALLER: &str = "FlowSolver";
 
-/// Builds the element basis and quadrature the solver integrates with. The
-/// registry's factories are plain `fn` pointers, so the front end (`elmer-fe`)
-/// hands its implementations over through [`install_fe`] instead.
+/// Builds the element basis and quadrature the solver integrates with, in
+/// place of the `elmer-fe` defaults ([`elmer_fe::LagrangeBasis`] for the
+/// mesh dimension and [`elmer_fe::ElmerQuadrature`]).
 pub type FeProvider = fn() -> (Box<dyn ElementBasis + Send>, Box<dyn Quadrature + Send>);
 
 static FE: OnceLock<FeProvider> = OnceLock::new();
 
-/// Installs the basis and quadrature provider used by [`factory`]. Returns
-/// `false` if one is already installed.
+/// Installs a basis and quadrature provider for [`factory`]-built solvers.
+/// Returns `false` if one is already installed.
 pub fn install_fe(provider: FeProvider) -> bool {
     FE.set(provider).is_ok()
 }
@@ -35,14 +35,16 @@ pub fn register(registry: &mut SolverRegistry) {
     registry.register(lib, entry, factory);
 }
 
-/// [`SolverFactory`](elmer_solver::SolverFactory) for [`FlowSolver`]. Fails
-/// with `NotWired` until [`install_fe`] has been called.
+/// [`SolverFactory`](elmer_solver::SolverFactory) for [`FlowSolver`]: the
+/// installed provider's basis and quadrature, else the `elmer-fe` ones.
 pub fn factory(_params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
-    let provider = FE
-        .get()
-        .ok_or_else(|| SolverError::NotWired("element basis and quadrature (elmer-fe)".into()))?;
-    let (basis, quad) = provider();
-    Ok(Box::new(FlowSolver::new(basis, quad)))
+    Ok(Box::new(match FE.get() {
+        Some(provider) => {
+            let (basis, quad) = provider();
+            FlowSolver::new(basis, quad)
+        }
+        None => FlowSolver::default(),
+    }))
 }
 
 impl From<FlowError> for SolverError {
@@ -68,27 +70,36 @@ fn has_prefix(p: &ParamMap, prefix: &str) -> bool {
 
 /// The incompressible stabilized P1/P1 solver.
 pub struct FlowSolver {
-    basis: Box<dyn ElementBasis + Send>,
-    quad: Box<dyn Quadrature + Send>,
+    /// `None` until `init` picks the `elmer-fe` defaults.
+    basis: Option<Box<dyn ElementBasis + Send>>,
+    quad: Option<Box<dyn Quadrature + Send>>,
     local: LocalSystem,
     /// FlowSolve's `NewtonLinearization` and `RecheckNewton`: initialized
     /// locals, so Fortran keeps them across calls (and, unlike here, across
     /// every FlowSolve instance).
     newton: bool,
     recheck_newton: bool,
-    /// `Initialize Dirichlet Conditions` has been applied to the variable.
-    dirichlet_initialized: bool,
+}
+
+impl Default for FlowSolver {
+    /// A solver on the `elmer-fe` basis and Gauss rules.
+    fn default() -> Self {
+        Self {
+            basis: None,
+            quad: None,
+            local: LocalSystem::zeros(0),
+            newton: false,
+            recheck_newton: false,
+        }
+    }
 }
 
 impl FlowSolver {
     pub fn new(basis: Box<dyn ElementBasis + Send>, quad: Box<dyn Quadrature + Send>) -> Self {
         Self {
-            basis,
-            quad,
-            local: LocalSystem::zeros(0),
-            newton: false,
-            recheck_newton: false,
-            dirichlet_initialized: false,
+            basis: Some(basis),
+            quad: Some(quad),
+            ..Self::default()
         }
     }
 }
@@ -431,6 +442,12 @@ impl Solver for FlowSolver {
         }
         let comps = component_names(ctx)?;
         navier_stokes_init_value(ctx, &comps)?;
+        if self.basis.is_none() {
+            self.basis = Some(Box::new(elmer_fe::LagrangeBasis::new(dim)));
+        }
+        if self.quad.is_none() {
+            self.quad = Some(Box::new(elmer_fe::ElmerQuadrature));
+        }
         // FlowSolver_init.
         slot_params_mut(ctx).insert("time derivative order", Value::Integer(vec![1]));
         Ok(())
@@ -497,38 +514,14 @@ impl Solver for FlowSolver {
             }
         }
 
-        // ElmerSolver's `Initialize Dirichlet Conditions` (default on,
-        // ElmerSolver.F90:1863) runs before any solver and before the first
-        // history commit; elmer-solver does not do it yet, so the flow
-        // variable (and the history the first timestep committed from it)
-        // gets its boundary values here on the first visit.
-        if !self.dirichlet_initialized {
-            self.dirichlet_initialized = true;
-            if ctx.simulation_params().logical("initialize dirichlet conditions") != Some(false) {
-                let fixed = dirichlet_rows(ctx, &comps, dim, false)?;
-                let id = ctx.solver_id();
-                let sim = &mut *ctx.sim;
-                let vid = sim
-                    .slots
-                    .iter()
-                    .find(|s| s.id == id)
-                    .and_then(|s| s.variable)
-                    .ok_or_else(|| SolverError::fatal(CALLER, "solver has no variable"))?;
-                let var = sim.vars.by_id_mut(vid);
-                for (row, x) in fixed {
-                    var.values[row as usize] = x;
-                    if let Some(h) = var.prev_values.first_mut() {
-                        h[row as usize] = x;
-                    }
-                }
-            }
-        }
-
         let grav = gravity(ctx);
         let elems: Vec<ElemId> = ctx.active_elements().collect();
         let bnd: Vec<ElemId> = ctx.boundary_elements().collect();
         let var_name = ctx.variable_name().unwrap_or_default().to_string();
         let mut dofs = Vec::new();
+        let (Some(basis), Some(quad)) = (self.basis.as_deref(), self.quad.as_deref()) else {
+            return Err(SolverError::fatal(CALLER, "solve before init"));
+        };
 
         for iter in 1..=nonlinear_iter {
             ctx.info("FlowSolve", "-------------------------------------", 4);
@@ -578,11 +571,14 @@ impl Solver for FlowSolver {
                     }
                 }
 
-                let mut stab = stab_params(el.etype, &xyz, long_edge)?;
-                stab.hk *= h_scale;
-                if !stabilize_mesh {
-                    stab.mk = 0.0;
-                }
+                // MeshStabParams: StabParam with Mesh % Stabilize, else only
+                // ElementDiameter (mK stays zero).
+                let (mk, hk) = elmer_fe::stab_param(el.etype, &xyz, dim, long_edge)
+                    .map_err(|e| SolverError::fatal(CALLER, e.to_string()))?;
+                let stab = StabParams {
+                    hk: hk * h_scale,
+                    mk: if stabilize_mesh { mk } else { 0.0 },
+                };
                 let inp = FlowBulkInput {
                     etype: el.etype,
                     xyz: &xyz,
@@ -599,7 +595,7 @@ impl Solver for FlowSolver {
                     want_mass: transient,
                     np: None,
                 };
-                flow_bulk_local(&*self.basis, &*self.quad, &inp, &mut self.local)?;
+                flow_bulk_local(basis, quad, &inp, &mut self.local)?;
                 if transient {
                     ctx.default_first_order_time(&mut self.local, e, dt)?;
                 }
@@ -658,7 +654,7 @@ impl Solver for FlowSolver {
                     parent_center,
                     np: None,
                 };
-                flow_boundary_local(&*self.basis, &*self.quad, &inp, &mut self.local)?;
+                flow_boundary_local(basis, quad, &inp, &mut self.local)?;
                 ctx.default_update(&self.local, e)?;
             }
 

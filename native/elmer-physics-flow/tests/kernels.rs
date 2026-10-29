@@ -1,41 +1,10 @@
-//! Kernel-level checks that do not need a pristine run: the closed forms of
-//! `ElementDiameter`/`StabParam`, normal orientation, the pressure
-//! stabilization block, and the Newton linearization's consistency with
-//! Picard at the linearization point.
-
-mod support;
+//! Kernel-level checks that do not need a pristine run: normal orientation,
+//! the pressure stabilization block, and the Newton linearization's
+//! consistency with Picard at the linearization point.
 
 use elmer_core::{ElementType, LocalSystem};
-use elmer_physics_flow::{
-    element_diameter, flow_bulk_local, outward_normal, stab_params, Discretization, FlowBulkInput, FlowError,
-    StabParams,
-};
-use support::{TestBasis, TestQuadrature};
-
-#[test]
-fn element_diameter_closed_forms() {
-    let tri = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
-    // 16 A^2 / (3 sum |x_i - c|^2) = 16 * 0.25 / (3 * 4/3) = 1.
-    assert!((element_diameter(ElementType(303), &tri, false).unwrap() - 1.0).abs() < 1e-15);
-    let quad = [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 1.0, 0.0], [0.0, 1.0, 0.0]];
-    // 2 |e1|^2 |e4|^2 / (|e1|^2 + |e4|^2) = 2 * 4 * 1 / 5.
-    assert!((element_diameter(ElementType(404), &quad, false).unwrap() - (8.0f64 / 5.0).sqrt()).abs() < 1e-15);
-    let tet = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 3.0]];
-    assert_eq!(element_diameter(ElementType(504), &tet, false).unwrap(), 1.0);
-    assert_eq!(element_diameter(ElementType(504), &tet, true).unwrap(), 13f64.sqrt());
-}
-
-#[test]
-fn stabilization_constant_by_type() {
-    let tri = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
-    assert_eq!(stab_params(ElementType(303), &tri, false).unwrap().mk, 1.0 / 3.0);
-    let brick: Vec<[f64; 3]> = (0..8)
-        .map(|i| [(i & 1) as f64, ((i >> 1) & 1) as f64, ((i >> 2) & 1) as f64])
-        .collect();
-    assert_eq!(stab_params(ElementType(808), &brick, false).unwrap().mk, 1.0 / 6.0);
-    let tri6 = [[0.0; 3]; 6];
-    assert!(matches!(stab_params(ElementType(306), &tri6, false), Err(FlowError::Unsupported(_))));
-}
+use elmer_fe::{ElmerQuadrature, LagrangeBasis};
+use elmer_physics_flow::{flow_bulk_local, outward_normal, Discretization, FlowBulkInput, StabParams};
 
 #[test]
 fn normals_point_away_from_the_parent() {
@@ -67,8 +36,8 @@ fn input<'a>(
     mk: f64,
 ) -> FlowBulkInput<'a> {
     let et = ElementType(etype);
-    let mut stab = stab_params(et, xyz, false).unwrap();
-    stab.mk = mk;
+    let (_, hk) = elmer_fe::stab_param(et, xyz, 2, false).unwrap();
+    let stab = StabParams { hk, mk };
     FlowBulkInput {
         etype: et,
         xyz,
@@ -99,7 +68,7 @@ fn pressure_block_is_tau_laplacian() {
     let mu = vec![0.7; 3];
     let mut out = LocalSystem::zeros(0);
     let inp = input(303, &xyz, &velocity, &load, &mu, false, false, 1.0 / 3.0);
-    flow_bulk_local(&TestBasis, &TestQuadrature, &inp, &mut out).unwrap();
+    flow_bulk_local(&LagrangeBasis::new(2), &ElmerQuadrature, &inp, &mut out).unwrap();
 
     let StabParams { hk, mk } = inp.stab;
     let tau = mk * hk * hk / (8.0 * 0.7);
@@ -120,7 +89,7 @@ fn pressure_block_is_tau_laplacian() {
     }
 
     let inp = input(303, &xyz, &velocity, &load, &mu, false, false, 0.0);
-    flow_bulk_local(&TestBasis, &TestQuadrature, &inp, &mut out).unwrap();
+    flow_bulk_local(&LagrangeBasis::new(2), &ElmerQuadrature, &inp, &mut out).unwrap();
     for p in 0..3 {
         for q in 0..3 {
             assert_eq!(out.stiff[(p * 3 + 2) * 9 + q * 3 + 2], 0.0);
@@ -147,7 +116,7 @@ fn newton_residual_equals_picard_residual_at_the_iterate() {
         let residual = |newton: bool| {
             let mut out = LocalSystem::zeros(0);
             let inp = input(etype, &xyz, &velocity, &load, &props, true, newton, 1.0 / 3.0);
-            flow_bulk_local(&TestBasis, &TestQuadrature, &inp, &mut out).unwrap();
+            flow_bulk_local(&LagrangeBasis::new(2), &ElmerQuadrature, &inp, &mut out).unwrap();
             let nd = out.n;
             (0..nd)
                 .map(|r| (0..nd).map(|c| out.stiff[r * nd + c] * x[c]).sum::<f64>() - out.force[r])

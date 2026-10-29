@@ -38,13 +38,13 @@ fn refuses_unported_options() {
     );
     let mut gas = water();
     gas.insert("Compressibility Model", st("Perfect Gas"));
-    assert_unsupported(stokes(&[it.clone()], gas, vec![]), "compressibility");
+    assert_unsupported(stokes(std::slice::from_ref(&it), gas, vec![]), "compressibility");
     assert_unsupported(
-        stokes(&[it.clone()], water(), vec![("Normal-Tangential Velocity", logical(true))]),
+        stokes(std::slice::from_ref(&it), water(), vec![("Normal-Tangential Velocity", logical(true))]),
         "normal-tangential",
     );
     assert_unsupported(
-        stokes(&[it.clone()], water(), vec![("Surface Tension Coefficient", real(1.0))]),
+        stokes(std::slice::from_ref(&it), water(), vec![("Surface Tension Coefficient", real(1.0))]),
         "surface tension",
     );
     let mut nn = water();

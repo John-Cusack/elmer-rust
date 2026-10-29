@@ -8,5 +8,6 @@ description = "FlowSolve (stabilized P1/P1 incompressible Navier-Stokes) kernels
 
 [dependencies]
 elmer-core.workspace = true
+elmer-fe = { path = "../elmer-fe" }
 thiserror.workspace = true
 elmer-solver = { path = "../elmer-solver" }
