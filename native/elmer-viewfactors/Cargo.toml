@@ -1,0 +1,10 @@
+[package]
+name = "elmer-viewfactors"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "View factors and Gebhart factors of diffuse gray radiation (the ViewFactors prestep) for the Rust-native Elmer rewrite"
+
+[dependencies]
+thiserror.workspace = true
