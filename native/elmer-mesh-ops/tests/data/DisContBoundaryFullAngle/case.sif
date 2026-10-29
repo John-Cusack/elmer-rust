@@ -1,0 +1,44 @@
+Header
+  Mesh DB "." "mesh"
+End
+
+Simulation
+  Discontinuous Boundary Full Angle = Logical True
+End
+
+Body 1
+  Name = "Body1"
+End
+
+Body 2
+  Name = "Body2"
+End
+
+Body 3
+  Name = "Body3"
+End
+
+Body 4
+  Name = "Body4"
+End
+
+Boundary Condition 1
+  Name = "Zero"
+  Target Boundaries(1) = 2 
+End
+
+Boundary Condition 2
+  Name = "ZeroToo"
+  Target Boundaries(1) = 4 
+End
+
+Boundary Condition 3
+  Name = "Jump"
+  Target Boundaries(1) = 13 
+  Discontinuous Boundary = True
+  discontinuous bc = 4
+End
+
+Boundary Condition 4
+  Name = "OtherSide"
+End

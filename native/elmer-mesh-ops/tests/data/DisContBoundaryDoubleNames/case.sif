@@ -1,0 +1,43 @@
+Header
+  Mesh DB "." "mesh"
+End
+
+Simulation
+  Discontinuous Bulk Greedy = Logical True	
+  Use Mesh Names = Logical True
+End
+
+Body 1
+  Name = "Square"
+End
+
+Body 2
+  Name = "Circle"
+  Target Bodies(1) = 2
+End
+
+Boundary Condition 1
+  Name = "Bottom"
+End
+
+Boundary Condition 2
+  Name = "Right"
+End
+
+Boundary Condition 3
+  Name = "Top"
+End
+
+Boundary Condition 4
+  Name = "Left"
+End
+
+Boundary Condition 5
+  Name = "Jump"
+  Discontinuous Boundary = Logical True
+  Discontinuous BC = Integer 6
+End
+
+Boundary Condition 6
+  Name = "Jump-Second"
+End

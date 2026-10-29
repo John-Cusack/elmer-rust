@@ -4,15 +4,19 @@
 //! - [`increase_element_order`] ports `IncreaseElementOrder`
 //!   (MeshBasics.F90:3564) for the linear elements 202, 303, 404, 504, 706
 //!   and 808.
+//! - [`create_discont_mesh`] ports `CreateDiscontMesh` (MeshBasics.F90:377),
+//!   the mesh splitting of `Discontinuous Boundary`.
 //!
 //! Operations take any [`elmer_core::MeshView`] and return an owned
 //! [`Mesh`] (the one of `elmer-mesh-levels`, itself a `MeshView`).
 
 #![forbid(unsafe_code)]
 
+pub mod discont;
 mod error;
 pub mod order;
 
+pub use discont::{create_discont_mesh, DiscontMesh};
 pub use elmer_mesh_levels::Mesh;
 pub use error::MeshOpsError;
 pub use order::increase_element_order;

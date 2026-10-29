@@ -28,7 +28,11 @@ pub fn increase_element_order(mesh: &dyn MeshView) -> Result<Mesh, MeshOpsError>
             e.etype.0
         )));
     }
-    if let Some(e) = mesh.elements.iter().find(|e| e.etype.n_nodes() != nodes_of_linear(e.etype)) {
+    if let Some(e) = mesh
+        .elements
+        .iter()
+        .find(|e| e.etype.n_nodes() != nodes_of_linear(e.etype))
+    {
         return Err(MeshOpsError::Invalid(format!(
             "Cannot increase element order for: {}",
             e.etype.0

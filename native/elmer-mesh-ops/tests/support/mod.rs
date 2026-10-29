@@ -92,23 +92,58 @@ pub fn load(dir: &Path, sif: &str) -> Case {
         .unwrap_or_default();
     // elmer-sif pads unnumbered BC slots with empty sections, so the
     // position is the BC index.
-    let bcs = model
+    let mut bcs: Vec<ParamMap> = model
         .bcs
         .iter()
         .map(elmer_sif::section_to_param_map)
         .collect();
-    let bodies = model
+    let mut bodies: Vec<ParamMap> = model
         .bodies
         .iter()
         .map(elmer_sif::section_to_param_map)
         .collect();
     let (db, name) = model.header.mesh_db.clone().expect("Mesh DB");
-    let mesh = read_mesh(&dir.join(db).join(name));
+    let mesh_dir = dir.join(db).join(name);
+    let mesh = read_mesh(&mesh_dir);
+    if simulation.logical("use mesh names") == Some(true) {
+        read_target_names(&mesh_dir.join("mesh.names"), &mut bodies, &mut bcs);
+    }
     Case {
         simulation,
         bodies,
         bcs,
         mesh,
+    }
+}
+
+/// `ReadTargetNames` (MeshIO.F90:959): `$ name = tags` lines of `mesh.names`
+/// give `Target Bodies` / `Target Boundaries` to the section of that `Name`.
+fn read_target_names(file: &Path, bodies: &mut [ParamMap], bcs: &mut [ParamMap]) {
+    let text = std::fs::read_to_string(file).unwrap();
+    for line in text.lines() {
+        let (Some(i), Some(j)) = (line.find('$'), line.find('=')) else {
+            continue;
+        };
+        let name = line[i + 1..j].trim().to_lowercase();
+        let tags: Vec<i32> = line[j + 1..]
+            .split_whitespace()
+            .map_while(|w| w.parse().ok())
+            .collect();
+        let mut already_set = false;
+        for (sections, key) in [
+            (&mut *bcs, "Target Boundaries"),
+            (&mut *bodies, "Target Bodies"),
+        ] {
+            for section in sections.iter_mut() {
+                if section.string("name").map(str::to_lowercase).as_deref() == Some(name.as_str()) {
+                    assert!(!already_set, "Mapping of name is not unique: {name}");
+                    if section.get(key).is_none() {
+                        section.insert(key, Value::Integer(tags.clone()));
+                        already_set = true;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -119,15 +154,22 @@ fn targets<'a>(section: &'a ParamMap, key: &str) -> Option<&'a [i32]> {
     }
 }
 
-/// `MapBodiesAndBCs` for boundaries: file tag -> BC index, 0 when no BC
-/// targets the tag (no `Default Target` in these cases).
+/// `MapBodiesAndBCs` for boundaries: file tag -> BC index (the first BC that
+/// targets it), else the last BC with `Default Target` or `Default BC`, else
+/// 0.
 pub fn map_bc_tags(mesh: &mut Mesh, bcs: &[ParamMap]) {
     let nb = mesh.n_bulk;
+    let default = bcs
+        .iter()
+        .rposition(|bc| {
+            bc.logical("default target") == Some(true) || bc.logical("default bc") == Some(true)
+        })
+        .map_or(0, |i| i as i32 + 1);
     for el in &mut mesh.elements[nb..] {
         el.tag = bcs
             .iter()
             .position(|bc| targets(bc, "target boundaries").is_some_and(|t| t.contains(&el.tag)))
-            .map_or(0, |i| i as i32 + 1);
+            .map_or(default, |i| i as i32 + 1);
     }
 }
 
