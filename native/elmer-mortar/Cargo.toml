@@ -1,0 +1,21 @@
+[package]
+name = "elmer-mortar"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Periodic and mortar boundary projectors for the Rust-native Elmer rewrite: interface meshes, nodal periodic projectors, Save Projector output and the periodic constraint hook"
+
+[dependencies]
+elmer-assembly = { path = "../elmer-assembly" }
+elmer-core.workspace = true
+elmer-fe = { path = "../elmer-fe" }
+elmer-interp = { path = "../elmer-interp" }
+elmer-solver = { path = "../elmer-solver" }
+elmer-sparse = { path = "../elmer-sparse" }
+thiserror.workspace = true
+
+[dev-dependencies]
+elmer-mesh = { path = "../elmer-mesh" }
+elmer-run = { path = "../elmer-run" }
+elmer-sif = { path = "../elmer-sif" }
