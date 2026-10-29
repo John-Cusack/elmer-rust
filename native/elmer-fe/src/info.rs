@@ -6,7 +6,8 @@ use elmer_core::{BasisEval, ElementBasis, ElementType};
 use crate::basis::{nodal_basis, nodal_first_derivatives};
 use crate::element_type::{element_type, ElementTypeDef};
 use crate::error::FeError;
-use crate::metric::{check_metric, element_metric, MetricStatus};
+use crate::metric::{check_metric, element_metric, Metric, MetricStatus};
+use crate::second::{global_second_derivatives, local_second_derivatives};
 
 /// `ElementInfo( Element, Nodes, u, v, w, detJ, Basis, dBasisdx )`.
 ///
@@ -22,6 +23,44 @@ pub fn element_info(
     status: &mut MetricStatus,
     out: &mut BasisEval,
 ) -> Result<(), FeError> {
+    info_impl(def, xyz, uvw, cdim, status, out).map(|_| ())
+}
+
+/// `ElementInfo( ..., ddBasisddx, SecondDerivatives=.TRUE. )`: as
+/// [`element_info`], plus `dd[p][i][j] = d2 N_p / dx_i dx_j` from
+/// `EvalSecondDerivativesRef` and `GlobalSecondDerivatives`
+/// (ElemInfo.F90:528, 10663). Entries past `cdim` are zero.
+pub fn element_info_second(
+    def: &ElementTypeDef,
+    xyz: &[[f64; 3]],
+    uvw: [f64; 3],
+    cdim: usize,
+    status: &mut MetricStatus,
+    out: &mut BasisEval,
+    dd: &mut Vec<[[f64; 3]; 3]>,
+) -> Result<(), FeError> {
+    dd.clear();
+    dd.resize(def.n_nodes, [[0.0; 3]; 3]);
+    if let Some((dl, m)) = info_impl(def, xyz, uvw, cdim, status, out)? {
+        let ddl = local_second_derivatives(def, uvw);
+        global_second_derivatives(def.dim, cdim, xyz, &dl, &ddl, &m.metric, dd);
+    }
+    Ok(())
+}
+
+/// Local gradients and metric of one `ElementInfo` evaluation.
+type LocalMetric = (Vec<[f64; 3]>, Metric);
+
+/// The body of `ElementInfo`; returns the local gradients and the metric
+/// (`None` for the point element).
+fn info_impl(
+    def: &ElementTypeDef,
+    xyz: &[[f64; 3]],
+    uvw: [f64; 3],
+    cdim: usize,
+    status: &mut MetricStatus,
+    out: &mut BasisEval,
+) -> Result<Option<LocalMetric>, FeError> {
     let n = def.n_nodes;
     if xyz.len() != n {
         return Err(FeError::NodeCount {
@@ -37,7 +76,7 @@ pub fn element_info(
     if def.code == 101 {
         out.det_j = 1.0;
         out.basis[0] = 1.0;
-        return Ok(());
+        return Ok(None);
     }
     if def.code < 200 {
         return Err(FeError::Unsupported(def.code));
@@ -64,7 +103,7 @@ pub fn element_info(
             }
         }
     }
-    Ok(())
+    Ok(Some((dl, m)))
 }
 
 /// [`ElementBasis`] for the Lagrange element types of elements.def.
@@ -82,6 +121,24 @@ pub struct LagrangeBasis {
 impl LagrangeBasis {
     pub fn new(cdim: usize) -> Self {
         LagrangeBasis { cdim }
+    }
+}
+
+impl LagrangeBasis {
+    /// `ddBasisddx` at one point: `out[p][i][j] = d2 N_p / dx_i dx_j` (the
+    /// shape of `elmer-physics-advdiff`'s `BasisHessian::eval_hessian`).
+    pub fn eval_hessian(
+        &self,
+        etype: ElementType,
+        xyz: &[[f64; 3]],
+        uvw: [f64; 3],
+        out: &mut Vec<[[f64; 3]; 3]>,
+    ) -> Result<(), String> {
+        let def = element_type(etype.0).map_err(|e| e.to_string())?;
+        let mut status = MetricStatus::Unchecked;
+        let mut ev = BasisEval::default();
+        element_info_second(def, xyz, uvw, self.cdim, &mut status, &mut ev, out)
+            .map_err(|e| e.to_string())
     }
 }
 

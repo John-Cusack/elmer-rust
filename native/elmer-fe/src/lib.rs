@@ -21,13 +21,14 @@ mod lapack;
 mod lu;
 pub mod metric;
 pub mod quadrature;
+pub mod second;
 pub mod stab;
 mod tables;
 
 pub use coords::{CoordinateInfo, CoordinateKind, CoordinateSystem};
 pub use element_type::{element_type, element_types, BasisTerm, ElementTypeDef};
 pub use error::FeError;
-pub use info::{element_info, LagrangeBasis};
+pub use info::{element_info, element_info_second, LagrangeBasis};
 pub use metric::MetricStatus;
 pub use quadrature::{gauss_points, gauss_points_rel, ElmerQuadrature, GaussRule};
 pub use stab::{element_diameter, stab_param, stab_param_mk_only, type_stabilization_mk};
