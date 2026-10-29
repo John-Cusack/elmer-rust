@@ -66,6 +66,28 @@ fn c_stderr() -> *mut c_char {
 /// or an error when MATC reports one.
 pub fn matc_eval(cmd: &str) -> Result<String, String> {
     let _guard = LOCK.lock().unwrap();
+    eval_locked(cmd)
+}
+
+/// `SetGetMatcParams` then evaluation of `expr` (Lists.F90:128-190), under
+/// one hold of the lock: `var` is bound to `args` (or 0 when empty) and
+/// `expr` evaluated before any other caller can rebind it. Two separate
+/// [`matc_eval`] calls would let a concurrent evaluation interleave.
+/// `{:e}` is the shortest exact literal, so MATC reads back the same doubles.
+pub fn matc_eval_args(var: &str, args: &[f64], expr: &str) -> Result<String, String> {
+    let _guard = LOCK.lock().unwrap();
+    let set = if args.is_empty() {
+        format!("{var} = 0")
+    } else {
+        let row: Vec<String> = args.iter().map(|a| format!("{a:e}")).collect();
+        format!("{var} = {}", row.join(" "))
+    };
+    eval_locked(&set)?;
+    eval_locked(expr)
+}
+
+/// [`matc_eval`] with the lock already held.
+fn eval_locked(cmd: &str) -> Result<String, String> {
     init_once();
     // Mirror matc_c: a leading "nc:" selects the result without computing.
     let body = cmd.strip_prefix("nc:").unwrap_or(cmd);
@@ -97,6 +119,26 @@ mod tests {
     #[test]
     fn arithmetic() {
         assert_eq!(matc_eval("1+2*3").unwrap(), "7");
+    }
+
+    #[test]
+    fn args_are_bound_for_their_own_evaluation() {
+        // Threads that each bind `tx` and read it back must see their own
+        // value, which two separate matc_eval calls do not guarantee.
+        let handles: Vec<_> = (0..8)
+            .map(|k| {
+                std::thread::spawn(move || {
+                    for i in 0..200 {
+                        let x = (k * 1000 + i) as f64;
+                        let out = matc_eval_args("tx", &[x, 0.5], "tx(0)+tx(1)").unwrap();
+                        assert_eq!(out.trim().parse::<f64>().unwrap(), x + 0.5);
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
     }
 
     #[test]
