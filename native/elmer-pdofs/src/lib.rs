@@ -31,9 +31,10 @@
 //! triangles, quadrilaterals (also serendipity), tetrahedra
 //! (`ConvertToACTetra`), pyramids (full elements only, as in Elmer), wedges
 //! and bricks; global bubbles or none; scalar or multi-component fields.
-//! Refused or not covered: DG,
-//! radiation, periodic and mortar couplings, and element definitions in
-//! equation sections.
+//! Element definitions are read from the solver section, the equations
+//! (`Element`, `Element{id}`) and the bodies (`Solver id: Element`) with
+//! Elmer's precedence. Refused or not covered: DG, radiation, periodic and
+//! mortar couplings, and boundary elements a BC `Body Id` makes active.
 #![forbid(unsafe_code)]
 
 pub mod basis;

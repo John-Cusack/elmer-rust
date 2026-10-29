@@ -42,6 +42,7 @@ fn setup() -> Case {
             element: Some(DEF),
             dg: false,
             body_element: &none,
+            equation_element: &none,
         }];
         PMesh::new(
             &mesh,
@@ -52,7 +53,9 @@ fn setup() -> Case {
                 serendipity: false,
                 need_edges: None,
                 n_bodies: 2,
-                body_has_equation: &|_| true,
+                n_equations: 1,
+                body_equation: &|_| Some(1),
+                equation_element: &|_| None,
                 matc_degree: &mut |_, _| unreachable!("no MATC degree"),
                 boundary_body: &|_| 0,
             },
@@ -258,7 +261,12 @@ fn psetup_from_keywords_runs_end_to_end() {
         &simulation,
         ModelFacts {
             n_bodies: 2,
-            body_has_equation: &|_| true,
+            n_equations: 1,
+            body_equation: &|_| Some(1),
+            equation_element: &|_| None,
+            equation_solver_element: &|_| None,
+            body_solver_element: &|_| None,
+            equation_activates: &|_| Some(true),
             active: &active,
             boundary_body: &|_| 0,
             matc_degree: &mut matc,

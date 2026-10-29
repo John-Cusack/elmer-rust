@@ -21,9 +21,10 @@
 //! the p basis (see [`crate::basis`]) for `202`, `303`, `404`, `504`, `605`,
 //! `706` and `808`.
 //! p tetrahedra are reordered by `ConvertToACTetra` (MeshBasics.F90:5747),
-//! which sets their `TetraType`. Element definitions given in
-//! equation sections are not handled (the caller must refuse them); solver
-//! sections and body-wise `Solver i: Element` keywords are.
+//! which sets their `TetraType`. Element definitions come from the solver
+//! sections, the equations (`Element`, `Element{id}`) and the bodies
+//! (`Solver id: Element`), with `NonNodalElements`' precedence and its
+//! per-element re-reading for MATC degrees.
 
 use elmer_core::{ElemId, MeshView};
 use elmer_fe_hp::maps::{
@@ -294,6 +295,8 @@ pub struct SolverElements<'a> {
     pub dg: bool,
     /// `Solver i: Element` in a body section (1-based body), when present.
     pub body_element: &'a dyn Fn(usize) -> Option<String>,
+    /// `Element{i}` in an equation section (1-based equation), when present.
+    pub equation_element: &'a dyn Fn(usize) -> Option<String>,
 }
 
 /// MATC for `p:%function` degrees: `p_of(command, [body, x, y, z])`
@@ -310,8 +313,12 @@ pub struct PMeshOptions<'a> {
     pub need_edges: Option<bool>,
     /// Number of bodies in the model.
     pub n_bodies: usize,
-    /// Whether body `b` (1-based) has an `Equation` keyword.
-    pub body_has_equation: &'a dyn Fn(usize) -> bool,
+    /// Number of equation sections.
+    pub n_equations: usize,
+    /// The `Equation` of body `b` (1-based), when it has one.
+    pub body_equation: &'a dyn Fn(usize) -> Option<usize>,
+    /// `Element` of equation `q` (1-based), when present.
+    pub equation_element: &'a dyn Fn(usize) -> Option<String>,
     /// MATC degree evaluation (see [`MatcDegree`]); called with the
     /// command `function(cx)`.
     pub matc_degree: &'a mut MatcDegree<'a>,
@@ -454,15 +461,47 @@ impl PMesh {
         let mut face_dofs = vec![0usize; n_bulk];
 
         let first_order_elements = self.elements[..n_bulk].iter().all(|e| first_order(e.code));
-        let mesh_deps = solvers
-            .iter()
-            .any(|s| s.element.is_some_and(is_mesh_dependent));
-        // UpdateDefDofs: only MATC-dependent solver definitions are re-read
-        // (no equation-section definitions are supported).
-        let update: Vec<bool> = solvers
-            .iter()
-            .map(|s| s.element.is_some_and(is_mesh_dependent))
-            .collect();
+        // NonNodalElements (MeshLoad.F90:787): which definitions exist and
+        // whether any degree comes from MATC.
+        let ns = solvers.len();
+        let mut mesh_deps = false;
+        let mut found_eq_defs = false;
+        let mut found_solver_defs = vec![false; ns];
+        for q in 1..=opts.n_equations {
+            match (opts.equation_element)(q) {
+                Some(def) => {
+                    found_eq_defs = true;
+                    mesh_deps |= is_mesh_dependent(&def);
+                }
+                None => {
+                    for (si, s) in solvers.iter().enumerate() {
+                        if let Some(def) = (s.equation_element)(q) {
+                            found_solver_defs[si] = true;
+                            mesh_deps |= is_mesh_dependent(&def);
+                        }
+                    }
+                }
+            }
+        }
+        // UpdateDefDofs: solvers re-read per body (or per element).
+        let mut update = vec![true; ns];
+        for (si, s) in solvers.iter().enumerate() {
+            match s.element {
+                Some(def) => {
+                    found_solver_defs[si] = true;
+                    if is_mesh_dependent(def) {
+                        mesh_deps = true;
+                    } else {
+                        update[si] = false;
+                    }
+                }
+                None => {
+                    if !found_eq_defs {
+                        update[si] = false;
+                    }
+                }
+            }
+        }
 
         // str = TRIM(ElementDef(j+3:))//'(cx)'; x = GetMatcReal(str, 4,
         // [BodyId, x, y, z], 'cx'); NINT(x).
@@ -471,18 +510,45 @@ impl PMesh {
         };
 
         if !mesh_deps {
+            let no_matc = |_: &str| -> Result<i32, Error> {
+                Err(Error::Unsupported(
+                    "MATC degree outside the per-element loop".into(),
+                ))
+            };
             for body in 1..=opts.n_bodies {
-                if !(opts.body_has_equation)(body) {
+                let Some(eq) = (opts.body_equation)(body) else {
                     continue;
-                }
-                for s in solvers.iter_mut() {
+                };
+                let (mut def0, found_def0) =
+                    match found_eq_defs.then(|| (opts.equation_element)(eq)).flatten() {
+                        Some(d) => (d, true),
+                        None => (String::new(), false),
+                    };
+                for (si, s) in solvers.iter_mut().enumerate() {
+                    let dg = s.dg;
                     if let Some(def) = (s.body_element)(body) {
-                        let dg = s.dg;
-                        s.defs.get_max_defs(&def, body, dg, in_dofs, &mut |_| {
-                            Err(Error::Unsupported(
-                                "MATC degree in a body-wise element definition".into(),
-                            ))
-                        })?;
+                        s.defs
+                            .get_max_defs(&def, body, dg, in_dofs, &mut |f| no_matc(f))?;
+                        continue;
+                    }
+                    let def = if found_solver_defs[si] {
+                        (s.equation_element)(eq)
+                    } else {
+                        None
+                    };
+                    if let Some(def) = def {
+                        s.defs
+                            .get_max_defs(&def, body, dg, in_dofs, &mut |f| no_matc(f))?;
+                    } else if update[si] {
+                        let own = !found_def0 && found_solver_defs[si];
+                        if own {
+                            def0 = s.element.unwrap_or("").to_string();
+                        }
+                        s.defs
+                            .get_max_defs(&def0, body, dg, in_dofs, &mut |f| no_matc(f))?;
+                        if own {
+                            def0.clear();
+                        }
                     }
                 }
             }
@@ -490,24 +556,56 @@ impl PMesh {
 
         let mut need_edges = in_dofs[8][4] > 0 || in_dofs[9][4] > 0;
         let mut body0 = i32::MIN;
-        let mut found_eq = false;
+        let mut found_eq: Option<usize> = None;
+        let mut def0 = String::new();
         for i in 0..n_bulk {
             let body = self.elements[i].body;
             if mesh_deps {
                 if body != body0 {
-                    found_eq = body >= 1 && (opts.body_has_equation)(body as usize);
+                    found_eq = if body >= 1 {
+                        (opts.body_equation)(body as usize)
+                    } else {
+                        None
+                    };
+                    def0.clear();
                 }
-                if found_eq {
-                    let mid = self.midpoint(i);
-                    for (s, &upd) in solvers.iter_mut().zip(&update) {
-                        if !upd {
-                            continue;
+                if let Some(eq) = found_eq {
+                    // FoundDef0 is reset for every element; the equation's
+                    // Element is read only on the first element of a body.
+                    let mut found_def0 = false;
+                    if found_eq_defs && body != body0 {
+                        if let Some(d) = (opts.equation_element)(eq) {
+                            def0 = d;
+                            found_def0 = true;
                         }
-                        let def = s.element.unwrap_or("");
+                    }
+                    let mid = self.midpoint(i);
+                    let cx = [f64::from(body), mid[0], mid[1], mid[2]];
+                    for (si, s) in solvers.iter_mut().enumerate() {
                         let dg = s.dg;
-                        let cx = [f64::from(body), mid[0], mid[1], mid[2]];
-                        s.defs
-                            .get_max_defs(def, body as usize, dg, in_dofs, &mut |f| matc(f, cx))?;
+                        let def = if found_solver_defs[si] {
+                            (s.equation_element)(eq)
+                        } else {
+                            None
+                        };
+                        if let Some(def) = def {
+                            s.defs
+                                .get_max_defs(&def, body as usize, dg, in_dofs, &mut |f| {
+                                    matc(f, cx)
+                                })?;
+                        } else if update[si] {
+                            let own = !found_def0 && found_solver_defs[si];
+                            if own {
+                                def0 = s.element.unwrap_or("").to_string();
+                            }
+                            s.defs
+                                .get_max_defs(&def0, body as usize, dg, in_dofs, &mut |f| {
+                                    matc(f, cx)
+                                })?;
+                            if own {
+                                def0.clear();
+                            }
+                        }
                     }
                 }
                 body0 = body;
@@ -1403,6 +1501,7 @@ mod tests {
                 element: Some(def),
                 dg: false,
                 body_element: &none,
+                equation_element: &none,
             }];
             PMesh::new(
                 &mesh,
@@ -1412,7 +1511,9 @@ mod tests {
                     serendipity: false,
                     need_edges: None,
                     n_bodies: 2,
-                    body_has_equation: &|_| true,
+                    n_equations: 1,
+                    body_equation: &|_| Some(1),
+                    equation_element: &|_| None,
                     matc_degree: f,
                     boundary_body: &|_| 0,
                 },

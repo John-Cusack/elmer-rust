@@ -25,6 +25,7 @@ fn setup() -> (PMesh, ElementDefs, PSystem) {
             element: Some(DEF),
             dg: false,
             body_element: &none,
+            equation_element: &none,
         }];
         PMesh::new(
             &mesh,
@@ -34,7 +35,9 @@ fn setup() -> (PMesh, ElementDefs, PSystem) {
                 serendipity: false,
                 need_edges: None,
                 n_bodies: 2,
-                body_has_equation: &|_| true,
+                n_equations: 1,
+                body_equation: &|_| Some(1),
+                equation_element: &|_| None,
                 // $ function bodywisep(cx) { if (cx(0)>1) {_bodywisep=8;} else {_bodywisep=4;} }
                 matc_degree: &mut |f, cx| {
                     assert_eq!(f, "bodywisep(cx)");
