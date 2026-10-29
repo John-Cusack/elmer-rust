@@ -306,7 +306,9 @@ fn stdout_free() -> PrintSink {
 }
 
 #[test]
-fn alternating_source_is_not_registered_until_its_control_value_exists() {
+fn alternating_source_is_registered_for_heat_control_explicit() {
     let m = Arc::new(TestModel::line(&XS));
-    assert_eq!(registry::install("HeatControlExplicit", m, &UdfRegistry::new()), 0);
+    let reg = UdfRegistry::new();
+    assert_eq!(registry::install("HeatControlExplicit", m, &reg), 1);
+    assert!(reg.lookup("AlternatingSource", "AlternatingSource").is_some());
 }

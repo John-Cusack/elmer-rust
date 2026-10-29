@@ -30,7 +30,8 @@ References below are paths under `/home/john/runs/elmer-fork/orig_src/fem/tests/
 | `PoissonSolver` | `PoissonML/PoissonML.f90` | matrix-free solver procedure on p elements: element matrices, Dirichlet rows inside them, its own Jacobi-preconditioned CG | `poisson_ml` |
 | `ShellSolver` | `p-FEM_two_solvers/BenchmarkShell.F90` (the same file in `SD_p-FEM_two_solvers`, `p-FEM_with_varying_p`, `SD_p-FEM_with_varying_p`, `SD_Classical2DShell`) | solver procedure: Reissner-Mindlin cylindrical shell on p elements, local bubbles condensed as `DefaultUpdateEquations` does, energy-error record | `benchmark_shell` |
 | `TestSolver` | `L2ndDerivatives/L2ndDerivativesTest.f90` | solver procedure checking basis, gradients and second derivatives (L2 projections, `STOP` on a failed check) | `l2nd_derivatives` |
-| `AlternatingSource` | `HeatControlExplicit/AlternatingSource.F90` | scalar function, `Variable "cpar, time"`, `SAVE sgn`, prints each flip | `udf::AlternatingSource` (not registered, see below) |
+| `StokesSolver` | `StokesPFEM/Stokes.f90` | solver procedure: Stokes on p elements, pressure on the nodes only, Picard/Newton (`SAVE Newton, Norm`) | `stokes_pfem` |
+| `AlternatingSource` | `HeatControlExplicit/AlternatingSource.F90` | scalar function, `Variable "cpar, time"`, `SAVE sgn`, prints each flip | `udf::AlternatingSource` |
 
 ### Cases that match the pristine reference end to end
 
@@ -96,14 +97,17 @@ Refused with a named reason:
   active elements are bulk elements only, so the solver refuses
   (`Boundary Condition 5 Body ID`) instead of solving an empty system.
   Solver 1 (HeatSolve, StructuredMeshMapper) matches the pristine norm.
-- `HeatControlExplicit`: `AlternatingSource` is ported and tested against
-  the pristine run's `PRINT *` lines, but it is **not registered**. Its
-  argument `cpar` exists only through `Apply Explicit Control`, which
-  `elmer-solver` does not implement, and `elmer-expr` evaluates a missing
-  variable as zero where Elmer stops with `Can't find independent
-  variable`. Registered, the case runs to norm 0 (a mismatch) instead of
-  erroring. Register it once explicit control exists or `elmer-run`
-  refuses `Apply Explicit Control`.
+- `HeatControlExplicit`: `AlternatingSource` is registered and checked
+  against the pristine run's `PRINT *` lines; the case is refused by name
+  (`Apply Explicit Control`, which creates its argument `cpar`, is not
+  implemented). Until it is, a missing `cpar` would reach `elmer-expr`,
+  which evaluates a missing variable as zero where Elmer stops (`Can't find
+  independent variable`).
+- `StokesPFEM`: registered; the case is refused by name (`Set Dirichlet BCs
+  By BC Numbering`). Without that keyword the pristine run prints the same
+  norm (5.41277436E+00); with a direct solver in place of its BiCGStabL the
+  pristine norm is 5.41277409E+00 and the port prints it
+  (`tests/data/StokesPFEM/ptest_direct.sif`).
 - `ElementUnitTest_p1`, `SD_ElementUnitTest_p1`: registered and passing
   (12 and 10 reference norms). The solver's variable is a global, so
   `elmer-solver` builds no dof layout for it, and `SingleElements` builds
@@ -218,8 +222,8 @@ several cases).
    preflight the end-to-end tests use.
 5. `StressSolver_Init0`'s default `Variable = -dofs <dim> Displacement`
    (for `tresca`; in `elmer-physics-elastic` or `elmer-run`).
-4. `Apply Explicit Control` belongs in `unported.rs` (see `HeatControlExplicit`
-   above). `elmer-expr`'s zero for a missing independent variable, where
+4. `Apply Explicit Control` is refused in `unported.rs` (see
+   `HeatControlExplicit` above). `elmer-expr`'s zero for a missing independent variable, where
    Elmer's `ListParseStrToValues` is `Fatal`, is the underlying gap.
 
 ## Findings about the quick list
@@ -310,7 +314,6 @@ largest group and the best next target after the scalar batch; `CountSolver` and
 | `SecondOrderEdgeElement3D/EdgeElementTest.F90` | EdgeElementSolver:solver | SAVE STIFF, LOAD, FORCE, Acoef, AllocationsDone, Nodes, Indices, PrismBasis, PrismCurlBasis, Br; init BricksVisited=.FALSE., PyramidsVisited=.FALSE.; work arrays | default_* solve path; elmer-fe; edge/face basis (L15); p/edge/face Element in .sif; writes Solver%Variable |
 | `SlaveSolverSlots/CountSolver.F90` | CountSolver:solver | init VisitedTimes=0 | writes Solver%Variable |
 | `SlaveSolverSlotsScan/CountSolver2.F90` | CountSolver:solver | init VisitedTimes=0 | writes Solver%Variable |
-| `StokesPFEM/Stokes.f90` | StokesSolver:solver | SAVE STIFF, MASS, LOAD, FORCE, rho, mu, Velocity, AllocationsDone, Nodes; init Norm=0, mu=1.0d0; work arrays | default_* solve path; elmer-fe; p/edge/face Element in .sif |
 
 ### UMAT
 

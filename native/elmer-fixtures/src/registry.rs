@@ -33,9 +33,10 @@ use crate::poisson_ml;
 use crate::poisson_solver;
 use crate::single_edge_elements;
 use crate::single_elements;
+use crate::stokes_pfem;
 use crate::stokes_proj;
 use crate::tresca;
-use crate::udf::{init_dist_fn, my_source_fn, OneDSource, OneDTolerances};
+use crate::udf::{init_dist_fn, my_source_fn, stdout_sink, AlternatingSource, OneDSource, OneDTolerances};
 use crate::ModelView;
 
 type Build = fn(Arc<dyn ModelView>) -> Udf;
@@ -51,12 +52,13 @@ const FIXTURES: &[(&str, &str, &str, Build)] = &[
     ("1dtests_MeshLevels", "Source", "Source", |m| {
         Udf::Node(OneDSource::new(m, OneDTolerances::MESH_LEVELS).into_fn())
     }),
-    // `HeatControlExplicit`'s `AlternatingSource` (`udf::AlternatingSource`)
-    // is ported but not listed: its argument `cpar` exists only through
-    // `Apply Explicit Control`, which `elmer-solver` does not implement, and
-    // `elmer-expr` evaluates a missing variable as zero where Elmer stops
-    // (`Can't find independent variable`). Listing it would turn the case's
-    // refusal into a wrong answer.
+    // Its argument `cpar` exists only through `Apply Explicit Control`,
+    // which `elmer-run` refuses by name until it is implemented; with it
+    // missing, `elmer-expr` would evaluate the argument as zero.
+    // Serial: rank 0 prints.
+    ("HeatControlExplicit", "AlternatingSource", "AlternatingSource", |_| {
+        Udf::Node(AlternatingSource::new(true, stdout_sink()).into_fn())
+    }),
 ];
 
 /// The `(library, entry)` pairs ported for `case`, empty when none are.
@@ -134,6 +136,7 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("ModelPDEsplitted", "ModelPDEsplitted", "AdvDiffSolver", Hook::Solver(model_pde_splitted::factory)),
     ("SD_ModelPDEsplitted", "ModelPDEsplitted", "AdvDiffSolver", Hook::Solver(model_pde_splitted::factory)),
     ("PoissonML", "PoissonML", "PoissonSolver", Hook::Solver(poisson_ml::factory)),
+    ("StokesPFEM", "Stokes1", "StokesSolver", Hook::Solver(stokes_pfem::factory)),
     // One `BenchmarkShell.F90` in all five shell cases.
     ("p-FEM_two_solvers", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
     ("SD_p-FEM_two_solvers", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
