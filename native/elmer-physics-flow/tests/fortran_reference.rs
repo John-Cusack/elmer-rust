@@ -93,7 +93,7 @@ fn ns_channel_tri_matches_elmer() {
         bc(&[4], &[("Velocity 1", real(1.0)), ("Velocity 2", real(0.0))]),
     ];
     let sim = run(model(steady(), solver, material(1.0, 0.02), None, bcs), &mesh).unwrap();
-    compare("ns_channel_tri", &sim, &mesh, 0.70537713319747808, 1e-9);
+    compare("ns_channel_tri", &sim, &mesh, 0.705_377_133_197_478_1, 1e-9);
 }
 
 /// Q1/Q1 Navier-Stokes with Newton from the first iteration (no `Newton
@@ -119,7 +119,7 @@ fn ns_quad_newton_matches_elmer() {
         bc(&[4], &[("Velocity 1", real(1.0)), ("Velocity 2", real(0.0))]),
     ];
     let sim = run(model(steady(), solver, material(2.0, 0.05), Some(bf), bcs), &mesh).unwrap();
-    compare("ns_quad_newton", &sim, &mesh, 0.79555741593078655, 1e-9);
+    compare("ns_quad_newton", &sim, &mesh, 0.795_557_415_930_786_5, 1e-9);
 }
 
 /// `Flow Model = No Convection`, `Stabilization Method = Stabilized` (the
@@ -177,7 +177,7 @@ fn transient_tri_matches_elmer() {
         bc(&[4], &[("Velocity 1", real(1.0)), ("Velocity 2", real(0.0))]),
     ];
     let sim = run(model(simulation, solver, material(1.0, 0.05), None, bcs), &mesh).unwrap();
-    compare("transient_tri", &sim, &mesh, 0.69467426131107601, 1e-9);
+    compare("transient_tri", &sim, &mesh, 0.694_674_261_311_076, 1e-9);
 }
 
 /// Q1/Q1 Navier-Stokes in 3D on 4 x 2 x 2 bricks: plug inflow, slip walls,
@@ -209,5 +209,5 @@ fn ns_hex3d_matches_elmer() {
         bc(&[2], &[("External Pressure", real(0.2))]),
     ];
     let sim = run(model(steady(), solver, material(1.0, 0.1), None, bcs), &mesh).unwrap();
-    compare("ns_hex3d", &sim, &mesh, 0.52188988563136629, 1e-9);
+    compare("ns_hex3d", &sim, &mesh, 0.521_889_885_631_366_3, 1e-9);
 }
