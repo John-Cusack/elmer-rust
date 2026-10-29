@@ -530,7 +530,8 @@ impl<'a> SolverCtx<'a> {
 
     /// The Dirichlet values this solver's variable gets from boundary
     /// conditions: for each boundary element whose BC sets the variable (or
-    /// one of its `"<name> k"` components), the value at each node,
+    /// one of its components, by its declared name or `"<name> k"`), the
+    /// value at each node,
     /// evaluated with `elmer-expr` (`ListGetReal(BC, name, n, Indexes)`),
     /// in boundary-element order (a later element overwrites an earlier
     /// one). `<name> Condition` masks are refused.
@@ -546,10 +547,15 @@ impl<'a> SolverCtx<'a> {
     /// UOffset=offset)`).
     pub fn dirichlet_values_of(&self, id: crate::VarId, offset: usize) -> Result<Vec<(u32, f64)>, SolverError> {
         let v = self.sim.vars.by_id(id);
+        // DefaultDirichletBCs: `ComponentName(name, DOF)`, the declared
+        // component names or `"<name> k"`.
+        let names = self.sim.vars.component_names(id);
         let keys: Vec<(usize, String)> = if v.dofs == 1 {
             vec![(0, v.name.clone())]
         } else {
-            (0..v.dofs).map(|k| (k, format!("{} {}", v.name, k + 1))).collect()
+            (0..v.dofs)
+                .map(|k| (k, names.get(k).cloned().unwrap_or_else(|| format!("{} {}", v.name, k + 1))))
+                .collect()
         };
         let mut fixed: BTreeMap<u32, f64> = BTreeMap::new();
         // Non-nodal dofs of this solver's own variable (DefUtils.F90:6355).

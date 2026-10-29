@@ -239,6 +239,21 @@ impl VariableStore {
         Ok(id)
     }
 
+    /// The component names of `id`, in dof order (`ComponentName(Var % Name,
+    /// k)`): the declared ones, or `"<name> k"`; empty for a scalar.
+    pub fn component_names(&self, id: VarId) -> Vec<String> {
+        let mut v: Vec<(usize, &String)> = self
+            .names
+            .iter()
+            .filter_map(|(k, h)| match *h {
+                VarHandle::Component { parent, component } if parent == id => Some((component, k)),
+                _ => None,
+            })
+            .collect();
+        v.sort_unstable();
+        v.into_iter().map(|(_, k)| k.clone()).collect()
+    }
+
     pub fn resolve(&self, name: &str) -> Option<VarHandle> {
         self.names.get(&normalize_key(name)).copied()
     }
