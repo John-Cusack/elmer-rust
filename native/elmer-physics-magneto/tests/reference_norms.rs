@@ -54,3 +54,53 @@ fn unported_options_are_refused() {
         }
     }
 }
+
+#[test]
+fn mgdyn_airgap_harmonic_solver1_converged_norm() {
+    // The case's 1e-6 linear tolerance stops BiCGStab(l) inside a stretch
+    // where the residual history reacts to rounding: a 1e-15 relative
+    // perturbation of the matrix changes it from iteration 15 on. The norm
+    // at that tolerance (pristine 2.42423001E-03, here 2.4242639e-3) then
+    // depends on the last bits of the assembly. Converged to 1e-10 both
+    // runs take 45 iterations with the same history up to iteration 14,
+    // and the pristine run prints Norm = 2.42424125E-03.
+    let mut case = load("mgdyn_airgap_harmonic", "airgap.sif");
+    case.solvers[0]
+        .as_mut()
+        .unwrap()
+        .insert("Linear System Convergence Tolerance", elmer_core::Value::real(1e-10));
+    let sol = elmer_physics_magneto::solve_harmonic(&case, 1).unwrap();
+    let reference = 2.42424125e-03;
+    let rel = (sol.norm - reference).abs() / reference;
+    eprintln!(
+        "mgdyn_airgap_harmonic: {} nodal + {} edge complex DOFs, omega {}, {} iterations to {:.3e}, norm {:.9e}, rel err {rel:.3e}",
+        sol.n_nodal, sol.n_edges, sol.omega, sol.stats.iterations, sol.stats.residual, sol.norm
+    );
+    assert_eq!(sol.stats.iterations, 45);
+    assert!(rel < REL_TOL, "norm {} vs {reference}", sol.norm);
+}
+
+#[test]
+fn unported_harmonic_options_are_refused() {
+    use elmer_core::Value;
+    use elmer_physics_magneto::MagnetoError;
+    for (key, value) in [
+        ("Linear System Solver", Value::Str("Direct".into())),
+        ("Use Piola Transform", Value::Logical(true)),
+        ("Variable", Value::Str("P".into())),
+    ] {
+        let mut case = load("mgdyn_airgap_harmonic", "airgap.sif");
+        case.solvers[0].as_mut().unwrap().insert(key, value);
+        match elmer_physics_magneto::solve_harmonic(&case, 1) {
+            Err(MagnetoError::Unsupported(_) | MagnetoError::Input(_)) => {}
+            Err(e) => panic!("{key}: unexpected error {e}"),
+            Ok(_) => panic!("{key}: accepted"),
+        }
+    }
+    let mut case = load("mgdyn_airgap_harmonic", "airgap.sif");
+    case.materials[2].as_mut().unwrap().insert("Electric Conductivity im", Value::real(1.0));
+    assert!(matches!(
+        elmer_physics_magneto::solve_harmonic(&case, 1),
+        Err(MagnetoError::Unsupported(_))
+    ));
+}

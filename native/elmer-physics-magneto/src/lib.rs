@@ -1,6 +1,7 @@
 //! Magnetodynamics on Whitney edge elements: the steady-state branch of
-//! `WhitneyAVSolver` (`fem/src/modules/MagnetoDynamics/WhitneyAVSolver.F90`)
-//! for the lowest-order (non-Piola) Whitney basis.
+//! `WhitneyAVSolver` (`fem/src/modules/MagnetoDynamics/WhitneyAVSolver.F90`,
+//! [`steady`]) and `WhitneyAVHarmonicSolver` (`WhitneyAVHarmonicSolver.F90`,
+//! [`harmonic`]) for the lowest-order (non-Piola) Whitney basis.
 //!
 //! The solver couples the vector potential `A` (one DOF per mesh edge) with
 //! the electric scalar potential `V` (one DOF per node, only with `Static
@@ -19,13 +20,16 @@
 //! DOF permutation, an ILU preconditioner does not (see [`steady`]).
 //!
 //! Everything this port does not cover (Piola and second-order bases,
-//! transient and harmonic runs, gauges, coils, H-B curves, the `JFix`
+//! transient runs, imaginary material and source values, gauges, coils,
+//! H-B curves, the `JFix`
 //! source fixing, ...) is refused with [`MagnetoError::Unsupported`], never
 //! approximated.
 #![forbid(unsafe_code)]
 
 pub mod case;
 pub mod error;
+pub mod harmonic;
+pub mod layout;
 pub mod local;
 pub mod material;
 pub mod steady;
@@ -33,4 +37,5 @@ pub mod topology;
 
 pub use case::Case;
 pub use error::MagnetoError;
+pub use harmonic::{solve_harmonic, HarmonicSolution};
 pub use steady::{solve_steady, AvSolution};

@@ -9,9 +9,12 @@ description = "WhitneyAVSolver (MagnetoDynamics) on Whitney edge elements for th
 [dependencies]
 elmer-core.workspace = true
 thiserror.workspace = true
+num-complex.workspace = true
 elmer-assembly = { path = "../elmer-assembly" }
 elmer-fe = { path = "../elmer-fe" }
 elmer-fe-hp = { path = "../elmer-fe-hp" }
+elmer-itermethods = { path = "../elmer-itermethods" }
+elmer-krylov = { path = "../elmer-krylov" }
 elmer-mesh = { path = "../elmer-mesh" }
 elmer-sif = { path = "../elmer-sif" }
 elmer-solver = { path = "../elmer-solver" }
