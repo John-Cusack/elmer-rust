@@ -68,3 +68,22 @@ fn poisson_solver_refuses_non_nodal_elements() {
     let err = f(&p).err().expect("p:2 is refused").to_string();
     assert!(err.contains("Element = p:2"), "{err}");
 }
+
+#[test]
+fn tresca_is_the_spread_of_the_principal_stresses() {
+    use elmer_fixtures::tresca::{symmetric_eigenvalues, tresca};
+    // 2D: xx yy zz xy; principal values of [[3,1],[1,3]] are 2 and 4, zz = 0.
+    assert_abs_diff_eq!(tresca(&[3.0, 3.0, 0.0, 1.0]), 4.0, epsilon = 1e-14);
+    // 3D, a full tensor against its characteristic polynomial.
+    let a = [[4.0, 1.0, -2.0], [1.0, 2.0, 0.5], [-2.0, 0.5, 3.0]];
+    let e = symmetric_eigenvalues(a);
+    let tr: f64 = e.iter().sum();
+    assert_abs_diff_eq!(tr, 9.0, epsilon = 1e-13);
+    for l in e {
+        let m = |i: usize, j: usize| a[i][j] - if i == j { l } else { 0.0 };
+        let det = m(0, 0) * (m(1, 1) * m(2, 2) - m(1, 2) * m(2, 1)) - m(0, 1) * (m(1, 0) * m(2, 2) - m(1, 2) * m(2, 0))
+            + m(0, 2) * (m(1, 0) * m(2, 1) - m(1, 1) * m(2, 0));
+        assert_abs_diff_eq!(det, 0.0, epsilon = 1e-12);
+    }
+    assert_abs_diff_eq!(tresca(&[4.0, 2.0, 3.0, 1.0, 0.5, -2.0]), e.iter().fold(f64::MIN, |a, &b| a.max(b)) - e.iter().fold(f64::MAX, |a, &b| a.min(b)), epsilon = 1e-14);
+}

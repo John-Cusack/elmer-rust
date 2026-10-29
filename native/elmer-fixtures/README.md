@@ -20,6 +20,11 @@ References below are paths under `/home/john/runs/elmer-fork/orig_src/fem/tests/
 | `Source` | `1dtests/Source.f90`, `1dtests_MeshLevels/Source.f90` | scalar function with per-instance `OldStep` and previous-solution assertions | `udf::OneDSource` |
 | `BulkAssembly`, `BoundaryAssembly` | `PoissonAssembly.f90` of `CoupledPoisson1`..`9`, `BlockPoisson1`, `BlockPoisson2` | element assembly kernels (`Bulk Assembly Procedure`) | `poisson_assembly::PoissonAssembly`; as `elmer-solver` `ElementAssembly` on `elmer-fe`: `hooks::{PoissonBulk, PoissonBoundary}` |
 | `PoissonSolver` | `1dtests/Poisson.f90` (+ `1dtests_MeshLevels`), `ExtrudedMesh/Poisson.f90` (+ `ExtrudedMeshBaseline1`) | solver procedure (`Procedure "Poisson" "PoissonSolver"`) | `poisson_solver` |
+| `TrescaSolver` | `tresca/Tresca.f90` | solver procedure; creates `Tresca` on `Stress`'s permutation (`SAVE TrescaValues`) | `tresca` |
+| `SingleElements`, `SingleElements_init` | `ElementUnitTest_h1/SingleElements.F90` | solver procedure plus a `_init` section edit (`registry::init_sections`); `SAVE NoTest, NoMode` | `single_elements` |
+| `AdvDiffSolver` | `ModelPDEhandle/ModelPDEhandle.F90` | solver procedure, keyword handles at integration points | `model_pde_handle` |
+| `PressureSolver`, `VelocitySolver` | `StokesProj/Pressure.f90`, `StokesProj/Velocity.f90` | two solver procedures of a projection scheme; `SAVE Newton, Norm` | `stokes_proj` |
+| `BentoniteSolver` | `bentonite/BentoniteSolver.F90` | 3-dof coupled solver with `CompEta` initialisation (`SAVE AllocationsDone`), axisymmetric metric, Robin boundaries | `bentonite` |
 | `AlternatingSource` | `HeatControlExplicit/AlternatingSource.F90` | scalar function, `Variable "cpar, time"`, `SAVE sgn`, prints each flip | `udf::AlternatingSource` (not registered, see below) |
 
 ### Cases that match the pristine reference end to end
@@ -38,6 +43,31 @@ plugins) printed:
 | `CoupledPoisson3`..`9` (`Coupled Solver`, constraints) | `PoissonBulk` | 6.96052509E-02, 5.10670175E+01, 5.85178077E+01, 7.56321899E-01, 7.84091700E-02, 5.25188761E-01, 2.40813064E+00 |
 | `1dtests`, `1dtests_MeshLevels` (5 transient steps, `Mesh Levels = 8`) | `PoissonSolver`, `Source` | 1.40257363E+00, 1.41393619E+00 |
 | `ExtrudedMesh` (`Extruded Mesh Layers = 3`) | `PoissonSolver` | 3.78170795E-02 |
+| `tresca` (StressSolve, then the plugin) | `TrescaSolver` | 2.19639953E+01 |
+| `ModelPDEhandle` | `AdvDiffSolver` | 1.79722562E+00 |
+| `ElementUnitTest_h1` (12 `RUN` blocks) | `SingleElements` | all 12 reference values pass |
+| `StokesProj` (45 coupled iterations, as pristine) | `PressureSolver`, `VelocitySolver` | 3.79706752E-01 |
+| `bentonite` (29 nonlinear iterations, as pristine) | `BentoniteSolver` | 1.95292467E+02 |
+
+`StokesProj` names `Before Linsolve = "EliminateDirichlet"`, which nothing
+implements and `elmer-solver` ignores. Eliminating Dirichlet rows does not
+change the solution of the system, and the run matches the pristine
+iteration count and final norm. The intermediate pressure-correction norms
+differ from about the sixth digit (`0.59287902E-03` against `0.59287805E-03`
+at iteration 45), within the iterative solver's tolerance.
+
+`ElementUnitTest_h1` prints its per-element values. The six `SUM(MASS)`
+values and four of the six `SUM(ABS(STIFF))` values are the pristine run's
+digits exactly. The stiffness sums of 808 and 404 differ in the last place
+(`5.3333333333333321` against `...330`, `...348` against `...339`). The mass
+sums agree, so the difference is in `elmer-fe`'s `dBasisdx` rounding, not in
+the kernel.
+
+The `tresca` test supplies one step the composition lacks: `StressSolver_Init0`
+(StressSolve.F90:292) gives a section without `Variable` the default
+`-dofs <dim> Displacement`. Without it, `elmer-physics-elastic` stops with
+`'Variable DOFs' must equal the coordinate dimension`. Through `elmer-run`
+today the case is therefore an error, not a mismatch.
 
 Refused with a named reason:
 
@@ -135,12 +165,19 @@ several cases).
    stages each test under its test name (`HeatControlExplicit_np3` for the
    `HeatControlExplicit` directory), so it should hand over the source
    directory's name rather than `case_dir.file_name()`.
-2. `preflight` refuses `Solver n: no Procedure` for sections with `Assembly
+2. `elmer_fixtures::registry::init_sections(case, &mut model)` before
+   `Simulation::new`: the `_init` routines that only edit their section
+   (`SingleElements_init` sets `Variable = -nooutput -global dummy_var`).
+   `elmer-solver` has no pre-variable init hook, so the edit is applied to
+   the model.
+3. `preflight` refuses `Solver n: no Procedure` for sections with `Assembly
    Solver = True` or `Coupled Solver = True`, which `elmer-solver` runs itself
    (`coupled::solver_for_mode`). It should let those through (and `Block
    Solver`, which `elmer-solver` refuses by name). `tests/case/mod.rs` has the
    preflight the end-to-end tests use.
-3. `Apply Explicit Control` belongs in `unported.rs` (see `HeatControlExplicit`
+5. `StressSolver_Init0`'s default `Variable = -dofs <dim> Displacement`
+   (for `tresca`; in `elmer-physics-elastic` or `elmer-run`).
+4. `Apply Explicit Control` belongs in `unported.rs` (see `HeatControlExplicit`
    above). `elmer-expr`'s zero for a missing independent variable, where
    Elmer's `ListParseStrToValues` is `Fatal`, is the underlying gap.
 
@@ -218,14 +255,13 @@ largest group and the best next target after the scalar batch; `CountSolver` and
 | `CurvedBndryPFEM/Poisson.f90` (+1: SD_CurvedBndryPFEM) | PoissonSolver:solver | SAVE STIFF, LOAD, FORCE, POT, AllocationsDone, Nodes; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; p/edge/face Element in .sif; writes Solver%Variable |
 | `CurvedBndryPFEM2/Poisson.f90` (+1: SD_CurvedBndryPFEM2) | PoissonSolver:solver | SAVE STIFF, LOAD, FORCE, POT, AllocationsDone, Nodes; init ; work arrays | default_* solve path; elmer-fe; p/edge/face Element in .sif |
 | `ElementUnitTest_edge/SingleEdgeElements.F90` (+2: ElementUnitTest_edge_piola, ElementUnitTest_edge_quadratic) | SingleEdgeElements_init:solver _init; SingleEdgeElements:solver | SAVE :: NoTest, cumrt, cumct, Nodes | elmer-fe; edge/face basis (L15); writes Solver%Variable |
-| `ElementUnitTest_h1/SingleElements.F90` (+2: ElementUnitTest_p1, SD_ElementUnitTest_p1) | SingleElements_init:solver _init; SingleElements:solver | SAVE :: NoTest, cumrt, cumct, Nodes | elmer-fe; p/edge/face Element in .sif; writes Solver%Variable |
+| `ElementUnitTest_p1/SingleElements.F90` (+1: SD_ElementUnitTest_p1; the same source as the ported `_h1`, run on p-elements) | SingleElements_init:solver _init; SingleElements:solver | SAVE :: NoTest, cumrt, cumct, Nodes | elmer-fe; p/edge/face Element in .sif; writes Solver%Variable |
 | `FaceElement2D_BCs/FaceFEInterpolationTest.F90` | BestApproximationSolver:solver | SAVE STIFF, LOAD, FORCE, Acoef, AllocationsDone, Nodes, Indices; init ; work arrays | default_* solve path; elmer-fe; edge/face basis (L15); p/edge/face Element in .sif; writes Solver%Variable |
 | `FaceElement3D_BCs/FaceFEInterpolationTest.F90` | BestApproximationSolver:solver | SAVE STIFF, LOAD, FORCE, Acoef, AllocationsDone, Nodes, Indices; init ; work arrays | default_* solve path; elmer-fe; edge/face basis (L15); p/edge/face Element in .sif; writes Solver%Variable |
 | `HelmholtzEdge/Hrot.f90` | HrotSolver:solver | SAVE STIFF, LOAD, MASS, FORCE, Acoef, Bcoef, &, Nodes; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; edge/face basis (L15); p/edge/face Element in .sif; direct CSR row surgery; current-element context; writes Solver%Variable |
 | `HelmholtzFace/Helmholtz.f90` | HelmholtzHDIVSolver:solver | SAVE STIFF, LOAD, MASS, FORCE, Acoef, Bcoef, &, Nodes; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; edge/face basis (L15); p/edge/face Element in .sif; direct CSR row surgery; current-element context; writes Solver%Variable |
 | `L2ndDerivatives/L2ndDerivativesTest.f90` | TestSolver:solver | SAVE Nodes | elmer-fe; writes Solver%Variable |
 | `MeshColour/MeshColour.F90` | MeshColour_init:solver _init; MeshColour:solver | work arrays | METIS C binding; writes Solver%Variable |
-| `ModelPDEhandle/ModelPDEhandle.F90` | AdvDiffSolver:solver | SAVE Nodes | default_* solve path; elmer-fe; boundary parent lookup; writes Solver%Variable |
 | `ModelPDEsplitted/ModelPDEsplitted.f90` (+1: SD_ModelPDEsplitted) | AdvDiffSolver_bulk:solver; AdvDiffSolver_boundary:solver | SAVE Nodes | default_* solve path; elmer-fe; boundary parent lookup; p/edge/face Element in .sif |
 | `PoissonML/PoissonML.f90` | PoissonSolver:solver | init diag=0._dp, eCount=0; work arrays | elmer-fe; boundary parent lookup; p/edge/face Element in .sif; writes Solver%Variable |
 | `PoissonPFEM/Poisson.f90` | PoissonSolver:solver | SAVE STIFF, LOAD, FORCE, AllocationsDone, Nodes; init ; work arrays | default_* solve path; elmer-fe; p/edge/face Element in .sif |
@@ -240,10 +276,6 @@ largest group and the best next target after the scalar batch; `CountSolver` and
 | `SlaveSolverSlots/CountSolver.F90` | CountSolver:solver | init VisitedTimes=0 | writes Solver%Variable |
 | `SlaveSolverSlotsScan/CountSolver2.F90` | CountSolver:solver | init VisitedTimes=0 | writes Solver%Variable |
 | `StokesPFEM/Stokes.f90` | StokesSolver:solver | SAVE STIFF, MASS, LOAD, FORCE, rho, mu, Velocity, AllocationsDone, Nodes; init Norm=0, mu=1.0d0; work arrays | default_* solve path; elmer-fe; p/edge/face Element in .sif |
-| `StokesProj/Velocity.f90` | VelocitySolver:solver | SAVE STIFF, LOAD, FORCE, rho, mu, Velocity, Pressure, AllocationsDone, Nodes; init Norm=0, mu=1.0d0; work arrays | default_* solve path; elmer-fe |
-| `StokesProj/Pressure.f90` | PressureSolver:solver | SAVE STIFF, LOAD, FORCE, Velocity, AllocationsDone, Nodes; init Norm=0; work arrays | default_* solve path; elmer-fe; writes Solver%Variable |
-| `bentonite/BentoniteSolver.F90` | BentoniteSolver:solver | SAVE STIFF, MASS, FORCE, ElementNodes, &; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; writes Solver%Variable |
-| `tresca/Tresca.f90` | TrescaSolver:solver | SAVE TrescaValues; work arrays | Model%Variables access |
 
 ### UMAT
 

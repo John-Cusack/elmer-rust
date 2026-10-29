@@ -14,7 +14,11 @@
 //!   same kernels as `elmer-solver` [`ElementAssembly`] routines on
 //!   `elmer-fe`.
 //! * [`poisson_solver`]: the `Poisson` `PoissonSolver` solver procedure of
-//!   `1dtests` and `ExtrudedMesh`.
+//!   `1dtests` and `ExtrudedMesh`; [`tresca`]: the `tresca` case's
+//!   `TrescaSolver`; [`single_elements`]: the `ElementUnitTest_h1` element
+//!   checks; [`model_pde_handle`]: `ModelPDEhandle`'s `AdvDiffSolver`;
+//!   [`stokes_proj`]: `StokesProj`'s velocity and pressure solvers;
+//!   [`bentonite`]: the `bentonite` case's coupled 3-dof solver.
 //! * [`registry`]: case-qualified keys. Plugin libraries share names across
 //!   cases (`Source` is four different functions), so a fixture is selected
 //!   by case, library and entry together, and every `install` builds fresh
@@ -25,10 +29,15 @@
 //! The README lists every other quick-test plugin with its blockers.
 #![forbid(unsafe_code)]
 
+pub mod bentonite;
 pub mod hooks;
+pub mod model_pde_handle;
 pub mod poisson_assembly;
 pub mod poisson_solver;
 pub mod registry;
+pub mod single_elements;
+pub mod stokes_proj;
+pub mod tresca;
 pub mod udf;
 
 use elmer_expr::FieldLookup;
