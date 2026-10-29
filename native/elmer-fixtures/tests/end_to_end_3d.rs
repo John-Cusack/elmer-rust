@@ -83,3 +83,17 @@ fn element_unit_test_p1_brick_matches_pristine_digits() {
     let out = case::run("ElementUnitTest_p1", &dir, "case.sif").unwrap_or_else(|e| panic!("p1 brick: {e}"));
     assert!(out.log.contains("PASSED all 2 tests"), "{}", out.log);
 }
+
+/// `L2ndDerivatives` has no `Body` or `Equation` sections. The pristine
+/// run activates the solver on all 20 elements anyway (`SetActiveElementsTable:
+/// Number of active elements found : 20`) and gives it an unnamed null
+/// variable, whose norm 0 is the reference. `elmer-solver` activates
+/// nothing there, so the solver refuses instead of passing without a check.
+/// The element checks themselves pass for every element of the case
+/// (`solver_hooks::l2nd_derivatives_checks_pass_for_every_element_of_the_case`).
+#[test]
+fn l2nd_derivatives_is_refused_without_active_elements() {
+    let dir = case::stage("L2ndDerivatives", None);
+    let err = case::run("L2ndDerivatives", &dir, "test.sif").err().expect("refused");
+    assert!(err.to_string().contains("no active elements"), "{err}");
+}

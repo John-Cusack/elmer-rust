@@ -25,6 +25,7 @@ use elmer_solver::{ElementAssembly, Model, Simulation, SolverFactory, SolverRegi
 
 use crate::bentonite;
 use crate::hooks::{PoissonBoundary, PoissonBulk};
+use crate::l2nd_derivatives;
 use crate::model_pde_handle;
 use crate::poisson_solver;
 use crate::single_edge_elements;
@@ -126,6 +127,7 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("ElementUnitTest_p1", "SingleElements", "SingleElements", Hook::Solver(single_elements::factory)),
     ("SD_ElementUnitTest_p1", "SingleElements", "SingleElements", Hook::Solver(single_elements::factory)),
     ("ModelPDEhandle", "ModelPDEhandle", "AdvDiffSolver", Hook::Solver(model_pde_handle::factory)),
+    ("L2ndDerivatives", "L2ndDerivativesTest", "TestSolver", Hook::Solver(l2nd_derivatives::factory)),
     ("StokesProj", "Pressure", "PressureSolver", Hook::Solver(stokes_proj::pressure_factory)),
     ("StokesProj", "Velocity", "VelocitySolver", Hook::Solver(stokes_proj::velocity_factory)),
     ("bentonite", "BentoniteSolver", "BentoniteSolver", Hook::Solver(bentonite::factory)),
