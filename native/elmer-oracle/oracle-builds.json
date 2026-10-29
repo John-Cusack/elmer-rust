@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "note": "R0-published Fortran arms for swarm differential captures. Lanes must use these paths, not /home/john/runs/elmer-fork/orig_src/build or /usr/bin/ElmerSolver (different v26.2 install).",
+  "arms": {
+    "release": {
+      "role": "golden",
+      "source_pin": "9f6af2f85433fbe8ec71b85c3486ed38b88fcaf0",
+      "source_dir": "/home/john/firstmate/data/elmer-s0-oracle/src",
+      "build_dir": "/home/john/firstmate/data/elmer-s0-oracle/build-release",
+      "image": "elmer-oracle-fortran",
+      "image_id": "sha256:88febc14df9f47fbfc05a26d69f861e3fdd69e5c27d569147f392257758",
+      "work_mount": "host /home/john/firstmate/data/elmer-s0-oracle == container /work",
+      "binaries": {
+        "ElmerSolver": {
+          "path": "/home/john/firstmate/data/elmer-s0-oracle/build-release/fem/src/ElmerSolver",
+          "sha256": "13c96364a32989e82d7f28182be6aaf4564b346d386d255197684fd9f53a5a2d"
+        },
+        "ElmerSolver_mpi": {
+          "path": "/home/john/firstmate/data/elmer-s0-oracle/build-release/fem/src/ElmerSolver_mpi",
+          "sha256": "13c96364a32989e82d7f28182be6aaf4564b346d386d255197684fd9f53a5a2d"
+        },
+        "libelmersolver.so": {
+          "path": "/home/john/firstmate/data/elmer-s0-oracle/build-release/fem/src/libelmersolver.so",
+          "sha256": "fdf89a3e72d9263aa3a4cb17f358a1a087fe99df7223036e87e8eca231e88134"
+        },
+        "ElmerGrid": {
+          "path": "/home/john/firstmate/data/elmer-s0-oracle/build-release/elmergrid/src/ElmerGrid",
+          "sha256": "0e4c3f7ecb3d7322b4618fdd0a3dac8ec01da7c6ed2ba260ad4156414f9475c4"
+        }
+      },
+      "cmake_build_type": "Release",
+      "openmp": true,
+      "mpi": "Open MPI 4.1.6 (container and host identical)",
+      "blas": "reference netlib /usr/lib/x86_64-linux-gnu/blas/libblas.so.3",
+      "lapack": "reference netlib /usr/lib/x86_64-linux-gnu/lapack/liblapack.so.3",
+      "host_runtime_note": "Host is Ubuntu 24.04.5 with gfortran 13.3.0 and Open MPI 4.1.6, matching the image. Arm RUNPATH is container-baked (/work/...); the oracle runner exports LD_LIBRARY_PATH for the arm lib dirs. System libraries resolve from the host stack.",
+      "toolchain_record": "/home/john/firstmate/data/elmer-s0-oracle/build-release/versions.txt",
+      "smoke": "poisson_steady_conforming via elmer-oracle run: passed true, rel err 4.441857E-09"
+    }
+  }
+}

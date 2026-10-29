@@ -477,6 +477,26 @@ pub fn run_plan(
     })
 }
 
+/// Library directories of one arm build, mapped onto the host. The arm
+/// binaries carry container-baked RUNPATH (`/work/...`), so the host
+/// loader needs these explicitly; system BLAS/LAPACK/MPI resolve from
+/// the host's matching Ubuntu 24.04 stack (recorded per arm).
+fn arm_lib_dirs(build: &str) -> String {
+    let existing = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
+    let dirs = [
+        format!("{build}/fem/src"),
+        format!("{build}/matc/src"),
+        format!("{build}/fhutiter/src"),
+        format!("{build}/mathlibs/src/arpack"),
+        format!("{build}/mathlibs/src/parpack"),
+    ];
+    if existing.is_empty() {
+        dirs.join(":")
+    } else {
+        format!("{}:{existing}", dirs.join(":"))
+    }
+}
+
 fn tool_env(arm: &Arm) -> Vec<(String, String)> {
     let build = arm.build_dir.display().to_string();
     vec![
@@ -489,6 +509,7 @@ fn tool_env(arm: &Arm) -> Vec<(String, String)> {
                 std::env::var("PATH").unwrap_or_default()
             ),
         ),
+        (String::from("LD_LIBRARY_PATH"), arm_lib_dirs(&build)),
     ]
 }
 
@@ -543,6 +564,7 @@ fn run_solver(
                 std::env::var("PATH").unwrap_or_default()
             ),
         )
+        .env("LD_LIBRARY_PATH", arm_lib_dirs(&build))
         .env("OMP_STACKSIZE", std::env::var("OMP_STACKSIZE").unwrap_or_else(|_| String::from("8M")))
         .env("OMP_WAIT_POLICY", std::env::var("OMP_WAIT_POLICY").unwrap_or_else(|_| String::from("PASSIVE")))
         .stdout(Stdio::piped())
