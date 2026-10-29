@@ -154,10 +154,12 @@ pub fn run_one(dir: &Path, sif: &str, local_modules: &[String], static_only: boo
         return ChildReport { verdict: Verdict::Error, detail: format!("cd {}: {e}", dir.display()), blockers: vec![], libs: vec![] };
     }
     let sif_path = PathBuf::from(sif);
-    let registry = elmer_run::solver_registry();
+    // Staged under the test's name, which is the `fem/tests` case name.
+    let case = dir.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    let registry = elmer_run::solver_registry_for(case);
     let (mut blockers, libs) = match frontend::read_model(&sif_path) {
         Ok((model, refusal)) => {
-            let mut b = analyze::blockers(&model, &registry, local_modules);
+            let mut b = analyze::blockers(&model, &registry, local_modules, case);
             b.extend(refusal.map(|m| analyze::from_refusal(&m)));
             (b, analyze::libs(&model))
         }

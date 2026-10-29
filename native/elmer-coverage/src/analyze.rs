@@ -94,8 +94,13 @@ fn section_features(kind: &str, p: &ParamMap, out: &mut Vec<String>) {
 
 /// All blockers of `model` visible without running it. `local_modules` are
 /// the Fortran modules the test compiles itself.
-pub fn blockers(model: &Model, registry: &elmer_solver::SolverRegistry, local_modules: &[String]) -> Vec<String> {
+/// `case` is the `fem/tests` case name; the test-local routines
+/// `elmer-fixtures` ports for it are not blockers.
+pub fn blockers(model: &Model, registry: &elmer_solver::SolverRegistry, local_modules: &[String], case: &str) -> Vec<String> {
     let local: Vec<String> = local_modules.iter().map(|m| module_stem(m)).collect();
+    let udfs = elmer_fixtures::registry::procedures(case);
+    let ported_udf =
+        |lib: &str, entry: &str| udfs.iter().any(|(l, e)| module_stem(l) == module_stem(lib) && e.eq_ignore_ascii_case(entry));
     let mut out = Vec::new();
 
     // Equations the Fortran injects a procedure for (MainUtils.F90:1225-1295);
@@ -113,7 +118,8 @@ pub fn blockers(model: &Model, registry: &elmer_solver::SolverRegistry, local_mo
         }
         match procedure_of(p) {
             Some((lib, entry)) => {
-                if local.contains(&module_stem(&lib)) || lib.starts_with("./") {
+                let ported = registry.get(&lib, &entry).is_some();
+                if !ported && (local.contains(&module_stem(&lib)) || lib.starts_with("./")) {
                     out.push(format!("plugin: {}", module_stem(&lib)));
                 } else if registry.get(&lib, &entry).is_none() {
                     out.push(format!("solver: {} {}", module_stem(&lib), normalize_key(&entry)));
@@ -127,7 +133,11 @@ pub fn blockers(model: &Model, registry: &elmer_solver::SolverRegistry, local_mo
                 } else if LEGACY.contains(&eq.as_str()) {
                     out.push(format!("solver: implicit legacy solver `{eq}`"));
                 } else {
-                    out.push("solver: Coupled / Assembly solver without Procedure".to_string());
+                    match elmer_solver::coupled::solver_for_mode(p, registry) {
+                        Ok(Some(_)) => {} // elmer-solver's coupled or assembly solver
+                        Ok(None) => out.push("solver: Coupled / Assembly solver without Procedure".to_string()),
+                        Err(e) => out.push(from_refusal(&e.to_string())),
+                    }
                 }
             }
         }
@@ -161,7 +171,12 @@ pub fn blockers(model: &Model, registry: &elmer_solver::SolverRegistry, local_mo
                 };
                 if let Some((library, entry)) = named {
                     let stem = module_stem(&library);
-                    if local.contains(&stem) || library.starts_with("./") {
+                    let ported = registry.get(&library, &entry).is_some()
+                        || registry.assembly(&library, &entry).is_some()
+                        || ported_udf(&library, &entry);
+                    if ported {
+                        // A test-local routine `elmer-fixtures` ports.
+                    } else if local.contains(&stem) || library.starts_with("./") {
                         out.push(format!("plugin: {stem}"));
                     } else {
                         out.push(format!("userfunc: {stem} {}", normalize_key(&entry)));
@@ -312,7 +327,7 @@ mod tests {
             ..Model::default()
         };
         let reg = elmer_run::solver_registry();
-        let b = blockers(&model, &reg, &["Poisson".to_string()]);
+        let b = blockers(&model, &reg, &["Poisson".to_string()], "");
         assert_eq!(
             b,
             // SaveScalars is registered and the legacy heat equation completed
@@ -329,7 +344,7 @@ mod tests {
             boundary_conditions: vec![pm(&[("mortar bc", Value::Integer(vec![1]))])],
             ..Model::default()
         };
-        let b = blockers(&model, &elmer_run::solver_registry(), &[]);
+        let b = blockers(&model, &elmer_run::solver_registry(), &[], "");
         assert_eq!(
             b,
             vec!["feature: eigenvalue analysis", "feature: mortar / periodic / contact BC", "feature: scanning simulation"]

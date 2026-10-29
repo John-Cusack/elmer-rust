@@ -8,10 +8,10 @@ use std::sync::{Arc, Mutex};
 use elmer_core::{normalize_key, Communicator, Logger, MeshView, ParamMap, Params, Value};
 use elmer_fe::{CoordinateKind, CoordinateSystem};
 use elmer_solver::{
-    finalize_reference, solver::procedure_of, Model, RunReport, Simulation, SolverError, SolverRegistry,
+    coupled::solver_for_mode, finalize_reference, solver::procedure_of, Model, RunReport, Simulation, SolverError, SolverRegistry,
 };
 
-use crate::compose::{coordinate_system, fe_backend, install_fe, solver_registry};
+use crate::compose::{coordinate_system, fe_backend, install_fe, solver_registry_for};
 use crate::matc::SifMatc;
 use crate::motion::MovableMesh;
 use crate::output::{is_result_output, prepare_vtu_output, MappedTags};
@@ -111,6 +111,11 @@ fn preflight(model: &Model, registry: &SolverRegistry) -> Result<(), SolverError
             continue;
         }
         let Some((lib, entry)) = procedure_of(params) else {
+            // `Coupled Solver` / `Assembly Solver` sections run without one
+            // (`elmer-solver`'s built-in coupled and assembly solvers).
+            if solver_for_mode(params, registry)?.is_some() {
+                continue;
+            }
             return Err(SolverError::Unsupported(format!("Solver {}: no Procedure", i + 1)));
         };
         if registry.get(&lib, &entry).is_none() {
@@ -324,6 +329,13 @@ fn periodic_assembly(
     Ok(Some(PeriodicAssembly::new(model.boundary_conditions.clone(), projectors, mesh.n_nodes())))
 }
 
+/// The `fem/tests` case name `elmer-fixtures` keys its ports by: the case
+/// directory's name (the `.sif`'s directory; empty means the working one).
+fn fixture_case(case_dir: &Path) -> String {
+    let dir = if case_dir.as_os_str().is_empty() { std::env::current_dir().ok() } else { case_dir.canonicalize().ok() };
+    dir.and_then(|d| d.file_name().and_then(|n| n.to_str()).map(str::to_string)).unwrap_or_default()
+}
+
 /// Runs `case` serially. Unsupported input comes back as
 /// [`SolverError::Unsupported`] or [`SolverError::NotWired`] before any
 /// file is written.
@@ -332,7 +344,8 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
         return Err(SolverError::Unsupported("more than one MPI rank".into()));
     }
     let Case { mut model, reloads, mesh, case_dir, mesh_dir } = case;
-    let registry = solver_registry();
+    let fixture_case = fixture_case(&case_dir);
+    let registry = solver_registry_for(&fixture_case);
     let transformed = transform_mesh(&mut model, mesh)?;
     let mesh: &dyn MeshView = match &transformed {
         Some(m) => m,
@@ -357,6 +370,7 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
         sim.backends.assembly = Some(Box::new(periodic));
     }
     sim.set_matc(Rc::new(SifMatc));
+    elmer_fixtures::registry::install_live(&fixture_case, &mut sim, mesh);
     sim.setup(mesh, &registry, log, comm)?;
     check_mesh_velocity(&sim)?;
     // Field lists are fixed once every variable exists, before the run, so a

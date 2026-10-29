@@ -40,6 +40,7 @@ const SOLVER: &[Rule] = &[
     flag("Apply Mortar BCs", "mortar BCs are not implemented"),
     present("Namespace", "solver keyword namespaces are not implemented"),
     flag("Adaptive Mesh Refinement", "mesh refinement is not implemented"),
+    flag("Apply Explicit Control", "explicit control (Control Parameter values) is not implemented"),
 ];
 
 const BODY_FORCE: &[Rule] = &[];
