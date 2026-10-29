@@ -254,6 +254,11 @@ pub fn capability_gap(msg: &str) -> Option<String> {
     if m.contains("no MATC engine installed") {
         return Some("runtime: MATC engine not installed in elmer-run (MATC value evaluated)".into());
     }
+    // `BlockSystemAssembly`: a test-local assembly routine nobody ported.
+    if let Some(rest) = m.split("Assembly routine not found: ").nth(1) {
+        let lib = rest.split_whitespace().next().unwrap_or_default();
+        return Some(format!("plugin: {}", module_stem(lib)));
+    }
     if m.contains("not wired") || m.contains("NotWired") {
         return Some(format!("runtime: {}", generic(m)));
     }
