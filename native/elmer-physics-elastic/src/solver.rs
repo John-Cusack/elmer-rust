@@ -12,8 +12,8 @@ use elmer_core::{
 use elmer_solver::sim::VarSpec;
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry, Variable};
 
-use crate::boundary::{stress_boundary_local, Spring, StressBoundaryInput};
-use crate::bulk::{stress_bulk_local, CoordSystem, IpProps, StressBulkInput};
+use crate::boundary::{stress_boundary_local, stress_boundary_local_p, Spring, StressBoundaryInput};
+use crate::bulk::{stress_bulk_local_p, stress_bulk_local, CoordSystem, IpProps, StressBulkInput};
 use crate::material::{diagonal_c, ElasticLaw, Tensor3};
 use crate::post::{self, stress_strain_local, StressPostInput};
 use crate::props;
@@ -76,6 +76,35 @@ fn present_prefix(p: &ParamMap, prefix: &str) -> bool {
 }
 
 /// Model-wide refusals, from the solver section.
+/// The basis, rule and dof count of element `e` from the solver's p dofs
+/// (`ElementInfo`, `GaussPoints`, `GetElementNOFDOFs`).
+struct PElement {
+    basis: Box<dyn ElementBasis + Send + Sync>,
+    rule: Vec<elmer_core::QuadPoint>,
+    nd: usize,
+}
+
+fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId) -> Result<PElement, SolverError> {
+    let mut slots = Vec::new();
+    d.element_slots(e, &mut slots);
+    Ok(PElement {
+        basis: d.element_basis(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
+        rule: d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?,
+        nd: slots.len(),
+    })
+}
+
+/// `values` (at `mesh_nodes`) at `nodes` instead.
+fn reorder(values: Vec<f64>, mesh_nodes: &[u32], nodes: &[u32]) -> Vec<f64> {
+    if mesh_nodes == nodes {
+        return values;
+    }
+    nodes
+        .iter()
+        .map(|n| values[mesh_nodes.iter().position(|m| m == n).expect("same node set")])
+        .collect()
+}
+
 fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
     for (key, what) in [
         ("large deflection", "large deflection"),
@@ -631,10 +660,18 @@ impl Solver for StressSolver {
             values: v,
         });
 
+        let flags = post_flags(ctx);
+        if ctx.solver_dofs().is_some() && flags.any() {
+            return Err(unsupported("stress postprocessing (Calculate Stresses) on p elements"));
+        }
         let elems: Vec<ElemId> = ctx.active_elements().collect();
         for e in elems {
             let el = ctx.mesh.element(e);
             let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
+            let pe = match ctx.solver_dofs() {
+                Some(d) => Some(p_element(d, e)?),
+                None => None,
+            };
             let d = self.element_data(ctx, e, cdim, axi, &temp_ref)?;
             let plane_stress = flag(ctx.body_params(e).and_then(|b| b.equation), "plane stress");
             let inp = StressBulkInput {
@@ -658,7 +695,14 @@ impl Solver for StressSolver {
             };
             let mut local = LocalSystem::zeros(0);
             let fe = self.fe();
-            stress_bulk_local(&*fe.basis, &*fe.quad, &inp, &mut local).map_err(|x| SolverError::fatal(CALLER, x.to_string()))?;
+            match &pe {
+                // StressCompose(..., n, ntot = GetElementNOFDOFs(), ...); the
+                // displacement-only formulation neither adds nor condenses
+                // local bubbles.
+                Some(p) => stress_bulk_local_p(&*p.basis, &p.rule, p.nd, &inp, &mut local),
+                None => stress_bulk_local(&*fe.basis, &*fe.quad, &inp, &mut local),
+            }
+            .map_err(|x| SolverError::fatal(CALLER, x.to_string()))?;
             if transient {
                 // First order in time: the damping matrix carries d/dt
                 // (`Default1stOrderTime( DAMP, STIFF, FORCE )`), Rayleigh terms included.
@@ -682,6 +726,9 @@ impl Solver for StressSolver {
             let el = ctx.mesh.element(e);
             let n = el.nodes.len();
             let bc = ctx.bc_params(e).expect("boundary_elements filters on BC").clone();
+            // A p boundary element lists its nodes in the parent's edge or
+            // face order (AssignLocalNumber); its values follow that order.
+            let p_nodes: Option<Vec<u32>> = ctx.solver_dofs().map(|d| d.element_nodes(e));
             if let Some(v) = bc.logical("fsi bc") {
                 if v {
                     return Err(unsupported("FSI boundary condition"));
@@ -696,7 +743,13 @@ impl Solver for StressSolver {
                     return Err(unsupported(what));
                 }
             }
-            let nodal = |key: &str| props::scalar_nodes(ctx, &bc, key, e);
+            let nodal = |key: &str| -> Result<Option<Vec<f64>>, SolverError> {
+                let v = props::scalar_nodes(ctx, &bc, key, e)?;
+                Ok(match (&p_nodes, v) {
+                    (Some(pn), Some(v)) => Some(reorder(v, el.nodes, pn)),
+                    (_, v) => v,
+                })
+            };
             let mut traction = vec![[0.0; 3]; n];
             let mut got = false;
             for prefix in ["surface traction", "force"] {
@@ -752,7 +805,8 @@ impl Solver for StressSolver {
                 .ok_or_else(|| SolverError::fatal(CALLER, format!("boundary element {} has no parent", e.0)))?;
             let fe = self.fe();
             let center = parent_center(&*fe.basis, ctx.mesh, parent)?;
-            let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&nn| ctx.mesh.coord(nn)).collect();
+            let nodes: &[u32] = p_nodes.as_deref().unwrap_or(el.nodes);
+            let xyz: Vec<[f64; 3]> = nodes.iter().map(|&nn| ctx.mesh.coord(nn)).collect();
             let nt = beta.unwrap_or_else(|| vec![0.0; n]);
             let spring = if let Some(sn) = &spring_normal {
                 Spring::Normal(sn)
@@ -773,8 +827,14 @@ impl Solver for StressSolver {
                 np: None,
             };
             let mut local = LocalSystem::zeros(0);
-            stress_boundary_local(&*fe.basis, &*fe.quad, &inp, &mut local)
-                .map_err(|x| SolverError::fatal(CALLER, x.to_string()))?;
+            match ctx.solver_dofs() {
+                Some(d) => {
+                    let p = p_element(d, e)?;
+                    stress_boundary_local_p(&*p.basis, &p.rule, p.nd, &inp, &mut local)
+                }
+                None => stress_boundary_local(&*fe.basis, &*fe.quad, &inp, &mut local),
+            }
+            .map_err(|x| SolverError::fatal(CALLER, x.to_string()))?;
             if transient {
                 local.mass = Some(vec![0.0; local.n * local.n]);
                 ctx.default_first_order_time(&mut local, e, dt)?;
@@ -785,7 +845,6 @@ impl Solver for StressSolver {
         ctx.default_dirichlet()?;
         ctx.default_solve()?;
 
-        let flags = post_flags(ctx);
         if flags.any() {
             self.postprocess(ctx, flags, cdim, axi, &temp_ref)?;
         }

@@ -5,7 +5,7 @@
 //! DOF layout is node-major, component-minor: row `cdim*p + i` is component
 //! `i` of node `p` (Elmer's `DOFs*(p-1)+i`).
 
-use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, Quadrature};
+use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, QuadPoint, Quadrature};
 
 use crate::error::StressError;
 use crate::material::{
@@ -137,6 +137,41 @@ pub fn stress_bulk_local(
     inp: &StressBulkInput<'_>,
     out: &mut LocalSystem,
 ) -> Result<(), StressError> {
+    let points = quad.gauss_points(inp.etype, inp.np);
+    bulk_impl(basis, &points, inp.etype.n_nodes(), inp, out)
+}
+
+/// [`stress_bulk_local`] for `nd >= n` basis functions per component (the
+/// nodal ones first, then the edge, face and bubble functions of a p
+/// element) on the given rule, as `StressCompose(..., n, ntot, ...)`:
+/// material values and loads are interpolated with the nodal functions only.
+/// `out` is `nd * cdim` square, interleaved by component. Integration-point
+/// properties (`inp.ip`) are refused: they are tabulated on the default rule.
+pub fn stress_bulk_local_p(
+    basis: &dyn ElementBasis,
+    points: &[QuadPoint],
+    nd: usize,
+    inp: &StressBulkInput<'_>,
+    out: &mut LocalSystem,
+) -> Result<(), StressError> {
+    if inp.ip.is_some() {
+        return Err(StressError::Unsupported(
+            "integration point properties on p elements".into(),
+        ));
+    }
+    if nd < inp.etype.n_nodes() {
+        return Err(StressError::Input(format!("{nd} basis functions for {} nodes", inp.etype.n_nodes())));
+    }
+    bulk_impl(basis, points, nd, inp, out)
+}
+
+fn bulk_impl(
+    basis: &dyn ElementBasis,
+    points: &[QuadPoint],
+    nd: usize,
+    inp: &StressBulkInput<'_>,
+    out: &mut LocalSystem,
+) -> Result<(), StressError> {
     let n = inp.etype.n_nodes();
     let cdim = inp.cdim;
     let axi = inp.coord == CoordSystem::AxiSymmetric;
@@ -162,7 +197,7 @@ pub fn stress_bulk_local(
     // Dimension of the state of stress: three for axisymmetry (r, z, hoop).
     let dim = if axi { 3 } else { cdim };
     let plane_stress = inp.plane_stress && !axi && cdim == 2;
-    let ndof = n * cdim;
+    let ndof = nd * cdim;
 
     *out = LocalSystem::zeros(ndof);
     if inp.want_mass {
@@ -215,7 +250,6 @@ pub fn stress_bulk_local(
             .is_some_and(|s| s.iter().any(|v| v.iter().any(|x| *x != 0.0)));
     let got_offset = has_voigt || has_heat;
 
-    let points = quad.gauss_points(inp.etype, inp.np);
     if let Some(p) = ip {
         let np = points.len();
         let lens = [
@@ -238,6 +272,9 @@ pub fn stress_bulk_local(
         basis
             .eval(inp.etype, inp.xyz, qp.uvw, &mut be)
             .map_err(StressError::Basis)?;
+        if be.basis.len() < nd {
+            return Err(StressError::Input(format!("{} basis functions for {nd} dofs", be.basis.len())));
+        }
         let bas = &be.basis;
         let db = &be.dbasis_dx;
         let mut s = be.det_j * qp.weight;
@@ -358,7 +395,7 @@ pub fn stress_bulk_local(
         }
 
         // Trial strain fields, one per (node, component).
-        for p in 0..n {
+        for p in 0..nd {
             for i in 0..cdim {
                 let k = cdim * p + i;
                 let mut d = ZERO3;
@@ -382,7 +419,7 @@ pub fn stress_bulk_local(
             }
         }
 
-        for p in 0..n {
+        for p in 0..nd {
             for i in 0..cdim {
                 let k = cdim * p + i;
                 let offset_term = if axi {
@@ -395,7 +432,7 @@ pub fn stress_bulk_local(
                 out.force[k] +=
                     (bas[p] * force[i] + pressure * db[p][i] - offset_term) * s;
                 let ds = &dstress[k];
-                for q in 0..n {
+                for q in 0..nd {
                     for j in 0..cdim {
                         let col = cdim * q + j;
                         let v = if axi {
@@ -413,8 +450,8 @@ pub fn stress_bulk_local(
         }
 
         if inp.want_mass {
-            for p in 0..n {
-                for q in 0..n {
+            for p in 0..nd {
+                for q in 0..nd {
                     for i in 0..cdim {
                         let idx = (cdim * p + i) * ndof + cdim * q + i;
                         let mm = out.mass.as_mut().unwrap();

@@ -5,7 +5,7 @@
 //! Not covered: FSI traction, large-deflection cofactor terms, lumping loads
 //! and `Normal-Tangential` rotation (the assembler's job).
 
-use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, Quadrature};
+use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, QuadPoint, Quadrature};
 
 use crate::bulk::CoordSystem;
 use crate::error::StressError;
@@ -87,6 +87,33 @@ pub fn stress_boundary_local(
     inp: &StressBoundaryInput<'_>,
     out: &mut LocalSystem,
 ) -> Result<(), StressError> {
+    let points = quad.gauss_points(inp.etype, inp.np);
+    boundary_impl(basis, &points, inp.etype.n_nodes(), inp, out)
+}
+
+/// [`stress_boundary_local`] for `nd >= n` basis functions per component on
+/// the given rule (`StressBoundary(..., n, ntot, ...)`): loads, springs and
+/// the normal come from the nodal functions; `out` is `nd * cdim` square.
+pub fn stress_boundary_local_p(
+    basis: &dyn ElementBasis,
+    points: &[QuadPoint],
+    nd: usize,
+    inp: &StressBoundaryInput<'_>,
+    out: &mut LocalSystem,
+) -> Result<(), StressError> {
+    if nd < inp.etype.n_nodes() {
+        return Err(StressError::Input(format!("{nd} basis functions for {} nodes", inp.etype.n_nodes())));
+    }
+    boundary_impl(basis, points, nd, inp, out)
+}
+
+fn boundary_impl(
+    basis: &dyn ElementBasis,
+    points: &[QuadPoint],
+    nd: usize,
+    inp: &StressBoundaryInput<'_>,
+    out: &mut LocalSystem,
+) -> Result<(), StressError> {
     let n = inp.etype.n_nodes();
     let cdim = inp.cdim;
     let axi = inp.coord == CoordSystem::AxiSymmetric;
@@ -111,7 +138,7 @@ pub fn stress_boundary_local(
             inp.etype.0
         )));
     }
-    let ndof = n * cdim;
+    let ndof = nd * cdim;
     *out = LocalSystem::zeros(ndof);
 
     // Orientation is a property of the element: decided at its centre.
@@ -133,10 +160,13 @@ pub fn stress_boundary_local(
         > 0.0;
     let sign = if flip { -1.0 } else { 1.0 };
 
-    for qp in quad.gauss_points(inp.etype, inp.np) {
+    for qp in points {
         basis
             .eval(inp.etype, inp.xyz, qp.uvw, &mut be)
             .map_err(StressError::Basis)?;
+        if be.basis.len() < nd {
+            return Err(StressError::Input(format!("{} basis functions for {nd} dofs", be.basis.len())));
+        }
         let bas = &be.basis;
         let mut s = be.det_j * qp.weight;
         if axi {
@@ -153,7 +183,7 @@ pub fn stress_boundary_local(
         for i in 0..cdim {
             force[i] = beta * normal[i] + (0..n).map(|k| inp.traction[k][i] * bas[k]).sum::<f64>();
         }
-        for q in 0..n {
+        for q in 0..nd {
             for i in 0..cdim {
                 out.force[q * cdim + i] += s * bas[q] * force[i];
             }
@@ -163,9 +193,9 @@ pub fn stress_boundary_local(
             Spring::None => {}
             Spring::Normal(k) => {
                 let kc: f64 = (0..n).map(|m| bas[m] * k[m]).sum();
-                for p in 0..n {
+                for p in 0..nd {
                     for i in 0..cdim {
-                        for q in 0..n {
+                        for q in 0..nd {
                             for j in 0..cdim {
                                 out.stiff[(p * cdim + i) * ndof + q * cdim + j] +=
                                     kc * bas[q] * normal[j] * bas[p] * normal[i] * s;
@@ -181,9 +211,9 @@ pub fn stress_boundary_local(
                         *v = (0..n).map(|m| bas[m] * k[m][i][j]).sum();
                     }
                 }
-                for p in 0..n {
+                for p in 0..nd {
                     for i in 0..cdim {
-                        for q in 0..n {
+                        for q in 0..nd {
                             for j in 0..cdim {
                                 out.stiff[(p * cdim + i) * ndof + q * cdim + j] +=
                                     kc[i][j] * bas[q] * bas[p] * s;
