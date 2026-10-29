@@ -1,0 +1,13 @@
+[package]
+name = "elmer-eigen"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Eigen Analysis for the Rust-native Elmer rewrite: thick-restart Lanczos and Krylov-Schur style Arnoldi with shift-invert, replacing ARPACK"
+
+[dependencies]
+# Dense projected problems go through elmer-direct's faer adapters (syev/geev).
+elmer-core.workspace = true
+elmer-direct = { path = "../elmer-direct" }
+num-complex.workspace = true
