@@ -10,8 +10,10 @@ fn usage() -> ! {
     eprintln!("usage:");
     eprintln!("  elmer-oracle plan <tests-dir> <test> [--np N]");
     eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N]");
+    eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N]");
     eprintln!("  elmer-oracle manifest <dir> <out> --origin NAME");
     eprintln!("  elmer-oracle bins <build-dir>");
+    eprintln!("  elmer-oracle discover <tests-dir>");
     std::process::exit(2);
 }
 
@@ -116,6 +118,68 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+        }
+        "capture" => {
+            // Run one test, then freeze its run dir as golden data: a
+            // manifest of every file the solver wrote, plus the graded
+            // verdict extracted from the logs.
+            if args.len() < 7 {
+                usage();
+            }
+            let build_dir = PathBuf::from(&args[2]);
+            let tests_dir = PathBuf::from(&args[3]);
+            let test = args[4].clone();
+            let golden_dir = PathBuf::from(&args[5]);
+            let manifest_path = PathBuf::from(&args[6]);
+            let mut np = 1u32;
+            let mut i = 7;
+            while i < args.len() {
+                if args[i] == "--np" && i + 1 < args.len() {
+                    np = args[i + 1].parse().unwrap_or_else(|_| usage());
+                    i += 1;
+                }
+                i += 1;
+            }
+            let dir = tests_dir.join(&test);
+            let cmake = std::fs::read_to_string(dir.join("CMakeLists.txt")).unwrap_or_else(|_| usage());
+            let mut spec = parse_cmakelists(&test, &cmake);
+            spec.startinfo_sif = read_startinfo(&dir).unwrap_or_else(|_| usage());
+            let runtest = std::fs::read_to_string(dir.join("runtest.cmake")).unwrap_or_else(|_| usage());
+            let arm = arm_from_build(build_dir, "cli");
+            let plan = plan_test(&spec, &runtest, np, &arm).unwrap_or_else(|e| {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            });
+            if let Some(reason) = plan.custom {
+                eprintln!("custom test, refusing: {reason}");
+                std::process::exit(3);
+            }
+            let run_dir = golden_dir.join("run");
+            let outcome = run_plan(&arm, &spec, &plan, &dir, &run_dir).unwrap_or_else(|e| {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            });
+            println!("passed: {}", outcome.passed);
+            for line in &outcome.compare_lines {
+                println!("  {line}");
+            }
+            if !outcome.passed {
+                std::process::exit(1);
+            }
+            let file_name = manifest_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let entries = hash_tree(&run_dir, &file_name).unwrap_or_else(|e| {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            });
+            let mut m = Manifest::new(&format!("golden {}", arm.name));
+            for (path, hash) in entries {
+                m.insert(&format!("{test}/{path}"), &hash);
+            }
+            std::fs::write(&manifest_path, m.serialize()).unwrap_or_else(|_| usage());
+            println!("entries: {}", m.entries.len());
         }
         "manifest" => {
             if args.len() < 4 {

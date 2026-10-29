@@ -22,6 +22,15 @@ if [ "$#" -ne 3 ]; then
     exit 2
 fi
 
+ARM="$1"
+SRC="$2"
+DEST="$3"
+
+# Container mounts change file ownership; without this every git call below
+# fails with "dubious ownership".
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0='*'
 running=$(pgrep -c '^(cmake|make|ninja|ninja-build|cc1|cc1plus|f951|cpp|as|ld)$' || true)
 if [ "$running" -ge 2 ]; then
     echo "refusing: $running Elmer build processes already on this host (cap is 2)" >&2
@@ -44,6 +53,20 @@ if [ -n "$(git -C "$SRC" status --porcelain)" ]; then
     exit 2
 fi
 
+# Elmer's configure writes `results/` directories into the source tree, so
+# a read-only source mount cannot configure. Copy the verified pin to a
+# writable sibling of the build dir instead; the pin check above already
+# covers provenance, and the copy carries .git so the record stays exact.
+if [ ! -w "$SRC" ]; then
+    SRC_COPY="$DEST.src"
+    if [ -e "$SRC_COPY" ]; then
+        echo "refusing: source copy $SRC_COPY already exists" >&2
+        exit 2
+    fi
+    cp -a "$SRC" "$SRC_COPY"
+    SRC="$SRC_COPY"
+fi
+
 # shellcheck disable=SC2207
 common_flags=(
     -DCMAKE_BUILD_TYPE=Release
@@ -55,6 +78,11 @@ common_flags=(
     -DWITH_OpenMP=TRUE -DWITH_NETCDF=FALSE -DWITH_MMG=FALSE -DWITH_PARMMG=FALSE
     -DWITH_XIOS=FALSE -DWITH_PROJ=FALSE
     -DELMERGRID_WITH_MATC=OFF
+    # Reference netlib BLAS/LAPACK by absolute path: the image's
+    # alternatives point libblas.so.3 at OpenBLAS, so the default search
+    # would silently make every arm an OpenBLAS arm.
+    -DBLAS_LIBRARIES=/usr/lib/x86_64-linux-gnu/blas/libblas.so.3
+    -DLAPACK_LIBRARIES=/usr/lib/x86_64-linux-gnu/lapack/liblapack.so.3
     "-DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-multiple-definition"
     "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--allow-multiple-definition"
 )
@@ -89,7 +117,8 @@ cmake --build "$DEST" --parallel "$(nproc)"
     mpirun --version | head -2 || true
     ompi_info --param hwloc all 2>/dev/null | grep -i components || true
     echo "--- blas/lapack ---"
-    ldconfig -p | grep -E 'libblas\.|liblapack\.|libopenblas' || true
+    readlink -f /usr/lib/x86_64-linux-gnu/libblas.so.3 /usr/lib/x86_64-linux-gnu/liblapack.so.3
+    grep -E '^(BLAS_LIBRARIES|LAPACK_LIBRARIES|BLA_VENDOR)' "$DEST/CMakeCache.txt" || true
     echo "--- cpu ---"
     grep -m1 'model name' /proc/cpuinfo
     grep -m1 flags /proc/cpuinfo | tr ' ' '\n' | grep -c -E '^(fma|avx2|avx512f)$' || true
