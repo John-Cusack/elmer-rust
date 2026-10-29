@@ -121,7 +121,8 @@ fn main() {
                 eprintln!("custom test, refusing: {reason}");
                 std::process::exit(3);
             }
-            match run_plan(&arm, &spec, &plan, &dir, &run_dir, Some(&inj)) {
+            let inj_opt = if inj.o2 || inj.o2m { Some(&inj) } else { None };
+            match run_plan(&arm, &spec, &plan, &dir, &run_dir, inj_opt) {
                 Ok(outcome) => {
                     println!("passed: {}", outcome.passed);
                     for line in &outcome.compare_lines {
@@ -178,7 +179,8 @@ fn main() {
                 std::process::exit(3);
             }
             let run_dir = golden_dir.join("run");
-            let outcome = run_plan(&arm, &spec, &plan, &dir, &run_dir, Some(&inj)).unwrap_or_else(|e| {
+            let inj_opt = if inj.o2 || inj.o2m { Some(&inj) } else { None };
+            let outcome = run_plan(&arm, &spec, &plan, &dir, &run_dir, inj_opt).unwrap_or_else(|e| {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             });

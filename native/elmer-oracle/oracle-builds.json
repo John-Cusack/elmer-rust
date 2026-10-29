@@ -36,6 +36,68 @@
       "host_runtime_note": "Host is Ubuntu 24.04.5 with gfortran 13.3.0 and Open MPI 4.1.6, matching the image. Arm RUNPATH is container-baked (/work/...); the oracle runner exports LD_LIBRARY_PATH for the arm lib dirs. System libraries resolve from the host stack.",
       "toolchain_record": "/home/john/firstmate/data/elmer-s0-oracle/build-release/versions.txt",
       "smoke": "poisson_steady_conforming via elmer-oracle run: passed true, rel err 4.441857E-09"
+    },
+    "fma": {
+      "role": "sensitivity floor (FMA contraction)",
+      "source_pin": "9f6af2f85433fbe8ec71b85c3486ed38b88fcaf0",
+      "build_dir": "/home/john/firstmate/data/elmer-s0-oracle/build-fma",
+      "image": "elmer-oracle-fortran",
+      "image_id": "sha256:88febc14df9f47fbfc05a26d69f861e3fdd69e5c27d569147f392257758",
+      "binaries": {
+        "ElmerSolver": {
+          "path": "/home/john/firstmate/data/elmer-s0-oracle/build-fma/fem/src/ElmerSolver",
+          "sha256": "f56619efb2ac210329aa030413143fc7652d0f183368007842ffd78ac9f29848"
+        },
+        "libelmersolver.so": {
+          "path": "/home/john/firstmate/data/elmer-s0-oracle/build-fma/fem/src/libelmersolver.so",
+          "sha256": "2480bb7e56fb74978ab507a6bde9fe6d4f4cefd41c334c1f88e11a56f78b2238"
+        }
+      },
+      "fortran_flags": "-march=x86-64-v3 -ffp-contract=fast",
+      "blas": "reference netlib /usr/lib/x86_64-linux-gnu/blas/libblas.so.3",
+      "toolchain_record": "/home/john/firstmate/data/elmer-s0-oracle/build-fma/versions.txt",
+      "smoke": "poisson_steady_conforming via elmer-oracle run: passed true, rel err 3.566819E-09"
+    },
+    "openblas": {
+      "role": "sensitivity floor (OpenBLAS vs reference)",
+      "source_pin": "9f6af2f85433fbe8ec71b85c3486ed38fcaf0",
+      "build_dir": "/home/john/firstmate/data/elmer-s0-oracle/build-openblas",
+      "image": "elmer-oracle-fortran",
+      "image_id": "sha256:88febc14df9f47fbfc05a26d69f861e3fdd69e5c27d569147f392257758",
+      "binaries": {
+        "ElmerSolver": {
+          "path": "/home/john/firstmate/data/elmer-s0-oracle/build-openblas/fem/src/ElmerSolver",
+          "sha256": "4b238e75a631f9b34c137a69d9041bb7452aedee7183d968c2d212994d122d7d"
+        },
+        "libelmersolver.so": {
+          "path": "/home/john/firstmate/data/elmer-s0-oracle/build-openblas/fem/src/libelmersolver.so",
+          "sha256": "12edec828b0c7c1a1e1eb768ec4620d433b43db9aa8067133e24bbc1579d6306"
+        }
+      },
+      "blas": "OpenBLAS openblas-pthread",
+      "toolchain_record": "/home/john/firstmate/data/elmer-s0-oracle/build-openblas/versions.txt",
+      "smoke": "poisson_steady_conforming via elmer-oracle run: passed true, rel err 4.441857E-09"
+    },
+    "listusage": {
+      "role": "capability trace (DEVEL_LISTUSAGE)",
+      "source_pin": "9f6af2f85433fbe8ec71b85c3486ed38fcaf0",
+      "build_dir": "/home/john/firstmate/data/elmer-s0-oracle/build-listusage",
+      "image": "elmer-oracle-fortran",
+      "image_id": "sha256:88febc14df9f47fbfc05a26d69f861e3fdd69e5c27d569147f392257758",
+      "extra_flags": "-DDEVEL_LISTUSAGE=ON",
+      "binaries": {
+        "ElmerSolver": {
+          "path": "/home/john/firstmate/data/elmer-s0-oracle/build-listusage/fem/src/ElmerSolver",
+          "sha256": "98efbe1619c3b0eb41cb67849eb484f1dbfa0472dbe57de0562b61900018b6fa"
+        },
+        "libelmersolver.so": {
+          "path": "/home/john/firstmate/data/elmer-s0-oracle/build-listusage/fem/src/libelmersolver.so",
+          "sha256": "368cd28df77cdb95ac9f8ded6e2fecfad3df69f764ac3812e048ba0e2f63dfe7"
+        }
+      },
+      "blas": "reference netlib /usr/lib/x86_64-linux-gnu/blas/libblas.so.3",
+      "toolchain_record": "/home/john/firstmate/data/elmer-s0-oracle/build-listusage/versions.txt",
+      "smoke": "poisson_steady_conforming via elmer-oracle run: passed true, rel err 4.441857E-09"
     }
   }
 }
