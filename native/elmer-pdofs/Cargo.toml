@@ -12,7 +12,10 @@ thiserror.workspace = true
 elmer-assembly = { path = "../elmer-assembly" }
 elmer-fe = { path = "../elmer-fe" }
 elmer-fe-hp = { path = "../elmer-fe-hp" }
+elmer-solver = { path = "../elmer-solver" }
 
 [dev-dependencies]
 # Sparse LU for the end-to-end PoissonPFEM solve.
 elmer-direct = { path = "../elmer-direct" }
+# The end-to-end case runs read case.sif.
+elmer-sif = { path = "../elmer-sif" }

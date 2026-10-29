@@ -17,11 +17,14 @@
 //!    `ElementInfo` / `GaussPoints` build them for p elements;
 //! 6. [`dirichlet`]: the edge-DOF part of `DefaultDirichletBCs`;
 //! 7. [`setup`]: all of it for one solver section from its keywords
-//!    ([`PSetup`]), the object a solver framework adapter holds.
+//!    ([`PSetup`]), the object a solver framework adapter holds;
+//! 8. [`solver`]: `elmer-solver`'s `SolverDofs` for [`PSetup`], the
+//!    [`PDofsBackend`] to install in `Backends::dofs`, and the PoissonPFEM
+//!    test plugin.
 //!
 //! Element systems are glued with `elmer_assembly::CsrAssembler` on the
-//! row indices [`dofs::DofLayout::element_rows`] gives, so no assembly
-//! hook is needed.
+//! row indices [`dofs::DofLayout::element_rows`] gives; `elmer-solver`
+//! reaches all of it through `Backends::dofs`.
 //!
 //! Supported: first-order 1D and 2D meshes (`202`, `303`, `404` bulk
 //! elements), global bubbles or none, scalar or multi-component fields.
@@ -36,12 +39,14 @@ pub mod dofs;
 pub mod perm;
 pub mod pmesh;
 pub mod setup;
+pub mod solver;
 
 pub use defs::{initial_max_defs, ElementDefs, Kind, MaxDefs};
 pub use dofs::DofLayout;
 pub use perm::{create_p_system, PSystem};
 pub use pmesh::{MatcDegree, PMesh, PMeshOptions, SolverElements};
 pub use setup::{global_bubbles, is_p_section, ModelFacts, PSetup};
+pub use solver::{register_poisson_pfem, PDofsBackend, PoissonPfem};
 
 /// Errors of the p-element setup.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
