@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use elmer_cli::driver::{Engine, EngineOutcome, RunRequest};
 use elmer_cli::{ElmerLogger, ExitCode};
-use elmer_core::{MeshView, SerialComm};
+use elmer_core::{LinalgError, MeshView, SerialComm};
 use elmer_physics_heat::FeProvider;
 use elmer_solver::{Model, SolverError};
 
@@ -60,7 +60,11 @@ impl Engine for NativeEngine {
         match run_case(case, log, &SerialComm) {
             // Fortran exits 0 whatever the reference verdict; TEST.PASSED carries it.
             Ok(_) => EngineOutcome::Done(ExitCode::Pass),
-            Err(e @ (SolverError::Unsupported(_) | SolverError::NotWired(_))) => {
+            Err(
+                e @ (SolverError::Unsupported(_)
+                | SolverError::NotWired(_)
+                | SolverError::Linalg(LinalgError::Unsupported(_))),
+            ) => {
                 EngineOutcome::Refused(vec![e.to_string()])
             }
             Err(e) => {
