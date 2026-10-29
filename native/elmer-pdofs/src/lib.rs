@@ -30,9 +30,9 @@
 //! Supported: first-order meshes; the p basis and rules for lines,
 //! triangles, quadrilaterals (also serendipity) and bricks; global
 //! bubbles or none; scalar or multi-component fields. Refused or not
-//! covered: p tetrahedra, pyramids and wedges (DOF tables only), boundary
-//! integrals on 3D faces, DG, radiation, periodic and mortar couplings, and
-//! element definitions in equation sections.
+//! covered: p tetrahedra, pyramids and wedges (DOF tables only), DG,
+//! radiation, periodic and mortar couplings, and element definitions in
+//! equation sections.
 #![forbid(unsafe_code)]
 
 pub mod basis;

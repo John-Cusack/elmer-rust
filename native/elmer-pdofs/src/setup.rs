@@ -222,6 +222,11 @@ impl PSetup {
         self.layout().gauss_rule(e.0 as usize)
     }
 
+    /// `GaussPoints(Element, np)` of element `e`.
+    pub fn gauss_rule_np(&self, e: ElemId, np: usize) -> Result<GaussRule, Error> {
+        self.layout().gauss_rule_np(e.0 as usize, np)
+    }
+
     /// Element `e`'s nodes in the order the p basis expects (boundary
     /// elements follow their parent edge, which can differ from the mesh).
     pub fn element_nodes(&self, e: ElemId) -> &[u32] {
