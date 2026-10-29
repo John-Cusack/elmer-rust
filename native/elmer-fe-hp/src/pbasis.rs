@@ -42,6 +42,11 @@ pub struct PElementSpec {
     /// 2D element living on a 3D face (`PDefs % isEdge`): its
     /// `FaceDirection(1:n,1)`, which directs the interior bubble.
     pub bubble_face_dir: Option<[usize; 4]>,
+    /// Order the functions of permuted wedge square faces as the scalar
+    /// `ElementInfo` does (see [`h1_p_basis_spec`]); `false` gives the order
+    /// of the vectorised `ElementInfoVec` path that `H1Basis_WedgeFaceP`
+    /// implements. Only matters for full (non-serendipity) wedges.
+    pub scalar_face_order: bool,
 }
 
 fn n_nodes(ecode: u16) -> Result<usize, String> {
@@ -123,6 +128,7 @@ impl PElementSpec {
             serendipity: false,
             invert_bubble: false,
             bubble_face_dir: None,
+            scalar_face_order: true,
         })
     }
 
@@ -323,8 +329,12 @@ pub fn h1_p_basis_spec(
                     sd_wedge_face_p(u, v, w, fp, val, &mut nbp, fd);
                     sd_d_wedge_face_p(u, v, w, fp, grad, &mut nbd, fd);
                 } else {
+                    let start = nbp;
                     wedge_face_p(u, v, w, fp, val, &mut nbp, fd);
                     d_wedge_face_p(u, v, w, fp, grad, &mut nbd, fd);
+                    if s.scalar_face_order {
+                        transpose_permuted_wedge_faces(start, fp, fd, val, grad);
+                    }
                 }
             }
             if bdofs > 0 {
@@ -380,6 +390,41 @@ pub fn h1_p_basis_spec(
     }
     debug_assert_eq!(nbp, nbd);
     Ok(nbp)
+}
+
+/// The scalar `ElementInfo` lists the functions of a wedge square face whose
+/// first two local nodes do not lie in one triangle (`wedgeOrdering` false) with
+/// the two face indices exchanged relative to `H1Basis_WedgeFaceP`; undo that
+/// here by transposing the `(p-1) x (p-1)` block of such faces.
+fn transpose_permuted_wedge_faces(
+    start: usize,
+    fp: &[i32],
+    fd: &[[usize; 4]],
+    val: &mut [f64],
+    grad: &mut [[f64; 3]],
+) {
+    let mut off = start;
+    for (i, &d) in fp.iter().enumerate().take(2) {
+        for j in 0..=d - 3 {
+            off += (d - j - 2).max(0) as usize;
+        }
+        let _ = i;
+    }
+    for i in 2..5 {
+        let d = fp[i];
+        let m = (d - 1).max(0) as usize;
+        let nodes = fd[i];
+        let nonpermuted = (nodes[0] <= 3 && nodes[1] <= 3) || (nodes[0] >= 4 && nodes[1] >= 4);
+        if !nonpermuted {
+            for a in 0..m {
+                for b in (a + 1)..m {
+                    val.swap(off + a * m + b, off + b * m + a);
+                    grad.swap(off + a * m + b, off + b * m + a);
+                }
+            }
+        }
+        off += m * m;
+    }
 }
 
 /// Spec'd entry point: uniform degree `p` on every edge, face and bubble,
