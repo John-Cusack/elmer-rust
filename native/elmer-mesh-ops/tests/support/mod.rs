@@ -105,45 +105,18 @@ pub fn load(dir: &Path, sif: &str) -> Case {
     let (db, name) = model.header.mesh_db.clone().expect("Mesh DB");
     let mesh_dir = dir.join(db).join(name);
     let mesh = read_mesh(&mesh_dir);
-    if simulation.logical("use mesh names") == Some(true) {
-        read_target_names(&mesh_dir.join("mesh.names"), &mut bodies, &mut bcs);
-    }
+    elmer_mesh_ops::read_target_names(
+        &mesh_dir.join("mesh.names"),
+        &simulation,
+        &mut bodies,
+        &mut bcs,
+    )
+    .unwrap();
     Case {
         simulation,
         bodies,
         bcs,
         mesh,
-    }
-}
-
-/// `ReadTargetNames` (MeshIO.F90:959): `$ name = tags` lines of `mesh.names`
-/// give `Target Bodies` / `Target Boundaries` to the section of that `Name`.
-fn read_target_names(file: &Path, bodies: &mut [ParamMap], bcs: &mut [ParamMap]) {
-    let text = std::fs::read_to_string(file).unwrap();
-    for line in text.lines() {
-        let (Some(i), Some(j)) = (line.find('$'), line.find('=')) else {
-            continue;
-        };
-        let name = line[i + 1..j].trim().to_lowercase();
-        let tags: Vec<i32> = line[j + 1..]
-            .split_whitespace()
-            .map_while(|w| w.parse().ok())
-            .collect();
-        let mut already_set = false;
-        for (sections, key) in [
-            (&mut *bcs, "Target Boundaries"),
-            (&mut *bodies, "Target Bodies"),
-        ] {
-            for section in sections.iter_mut() {
-                if section.string("name").map(str::to_lowercase).as_deref() == Some(name.as_str()) {
-                    assert!(!already_set, "Mapping of name is not unique: {name}");
-                    if section.get(key).is_none() {
-                        section.insert(key, Value::Integer(tags.clone()));
-                        already_set = true;
-                    }
-                }
-            }
-        }
     }
 }
 
