@@ -21,7 +21,7 @@ References below are paths under `/home/john/runs/elmer-fork/orig_src/fem/tests/
 | `BulkAssembly`, `BoundaryAssembly` | `PoissonAssembly.f90` of `CoupledPoisson1`..`9`, `BlockPoisson1`, `BlockPoisson2` | element assembly kernels (`Bulk Assembly Procedure`) | `poisson_assembly::PoissonAssembly`; as `elmer-solver` `ElementAssembly` on `elmer-fe`: `hooks::{PoissonBulk, PoissonBoundary}` |
 | `PoissonSolver` | `1dtests/Poisson.f90` (+ `1dtests_MeshLevels`), `ExtrudedMesh/Poisson.f90` (+ `ExtrudedMeshBaseline1`) | solver procedure (`Procedure "Poisson" "PoissonSolver"`) | `poisson_solver` |
 | `TrescaSolver` | `tresca/Tresca.f90` | solver procedure; creates `Tresca` on `Stress`'s permutation (`SAVE TrescaValues`) | `tresca` |
-| `SingleElements`, `SingleElements_init` | `ElementUnitTest_h1/SingleElements.F90` | solver procedure plus a `_init` section edit (`registry::init_sections`); `SAVE NoTest, NoMode` | `single_elements` |
+| `SingleElements`, `SingleElements_init` | `ElementUnitTest_h1/SingleElements.F90` (also `ElementUnitTest_p1`, `SD_ElementUnitTest_p1`: the same source on `Element = "p:1"`) | solver procedure plus a `_init` section edit (`registry::init_sections`); `SAVE NoTest, NoMode`; p basis and rule from `elmer-pdofs` | `single_elements` |
 | `AdvDiffSolver` | `ModelPDEhandle/ModelPDEhandle.F90` | solver procedure, keyword handles at integration points | `model_pde_handle` |
 | `PressureSolver`, `VelocitySolver` | `StokesProj/Pressure.f90`, `StokesProj/Velocity.f90` | two solver procedures of a projection scheme; `SAVE Newton, Norm` | `stokes_proj` |
 | `BentoniteSolver` | `bentonite/BentoniteSolver.F90` | 3-dof coupled solver with `CompEta` initialisation (`SAVE AllocationsDone`), axisymmetric metric, Robin boundaries | `bentonite` |
@@ -96,6 +96,17 @@ Refused with a named reason:
   variable`. Registered, the case runs to norm 0 (a mismatch) instead of
   erroring. Register it once explicit control exists or `elmer-run`
   refuses `Apply Explicit Control`.
+- `ElementUnitTest_p1`, `SD_ElementUnitTest_p1`: registered. The solver's
+  variable is a global, so `elmer-solver` builds no dof layout for it, and
+  `SingleElements` builds `elmer-pdofs`' layout for its own section in
+  `init`. That layout has no tetrahedral p elements yet (the unit meshes
+  have a 504), so both are refused by name before the run. With
+  https://github.com/John-Cusack/elmer-rust/pull/162's 3D p layer, the brick
+  of the unit mesh gives the pristine p:1 values (`tests/data/ElementUnitTest_p1_brick`,
+  an ignored test until that lands; the stiffness sum differs in the last
+  place, as for `_h1`). Its parentless 404 boundary face is "not an active p
+  element" for `elmer-pdofs`, while the pristine run gives it a p basis (its
+  stiffness sum differs from `_h1`'s).
 - `BlockPoisson1`, `BlockPoisson2`: registered, but `Block Solver = True` is
   refused by `elmer-solver` (`coupled.rs`).
 
@@ -266,7 +277,6 @@ largest group and the best next target after the scalar batch; `CountSolver` and
 | `BDM2D/ComputeError.F90` | IntegrateError:solver | SAVE SolDOFs, Indices, AllocationsDone; init ; work arrays | elmer-fe; edge/face basis (L15); writes Solver%Variable |
 | `CurvedBndryPFEM/Poisson.f90` (+1: SD_CurvedBndryPFEM) | PoissonSolver:solver | SAVE STIFF, LOAD, FORCE, POT, AllocationsDone, Nodes; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; p/edge/face Element in .sif; writes Solver%Variable |
 | `CurvedBndryPFEM2/Poisson.f90` (+1: SD_CurvedBndryPFEM2) | PoissonSolver:solver | SAVE STIFF, LOAD, FORCE, POT, AllocationsDone, Nodes; init ; work arrays | default_* solve path; elmer-fe; p/edge/face Element in .sif |
-| `ElementUnitTest_p1/SingleElements.F90` (+1: SD_ElementUnitTest_p1; the same source as the ported `_h1`, run on p-elements) | SingleElements_init:solver _init; SingleElements:solver | SAVE :: NoTest, cumrt, cumct, Nodes | elmer-fe; p/edge/face Element in .sif; writes Solver%Variable |
 | `FaceElement2D_BCs/FaceFEInterpolationTest.F90` | BestApproximationSolver:solver | SAVE STIFF, LOAD, FORCE, Acoef, AllocationsDone, Nodes, Indices; init ; work arrays | default_* solve path; elmer-fe; edge/face basis (L15); p/edge/face Element in .sif; writes Solver%Variable |
 | `FaceElement3D_BCs/FaceFEInterpolationTest.F90` | BestApproximationSolver:solver | SAVE STIFF, LOAD, FORCE, Acoef, AllocationsDone, Nodes, Indices; init ; work arrays | default_* solve path; elmer-fe; edge/face basis (L15); p/edge/face Element in .sif; writes Solver%Variable |
 | `HelmholtzEdge/Hrot.f90` | HrotSolver:solver | SAVE STIFF, LOAD, MASS, FORCE, Acoef, Bcoef, &, Nodes; init ; work arrays | default_* solve path; elmer-fe; boundary parent lookup; edge/face basis (L15); p/edge/face Element in .sif; direct CSR row surgery; current-element context; writes Solver%Variable |

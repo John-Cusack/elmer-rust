@@ -122,6 +122,9 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("ExtrudedMeshBaseline1", "Poisson", "PoissonSolver", Hook::Solver(poisson_solver::condensing_factory)),
     ("tresca", "Tresca", "TrescaSolver", Hook::Solver(tresca::factory)),
     ("ElementUnitTest_h1", "SingleElements", "SingleElements", Hook::Solver(single_elements::factory)),
+    // The same source as `_h1`, on `Element = "p:1"`.
+    ("ElementUnitTest_p1", "SingleElements", "SingleElements", Hook::Solver(single_elements::factory)),
+    ("SD_ElementUnitTest_p1", "SingleElements", "SingleElements", Hook::Solver(single_elements::factory)),
     ("ModelPDEhandle", "ModelPDEhandle", "AdvDiffSolver", Hook::Solver(model_pde_handle::factory)),
     ("StokesProj", "Pressure", "PressureSolver", Hook::Solver(stokes_proj::pressure_factory)),
     ("StokesProj", "Velocity", "VelocitySolver", Hook::Solver(stokes_proj::velocity_factory)),
@@ -143,6 +146,8 @@ type SectionInit = fn(&mut ParamMap);
 /// variable exists: `(case, library, entry, edit)`.
 const SECTION_INITS: &[(&str, &str, &str, SectionInit)] = &[
     ("ElementUnitTest_h1", "SingleElements", "SingleElements", single_elements::init_section),
+    ("ElementUnitTest_p1", "SingleElements", "SingleElements", single_elements::init_section),
+    ("SD_ElementUnitTest_p1", "SingleElements", "SingleElements", single_elements::init_section),
     ("ElementUnitTest_edge", "SingleEdgeElements", "SingleEdgeElements", single_edge_elements::init_section),
     ("ElementUnitTest_edge_piola", "SingleEdgeElements", "SingleEdgeElements", single_edge_elements::init_section),
     ("ElementUnitTest_edge_quadratic", "SingleEdgeElements", "SingleEdgeElements", single_edge_elements::init_section),

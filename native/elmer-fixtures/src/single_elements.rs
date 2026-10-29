@@ -11,13 +11,21 @@
 //! (`NoTest`, `NoMode`, `SAVE`d) live in the instance, and the
 //! `Element type:` / `Norm for element:` records go to the instance's
 //! [`PrintSink`].
+//!
+//! With a p-element definition (`Element = "p:1"`, ElementUnitTest_p1)
+//! `ElementInfo` and `GaussPoints` are those of the p element. The
+//! solver's variable is a global, so `elmer-solver` builds no dof layout
+//! for it; the solver builds `elmer-pdofs`' layout for its own section and
+//! takes each element's basis, rule and node order from it. The Fortran
+//! integrates only the nodal functions (`nd = n`).
 
 use std::time::Instant;
 
-use elmer_core::{BasisEval, ElemId, ElementBasis, ElementType, ParamMap, Params, Quadrature, Value};
+use elmer_core::{BasisEval, ElemId, ElementBasis, ElementType, ParamMap, Params, QuadPoint, Quadrature, Value};
 use elmer_fe::ElmerQuadrature;
+use elmer_pdofs::PDofsBackend;
 use elmer_solver::fortran_fmt::list_int;
-use elmer_solver::{Solver, SolverCtx, SolverError};
+use elmer_solver::{DofsBackend, Solver, SolverCtx, SolverDofs, SolverError};
 
 use crate::hooks::{element_nodes, lagrange_basis};
 use crate::udf::{list_real, stdout_sink, PrintSink};
@@ -36,19 +44,23 @@ pub struct SingleElements {
     no_mode: usize,
     cumct: f64,
     out: PrintSink,
+    /// The p-element layout of the section, built on the first visit.
+    p_layout: Option<Box<dyn SolverDofs>>,
 }
 
 impl SingleElements {
     pub fn new(out: PrintSink) -> Self {
-        Self { no_test: 0, no_mode: 0, cumct: 0.0, out }
+        Self { no_test: 0, no_mode: 0, cumct: 0.0, out, p_layout: None }
     }
 }
 
+/// A section whose `Element` is not the nodal `n:1`.
+fn is_p_section(params: &ParamMap) -> bool {
+    params.string("element").is_some_and(|e| elmer_core::normalize_key(e) != "n:1")
+}
+
 /// [`SolverFactory`](elmer_solver::SolverFactory): prints to standard output.
-pub fn factory(params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
-    if params.string("element").is_some_and(|e| elmer_core::normalize_key(e) != "n:1") {
-        return Err(SolverError::Unsupported("SingleElements: p-, bubble or edge elements".into()));
-    }
+pub fn factory(_params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     Ok(Box::new(SingleElements::new(stdout_sink())))
 }
 
@@ -58,13 +70,13 @@ pub fn element_sums(
     etype: ElementType,
     xyz: &[[f64; 3]],
     basis: &dyn ElementBasis,
-    quad: &dyn Quadrature,
+    rule: &[QuadPoint],
 ) -> Result<(f64, f64), String> {
     let nd = xyz.len();
     let mut mass = vec![0.0; nd * nd];
     let mut stiff = vec![0.0; nd * nd];
     let mut ev = BasisEval::default();
-    for qp in quad.gauss_points(etype, None) {
+    for qp in rule {
         basis.eval(etype, xyz, qp.uvw, &mut ev)?;
         if ev.basis.len() < nd {
             return Err(format!("ElementInfo gave {} basis functions for {nd} nodes", ev.basis.len()));
@@ -92,6 +104,15 @@ impl Solver for SingleElements {
                 "SingleElements: its _init variable (elmer_fixtures::registry::init_sections before setup)".into(),
             ));
         }
+        // Built here, so an element `elmer-pdofs` does not handle is refused
+        // before the run.
+        if is_p_section(ctx.params()) {
+            let active: Vec<ElemId> = ctx.active_elements().collect();
+            let layout = PDofsBackend::new()
+                .for_solver(ctx.mesh, &ctx.sim.model, ctx.params(), &active, 1)
+                .ok_or_else(|| SolverError::Unsupported(format!("{CALLER}: element definition without p dofs")))??;
+            self.p_layout = Some(layout);
+        }
         Ok(())
     }
 
@@ -107,15 +128,21 @@ impl Solver for SingleElements {
         let e = ElemId(self.no_test as u32 - 1);
         let etype = ctx.mesh.element(e).etype;
         (self.out)(&format!(" Element type: {}", list_int(etype.0 as i32)));
-        let xyz = element_nodes(ctx.mesh, e);
-        let basis = lagrange_basis(ctx)?;
+        let fatal = |m: String| SolverError::fatal(CALLER, m);
+        let (xyz, basis, rule): (_, Box<dyn ElementBasis>, _) = match &self.p_layout {
+            Some(d) => {
+                let xyz: Vec<[f64; 3]> = d.element_nodes(e).iter().map(|&n| ctx.mesh.coord(n)).collect();
+                (xyz, d.element_basis(e).map_err(fatal)?, d.element_rule(e).map_err(fatal)?)
+            }
+            None => (element_nodes(ctx.mesh, e), Box::new(lagrange_basis(ctx)?), ElmerQuadrature.gauss_points(etype, None)),
+        };
 
         let start = Instant::now();
         let mut sums = (0.0, 0.0);
         // `DO i=0,NoCycles` repeats ElementInfo for timing; the result is
         // the same each time.
         for _ in 0..=cycles {
-            sums = element_sums(etype, &xyz, &basis, &ElmerQuadrature).map_err(|m| SolverError::fatal(CALLER, m))?;
+            sums = element_sums(etype, &xyz, basis.as_ref(), &rule).map_err(fatal)?;
         }
         if cycles > 0 {
             let dt = start.elapsed().as_secs_f64();
