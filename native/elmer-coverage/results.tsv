@@ -1,6 +1,6 @@
 test	nprocs	verdict	secs	libs	blockers	detail
 1dtests	1	match	0.01	poisson		
-1dtests_MeshLevels	1	match	0.06	poisson		
+1dtests_MeshLevels	1	match	0.07	poisson		
 AdvDiffFluxes	1	refused	0.01	advectiondiffusion,flowsolve,savedata	runtime: RUN block 2 changes Solver N show norm index (re-reading changed keywords after a reload is not composed)	unsupported: RUN block 2 changes Solver 3 show norm index (re-reading changed keywords after a reload is not composed)
 AdvDiffMigration	1	match	0.02	advectiondiffusion,statcurrentsolve		
 AdvDiffMigrationAbsMass	1	match	0.02	advectiondiffusion,statcurrentsolve		
@@ -13,13 +13,13 @@ AdvReactDBmap_np6	6	refused	0.01	advectionreaction	solver: advectionreaction adv
 AdvReactDG	1	refused	0.01	advectionreaction	solver: advectionreaction advectionreactionsolver || feature: discontinuous Galerkin || runtime: Solver N: VTU output: discontinuous galerkin	unsupported: Solver 2: VTU output: discontinuous galerkin
 AdvReactDG_P	1	refused	0.01	advreactdg_p	plugin: advreactdg_p || solver: advreactdg_p advectionreactionsolver || feature: discontinuous Galerkin || feature: p-hierarchic elements	unsupported: Solver 1: Procedure "AdvReactDG_P" "AdvectionReactionSolver"
 AdvReactDG_np6	6	refused	0.01	advectionreaction	solver: advectionreaction advectionreactionsolver || feature: discontinuous Galerkin || runtime: Solver N: VTU output: discontinuous galerkin	static screen only
-AnalyticalTest	1	match	0.01	heatsolve		
-AngleMetisLayer	1	match	0.10	heatsolve,savedata		
-AngleMetisLayer_np2	2	match	0.60	heatsolve,savedata		
-AngleMetisLayer_np3	3	match	0.57	heatsolve,savedata		
-AngleMetisLayer_np4	4	match	0.58	heatsolve,savedata		
+AnalyticalTest	1	match	0.02	heatsolve		
+AngleMetisLayer	1	match	0.13	heatsolve,savedata		
+AngleMetisLayer_np2	2	match	0.84	heatsolve,savedata		
+AngleMetisLayer_np3	3	match	0.52	heatsolve,savedata		
+AngleMetisLayer_np4	4	match	0.53	heatsolve,savedata		
 BDM2D	1	refused	0.01	computeerror,modelmixedpoisson	plugin: computeerror || plugin: source || solver: modelmixedpoisson mixedpoisson	unsupported: Solver 1: Procedure "ModelMixedPoisson" "MixedPoisson"
-BlockLinElast1	1	refused	0.01		plugin: blocklinelast || feature: p-hierarchic elements	BlockSystemAssembly: Assembly routine not found: ./BlockLinElast BulkAssembly
+BlockLinElast1	1	refused	0.02		plugin: blocklinelast || feature: p-hierarchic elements	BlockSystemAssembly: Assembly routine not found: ./BlockLinElast BulkAssembly
 BlockLinElast2	1	match	0.02	stresssolve		
 BlockLinElast2b	1	match	0.02	stresssolve		
 BlockLinElast2bMany	1	match	0.04	stresssolve		
@@ -30,7 +30,7 @@ BoundaryFluxes2	1	match	0.01	heatsolve,savedata
 CapacitanceMatrix	1	refused	0.02	statelecsolve	runtime: unsupported Solver keyword "calculate capacitance matrix": Constraint Modes analysis is not ported	unsupported: unsupported Solver keyword "calculate capacitance matrix": Constraint Modes analysis is not ported
 CapacitanceMatrix3	1	refused	0.01	savedata,statelecsolvevec	feature: p-hierarchic elements || runtime: Solver section N: Element = p:2 for Solver N (p-, bubble, edge or DG elements)	unsupported: Solver section 1: Element = p:2 for Solver 1 (p-, bubble, edge or DG elements)
 CapacitanceMatrix3_np3	3	refused	0.01	savedata,statelecsolvevec	feature: p-hierarchic elements	static screen only
-CapacitanceMatrix4	1	refused	0.02	savedata,statelecsolvevec	feature: p-hierarchic elements || runtime: Solver section N: Element = p:2 for Solver N (p-, bubble, edge or DG elements)	unsupported: Solver section 1: Element = p:2 for Solver 1 (p-, bubble, edge or DG elements)
+CapacitanceMatrix4	1	refused	0.01	savedata,statelecsolvevec	feature: p-hierarchic elements || runtime: Solver section N: Element = p:2 for Solver N (p-, bubble, edge or DG elements)	unsupported: Solver section 1: Element = p:2 for Solver 1 (p-, bubble, edge or DG elements)
 CapacitanceMatrix4_np3	3	refused	0.01	savedata,statelecsolvevec	feature: p-hierarchic elements	static screen only
 CavityLid	1	refused	0.01	flowsolve	runtime: Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented	unsupported: Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented
 ChannelFlowCoulomb	1	refused	0.02	flowsolve	feature: p-hierarchic elements || runtime: Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented	taylorhood.sif: unsupported: Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented
@@ -64,7 +64,7 @@ CoupledPoisson5	1	match	0.11	savedata
 CoupledPoisson6	1	match	0.01	savedata		
 CoupledPoisson7	1	match	0.01	savedata		
 CoupledPoisson8	1	match	0.02	savedata		
-CoupledPoisson9	1	match	0.01	savedata		
+CoupledPoisson9	1	match	0.02	savedata		
 CurvedBndryPFEM	1	refused	0.01	poisson	plugin: poisson || feature: p-hierarchic elements || runtime: Solver N: VTU output: lagrange element degree	unsupported: Solver 2: VTU output: lagrange element degree
 CurvedBndryPFEM2	1	refused	0.01	meshsolve,poisson	plugin: poisson || solver: implicit legacy solver `mesh update` || feature: p-hierarchic elements || runtime: Solver N: VTU output: lagrange element degree	unsupported: Solver 3: VTU output: lagrange element degree
 CurvedBoundaryP	1	refused	0.01	savedata,statelecsolvevec	feature: p-hierarchic elements || runtime: Solver N: VTU output: constraint modes analysis	unsupported: Solver 3: VTU output: constraint modes analysis
@@ -79,13 +79,13 @@ DataToField2	1	refused	0.01	datatofieldsolver	solver: datatofieldsolver datatofi
 DefaultIntExtBCs	1	match	0.01	heatsolve		
 DgVariable	1	refused	0.01	heatsolve,savedata	runtime: Solver N: VTU output: discontinuous bodies	unsupported: Solver 3: VTU output: discontinuous bodies
 DgVariable2	1	refused	0.01	heatsolve,savedata	runtime: Solver N: VTU output: discontinuous bodies	unsupported: Solver 3: VTU output: discontinuous bodies
-DirichletNeumann	1	match	0.03	heatsolve		
-DirichletNeumannSlave	1	match	0.03	heatsolve		
+DirichletNeumann	1	match	0.02	heatsolve		
+DirichletNeumannSlave	1	match	0.02	heatsolve		
 DisContBoundary	1	match	0.01	fluxsolver,heatsolve		
 DisContBoundary3D	1	match	0.05	fluxsolver,heatsolve		
-DisContBoundaryDouble	1	match	0.05	fluxsolver,heatsolve,rigidmeshmapper		
-DisContBoundaryDoubleMortar	1	refused	0.03	fluxsolver,heatsolve,rigidmeshmapper	runtime: Discontinuous Boundary projector	unsupported: Discontinuous Boundary projector
-DisContBoundaryDoubleNames	1	match	0.05	fluxsolver,heatsolve,rigidmeshmapper		
+DisContBoundaryDouble	1	match	0.06	fluxsolver,heatsolve,rigidmeshmapper		
+DisContBoundaryDoubleMortar	1	refused	0.21	fluxsolver,heatsolve,rigidmeshmapper	runtime: Discontinuous Boundary projector	unsupported: Discontinuous Boundary projector
+DisContBoundaryDoubleNames	1	match	0.06	fluxsolver,heatsolve,rigidmeshmapper		
 DisContBoundaryFullAngle	1	match	0.06	statelecsolve		
 DisContBoundaryMortarCont	1	refused	0.01	fluxsolver,heatsolve	runtime: Solver N: VTU output: skip halo elements	unsupported: Solver 3: VTU output: skip halo elements
 DisContBoundaryMortarContElim	1	refused	0.01	fluxsolver,heatsolve	runtime: Solver N: VTU output: skip halo elements	unsupported: Solver 3: VTU output: skip halo elements
@@ -94,7 +94,7 @@ DisContBoundaryMortarJumpC	1	refused	0.01	heatsolve,savedata	runtime: Solver N: 
 DisContBoundaryNodalJump	1	refused	0.01	fluxsolver,heatsolve,savedata	runtime: Discontinuous Boundary projector	unsupported: Discontinuous Boundary projector
 DisContBoundaryNodalJumpB	1	refused	0.01	fluxsolver,heatsolve,savedata	runtime: Discontinuous Boundary projector	unsupported: Discontinuous Boundary projector
 DisContBoundaryNodalProj	1	refused	0.01	fluxsolver,heatsolve	runtime: Discontinuous Boundary projector	unsupported: Discontinuous Boundary projector
-DiscontinuousTempSlabDG	1	refused	0.01	heatsolve,rigidmeshmapper	feature: discontinuous Galerkin || runtime: unsupported solver keyword "Discontinuous Galerkin": DG heat is not implemented	unsupported: unsupported solver keyword "Discontinuous Galerkin": DG heat is not implemented
+DiscontinuousTempSlabDG	1	refused	0.02	heatsolve,rigidmeshmapper	feature: discontinuous Galerkin || runtime: unsupported solver keyword "Discontinuous Galerkin": DG heat is not implemented	unsupported: unsupported solver keyword "Discontinuous Galerkin": DG heat is not implemented
 EMWavePiola2D	1	refused	0.01	emwavesolver	solver: emwavesolver emwavecalcfields || solver: emwavesolver emwavesolver	unsupported: Solver 1: Procedure "EMWaveSolver" "EMWaveSolver"
 EM_port_eigen_unit_voltage	1	refused	0.01	emport,savedata	solver: emport emportsolver || feature: eigenvalue analysis	unsupported: Solver 1: Procedure "EMPort" "EMPortSolver"
 ElastElstat1DBeam	1	error	0.01	savedata,stresssolve	userfunc: statelecboundary statelecboundaryforce || fatal: MAIN: procedure "StatElecBoundary" "StatElecBoundaryForce" is not registered	fatal: MAIN: procedure "StatElecBoundary" "StatElecBoundaryForce" is not registered
@@ -106,7 +106,7 @@ ElasticAnisotropic3D	1	match	0.04	elasticsolve,savedata
 ElasticAnisotropicAxi	1	match	0.02	elasticsolve,savedata		
 ElasticBlockDamping	1	refused	0.01	elasticsolve,stresssolve	runtime: backend not installed: second-order time integration (Default2ndOrderTime): elmer-solver needs a TimeBackend entry taking mass, damping and the displacement/velocity/acceleration history; set 'Time Derivative Order = 1' for the first-order scheme	backend not installed: second-order time integration (Default2ndOrderTime): elmer-solver needs a TimeBackend entry taking mass, damping and the displacement/velocity/acceleration history; set 'Time Derivative Order = 1' for the first-order scheme
 ElasticBlockDampingAlpha	1	refused	0.01	elasticsolve,stresssolve	runtime: backend not installed: second-order time integration (Default2ndOrderTime): elmer-solver needs a TimeBackend entry taking mass, damping and the displacement/velocity/acceleration history; set 'Time Derivative Order = 1' for the first-order scheme	backend not installed: second-order time integration (Default2ndOrderTime): elmer-solver needs a TimeBackend entry taking mass, damping and the displacement/velocity/acceleration history; set 'Time Derivative Order = 1' for the first-order scheme
-ElasticBlockDampingFirstOrder	1	match	0.03	elasticsolve,stresssolve		
+ElasticBlockDampingFirstOrder	1	match	0.04	elasticsolve,stresssolve		
 ElasticBlockInertia	1	refused	0.01	elasticsolve,stresssolve	runtime: backend not installed: second-order time integration (Default2ndOrderTime): elmer-solver needs a TimeBackend entry taking mass, damping and the displacement/velocity/acceleration history; set 'Time Derivative Order = 1' for the first-order scheme	backend not installed: second-order time integration (Default2ndOrderTime): elmer-solver needs a TimeBackend entry taking mass, damping and the displacement/velocity/acceleration history; set 'Time Derivative Order = 1' for the first-order scheme
 ElasticBlockQuasiStationary	1	refused	0.01	elasticsolve,stresssolve	runtime: StressSolver: quasi stationary	unsupported: StressSolver: quasi stationary
 ElasticBubbleBoundaryRule3D	1	refused	0.01	elasticsolve,stresssolve	feature: p-hierarchic elements || runtime: Solver section N: Element = p:1 b:1 for Solver N (p-, bubble, edge or DG elements)	unsupported: Solver section 1: Element = p:1 b:1 for Solver 1 (p-, bubble, edge or DG elements)
@@ -125,29 +125,29 @@ ElasticModelLumpingFixdisp	1	refused	0.01	elasticsolve,savedata	runtime: Elastic
 ElasticNeoHookeanCompressible	1	refused	0.01	elasticsolve,savedata	runtime: ElasticSolver: stress and strain postprocessing under Large Deflection or the neo-Hookean material	unsupported: ElasticSolver: stress and strain postprocessing under Large Deflection or the neo-Hookean material
 ElasticPrestressAdvection	1	refused	0.01	elasticsolve,stresssolve	runtime: StressSolver: body force 'gravitational prestress'	unsupported: StressSolver: body force 'gravitational prestress'
 ElasticStabilized	1	refused	0.05	elasticsolve,savedata	feature: p-hierarchic elements || runtime: Solver section N: Element = p:1 b:1 for Solver N (p-, bubble, edge or DG elements) || runtime: Solver section N: Element = p:1 b:3 for Solver N (p-, bubble, edge or DG elements) || runtime: Solver section N: Element = p:1 b:4 for Solver N (p-, bubble, edge or DG elements)	quad.sif: unsupported: Solver section 1: Element = p:1 b:3 for Solver 1 (p-, bubble, edge or DG elements)
-ElasticStressLoad	1	match	0.05	elasticsolve,savedata		
+ElasticStressLoad	1	match	0.06	elasticsolve,savedata		
 ElasticStressLoadPlane	1	match	0.02	elasticsolve,savedata		
 ElasticThermalAnisotropic	1	match	0.02	elasticsolve,savedata		
-ElasticThermalBiMetal	1	match	0.05	elasticsolve		
+ElasticThermalBiMetal	1	match	0.04	elasticsolve		
 ElasticTwoInstances	1	refused	0.01	elasticsolve,savedata	feature: p-hierarchic elements || runtime: Solver section N: Element = p:1 b:3 for Solver N (p-, bubble, edge or DG elements)	unsupported: Solver section 2: Element = p:1 b:3 for Solver 2 (p-, bubble, edge or DG elements)
 ElasticTwoInstancesP2	1	refused	0.01	elasticsolve,savedata	feature: p-hierarchic elements || runtime: Solver section N: Element = p:2 for Solver N (p-, bubble, edge or DG elements)	unsupported: Solver section 2: Element = p:2 for Solver 2 (p-, bubble, edge or DG elements)
 ElemVariable	1	refused	0.01	heatsolve,savedata	runtime: Solver N: VTU output: Reference Values (AscBinCompareNorm pseudonorm of the written file)	unsupported: Solver 3: VTU output: Reference Values (AscBinCompareNorm pseudonorm of the written file)
 ElemVariable2	1	refused	0.01	heatsolve,savedata	runtime: SaveData: variable 'testvar a' of kind Elemental	unsupported: SaveData: variable 'testvar a' of kind Elemental
 ElementUnitTest_edge	1	match	0.01	singleedgeelements		
-ElementUnitTest_edge_piola	1	match	0.01	singleedgeelements		
+ElementUnitTest_edge_piola	1	match	0.02	singleedgeelements		
 ElementUnitTest_edge_quadratic	1	match	0.01	singleedgeelements		
 ElementUnitTest_h1	1	match	0.01	singleelements		
 ElementUnitTest_p1	1	match	0.01	singleelements		
 ElmerGridConvertComsol	1	match	0.01	heatsolve,meshchecksum		
-ElmerGridConvertFvcom	1	match	0.02	heatsolve,meshchecksum		
+ElmerGridConvertFvcom	1	match	0.20	heatsolve,meshchecksum		
 ElmerGridConvertGmshBinary	1	match	0.02	heatsolve,meshchecksum		
-ElmerGridConvertUnv	1	match	0.02	heatsolve,meshchecksum		
-ElmerGridExtrudeHelicity	1	match	0.10	heatsolve		
-ElmerGridExtrudeMaterial	1	match	0.05	heatsolve		
+ElmerGridConvertUnv	1	match	0.03	heatsolve,meshchecksum		
+ElmerGridExtrudeHelicity	1	match	0.11	heatsolve		
+ElmerGridExtrudeMaterial	1	match	0.06	heatsolve		
 ElmerGridExtrudeMaterial2	1	match	0.05	heatsolve		
-ElmerGridExtrudeOffset	1	match	0.05	heatsolve		
-ExtrudedMesh	1	match	0.02	poisson		
-ExtrudedMesh2	1	match	0.03	heatsolve,structuredmeshmapper		
+ElmerGridExtrudeOffset	1	match	0.15	heatsolve		
+ExtrudedMesh	1	match	0.06	poisson		
+ExtrudedMesh2	1	match	0.10	heatsolve,structuredmeshmapper		
 ExtrudedMesh3	1	refused	0.01	heatsolve	runtime: Extruded Mesh Density that is not a constant, without an evaluator	unsupported: Extruded Mesh Density that is not a constant, without an evaluator
 ExtrudedMesh4	1	refused	0.01	heatsolve	runtime: Extruded Mesh Density that is not a constant, without an evaluator	unsupported: Extruded Mesh Density that is not a constant, without an evaluator
 ExtrudedMesh6	1	match	0.01	heatsolve		
@@ -165,35 +165,35 @@ FilmFlowPlane	1	refused	0.02	filmflowsolver,savedata	solver: filmflowsolver film
 FilmFlowPlane2	1	refused	0.01	filmflowsolver,savedata	solver: filmflowsolver filmflowsolver || solver: savedata savematerials	unsupported: Solver 1: Procedure "FilmFlowSolver" "FilmFlowSolver"
 FilmFlowPlane3	1	refused	0.01	filmflowsolver,savedata	solver: filmflowsolver filmflowsolver || solver: savedata savematerials	unsupported: Solver 1: Procedure "FilmFlowSolver" "FilmFlowSolver"
 FilmFlowPlane4	1	refused	0.01	filmflowsolver,savedata	solver: filmflowsolver filmflowsolver || solver: savedata savematerials	unsupported: Solver 1: Procedure "FilmFlowSolver" "FilmFlowSolver"
-FilmFlowPlane5	1	refused	0.01	filmflowsolver,savedata	solver: filmflowsolver filmflowsolver || solver: savedata savematerials	unsupported: Solver 1: Procedure "FilmFlowSolver" "FilmFlowSolver"
+FilmFlowPlane5	1	refused	0.02	filmflowsolver,savedata	solver: filmflowsolver filmflowsolver || solver: savedata savematerials	unsupported: Solver 1: Procedure "FilmFlowSolver" "FilmFlowSolver"
 FixPotentialLevels	1	match	0.02	heatsolve,savedata		
-FixTangentVelo	1	refused	0.02	fixtangentvelo,incompressiblens,structuredmeshmapper	solver: fixtangentvelo fixtangentvelo	stabilized.sif: unsupported: Solver 3: Procedure "FixTangentVelo" "FixTangentVelo"
-FluxIntegralBCInduction	1	refused	0.05	magnetodynamics,magnetodynamics2d,savedata	runtime: MagnetoDynamics2DHarmonic: solver option 'apply integral bcs'	unsupported: MagnetoDynamics2DHarmonic: solver option 'apply integral bcs'
+FixTangentVelo	1	refused	0.44	fixtangentvelo,incompressiblens,structuredmeshmapper	solver: fixtangentvelo fixtangentvelo	stabilized.sif: unsupported: Solver 3: Procedure "FixTangentVelo" "FixTangentVelo"
+FluxIntegralBCInduction	1	refused	0.07	magnetodynamics,magnetodynamics2d,savedata	runtime: MagnetoDynamics2DHarmonic: solver option 'apply integral bcs'	unsupported: MagnetoDynamics2DHarmonic: solver option 'apply integral bcs'
 FluxIntegralBCTemperature	1	match	0.01	heatsolve,savedata		
-HeatAndDiffusion	1	match	0.10	advectiondiffusion,fluxsolver,heatsolve		
+HeatAndDiffusion	1	match	0.12	advectiondiffusion,fluxsolver,heatsolve		
 HeatControl	1	match	0.01	heatsolve,savedata		
-HeatControl2	1	match	0.02	heatsolve,savedata		
-HeatControlExplicit	1	refused	0.01	heatsolve,savedata	runtime: Solver N: Apply Explicit Control: explicit control (Control Parameter values) is not implemented	unsupported: Solver 1: Apply Explicit Control: explicit control (Control Parameter values) is not implemented
+HeatControl2	1	match	0.03	heatsolve,savedata		
+HeatControlExplicit	1	match	0.29	heatsolve,savedata		
 HeatControlExplicit_np3	3	refused	0.01	heatsolve,savedata	plugin: alternatingsource	static screen only
 HeatEqExitCondition	1	refused	0.01	heatsolve,savedata	runtime: backend not installed: element basis and quadrature (elmer-fe)	backend not installed: element basis and quadrature (elmer-fe)
-HeatGap	1	match	0.02	heatsolve		
-HeatSolveVecCondMatrix	1	refused	0.01	heatsolve,savedata	feature: eigenvalue analysis || runtime: Solver N: VTU output: eigen analysis	unsupported: Solver 3: VTU output: eigen analysis
-HelmholtzBEM	1	refused	0.01	helmholtzbem	solver: helmholtzbem helmholtzbemsolver || runtime: mesh: bad parent in `257 3 -1 -1 101 1`	mesh: bad parent in `257 3 -1 -1 101 1`
+HeatGap	1	match	0.01	heatsolve		
+HeatSolveVecCondMatrix	1	refused	0.02	heatsolve,savedata	feature: eigenvalue analysis || runtime: Solver N: VTU output: eigen analysis	unsupported: Solver 3: VTU output: eigen analysis
+HelmholtzBEM	1	refused	0.02	helmholtzbem	solver: helmholtzbem helmholtzbemsolver || runtime: mesh: bad parent in `257 3 -1 -1 101 1`	mesh: bad parent in `257 3 -1 -1 101 1`
 HelmholtzEdge	1	refused	0.01	hrot	plugin: hrot || solver: hrot hrotsolver || feature: edge elements	unsupported: Solver 1: Procedure "Hrot" "HrotSolver"
-HelmholtzFEM	1	refused	0.01	helmholtzsolve	runtime: RUN block 2 changes Simulation angular frequency (re-reading changed keywords after a reload is not composed)	unsupported: RUN block 2 changes Simulation angular frequency (re-reading changed keywords after a reload is not composed)
+HelmholtzFEM	1	refused	0.02	helmholtzsolve	runtime: RUN block 2 changes Simulation angular frequency (re-reading changed keywords after a reload is not composed)	unsupported: RUN block 2 changes Simulation angular frequency (re-reading changed keywords after a reload is not composed)
 HelmholtzFace	1	refused	0.01	helmholtz	plugin: helmholtz || solver: helmholtz helmholtzhdivsolver || feature: edge elements	unsupported: Solver 1: Procedure "Helmholtz" "HelmholtzHDIVSolver"
-HelmholtzPlaneWaves	1	error	0.07	helmholtzsolve,savedata	fatal: MAIN: MATC evaluation failed: MATC ERROR: Index out of bounds.	fatal: MAIN: MATC evaluation failed: MATC ERROR: Index out of bounds.
-HelmholtzPlaneWavesAxis	1	error	0.07	helmholtzsolve,savedata	fatal: MAIN: MATC evaluation failed: MATC ERROR: Index out of bounds.	fatal: MAIN: MATC evaluation failed: MATC ERROR: Index out of bounds.
-HelmholtzStructure2	1	refused	0.03	helmholtzsolve,savedata,stresssolve	feature: harmonic analysis || runtime: unsupported Boundary Condition "structure interface": harmonic flow and structure coupling is not ported	unsupported: unsupported Boundary Condition "structure interface": harmonic flow and structure coupling is not ported
-HybridMeshMap	1	refused	0.03	heatsolve,meshsolve,savedata,structuredmeshmapper	solver: meshsolve meshsolver	unsupported: Solver 1: Procedure "MeshSolve" "MeshSolver"
+HelmholtzPlaneWaves	1	error	0.08	helmholtzsolve,savedata	fatal: MAIN: MATC evaluation failed: MATC ERROR: Index out of bounds.	fatal: MAIN: MATC evaluation failed: MATC ERROR: Index out of bounds.
+HelmholtzPlaneWavesAxis	1	error	0.08	helmholtzsolve,savedata	fatal: MAIN: MATC evaluation failed: MATC ERROR: Index out of bounds.	fatal: MAIN: MATC evaluation failed: MATC ERROR: Index out of bounds.
+HelmholtzStructure2	1	refused	0.04	helmholtzsolve,savedata,stresssolve	feature: harmonic analysis || runtime: unsupported Boundary Condition "structure interface": harmonic flow and structure coupling is not ported	unsupported: unsupported Boundary Condition "structure interface": harmonic flow and structure coupling is not ported
+HybridMeshMap	1	refused	0.04	heatsolve,meshsolve,savedata,structuredmeshmapper	solver: meshsolve meshsolver	unsupported: Solver 1: Procedure "MeshSolve" "MeshSolver"
 IncompressibleNSAxi	1	refused	0.01	incompressiblens	feature: p-hierarchic elements || runtime: Solver section N: Element = p:1 for Solver N (p-, bubble, edge or DG elements)	unsupported: Solver section 1: Element = p:1 for Solver 1 (p-, bubble, edge or DG elements)
-IncreaseOrderBrick	1	match	0.01	heatsolve		
+IncreaseOrderBrick	1	match	0.18	heatsolve		
 IncreaseOrderPrism	1	match	0.01	heatsolve		
 IncreaseOrderQuad	1	match	0.01	heatsolve		
 IncreaseOrderTet	1	match	0.01	heatsolve		
 IncreaseOrderTri	1	match	0.01	heatsolve		
 InductionHeating	1	refused	0.02	statmagsolve	solver: statmagsolve statmagsolver	unsupported: Solver 1: Procedure "StatMagSolve" "StatMagSolver"
-InductionHeating2	1	refused	0.01	heatsolve,statmagsolve	solver: statmagsolve statmagsolver	unsupported: Solver 1: Procedure "StatMagSolve" "StatMagSolver"
+InductionHeating2	1	refused	0.09	heatsolve,statmagsolve	solver: statmagsolve statmagsolver	unsupported: Solver 1: Procedure "StatMagSolve" "StatMagSolver"
 InductionHeating3	1	error	0.07	magnetodynamics,magnetodynamics2d	fatal: WhitneyAVSolver: Could not determine target variable type (real or complex)	fatal: WhitneyAVSolver: Could not determine target variable type (real or complex)
 InductionHeating4	1	error	0.07	magnetodynamics,magnetodynamics2d	fatal: WhitneyAVSolver: Could not determine target variable type (real or complex)	fatal: WhitneyAVSolver: Could not determine target variable type (real or complex)
 IntegralConstraintFlow	1	refused	0.01	flowsolve,savedata	runtime: Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented	unsupported: Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented
@@ -203,16 +203,16 @@ IntersectionBCs	1	refused	0.01	heatsolve,savedata	runtime: Boundary Condition N:
 IntersectionBCs0D	1	refused	0.01	heatsolve	runtime: Boundary Condition N: Intersection BC: intersection BCs are not implemented	unsupported: Boundary Condition 8: Intersection BC: intersection BCs are not implemented
 IntersectionBody1D	1	refused	0.01	heatsolve	runtime: Boundary Condition N: Intersection Body: intersection BCs are not implemented	unsupported: Boundary Condition 1: Intersection Body: intersection BCs are not implemented
 IntersectionBody1Ddiscont	1	refused	0.01	heatsolve	runtime: Boundary Condition N: Intersection Body: intersection BCs are not implemented	unsupported: Boundary Condition 1: Intersection Body: intersection BCs are not implemented
-IpVariable	1	refused	0.02	heatsolve,savedata	runtime: SaveData: variable 'testvar a' of kind Ip	unsupported: SaveData: variable 'testvar a' of kind Ip
+IpVariable	1	refused	0.01	heatsolve,savedata	runtime: SaveData: variable 'testvar a' of kind Ip	unsupported: SaveData: variable 'testvar a' of kind Ip
 IpVariable2	1	refused	0.01	heatsolve,savedata	feature: discontinuous Galerkin || runtime: SaveData: variable 'testvar a' of kind Ip	unsupported: SaveData: variable 'testvar a' of kind Ip
 IpVariable3	1	refused	0.01	heatsolve,savedata	runtime: SaveData: variable 'ip temperature' of kind Ip	unsupported: SaveData: variable 'ip temperature' of kind Ip
 IpVariable4	1	refused	0.01	heatsolve	runtime: Boundary Condition N: heat flux depends on the -ip variable ip x: boundary evaluation of integration-point variables is not implemented	unsupported: Boundary Condition 3: heat flux depends on the -ip variable ip x: boundary evaluation of integration-point variables is not implemented
 IsolineGmsh	1	refused	0.01	heatsolve,isosurface	solver: isosurface isosurfacesolver	unsupported: Solver 2: Procedure "Isosurface" "IsosurfaceSolver"
 IsosurfaceFixed	1	refused	0.01	heatsolve,isosurface	solver: isosurface isosurfacesolver	unsupported: Solver 2: Procedure "Isosurface" "IsosurfaceSolver"
 IsosurfaceLevels	1	refused	0.01	heatsolve,isosurface	solver: isosurface isosurfacesolver	unsupported: Solver 2: Procedure "Isosurface" "IsosurfaceSolver"
-JouleHeatToOpenFOAM	1	refused	0.02	elmer2openfoamio,statcurrentsolve	solver: elmer2openfoamio elmer2openfoamwrite	unsupported: Solver 2: Procedure "Elmer2OpenFoamIO" "Elmer2OpenFoamWrite"
+JouleHeatToOpenFOAM	1	refused	0.03	elmer2openfoamio,statcurrentsolve	solver: elmer2openfoamio elmer2openfoamwrite	unsupported: Solver 2: Procedure "Elmer2OpenFoamIO" "Elmer2OpenFoamWrite"
 L2ndDerivatives	1	match	0.01	l2ndderivativestest		
-LinControlCoordDisp	1	match	0.01	stresssolve		
+LinControlCoordDisp	1	match	0.03	stresssolve		
 LinControlCoordHeat	1	match	0.01	heatsolve		
 LinControlFourHeaters	1	match	0.04	heatsolve		
 LinControlLoadDisp	1	refused	0.01	stresssolve	runtime: Apply Source Control with Control Use Loads	unsupported: Apply Source Control with Control Use Loads
@@ -225,8 +225,8 @@ MarchingODE2	1	refused	0.01	heatsolve,marchingodesolver	solver: marchingodesolve
 MarchingODE3	1	refused	0.01	marchingodesolver	solver: marchingodesolver marchingodesolver	unsupported: Solver 1: Procedure "MarchingODESolver" "MarchingODESolver"
 MarchingODE4	1	refused	0.01	heatsolve,marchingodesolver	solver: marchingodesolver marchingodesolver || feature: discontinuous Galerkin || runtime: Solver N: VTU output: discontinuous bodies, Reference Values (AscBinCompareNorm pseudonorm of the written file)	unsupported: Solver 3: VTU output: discontinuous bodies, Reference Values (AscBinCompareNorm pseudonorm of the written file)
 MatDepMat	1	refused	0.01	heatsolve,savedata	solver: savedata savematerials	unsupported: Solver 2: Procedure "SaveData" "SaveMaterials"
-MeshColour	1	refused	0.15	meshcolour	plugin: meshcolour || solver: meshcolour meshcolour	unsupported: Solver 1: Procedure "MeshColour" "MeshColour"
-MeshLevelsRestart	1	refused	0.04	heatsolve	runtime: Simulation: Restart File (restart from a .result file)	case.sif: unsupported: Simulation: Restart File (restart from a .result file)
+MeshColour	1	refused	0.17	meshcolour	plugin: meshcolour || solver: meshcolour meshcolour	unsupported: Solver 1: Procedure "MeshColour" "MeshColour"
+MeshLevelsRestart	1	refused	0.05	heatsolve	runtime: Simulation: Restart File (restart from a .result file)	case.sif: unsupported: Simulation: Restart File (restart from a .result file)
 MgDynDiscontBCs	1	refused	0.05	magnetodynamics,savedata	runtime: Discontinuous Boundary projector	unsupported: Discontinuous Boundary projector
 MinimalExample	1	match	0.01	heatsolve		
 MixedPoisson2D	1	refused	0.01	modelmixedpoisson	plugin: source || solver: modelmixedpoisson mixedpoisson	unsupported: Solver 1: Procedure "ModelMixedPoisson" "MixedPoisson"
@@ -242,34 +242,34 @@ MortarPoisson2D	1	match	0.01	heatsolve,savedata
 MortarSaveProjection	1	refused	0.01	heatsolve,savedata	solver: savedata saveprojection	unsupported: Solver 2: Procedure "SaveData" "SaveProjection"
 NeoHookean2D	1	match	0.42	elasticsolve,savedata		
 NonnewtonianChannelFlow	1	refused	0.01	flowsolve	runtime: Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented	unsupported: Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented
-NonnewtonianChannelFlow_vec	1	refused	0.02	incompressiblens,savedata	runtime: IncompressibleNSSolver: the block preconditioner || runtime: IncompressibleNSSolver: the default MINI element (condensed velocity bubbles); only Pressure Stabilization (Element = "n:1") is ported	stabilized.sif: unsupported: IncompressibleNSSolver: the block preconditioner
+NonnewtonianChannelFlow_vec	1	refused	0.14	incompressiblens,savedata	runtime: IncompressibleNSSolver: the block preconditioner || runtime: IncompressibleNSSolver: the default MINI element (condensed velocity bubbles); only Pressure Stabilization (Element = "n:1") is ported	stabilized.sif: unsupported: IncompressibleNSSolver: the block preconditioner
 NormalTangentialDisplacement	1	refused	0.01	elasticsolve,rigidmeshmapper,savedata	plugin: tangentforce || runtime: ElasticSolver: stress and strain postprocessing under Large Deflection or the neo-Hookean material	unsupported: ElasticSolver: stress and strain postprocessing under Large Deflection or the neo-Hookean material
 NormalTangentialDisplacement2	1	refused	0.01	elasticsolve,rigidmeshmapper,savedata	runtime: ElasticSolver: stress and strain postprocessing under Large Deflection or the neo-Hookean material	unsupported: ElasticSolver: stress and strain postprocessing under Large Deflection or the neo-Hookean material
 NormalizeBC	1	refused	0.01		runtime: Boundary Condition N: heat flux = -distribute: keyword normalisation by area or volume is not implemented	Boundary Condition 2: heat flux = -distribute: keyword normalisation by area or volume is not implemented
-NormalizeBF	1	refused	0.01	heatsolve,savedata	runtime: Body Force 1: heat source normalize by volume: keyword normalisation by area or volume is not implemented	unsupported: Body Force 1: heat source normalize by volume: keyword normalisation by area or volume is not implemented
+NormalizeBF	1	refused	0.03	heatsolve,savedata	runtime: Body Force 1: heat source normalize by volume: keyword normalisation by area or volume is not implemented	unsupported: Body Force 1: heat source normalize by volume: keyword normalisation by area or volume is not implemented
 NormalizeMaterial	1	refused	0.01	heatsolve,savedata	runtime: Material 1: heat conductivity normalize by volume: keyword normalisation by area or volume is not implemented	unsupported: Material 1: heat conductivity normalize by volume: keyword normalisation by area or volume is not implemented
 OdeSolver1stOrder	1	refused	0.01		feature: Component sections	Component sections
 OdeSolver2ndOrder	1	refused	0.01		feature: Component sections	Component sections
 OtherMeshResults	1	refused	0.01	heatsolve,savedata	runtime: Solver N: Mesh: solver-specific meshes are not implemented	unsupported: Solver 2: Mesh: solver-specific meshes are not implemented
-OtherMeshResults_np4	4	refused	0.55	heatsolve,savedata	runtime: Solver N: ResultOutputSolver in parallel	unsupported: Solver 2: ResultOutputSolver in parallel
+OtherMeshResults_np4	4	refused	0.59	heatsolve,savedata	runtime: Solver N: ResultOutputSolver in parallel	unsupported: Solver 2: ResultOutputSolver in parallel
 Outlet2InletBCv2	1	refused	0.01	gmshoutputreader,heatsolve	solver: gmshoutputreader gmshoutputreader	unsupported: Solver 2: Procedure "GmshOutputReader" "GmshOutputReader"
 ParStokes_NormalTangentialBC	1	refused	0.01	parstokes,pressureprecond,velocityprecond	solver: parstokes stokessolver || solver: pressureprecond pressureprecond || solver: velocityprecond velocityprecond	unsupported: Solver 1: Procedure "VelocityPrecond" "VelocityPrecond"
-ParallelSlices_np2	2	match	0.49	heatsolve,rigidmeshmapper		
+ParallelSlices_np2	2	match	0.51	heatsolve,rigidmeshmapper		
 ParticleElstat	1	refused	0.01	datatofieldsolver,particledynamics,savegriddata,statelecsolve	solver: datatofieldsolver datatofieldsolver || solver: particledynamics particledynamics || solver: savegriddata particleoutputsolver	unsupported: Solver 2: Procedure "ParticleDynamics" "ParticleDynamics"
 ParticleElstatMag	1	refused	0.01	datatofieldsolver,particledynamics,savegriddata,statelecsolve	solver: datatofieldsolver datatofieldsolver || solver: particledynamics particledynamics || solver: savegriddata particleoutputsolver	unsupported: Solver 2: Procedure "ParticleDynamics" "ParticleDynamics"
 ParticleFalling	1	refused	0.01	datatofieldsolver,particledynamics,savegriddata	solver: datatofieldsolver datatofieldsolver || solver: particledynamics particledynamics	unsupported: Solver 1: Procedure "ParticleDynamics" "ParticleDynamics"
 ParticleFallingPathIntegral	1	refused	0.01	datatofieldsolver,particledynamics,savegriddata	solver: datatofieldsolver datatofieldsolver || solver: particledynamics particledynamics || solver: savegriddata particleoutputsolver	unsupported: Solver 1: Procedure "ParticleDynamics" "ParticleDynamics"
 PerfectGasCompress_vec	1	refused	0.01	heatsolve,incompressiblens	runtime: IncompressibleNSSolver: the default MINI element (condensed velocity bubbles); only Pressure Stabilization (Element = "n:1") is ported	unsupported: IncompressibleNSSolver: the default MINI element (condensed velocity bubbles); only Pressure Stabilization (Element = "n:1") is ported
 PerfectGasCompress_vec_transient	1	refused	0.01	heatsolve,incompressiblens	runtime: unsupported solver keyword "Stabilize": convection without SUPG needs a residual-free bubble, which is not implemented	unsupported: unsupported solver keyword "Stabilize": convection without SUPG needs a residual-free bubble, which is not implemented
-PhaseChange2	1	refused	0.01	heatsolve,meshsolve,savedata,steadyphasechange	solver: implicit legacy solver `mesh update` || solver: steadyphasechange steadyphasechange || userfunc: steadyphasechange meltingheat	unsupported: Solver 1: no Procedure
+PhaseChange2	1	refused	0.02	heatsolve,meshsolve,savedata,steadyphasechange	solver: implicit legacy solver `mesh update` || solver: steadyphasechange steadyphasechange || userfunc: steadyphasechange meltingheat	unsupported: Solver 1: no Procedure
 PhaseChange3	1	refused	0.01	heatsolve,meshsolve,savedata,transientphasechange	solver: implicit legacy solver `mesh update` || solver: transientphasechange transientphasechange	unsupported: Solver 1: no Procedure
-PhaseChange4	1	refused	0.01	heatsolve,meshsolve,savedata,transientphasechange	solver: implicit legacy solver `mesh update` || solver: transientphasechange transientphasechange	unsupported: Solver 1: no Procedure
+PhaseChange4	1	refused	0.05	heatsolve,meshsolve,savedata,transientphasechange	solver: implicit legacy solver `mesh update` || solver: transientphasechange transientphasechange	unsupported: Solver 1: no Procedure
 PlatesEigenComplex	1	refused	0.01	savedata,smitc	solver: smitc smitcsolver || feature: eigenvalue analysis	unsupported: Solver 1: Procedure "Smitc" "SmitcSolver"
 PoissonBEM	1	refused	0.01	poissonbem	solver: poissonbem poissonbemsolver	unsupported: Solver 1: Procedure "PoissonBEM" "PoissonBEMSolver"
 PoissonDG	1	refused	0.01	poissondg	solver: poissondg poissonsolver || feature: discontinuous Galerkin || runtime: Solver N: VTU output: discontinuous galerkin	unsupported: Solver 2: VTU output: discontinuous galerkin
 PoissonDG_np3	3	refused	0.01	poissondg	solver: poissondg poissonsolver || feature: discontinuous Galerkin || runtime: Solver N: VTU output: discontinuous galerkin	static screen only
 PoissonDG_np8	8	refused	0.01	poissondg	solver: poissondg poissonsolver || feature: discontinuous Galerkin || runtime: Solver N: VTU output: discontinuous galerkin	static screen only
-PoissonML	1	match	0.67	poissonml		
+PoissonML	1	match	0.73	poissonml		
 PoissonPFEM	1	match	0.01	poisson		
 PorousPipe	1	refused	0.01	flowsolve	runtime: FlowSolver: Stabilization Method = bubbles	unsupported: FlowSolver: Stabilization Method = bubbles
 PredictorCorrector	1	refused	0.01	flowsolve,freesurfacesolver,structuredmeshmapper	solver: freesurfacesolver freesurfacesolver	unsupported: Solver 1: Procedure "FreeSurfaceSolver" "FreeSurfaceSolver"
@@ -278,13 +278,13 @@ ProfileBCTemperatureRobin	1	match	0.02	heatsolve,savedata
 Q1Q0	1	refused	0.01	q1q0	plugin: q1q0 || solver: q1q0 stokessolver	unsupported: Solver 1: Procedure "Q1Q0" "StokesSolver"
 QuadraturesBrick	1	match	0.02	modelpde		
 QuadraturesWedge	1	match	0.03	modelpde		
-RaviartThomas2D	1	refused	0.01	computeerror,modelmixedpoisson	plugin: computeerror || plugin: source || solver: modelmixedpoisson mixedpoisson	unsupported: Solver 1: Procedure "ModelMixedPoisson" "MixedPoisson"
+RaviartThomas2D	1	refused	0.03	computeerror,modelmixedpoisson	plugin: computeerror || plugin: source || solver: modelmixedpoisson mixedpoisson	unsupported: Solver 1: Procedure "ModelMixedPoisson" "MixedPoisson"
 RaviartThomas3D	1	refused	0.02	computeerror,modelmixedpoisson	plugin: computeerror || plugin: source || solver: modelmixedpoisson mixedpoisson	unsupported: Solver 1: Procedure "ModelMixedPoisson" "MixedPoisson"
 ResultOutputBCs	1	refused	0.01	heatsolve	runtime: Solver N: VTU output: Reference Values (AscBinCompareNorm pseudonorm of the written file)	unsupported: Solver 2: VTU output: Reference Values (AscBinCompareNorm pseudonorm of the written file)
 RigidMeshMapper1	1	match	0.07	heatsolve,rigidmeshmapper		
-RigidMeshMapper2	1	match	0.09	heatsolve,rigidmeshmapper		
-RotatingBCPoisson3DGenericTets	1	refused	0.21	heatsolve,rigidmeshmapper,savedata	runtime: rotational projector (only the generic nodal projector is ported)	unsupported: rotational projector (only the generic nodal projector is ported)
-RotatingFlow	1	refused	0.01	flowsolve	runtime: Boundary Condition N: Target Coordinates: point BCs (Target Coordinates) are not implemented	unsupported: Boundary Condition 2: Target Coordinates: point BCs (Target Coordinates) are not implemented
+RigidMeshMapper2	1	match	0.10	heatsolve,rigidmeshmapper		
+RotatingBCPoisson3DGenericTets	1	refused	0.32	heatsolve,rigidmeshmapper,savedata	runtime: rotational projector (only the generic nodal projector is ported)	unsupported: rotational projector (only the generic nodal projector is ported)
+RotatingFlow	1	refused	0.02	flowsolve	runtime: RUN block 2 changes Body Force 1 angular velocity (re-reading changed keywords after a reload is not composed)	unsupported: RUN block 2 changes Body Force 1 angular velocity (re-reading changed keywords after a reload is not composed)
 SD_BlockLinElast1	1	refused	0.01		plugin: blocklinelast || feature: p-hierarchic elements	BlockSystemAssembly: Assembly routine not found: ./BlockLinElast BulkAssembly
 SD_CapacitanceMatrix3	1	refused	0.02	savedata,statelecsolvevec	feature: p-hierarchic elements || runtime: Solver section N: Element = p:2 for Solver N (p-, bubble, edge or DG elements)	unsupported: Solver section 1: Element = p:2 for Solver 1 (p-, bubble, edge or DG elements)
 SD_CapacitanceMatrix3_np3	3	refused	0.01	savedata,statelecsolvevec	feature: p-hierarchic elements	static screen only
@@ -293,61 +293,61 @@ SD_CurvedBndryPFEM	1	refused	0.01	poisson	plugin: poisson || feature: p-hierarch
 SD_CurvedBndryPFEM2	1	refused	0.01	meshsolve,poisson	plugin: poisson || solver: implicit legacy solver `mesh update` || feature: p-hierarchic elements || runtime: Solver N: VTU output: lagrange element degree	unsupported: Solver 3: VTU output: lagrange element degree
 SD_ElastPelem2dQuad	1	refused	0.01	savedata,stresssolve	feature: p-hierarchic elements || runtime: Solver N: VTU output: lagrange element degree	unsupported: Solver 3: VTU output: lagrange element degree
 SD_ElementUnitTest_p1	1	match	0.01	singleelements		
-SD_FilmFlowPlane	1	refused	0.01	filmflowsolver,savedata	solver: filmflowsolver filmflowsolver || solver: savedata savematerials	unsupported: Solver 1: Procedure "FilmFlowSolver" "FilmFlowSolver"
+SD_FilmFlowPlane	1	refused	0.02	filmflowsolver,savedata	solver: filmflowsolver filmflowsolver || solver: savedata savematerials	unsupported: Solver 1: Procedure "FilmFlowSolver" "FilmFlowSolver"
 SD_FilmFlowPlane2	1	refused	0.01	filmflowsolver,savedata	solver: filmflowsolver filmflowsolver || solver: savedata savematerials	unsupported: Solver 1: Procedure "FilmFlowSolver" "FilmFlowSolver"
 SD_FilmFlowPlane3	1	refused	0.01	filmflowsolver,savedata	solver: filmflowsolver filmflowsolver || solver: savedata savematerials	unsupported: Solver 1: Procedure "FilmFlowSolver" "FilmFlowSolver"
 SD_ModelPDE	1	match	0.03	modelpde		
 SD_ModelPDEsplitted	1	match	0.04	modelpdesplitted		
-SD_NonnewtonianChannelFlow_vec	1	refused	0.02	incompressiblens	runtime: IncompressibleNSSolver: the block preconditioner || runtime: IncompressibleNSSolver: the default MINI element (condensed velocity bubbles); only Pressure Stabilization (Element = "n:1") is ported	stabilized.sif: unsupported: IncompressibleNSSolver: the block preconditioner
+SD_NonnewtonianChannelFlow_vec	1	refused	0.18	incompressiblens	runtime: IncompressibleNSSolver: the block preconditioner || runtime: IncompressibleNSSolver: the default MINI element (condensed velocity bubbles); only Pressure Stabilization (Element = "n:1") is ported	stabilized.sif: unsupported: IncompressibleNSSolver: the block preconditioner
 SD_P2ndDerivatives	1	refused	0.01	p2ndderivativestest	plugin: p2ndderivativestest || solver: p2ndderivativestest testsolver || feature: p-hierarchic elements	unsupported: Solver 1: Procedure "P2ndDerivativesTest" "TestSolver"
 SD_PoissonPFEM	1	match	0.01	poisson		
 SD_QuadraturesBrick	1	match	0.01	modelpde		
 SD_QuadraturesWedge	1	match	0.03	modelpde		
 SD_SolverSpecificMeshes	1	refused	0.01	poisson	plugin: poisson || solver: poisson poissonsolver	unsupported: Solver 1: Procedure "Poisson" "PoissonSolver"
 SD_Step_stokes_block	1	refused	0.01	stokes	solver: stokes stokessolver || feature: p-hierarchic elements	unsupported: Solver 1: Procedure "Stokes" "StokesSolver"
-SD_Step_stokes_vec_blockprec	1	refused	0.02	incompressiblens	feature: p-hierarchic elements || runtime: IncompressibleNSSolver: the block preconditioner || runtime: Solver section N: Element = p:1 -quad b:3 for Solver N (p-, bubble, edge or DG elements)	stabilized.sif: unsupported: IncompressibleNSSolver: the block preconditioner
-SD_p-FEM_two_solvers	1	match	0.02	benchmarkshell,modelpde		
+SD_Step_stokes_vec_blockprec	1	refused	0.27	incompressiblens	feature: p-hierarchic elements || runtime: IncompressibleNSSolver: the block preconditioner || runtime: Solver section N: Element = p:1 -quad b:3 for Solver N (p-, bubble, edge or DG elements)	stabilized.sif: unsupported: IncompressibleNSSolver: the block preconditioner
+SD_p-FEM_two_solvers	1	match	0.04	benchmarkshell,modelpde		
 SD_p-FEM_with_varying_p	1	refused	0.01	benchmarkshell	feature: p-hierarchic elements || runtime: Solver N: VTU output: lagrange element degree	unsupported: Solver 2: VTU output: lagrange element degree
-SD_structmap_p2	1	refused	0.01	heatsolve,savedata,structuredmeshmapper	feature: p-hierarchic elements || runtime: Solver N: VTU output: lagrange element degree	unsupported: Solver 4: VTU output: lagrange element degree
+SD_structmap_p2	1	refused	0.10	heatsolve,savedata,structuredmeshmapper	feature: p-hierarchic elements || runtime: Solver N: VTU output: lagrange element degree	unsupported: Solver 4: VTU output: lagrange element degree
 SaveDependence	1	refused	0.01	heatsolve,savedata	solver: savedata savedependence	unsupported: Solver 2: Procedure "SaveData" "SaveDependence"
 SaveDependenceSpline	1	refused	0.01	savedata	solver: savedata savedependence	unsupported: Solver 1: Procedure "SaveData" "SaveDependence"
 SaveLine	1	refused	0.03	heatsolve,savedata	runtime: RUN block 2 changes Solver N show norm index (re-reading changed keywords after a reload is not composed)	unsupported: RUN block 2 changes Solver 2 show norm index (re-reading changed keywords after a reload is not composed)
 SecondOrderEdgeElement2D	1	refused	0.01	edgeelementtest	plugin: edgeelementtest || solver: edgeelementtest edgeelementsolver || feature: edge elements	unsupported: Solver 1: Procedure "EdgeElementTest" "EdgeElementSolver"
 SecondOrderEdgeElement2D_BCs	1	refused	0.01	edgefeinterpolationtest	solver: edgefeinterpolationtest bestapproximationsolver	unsupported: Solver 1: Procedure "EdgeFEInterpolationTest" "BestApproximationSolver"
 SecondOrderEdgeElement3D	1	refused	0.01	edgeelementtest	plugin: edgeelementtest || solver: edgeelementtest edgeelementsolver || feature: edge elements	unsupported: Solver 1: Procedure "EdgeElementTest" "EdgeElementSolver"
-SensTemperature	1	refused	0.03	heatsolve,rigidmeshmapper	feature: scanning simulation || runtime: Simulation Type = Scanning	unsupported: Simulation Type = Scanning
+SensTemperature	1	refused	0.04	heatsolve,rigidmeshmapper	feature: scanning simulation || runtime: Simulation Type = Scanning	unsupported: Simulation Type = Scanning
 Shell_And_Solid	1	refused	0.01	elasticsolve,savedata,shellsolver	solver: shellsolver shellsolver	unsupported: Solver 1: Procedure "ShellSolver" "ShellSolver"
 Shell_And_Solid2	1	refused	0.01	elasticsolve,savedata,shellsolver	solver: shellsolver shellsolver	unsupported: Solver 2: Procedure "ShellSolver" "ShellSolver"
 Shell_Cantilever	1	refused	0.01	savedata,shellsolver	solver: shellsolver shellsolver	unsupported: Solver 1: Procedure "ShellSolver" "ShellSolver"
 Shell_PlateCase_Quad	1	refused	0.01	shellsolver	solver: shellsolver shellsolver	unsupported: Solver 1: Procedure "ShellSolver" "ShellSolver"
 Shell_with_Beam_Sections	1	refused	0.01	savedata,shellsolver	solver: shellsolver shellsolver	unsupported: Solver 1: Procedure "ShellSolver" "ShellSolver"
-ShoeboxStaticPlate	1	refused	0.02	savedata,smitc	solver: smitc smitcsolver	unsupported: Solver 1: Procedure "Smitc" "SmitcSolver"
-ShoeboxStaticShell	1	refused	0.02	savedata,shellsolver	solver: shellsolver shellsolver	unsupported: Solver 1: Procedure "ShellSolver" "ShellSolver"
+ShoeboxStaticPlate	1	refused	0.07	savedata,smitc	solver: smitc smitcsolver	unsupported: Solver 1: Procedure "Smitc" "SmitcSolver"
+ShoeboxStaticShell	1	refused	0.03	savedata,shellsolver	solver: shellsolver shellsolver	unsupported: Solver 1: Procedure "ShellSolver" "ShellSolver"
 SlaveSolverSlots	1	refused	0.01	countsolver,modelpde	runtime: Solver N: pre solvers	unsupported: Solver 1: pre solvers
 SlaveSolverSlotsScan	1	refused	0.01	countsolver2,modelpde	runtime: Scanning Loops	unsupported: Scanning Loops
 SolverSpecificMeshes	1	refused	0.01	poisson	plugin: poisson || solver: poisson poissonsolver	unsupported: Solver 1: Procedure "Poisson" "PoissonSolver"
-StatCurr_adaptivity	1	refused	0.01	statcurrentsolve	prestep: Mesh2D	static screen only
+StatCurr_adaptivity	1	refused	0.02	statcurrentsolve	prestep: Mesh2D	static screen only
 StatCurrentVec	1	refused	0.01	statcurrentsolvevec	solver: statcurrentsolvevec statcurrentsolver	unsupported: Solver 1: Procedure "StatCurrentSolveVec" "StatCurrentSolver"
 StatCurrentVec2	1	refused	0.01	statcurrentsolve	runtime: Solver N: Namespace: solver keyword namespaces are not implemented	unsupported: Solver 1: Namespace: solver keyword namespaces are not implemented
-StatCurrentVecAniso	1	match	0.01	statcurrentsolve		
+StatCurrentVecAniso	1	match	0.02	statcurrentsolve		
 StatCurrentVecAxi	1	match	0.01	statcurrentsolve		
-StatCurrentVecFarfield	1	refused	0.01	statcurrentsolve	runtime: unsupported Boundary Condition "Farfield Potential": needs NormalVector(Element, Nodes, u, v, check orientation), which the element basis lacks	unsupported: unsupported Boundary Condition "Farfield Potential": needs NormalVector(Element, Nodes, u, v, check orientation), which the element basis lacks
+StatCurrentVecFarfield	1	refused	0.02	statcurrentsolve	runtime: unsupported Boundary Condition "Farfield Potential": needs NormalVector(Element, Nodes, u, v, check orientation), which the element basis lacks	unsupported: unsupported Boundary Condition "Farfield Potential": needs NormalVector(Element, Nodes, u, v, check orientation), which the element basis lacks
 StatCurrentVecResMatrix	1	refused	0.02	savedata,statcurrentsolve	feature: eigenvalue analysis || runtime: Solver N: VTU output: eigen analysis	unsupported: Solver 3: VTU output: eigen analysis
-StatElecVecAxi	1	match	0.01	statelecsolve		
-Step_ns	1	match	0.08	flowsolve		
+StatElecVecAxi	1	match	0.02	statelecsolve		
+Step_ns	1	match	0.09	flowsolve		
 Step_stokes	1	match	0.02	flowsolve		
 Step_stokes_block	1	refused	0.01	stokes	solver: stokes stokessolver || feature: p-hierarchic elements	unsupported: Solver 1: Procedure "Stokes" "StokesSolver"
 Step_stokes_vec_blockprec	1	refused	0.02	incompressiblens	feature: p-hierarchic elements || runtime: IncompressibleNSSolver: the block preconditioner || runtime: Solver section N: Element = p:1 -quad b:4 for Solver N (p-, bubble, edge or DG elements)	stabilized.sif: unsupported: IncompressibleNSSolver: the block preconditioner
 StlOutput1	1	refused	0.01		runtime: Solver N: ResultOutputSolver other than VTU	unsupported: Solver 1: ResultOutputSolver other than VTU
 StokesPFEM	1	refused	0.01	stokes1	runtime: Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented	unsupported: Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented
-StokesProj	1	match	0.09	pressure,velocity		
-StokesStabilized	1	refused	0.06	incompressiblens	feature: p-hierarchic elements || runtime: IncompressibleNSSolver: a flow variable with None dofs in ND (expected velocity components and pressure) || runtime: Solver section N: Element = p:2 for Solver N (p-, bubble, edge or DG elements)	tri.sif: unsupported: IncompressibleNSSolver: a flow variable with None dofs in 2D (expected velocity components and pressure)
+StokesProj	1	match	0.13	pressure,velocity		
+StokesStabilized	1	refused	0.07	incompressiblens	feature: p-hierarchic elements || runtime: IncompressibleNSSolver: a flow variable with None dofs in ND (expected velocity components and pressure) || runtime: Solver section N: Element = p:2 for Solver N (p-, bubble, edge or DG elements)	tri.sif: unsupported: IncompressibleNSSolver: a flow variable with None dofs in 2D (expected velocity components and pressure)
 StokesUnitElements	1	refused	0.02	incompressiblens	feature: p-hierarchic elements || runtime: IncompressibleNSSolver: a flow variable with None dofs in ND (expected velocity components and pressure) || runtime: Solver section N: Element = p:2 for Solver N (p-, bubble, edge or DG elements)	taylorhood.sif: unsupported: Solver section 1: Element = p:2 for Solver 1 (p-, bubble, edge or DG elements)
 StrainCalculation01	1	refused	0.01	stresssolve	runtime: StressSolver: principal angle postprocessing	unsupported: StressSolver: principal angle postprocessing
 StressAnisotropic2D	1	refused	0.01	savedata,stresssolve	runtime: RUN block 2 changes Equation 1 plane stress (re-reading changed keywords after a reload is not composed)	unsupported: RUN block 2 changes Equation 1 plane stress (re-reading changed keywords after a reload is not composed)
 StressConstraintModes	1	refused	0.01	stresssolve	runtime: Solver N: VTU output: constraint modes analysis	unsupported: Solver 2: VTU output: constraint modes analysis
 StressConstraintModes2	1	refused	0.01	stresssolve	runtime: Solver N: VTU output: constraint modes analysis	unsupported: Solver 2: VTU output: constraint modes analysis
-StressEigen	1	refused	0.01	savedata,stresssolve	feature: eigenvalue analysis || runtime: SaveScalars: eigenvalue columns (save eigenvalues)	unsupported: SaveScalars: eigenvalue columns (save eigenvalues)
+StressEigen	1	refused	0.02	savedata,stresssolve	feature: eigenvalue analysis || runtime: SaveScalars: eigenvalue columns (save eigenvalues)	unsupported: SaveScalars: eigenvalue columns (save eigenvalues)
 StressEigen2	1	refused	0.01	savedata,stresssolve	feature: eigenvalue analysis || runtime: Solver N: VTU output: eigen analysis	unsupported: Solver 3: VTU output: eigen analysis
 StressEigen2_np4	4	refused	0.01	savedata,stresssolve	feature: eigenvalue analysis || runtime: Solver N: VTU output: eigen analysis	static screen only
 StressEigen2_np8	8	refused	0.01	savedata,stresssolve	feature: eigenvalue analysis || runtime: Solver N: VTU output: eigen analysis	static screen only
@@ -355,13 +355,13 @@ StressMaxwellStressLoad	1	refused	0.01	savedata,stresssolve	runtime: backend not
 StressStressLoad	1	refused	0.01	savedata,stresssolve	runtime: StressSolver: body force 'stress load'	unsupported: StressSolver: body force 'stress load'
 SunAngle	1	refused	0.01	sunangle	plugin: sunangle || solver: sunangle sunanglesolver || feature: scanning simulation	unsupported: Solver 1: Procedure "./SunAngle" "SunAngleSolver"
 SunAngle_np3	3	refused	0.01	sunangle	plugin: sunangle || feature: scanning simulation	static screen only
-TankAst	1	match	0.01	stresssolve		
+TankAst	1	match	0.02	stresssolve		
 ThermalBiMetal	1	match	0.05	savedata,stresssolve		
 ThermalBiMetal2	1	match	0.05	heatsolve,savedata,stresssolve		
 ThermalCompress	1	refused	0.01	flowsolve,heatsolve	runtime: FlowSolver: Compressibility Model = thermal	unsupported: FlowSolver: Compressibility Model = thermal
 ThermalCompress_vec	1	refused	0.01	heatsolve,incompressiblens	runtime: IncompressibleNSSolver: the default MINI element (condensed velocity bubbles); only Pressure Stabilization (Element = "n:1") is ported	unsupported: IncompressibleNSSolver: the default MINI element (condensed velocity bubbles); only Pressure Stabilization (Element = "n:1") is ported
 ThermalPipe2D	1	match	0.02	heatsolve		
-ThermoElectric	1	match	0.02	thermoelectricsolver		
+ThermoElectric	1	match	0.03	thermoelectricsolver		
 ThermoElectricAnisoBC	1	match	0.02	thermoelectricsolver		
 ThermoElectricBubble	1	refused	0.01	thermoelectricsolver	feature: p-hierarchic elements || runtime: Solver section N: Element = p:1 b:4 for Solver N (p-, bubble, edge or DG elements)	unsupported: Solver section 1: Element = p:1 b:4 for Solver 1 (p-, bubble, edge or DG elements)
 ThermoElectricBubbleTransient	1	refused	0.01	thermoelectricsolver	feature: p-hierarchic elements || runtime: Solver section N: Element = p:1 b:4 for Solver N (p-, bubble, edge or DG elements)	unsupported: Solver section 1: Element = p:1 b:4 for Solver 1 (p-, bubble, edge or DG elements)
@@ -382,22 +382,22 @@ adaptivity2	1	refused	0.01	heatsolve	runtime: Solver N: Adaptive Mesh Refinement
 adaptivity3	1	refused	0.01	flowsolve	runtime: Solver N: Adaptive Mesh Refinement: mesh refinement is not implemented	unsupported: Solver 1: Adaptive Mesh Refinement: mesh refinement is not implemented
 adaptivity4	1	refused	0.01	stresssolve	runtime: Solver N: Adaptive Mesh Refinement: mesh refinement is not implemented	unsupported: Solver 1: Adaptive Mesh Refinement: mesh refinement is not implemented
 adaptivity5	1	refused	0.01	elasticsolve	runtime: Solver N: Adaptive Mesh Refinement: mesh refinement is not implemented	unsupported: Solver 1: Adaptive Mesh Refinement: mesh refinement is not implemented
-adv_diff1	1	match	0.14	advectiondiffusion		
-adv_diff2	1	match	0.18	advectiondiffusion		
+adv_diff1	1	match	0.20	advectiondiffusion		
+adv_diff2	1	match	0.19	advectiondiffusion		
 amultg2	1	refused	0.05	stresssolve	runtime: backend not installed: preconditioner multigrid	backend not installed: preconditioner multigrid
 beam-springs	1	refused	0.01	stresssolve	runtime: StressSolver: constant bulk system	unsupported: StressSolver: constant bulk system
 beam-springs-fixdisp	1	refused	0.01	savedata,stresssolve	runtime: StressSolver: constant bulk system	unsupported: StressSolver: constant bulk system
-beamer3d_box	1	match	1.41	heatsolve,savedata		
+beamer3d_box	1	match	1.57	heatsolve,savedata		
 bentonite	1	match	0.01	bentonitesolver		
 bodydir	1	refused	0.01	statelecsolve	runtime: Body Force 1: potential: body-force Dirichlet values are not implemented	unsupported: Body Force 1: potential: body-force Dirichlet values are not implemented
-bodyload	1	match	0.01	statelecsolve		
+bodyload	1	match	0.02	statelecsolve		
 buckling	1	refused	0.01	savedata,stresssolve	feature: eigenvalue analysis || runtime: SaveScalars: eigenvalue columns (save eigenvalues)	unsupported: SaveScalars: eigenvalue columns (save eigenvalues)
-current	1	match	0.07	statcurrentsolve		
+current	1	match	0.10	statcurrentsolve		
 current_heat_control	1	refused	0.02	heatsolve,statcurrentsolve	runtime: unsupported body force keyword "Joule Heat": coupled Joule heating is not implemented	unsupported: unsupported body force keyword "Joule Heat": coupled Joule heating is not implemented
 el_adaptivity	1	refused	0.01	statelecsolve	prestep: Mesh2D	static screen only
 elasticity	1	refused	0.01	elasticsolve	runtime: ElasticSolver: stress and strain postprocessing under Large Deflection or the neo-Hookean material	unsupported: ElasticSolver: stress and strain postprocessing under Large Deflection or the neo-Hookean material
-elasticity_with_springs	1	refused	0.01	elasticsolve,springassembly	runtime: Boundary Condition N: Target Nodes: point BCs (Target Nodes) are not implemented	unsupported: Boundary Condition 3: Target Nodes: point BCs (Target Nodes) are not implemented
-elstat_source	1	match	0.03	statelecsolve		
+elasticity_with_springs	1	refused	0.01	elasticsolve,springassembly	runtime: ElasticSolver: stress and strain postprocessing under Large Deflection or the neo-Hookean material	unsupported: ElasticSolver: stress and strain postprocessing under Large Deflection or the neo-Hookean material
+elstat_source	1	match	0.04	statelecsolve		
 fluxsolver	1	refused	0.01	fluxsolver,heatsolve,savedata	runtime: Solver N: VTU output: Reference Values (AscBinCompareNorm pseudonorm of the written file)	unsupported: Solver 4: VTU output: Reference Values (AscBinCompareNorm pseudonorm of the written file)
 fluxsolver-multimesh	1	match	0.06	fluxsolver,heatsolve		
 fluxsolver2	1	match	0.01	fluxsolver,heatsolve		
@@ -409,15 +409,15 @@ heateq_bdf2	1	match	0.04	heatsolve,savedata
 heateq_bdf3	1	match	0.04	heatsolve,savedata		
 heateq_newmark	1	match	0.02	heatsolve,savedata		
 heateq_newmark_global	1	match	0.03	heatsolve,savedata		
-heateq_resmode	1	match	0.20	heatsolve,savedata		
-heateq_spline_table	1	match	0.27	heatsolve,savedata		
-heateq_steady_start	1	match	0.09	heatsolve,savedata		
+heateq_resmode	1	match	0.22	heatsolve,savedata		
+heateq_spline_table	1	match	0.28	heatsolve,savedata		
+heateq_steady_start	1	match	0.10	heatsolve,savedata		
 linearsolvers	1	refused	0.01	heatsolve	runtime: mesh: bad parent in `81 7 -1 -1 101 1`	mesh: bad parent in `81 7 -1 -1 101 1`
-linearsolvers_cmplx	1	refused	0.01	helmholtzsolve	runtime: mesh: bad parent in `257 3 -1 -1 101 1`	mesh: bad parent in `257 3 -1 -1 101 1`
-marangoni	1	refused	0.01	flowsolve,heatsolve	runtime: FlowSolver: surface tension	unsupported: FlowSolver: surface tension
+linearsolvers_cmplx	1	refused	0.02	helmholtzsolve	runtime: mesh: bad parent in `257 3 -1 -1 101 1`	mesh: bad parent in `257 3 -1 -1 101 1`
+marangoni	1	refused	0.02	flowsolve,heatsolve	runtime: FlowSolver: surface tension	unsupported: FlowSolver: surface tension
 mgdyn2D_pm	1	refused	0.01	magnetodynamics,magnetodynamics2d,meshsolve	solver: magnetodynamics2d magnetodynamics2d || solver: meshsolve meshsolver	unsupported: Solver 1: Procedure "MeshSolve" "MeshSolver"
 mgdyn_airgap	1	refused	0.01	magnetodynamics,savedata	runtime: SaveScalars of MagnetoDynamicsCalcFields' integral results (res: energies) is not implemented	unsupported: SaveScalars of MagnetoDynamicsCalcFields' integral results (res: energies) is not implemented
-mgdyn_airgap_harmonic	1	error	0.03	magnetodynamics	feature: complex linear system || fatal: MagnetoDynamicsCalcFields: the potential has not been solved on the edge layout yet	fatal: MagnetoDynamicsCalcFields: the potential has not been solved on the edge layout yet
+mgdyn_airgap_harmonic	1	error	0.05	magnetodynamics	feature: complex linear system || fatal: MagnetoDynamicsCalcFields: the potential has not been solved on the edge layout yet	fatal: MagnetoDynamicsCalcFields: the potential has not been solved on the edge layout yet
 mgdyn_dg_b_velocity	1	refused	0.01	magnetodynamics,savedata	runtime: SaveScalars of MagnetoDynamicsCalcFields' integral results (res: energies) is not implemented	unsupported: SaveScalars of MagnetoDynamicsCalcFields' integral results (res: energies) is not implemented
 mgdyn_nodalforce2d	1	refused	0.01		feature: Component sections	Component sections
 mgdyn_steady_2ndorder	1	refused	0.01	magnetodynamics	feature: discontinuous Galerkin || runtime: WhitneyAVSolver option 'use piola transform'	unsupported: WhitneyAVSolver option 'use piola transform'
@@ -428,12 +428,12 @@ normals	1	refused	0.01	heatsolve,normalsolver	solver: normalsolver normalsolver	
 p-FEM_two_solvers	1	refused	0.01	benchmarkshell,modelpde	runtime: Body 1: Solver N: Element (body-wise element definitions)	unsupported: Body 1: Solver 1: Element (body-wise element definitions)
 p-FEM_with_varying_p	1	refused	0.01	benchmarkshell	runtime: Solver N: VTU output: lagrange element degree	unsupported: Solver 2: VTU output: lagrange element degree
 passive	1	match	0.14	heatsolve		
-passive_np3	3	match	0.59	heatsolve		
-passive_np8	8	match	0.74	heatsolve		
+passive_np3	3	match	0.62	heatsolve		
+passive_np8	8	match	0.76	heatsolve		
 periodic1	1	match	0.02	heatsolve		
 periodic2	1	match	0.02	heatsolve		
 periodic3	1	match	0.01	heatsolve		
-periodic_homogenize	1	refused	0.02	heatsolve,savedata	runtime: Boundary Condition N: Target Coordinates: point BCs (Target Coordinates) are not implemented	unsupported: Boundary Condition 6: Target Coordinates: point BCs (Target Coordinates) are not implemented
+periodic_homogenize	1	refused	0.02	heatsolve,savedata	runtime: RUN block 2 changes Boundary Condition N periodic bc offset temperature (re-reading changed keywords after a reload is not composed)	unsupported: RUN block 2 changes Boundary Condition 4 periodic bc offset temperature (re-reading changed keywords after a reload is not composed)
 periodic_nonconforming	1	match	0.02	heatsolve		
 periodic_offset	1	match	0.02	heatsolve		
 periodic_offset2	1	refused	0.01	flowsolve	runtime: Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented	unsupported: Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented
@@ -442,23 +442,23 @@ periodic_threaded	1	match	0.02	heatsolve
 piezo	1	refused	0.01	statelecsolve,stresssolve	runtime: unsupported Body Force keyword "Piezo Material": piezoelectric coupling is not ported	unsupported: unsupported Body Force keyword "Piezo Material": piezoelectric coupling is not ported
 plates	1	refused	0.01	smitc	solver: smitc smitcsolver	unsupported: Solver 1: Procedure "Smitc" "SmitcSolver"
 platesEigen	1	refused	0.01	savedata,smitc	solver: smitc smitcsolver || feature: eigenvalue analysis	unsupported: Solver 1: Procedure "Smitc" "SmitcSolver"
-pointdir	1	refused	0.01	statelecsolve	runtime: Boundary Condition N: Target Nodes: point BCs (Target Nodes) are not implemented	unsupported: Boundary Condition 3: Target Nodes: point BCs (Target Nodes) are not implemented
+pointdir	1	match	0.01	statelecsolve		
 poisson_steady_conforming	1	refused	0.02	heatsolve	runtime: Solver N: Apply Conforming BCs: conforming BCs are not implemented	unsupported: Solver 1: Apply Conforming BCs: conforming BCs are not implemented
 poisson_steady_conforming_anti	1	refused	0.02	heatsolve	runtime: Solver N: Apply Conforming BCs: conforming BCs are not implemented	unsupported: Solver 1: Apply Conforming BCs: conforming BCs are not implemented
-poisson_transient_conforming_anti	1	refused	0.01	heatsolve	runtime: Solver N: Apply Conforming BCs: conforming BCs are not implemented	unsupported: Solver 1: Apply Conforming BCs: conforming BCs are not implemented
-poisson_transient_conforming_anti_np4	4	refused	0.53	heatsolve	runtime: Solver N: Apply Conforming BCs: conforming BCs are not implemented	unsupported: Solver 1: Apply Conforming BCs: conforming BCs are not implemented
-poisson_transient_conforming_anti_np8	8	refused	0.62	heatsolve	runtime: Solver N: Apply Conforming BCs: conforming BCs are not implemented	unsupported: Solver 1: Apply Conforming BCs: conforming BCs are not implemented
-quadratic_prisms	1	match	0.11	heatsolve		
-radiation	1	match	0.02	heatsolve		
-radiation2	1	match	0.02	heatsolve		
-radiation_bin	1	match	0.02	heatsolve		
+poisson_transient_conforming_anti	1	refused	0.02	heatsolve	runtime: Solver N: Apply Conforming BCs: conforming BCs are not implemented	unsupported: Solver 1: Apply Conforming BCs: conforming BCs are not implemented
+poisson_transient_conforming_anti_np4	4	refused	0.58	heatsolve	runtime: Solver N: Apply Conforming BCs: conforming BCs are not implemented	unsupported: Solver 1: Apply Conforming BCs: conforming BCs are not implemented
+poisson_transient_conforming_anti_np8	8	refused	0.82	heatsolve	runtime: Solver N: Apply Conforming BCs: conforming BCs are not implemented	unsupported: Solver 1: Apply Conforming BCs: conforming BCs are not implemented
+quadratic_prisms	1	match	0.15	heatsolve		
+radiation	1	match	0.03	heatsolve		
+radiation2	1	match	0.03	heatsolve		
+radiation_bin	1	match	0.03	heatsolve		
 radiation_dg	1	refused	0.01	heatsolve	feature: discontinuous Galerkin || runtime: Solver N: VTU output: discontinuous bodies	unsupported: Solver 2: VTU output: discontinuous bodies
 radiation_np2	2	refused	0.01	heatsolve	prestep: ViewFactors	static screen only
 radiation_np4	4	refused	0.01	heatsolve	prestep: ViewFactors	static screen only
 radiation_vec	1	match	0.02	heatsolve		
-radiator3d	1	match	0.44	heatsolve		
-radiator3d_box	1	match	1.60	heatsolve,savedata		
-radiator3d_symm	1	match	0.92	heatsolve		
+radiator3d	1	match	0.53	heatsolve		
+radiator3d_box	1	match	1.84	heatsolve,savedata		
+radiator3d_symm	1	match	0.85	heatsolve		
 reload	1	refused	0.01	advectiondiffusion,flowsolve,reloaddata	solver: reloaddata reloadsolution	unsupported: Solver 1: Procedure "ReloadData" "ReloadSolution"
 reynolds2	1	refused	0.01	reynoldssolver,savedata	solver: reynoldssolver reynoldssolver || solver: savedata savematerials	unsupported: Solver 1: Procedure "ReynoldsSolver" "ReynoldsSolver"
 reynolds_flux	1	refused	0.01	reynoldssolver,savedata	solver: reynoldssolver reynoldspostprocess || solver: reynoldssolver reynoldssolver || solver: savedata savematerials	unsupported: Solver 1: Procedure "ReynoldsSolver" "ReynoldsSolver"
@@ -467,7 +467,7 @@ rotflow	1	refused	0.01	flowsolve	feature: p-hierarchic elements || runtime: Solv
 savescalars	1	refused	0.01	heatsolve,savedata	runtime: RUN block 2 changes Solver N operator N (re-reading changed keywords after a reload is not composed)	unsupported: RUN block 2 changes Solver 2 operator 1 (re-reading changed keywords after a reload is not composed)
 savescalars_boundary	1	refused	0.01	heatsolve,savedata	runtime: RUN block 2 changes Solver N operator N (re-reading changed keywords after a reload is not composed)	unsupported: RUN block 2 changes Solver 2 operator 1 (re-reading changed keywords after a reload is not composed)
 savescalars_flux	1	refused	0.01	heatsolve,savedata	runtime: SaveScalars: material coefficients (coefficient 1); integrals are unweighted	unsupported: SaveScalars: material coefficients (coefficient 1); integrals are unweighted
-savescalars_many	1	refused	0.02	heatsolve,savedata	runtime: SaveScalars operator 'cpu time': run-dependent value, not reproducible	unsupported: SaveScalars operator 'cpu time': run-dependent value, not reproducible
+savescalars_many	1	refused	0.01	heatsolve,savedata	runtime: SaveScalars operator 'cpu time': run-dependent value, not reproducible	unsupported: SaveScalars operator 'cpu time': run-dependent value, not reproducible
 savescalars_mask	1	refused	0.02	heatsolve,savedata	runtime: backend not installed: element basis and quadrature (elmer-fe)	backend not installed: element basis and quadrature (elmer-fe)
 streamlines	1	refused	0.01	flowsolve,streamsolver	solver: streamsolver streamsolver	unsupported: Solver 2: Procedure "StreamSolver" "StreamSolver"
 stress	1	refused	0.01	energyrelease,stresssolve	solver: energyrelease releaseratesolver	unsupported: Solver 3: Procedure "EnergyRelease" "ReleaseRateSolver"

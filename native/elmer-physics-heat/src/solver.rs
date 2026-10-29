@@ -282,7 +282,9 @@ impl Solver for HeatSolver {
     ) -> Result<(), SolverError> {
         const CALLER: &str = "HeatSolver";
         if ctx.params().logical("Legacy Assembly") == Some(true) {
-            return self.solve_legacy(ctx, transient);
+            self.solve_legacy(ctx, transient)?;
+            // `DefaultFinish` (HeatSolve.F90): `Apply Explicit Control`.
+            return ctx.default_finish();
         }
         let axisym = axisymmetric(ctx)?;
         let dim = ctx.mesh.dim();
@@ -436,6 +438,7 @@ impl Solver for HeatSolver {
                 break;
             }
         }
-        Ok(())
+        // `DefaultFinish` (HeatSolve.F90): `Apply Explicit Control`.
+        ctx.default_finish()
     }
 }
