@@ -10,6 +10,7 @@ pub mod manifest;
 pub mod norm;
 pub mod result;
 pub mod runner;
+pub mod tolerance;
 
 use std::fmt;
 

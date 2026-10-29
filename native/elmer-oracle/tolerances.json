@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "note": "Tier-A bars from measured Fortran sensitivity to legitimate reordering. bar = max(10.sigma_f, cap); cap = 1e-10 applies only where every arm agrees bitwise. Changes only by ADR with captain sign-off.",
+  "arms": {
+    "release": "13c96364a32989e82d7f28182be6aaf4564b346d386d255197684fd9f53a5a2d",
+    "fma": "f56619efb2ac210329aa030413143fc7652d0f183368007842ffd78ac9f29848",
+    "openblas": "4b238e75a631f9b34c137a69d9041bb7452aedee7183d968c2d212994d122d7d"
+  },
+  "source_pin": "9f6af2f85433fbe8ec71b85c3486ed38fcaf0",
+  "formula_inputs": "grade-fields rel-Linf of Output File + Binary Output golden fields, fma and openblas arms vs release, per saved step",
+  "entries": [
+    {"test": "poisson_steady_conforming", "field": "temperature", "step": 0, "sigma_f": 1.4960448599808005e-08, "bar": 1.4960448599808005e-07, "rule": "max10sigma"},
+    {"test": "BoundaryFluxes", "field": "temperature", "step": 0, "sigma_f": 2.109423746787797e-15, "bar": 2.109423746787797e-14, "rule": "max10sigma"},
+    {"test": "BoundaryFluxes", "field": "temperature loads", "step": 0, "sigma_f": 4.300394387004895e-15, "bar": 4.300394387004895e-14, "rule": "max10sigma"},
+    {"test": "ThermalPipe2D", "field": "temperature", "step": 0, "sigma_f": 3.108624468950437e-15, "bar": 3.108624468950437e-14, "rule": "max10sigma"},
+    {"test": "CavityLid", "field": "velocity 1", "step": 0, "sigma_f": 7.771561172376094e-16, "bar": 7.771561172376094e-15, "rule": "max10sigma"},
+    {"test": "CavityLid", "field": "velocity 2", "step": 0, "sigma_f": 1.2826412381423147e-15, "bar": 1.2826412381423147e-14, "rule": "max10sigma"},
+    {"test": "CavityLid", "field": "pressure", "step": 0, "sigma_f": 1.2484026036341854e-12, "bar": 1.2484026036341854e-11, "rule": "max10sigma"},
+    {"test": "ElastElstatBeam", "field": "potential", "step": 0, "sigma_f": 1.117587089538574e-14, "bar": 1.117587089538574e-13, "rule": "max10sigma"},
+    {"test": "ElastElstatBeam", "field": "electric force density 1", "step": 0, "sigma_f": 1.8952024532715115e-14, "bar": 1.8952024532715115e-13, "rule": "max10sigma"},
+    {"test": "ElastElstatBeam", "field": "electric force density 2", "step": 0, "sigma_f": 1.0687579096014948e-14, "bar": 1.0687579096014948e-13, "rule": "max10sigma"},
+    {"test": "ElastElstatBeam", "field": "electric field 1", "step": 0, "sigma_f": 1.2137865373639697e-14, "bar": 1.2137865373639697e-13, "rule": "max10sigma"},
+    {"test": "ElastElstatBeam", "field": "electric field 2", "step": 0, "sigma_f": 2.8778676455458035e-14, "bar": 2.8778676455458035e-13, "rule": "max10sigma"},
+    {"test": "ElastElstatBeam", "field": "displacement 1", "step": 0, "sigma_f": 9.95603038812244e-13, "bar": 9.95603038812244e-12, "rule": "max10sigma"},
+    {"test": "ElastElstatBeam", "field": "displacement 2", "step": 0, "sigma_f": 2.5771145420576494e-13, "bar": 2.5771145420576494e-12, "rule": "max10sigma"},
+    {"test": "wildcardsize", "field": "temperature", "step": 0, "sigma_f": 2.499859451846757e-15, "bar": 2.499859451846757e-14, "rule": "max10sigma"}
+  ]
+}

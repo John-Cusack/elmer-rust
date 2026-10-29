@@ -216,10 +216,18 @@ fn main() {
             let golden_path = PathBuf::from(&args[2]);
             let candidate_path = PathBuf::from(&args[3]);
             let mut tol = 1e-10f64;
+            let mut table_path: Option<String> = None;
+            let mut test_name = String::from("unknown");
             let mut i = 4;
             while i < args.len() {
                 if args[i] == "--tol" && i + 1 < args.len() {
                     tol = args[i + 1].parse().unwrap_or_else(|_| usage());
+                    i += 1;
+                } else if args[i] == "--tolerances" && i + 1 < args.len() {
+                    table_path = Some(args[i + 1].clone());
+                    i += 1;
+                } else if args[i] == "--test" && i + 1 < args.len() {
+                    test_name = args[i + 1].clone();
                     i += 1;
                 }
                 i += 1;
@@ -233,7 +241,27 @@ fn main() {
                     eprintln!("error: {e}");
                     std::process::exit(1);
                 });
-            let mismatches = elmer_oracle::grade::grade_results(&golden, &candidate, tol);
+            let (mismatches, notes) = match table_path {
+                Some(p) => {
+                    let text = std::fs::read_to_string(&p).unwrap_or_else(|_| usage());
+                    let table =
+                        elmer_oracle::tolerance::ToleranceTable::parse(&text).unwrap_or_else(|e| {
+                            eprintln!("error: {e}");
+                            std::process::exit(1);
+                        });
+                    elmer_oracle::tolerance::grade_with_table(
+                        &golden,
+                        &candidate,
+                        &test_name,
+                        &table,
+                        tol,
+                    )
+                }
+                None => (elmer_oracle::grade::grade_results(&golden, &candidate, tol), Vec::new()),
+            };
+            for n in &notes {
+                println!("note: {n}");
+            }
             for m in &mismatches {
                 println!("{} step {}: {:?}", m.variable, m.step, m.kind);
             }
