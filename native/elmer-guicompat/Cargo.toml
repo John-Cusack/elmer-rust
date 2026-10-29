@@ -1,0 +1,17 @@
+[package]
+name = "elmer-guicompat"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "ElmerGUI process-boundary contract: EDF-derived fixtures, solver probes, log parsing, output loading"
+
+[dependencies]
+elmer-core.workspace = true
+elmer-keywords = { path = "../elmer-keywords" }
+quick-xml.workspace = true
+thiserror.workspace = true
+
+[[bin]]
+name = "elmer-guicompat"
+path = "src/bin/elmer_guicompat.rs"
