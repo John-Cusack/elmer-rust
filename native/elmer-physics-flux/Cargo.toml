@@ -1,0 +1,17 @@
+[package]
+name = "elmer-physics-flux"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "FluxSolver (nodal flux and gradient recovery by Galerkin projection) for the Rust-native Elmer rewrite"
+
+[dependencies]
+elmer-core.workspace = true
+elmer-solver = { path = "../elmer-solver" }
+thiserror.workspace = true
+
+[dev-dependencies]
+# Real CG (HUTI) and ILU0 for FluxSolver's default linear system.
+elmer-krylov = { path = "../elmer-krylov" }
+elmer-sparse = { path = "../elmer-sparse" }
