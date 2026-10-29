@@ -11,6 +11,8 @@
 //! * [`output`]: the `Post File = *.vtu` auto-solver, written with `elmer-vtu`.
 //! * [`sif`]: [`SifFrontend`], `elmer-sif` as the case reader, with the mesh
 //!   reader and element basis pluggable until `elmer-mesh`/`elmer-fe` merge.
+//! * [`unported`]: keywords whose feature no provider implements, refused
+//!   before setup so they cannot turn into a wrong answer.
 //! * [`engine`]: [`NativeEngine`], the `elmer-cli` [`Engine`] over a
 //!   [`Frontend`] that parses the `.sif` and loads the mesh (S1's
 //!   `elmer-sif`/`elmer-mesh`/`elmer-fe`).
@@ -26,6 +28,7 @@ pub mod compose;
 pub mod engine;
 pub mod output;
 pub mod sif;
+pub mod unported;
 
 pub use case::{run_case, Case, Outcome};
 pub use compose::solver_registry;
