@@ -38,3 +38,9 @@ test's `runtest.cmake` does. The `.result` values are in node order
   slot (nodes, edges, bubbles) in slot order, and `p2_perm.dat` /
   `sd_p2_perm.dat` the `slot row` Perm (1681 dofs, norm 0.9234860388553119;
   1281 dofs, norm 1.057859263392748).
+- `quadratures_brick/`: `fem/tests/QuadraturesBrick` (`case.sif`; mesh
+  `ElmerGrid 1 2 cube.grd`, 2x2x2 bricks), run with the post-file line
+  replaced by `Output File`. `perm.dat` (`slot row`) and `solution.dat`
+  (`slot value`) from its `case.result` after the three RUN blocks (default
+  rule, 27 and 64 integration points), which all give norm 0.3: 125 dofs =
+  27 nodes + 54 edges + 36 faces + 8 bubbles.
