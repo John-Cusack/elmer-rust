@@ -277,6 +277,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "elmer-expr"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "enum-as-inner"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
