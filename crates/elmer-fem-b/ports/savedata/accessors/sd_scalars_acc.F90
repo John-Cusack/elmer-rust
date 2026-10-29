@@ -3331,9 +3331,10 @@ contains
       NormInd = ListGetInteger( Params,'Show Norm Index',GotIt)
     END IF
 
+    IF (NoValues > 0) PRINT *, 'DEBUG T023: Values(1)=', Values(1)
     IF( NormInd > 0 .AND. NormInd <= NoValues ) THEN
       Norm = Values( NormInd )
-      GotNorm = .TRUE.
+        GotNorm = .TRUE.
 
       Name = ListGetString( Params, 'Equation',GotIt)
       IF(.NOT. GotIt) Name = Caller
@@ -3368,9 +3369,9 @@ contains
     END IF
 
     IF( GotNorm ) THEN
-      acc_solver % Variable % Values = Norm 
-      acc_solver % Variable % Norm = ABS( Norm ) 
-      
+      CurrentModel % Solver % Variable % Values = Norm
+      CurrentModel % Solver % Variable % Norm = ABS( Norm )
+        
       ! Here the name is ComputeChange in order to get the change also to ElmerGUI
       ! albeit in a very dirty style. One could also edit ElmerGUI....
       WRITE( Message, '(a,g15.8,g15.8,a)') &
