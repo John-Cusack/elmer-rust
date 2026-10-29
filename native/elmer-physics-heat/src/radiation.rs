@@ -538,7 +538,7 @@ fn add_entry(a: &mut CsrMatrix<f64>, row: usize, col: usize, v: f64) -> Result<(
 
 /// Adds the `pairs` to the pattern of `a`, keeping the columns of a row
 /// sorted and the values and the diagonal index consistent.
-fn extend_pattern(a: &mut CsrMatrix<f64>, mut pairs: Vec<(usize, usize)>) {
+pub(crate) fn extend_pattern(a: &mut CsrMatrix<f64>, mut pairs: Vec<(usize, usize)>) {
     pairs.sort_unstable();
     pairs.dedup();
     let mut row_ptr = Vec::with_capacity(a.nrows + 1);

@@ -221,10 +221,15 @@ impl HeatSolver {
         // The last bulk element's flag outlives the element loop, as the
         // Fortran's `HeaterControlLocal` does when the boundary loop reads it.
         let mut heater_local = false;
+        let mut gap_done = false;
 
         for iter in 1..=maxiter {
             ctx.info(CALLER, &format!("TEMPERATURE ITERATION {iter}"), 4);
             ctx.default_initialize()?;
+            if !gap_done {
+                extend_for_gaps(ctx, &bnd)?;
+                gap_done = true;
+            }
             let n_dof = ctx.system().map_or(0, |s| s.rhs.len());
             let mut force_heater = vec![0.0; n_dof];
             let control = smart.is_some() && newton && smart_tol_reached;
@@ -356,7 +361,11 @@ impl HeatSolver {
                     &bnd_cfg,
                     &mut self.local,
                 )?;
+                let is_gap = bc.logical("Heat Gap") == Some(true);
                 ctx.default_update(&self.local, e)?;
+                if is_gap {
+                    add_gap(ctx, slot_ix, e, &mut self.local)?;
+                }
             }
 
             ctx.default_dirichlet()?;
@@ -479,4 +488,126 @@ impl HeatSolver {
         }
         Ok(())
     }
+}
+
+/// `FindGapIndexes`: for each node of boundary element `e`, the node of the
+/// parent on the other side at the same place. The Fortran keeps the last
+/// node of the parent when none matches.
+fn gap_nodes(ctx: &SolverCtx<'_>, e: ElemId) -> Option<Vec<u32>> {
+    const AEPS: f64 = 10.0 * f64::EPSILON;
+    let el = ctx.mesh.element(e);
+    let (left, right) = (el.parents[0]?, el.parents[1]?);
+    let (left, right) = (ctx.mesh.element(left), ctx.mesh.element(right));
+    Some(
+        el.nodes
+            .iter()
+            .map(|&k| {
+                let parent = if left.nodes.contains(&k) { right } else { left };
+                let x0 = ctx.mesh.coord(k);
+                let mut found = *parent.nodes.last().expect("parent has nodes");
+                for &m in parent.nodes {
+                    let x = ctx.mesh.coord(m);
+                    let d: f64 = (0..3).map(|i| (x[i] - x0[i]).powi(2)).sum();
+                    found = m;
+                    if d < AEPS {
+                        break;
+                    }
+                }
+                found
+            })
+            .collect(),
+    )
+}
+
+/// The matrix couplings of a `Heat Gap`: every node of the element with
+/// every node across the gap, both ways.
+fn extend_for_gaps(ctx: &mut SolverCtx<'_>, bnd: &[ElemId]) -> Result<(), SolverError> {
+    let mut pairs = Vec::new();
+    for &e in bnd {
+        if ctx.bc_params(e).and_then(|b| b.logical("Heat Gap")) != Some(true) {
+            continue;
+        }
+        let Some(gap) = gap_nodes(ctx, e) else {
+            continue;
+        };
+        let slot = |ctx: &SolverCtx<'_>, n: u32| -> Option<usize> {
+            let f = ctx.primary()?;
+            let s = f.perm.map_or(n, |p| p[n as usize]);
+            (s != NO_DOF).then_some(s as usize)
+        };
+        for &a in ctx.mesh.element(e).nodes {
+            for &b in &gap {
+                if let (Some(sa), Some(sb)) = (slot(ctx, a), slot(ctx, b)) {
+                    pairs.push((sa, sb));
+                    pairs.push((sb, sa));
+                }
+            }
+        }
+    }
+    if pairs.is_empty() {
+        return Ok(());
+    }
+    let sys = ctx
+        .system_mut()
+        .ok_or_else(|| SolverError::fatal(CALLER, "no system to extend".to_string()))?;
+    crate::radiation::extend_pattern(&mut sys.matrix, pairs);
+    Ok(())
+}
+
+/// `AddHeatFluxBC` of the gap side and `AddHeatGap`: the element's local
+/// system once more on the nodes across the gap, and `-STIFF` between each
+/// node and the nodes across, from both sides.
+fn add_gap(
+    ctx: &mut SolverCtx<'_>,
+    slot_ix: usize,
+    e: ElemId,
+    local: &mut elmer_core::LocalSystem,
+) -> Result<(), SolverError> {
+    let Some(gap) = gap_nodes(ctx, e) else {
+        return Ok(());
+    };
+    let own: Vec<u32> = ctx.mesh.element(e).nodes.to_vec();
+    let n = own.len();
+    let slots_of = |ctx: &SolverCtx<'_>, nodes: &[u32]| -> Vec<u32> {
+        let f = ctx.primary().expect("heat solver has a variable");
+        nodes
+            .iter()
+            .map(|&k| f.perm.map_or(k, |p| p[k as usize]))
+            .collect()
+    };
+    let (own_s, gap_s) = (slots_of(ctx, &own), slots_of(ctx, &gap));
+
+    let sim = &mut *ctx.sim;
+    let backend = sim
+        .backends
+        .assembly
+        .as_ref()
+        .ok_or_else(|| SolverError::NotWired("assembly backend (elmer-assembly)".into()))?;
+    let sys = sim.slots[slot_ix]
+        .system
+        .as_mut()
+        .ok_or_else(|| SolverError::fatal(CALLER, "no assembled system".to_string()))?;
+    // The same flux terms on the other side.
+    backend.add_local(&mut sys.matrix, &mut sys.rhs, &gap_s, local);
+    // `AddHeatGap` from both sides: the second pass has the gap nodes as the
+    // element and the original ones across, with the same local matrix.
+    for (rows, cols) in [(&own_s, &gap_s), (&gap_s, &own_s)] {
+        for i in 0..n {
+            for j in 0..n {
+                let (r, c) = (rows[i], cols[j]);
+                if r == NO_DOF || c == NO_DOF {
+                    continue;
+                }
+                let (lo, hi) = (
+                    sys.matrix.row_ptr[r as usize],
+                    sys.matrix.row_ptr[r as usize + 1],
+                );
+                let p = sys.matrix.col_idx[lo..hi].binary_search(&c).map_err(|_| {
+                    SolverError::fatal(CALLER, "no heat gap matrix entry".to_string())
+                })?;
+                sys.matrix.values[lo + p] -= local.stiff[i * n + j];
+            }
+        }
+    }
+    Ok(())
 }
