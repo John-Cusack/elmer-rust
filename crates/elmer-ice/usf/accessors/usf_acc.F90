@@ -1689,7 +1689,7 @@ contains
     character(kind=c_char), pointer :: cbuf(:)
     integer(c_int), pointer :: fidx(:)
     real(c_double), pointer :: fout(:, :)
-    real(c_double), pointer :: f(:, :, :)
+    real(c_double), pointer :: f(:, :, :) => null()
     logical :: g
     integer :: i
     integer :: j
@@ -1715,6 +1715,7 @@ contains
       d1 = 0
       d2 = 0
     end if
+    if (associated(f)) deallocate(f)
   end subroutine usf_list_get_real_array
 
   function usf_list_get_const_real_found(h_list, key, nkey, found) &

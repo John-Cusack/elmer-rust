@@ -174,7 +174,7 @@ pub unsafe fn source_damage(m: *mut c_void, n: *const c_int, v: *const c_double)
         for j in 0..dim {
             // SAFETY: same 1-based slot arithmetic the source uses.
             let slot = 2 * dim as c_int * (sp - 1) + ind[i][j];
-            sig[j * 3 + i] = unsafe { var_value_at_idx(h_stress, slot) };
+            sig[i + j * 3] = unsafe { var_value_at_idx(h_stress, slot) };
         }
     }
     if dim == 2 {

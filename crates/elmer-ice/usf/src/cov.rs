@@ -26,12 +26,20 @@ unsafe fn slot(v: *const c_double, i: usize) -> c_double {
     unsafe { *v.add(i) }
 }
 
+/// `LOG(10.0)` with a default-REAL literal evaluates in SINGLE precision
+/// in gfortran, then promotes: `(10.0f32).ln() as f64` is bit-identical,
+/// `10.0f64.ln()` is not (verified against the reference entry).
+#[inline]
+fn ln10_sp() -> c_double {
+    (10.0f32).ln() as c_double
+}
+
 pub unsafe fn tenpowera(_m: *mut c_void, _n: *const c_int, v: *const c_double) -> c_double {
     unsafe { usf_pow_dp(10.0, slot(v, 0)) }
 }
 
 pub unsafe fn tenpowera_d(_m: *mut c_void, _n: *const c_int, v: *const c_double) -> c_double {
-    unsafe { usf_pow_dp(10.0, slot(v, 0)) * 10.0f64.ln() }
+    unsafe { usf_pow_dp(10.0, slot(v, 0)) * ln10_sp() }
 }
 
 pub unsafe fn derivative_tenpowera(
@@ -39,7 +47,7 @@ pub unsafe fn derivative_tenpowera(
     _n: *const c_int,
     v: *const c_double,
 ) -> c_double {
-    unsafe { slot(v, 0) * usf_pow_dp(10.0, slot(v, 1)) * 10.0f64.ln() }
+    unsafe { slot(v, 0) * usf_pow_dp(10.0, slot(v, 1)) * ln10_sp() }
 }
 
 pub unsafe fn log10a(_m: *mut c_void, _n: *const c_int, v: *const c_double) -> c_double {
@@ -89,7 +97,7 @@ pub unsafe fn tenpowera_d_masked(
     if mask <= 0.0 {
         0.0
     } else {
-        unsafe { usf_pow_dp(10.0, x) * 10.0f64.ln() }
+        unsafe { usf_pow_dp(10.0, x) * ln10_sp() }
     }
 }
 

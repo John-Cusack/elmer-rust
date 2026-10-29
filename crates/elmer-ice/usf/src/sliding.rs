@@ -95,7 +95,7 @@ pub unsafe fn sliding_weertman(m: *mut c_void, n: *const c_int, v: *const c_doub
             if st.flow_name.trim_end() == "ssabasalflow" {
                 st.ssa = true;
             }
-            let msg = unsafe { write_msg_star_asal("Flow Solver Name:", name.trim_end(), "SSA:", st.ssa) };
+            let msg = unsafe { write_msg_star_asal("Flow Solver Name:", name.trim_end(), " SSA:", st.ssa) };
             unsafe { info("Sliding_Weertman", &msg, 3) };
         }
     }
@@ -378,14 +378,15 @@ pub unsafe fn friction_coulomb(m: *mut c_void, n: *const c_int, v: *const c_doub
         let spp = unsafe { var_perm_at(h_stress, node) };
         for i in 0..dim {
             for j in 0..dim {
+                // SAFETY: column-major Sig(i,j) like the source: flat i + j*dim.
                 let slot = 2 * dim as c_int * (spp - 1) + ind[i][j];
-                st.sig[j * 3 + i] = unsafe { var_value_at_idx(h_stress, slot) };
+                st.sig[i + j * dim] = unsafe { var_value_at_idx(h_stress, slot) };
             }
         }
         let mut row = [0.0 as c_double; 3];
         for i in 0..dim {
             for j in 0..dim {
-                row[j] = st.sig[j * 3 + i];
+                row[j] = st.sig[i + j * dim];
             }
             st.sn[i] = unsafe { dot(row.as_ptr(), st.normal.as_ptr(), dim) };
         }
@@ -831,12 +832,12 @@ pub unsafe fn effective_pressure(m: *mut c_void, n: *const c_int, v: *const c_do
     let (dim, ind) = (st.dim as usize, st.ind);
     for i in 0..dim {
         for j in 0..dim {
-            // SAFETY: same 1-based slot arithmetic the source uses.
-            st.sig[j * 3 + i] = unsafe { var_value_at_idx(h_stress, 2 * dim as c_int * (spp - 1) + ind[i][j]) };
+            // SAFETY: column-major Sig(i,j) like the source: flat i + j*dim.
+            st.sig[i + j * dim] = unsafe { var_value_at_idx(h_stress, 2 * dim as c_int * (spp - 1) + ind[i][j]) };
         }
         if !cauchy {
             let f = unsafe { var_value_at_idx(h_flow, (dim as c_int + 1) * fp) };
-            st.sig[i * 3 + i] -= f;
+            st.sig[i + i * dim] -= f;
         }
     }
     for (i, nrm) in st.normal.iter_mut().enumerate().take(dim) {
@@ -847,7 +848,7 @@ pub unsafe fn effective_pressure(m: *mut c_void, n: *const c_int, v: *const c_do
     for i in 0..dim {
         let mut row = [0.0 as c_double; 3];
         for j in 0..dim {
-            row[j] = st.sig[j * 3 + i];
+            row[j] = st.sig[i + j * dim];
         }
         st.sn[i] = unsafe { dot(row.as_ptr(), st.normal.as_ptr(), dim) };
     }

@@ -178,9 +178,23 @@ unsafe fn get_z_from_mask(
     }
 }
 
-// Called only from the Fortran entry shim.
+// Called only from the Fortran entry shim in `accessors/usf_acc.F90`.
+// `#[no_mangle]` keeps the C name the shim links against; the version
+// script hides it from `nm -D` (explicit `local` entry — the `*`
+// wildcard alone does not hide it with this toolchain).
+// `#[used]` pins the address: the sole reference is cross-language and
+// invisible to the compiler's reachability analysis.
+#[used]
+static USF_METRIC_CORE: unsafe extern "C" fn(
+    *const c_void,
+    c_int,
+    c_double,
+    *mut c_double,
+    c_int,
+) = usf_metric_core;
+
 #[no_mangle]
-pub unsafe extern "C" fn usf_metric_core(
+unsafe extern "C" fn usf_metric_core(
     h_model: *const c_void,
     node: c_int,
     y: c_double,

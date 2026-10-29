@@ -53,19 +53,6 @@ mod srccalc;
 mod support;
 mod watertransfer;
 
-// FFI roots called only from Fortran (the entry shim owns
-// `glaciermeshmetricaniso_` and calls `usf_metric_core`): invisible to
-// the compiler's reachability analysis, so pin the address to keep the
-// core and its callees live without `dead_code` allows.
-#[used]
-static USF_FFI_ROOTS: [unsafe extern "C" fn(
-    *const c_void,
-    c_int,
-    c_double,
-    *mut c_double,
-    c_int,
-); 1] = [metric::usf_metric_core];
-
 use std::ffi::c_void;
 use std::os::raw::{c_double, c_int};
 
