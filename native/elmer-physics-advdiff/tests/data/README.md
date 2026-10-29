@@ -44,3 +44,7 @@ test's `runtest.cmake` does. The `.result` values are in node order
   (`slot value`) from its `case.result` after the three RUN blocks (default
   rule, 27 and 64 integration points), which all give norm 0.3: 125 dofs =
   27 nodes + 54 edges + 36 faces + 8 bubbles.
+  `sd_case.sif`, `sd_perm.dat` and `sd_solution.dat` are
+  `fem/tests/SD_QuadraturesBrick` (serendipity; RUN blocks with the default
+  rule and 27, 64 and 8 points, all norm 0.37267799624996323; 81 dofs =
+  27 nodes + 54 edges) on the same mesh.
