@@ -1,0 +1,7 @@
+# Pristine ElmerSolver matrix after DefaultDirichletBCs: only entries that differ from pre_a
+# Binary: /home/john/runs/elmer-fork/orig_src/build/fem/src/ElmerSolver (Rev 9f6af2f85)
+# Case: case.sif with Linear System Save, Save Perm; default slot (solve)
+1 1   0.50000000000000011     
+1 3    0.0000000000000000     
+2 2   0.50000000000000011     
+2 3    0.0000000000000000     
