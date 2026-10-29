@@ -161,3 +161,17 @@ fn heat_control_explicit_is_refused_for_explicit_control() {
     let err = case::run("HeatControlExplicit", &dir, "case.sif").err().expect("refused");
     assert!(err.to_string().contains("Apply Explicit Control"), "{err}");
 }
+
+/// `fem/tests/p-FEM_with_varying_p` (`BenchmarkShell.so`): the shell solver
+/// with `Element = "p:%bodywisep"`, p = 4 in body 1 and 8 in body 2 from
+/// the MATC function `bodywisep(cx)` (`GetMatcReal('bodywisep(cx)', 4,
+/// [body, x, y, z], 'cx')`); norm as pristine (Reference Norm
+/// 9.50681481E-03).
+#[test]
+fn p_fem_with_varying_p_matches_pristine() {
+    let name = "p-FEM_with_varying_p";
+    let dir = case::stage(name, None);
+    let out = case::run(name, &dir, "cylindrical_shell.sif").unwrap_or_else(|e| panic!("{name}: {e}"));
+    assert_eq!(out.passed, Some(true), "reference check\n{}", out.log);
+    case::assert_norm_prints(name, out.norm(1), "9.50681481E-03");
+}
