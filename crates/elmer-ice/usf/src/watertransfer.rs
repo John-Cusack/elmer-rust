@@ -64,10 +64,6 @@ pub unsafe fn epl_to_ids(m: *mut c_void, n: *const c_int, v: *const c_double) ->
     let mut h_vars: *const c_void = std::ptr::null();
     unsafe { usf_model_variables(&mut h_vars) };
     let h_mask = unsafe { variable_get(h_vars, "Open EPL", true, false) };
-    if unsafe { var_value_at(h_mask, node) } >= 0.0 {
-        STATE.lock().unwrap().transfer = 0.0;
-        return 0.0;
-    }
     let h_epl = unsafe { variable_get(h_vars, "EPLHead", true, false) };
     let h_ids = unsafe { variable_get(h_vars, "IDSHead", true, false) };
     let epl_at = unsafe { var_value_at(h_epl, node) };
@@ -122,6 +118,11 @@ pub unsafe fn epl_to_ids(m: *mut c_void, n: *const c_int, v: *const c_double) ->
         st.leak = vec![0.0; msize];
         unsafe { info("WaterTransfer", "Memory allocation done", 4) };
         st.alloc_done = true;
+    }
+    // EPL inactive: no transfer (reference checks the mask after FirstTime).
+    if unsafe { var_value_at(h_mask, node) } >= 0.0 {
+        st.transfer = 0.0;
+        return 0.0;
     }
     if h_mat.is_null() {
         unsafe { fatal("WaterTransfer", "No Material found for boundary element no. ") };
