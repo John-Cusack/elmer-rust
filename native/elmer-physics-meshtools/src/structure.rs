@@ -123,12 +123,28 @@ pub fn detect_extruded_structure(
         }
     }
 
-    let mid = if want.mid { find_mid(mesh, model, &up, &down) } else { None };
-    Ok(Structure { top, bot, up, down, mid, layers })
+    let mid = if want.mid {
+        find_mid(mesh, model, &up, &down)
+    } else {
+        None
+    };
+    Ok(Structure {
+        top,
+        bot,
+        up,
+        down,
+        mid,
+        layers,
+    })
 }
 
 /// The `Mid Surface` pointers (MeshTransform.F90:481-545).
-fn find_mid(mesh: &dyn MeshView, model: &Model, up: &[usize], down: &[usize]) -> Option<Vec<usize>> {
+fn find_mid(
+    mesh: &dyn MeshView,
+    model: &Model,
+    up: &[usize],
+    down: &[usize],
+) -> Option<Vec<usize>> {
     const NONE: usize = usize::MAX;
     let nnodes = mesh.n_nodes();
     let mut mid = vec![NONE; nnodes];
@@ -137,7 +153,10 @@ fn find_mid(mesh: &dyn MeshView, model: &Model, up: &[usize], down: &[usize]) ->
     for t in nb..nb + mesh.n_boundary() as u32 {
         let el = mesh.element(ElemId(t));
         if let Some(bc) = model.bc_of_tag(el.tag) {
-            if model.boundary_conditions[bc - 1].get("mid surface").is_some() {
+            if model.boundary_conditions[bc - 1]
+                .get("mid surface")
+                .is_some()
+            {
                 for &n in el.nodes {
                     mid[n as usize] = n as usize;
                 }

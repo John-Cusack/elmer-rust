@@ -41,20 +41,39 @@ fn model(reference: [f64; 8]) -> Model {
         ]),
         solvers: vec![sec(&[
             ("Equation", Value::Str("CheckMesh".into())),
-            ("Procedure", Value::Str("\"MeshChecksum\" \"MeshChecksum\"".into())),
+            (
+                "Procedure",
+                Value::Str("\"MeshChecksum\" \"MeshChecksum\"".into()),
+            ),
             (
                 "Reference Values",
-                Value::Real { rows: 8, cols: 1, data: reference.to_vec() },
+                Value::Real {
+                    rows: 8,
+                    cols: 1,
+                    data: reference.to_vec(),
+                },
             ),
         ])],
         equations: vec![sec(&[("Active Solvers", Value::Integer(vec![1]))])],
-        bodies: vec![sec(&[("Equation", Value::Integer(vec![1])), ("Target Bodies", Value::Integer(vec![1]))])],
+        bodies: vec![sec(&[
+            ("Equation", Value::Integer(vec![1])),
+            ("Target Bodies", Value::Integer(vec![1])),
+        ])],
         boundary_conditions: vec![sec(&[("Target Boundaries", Value::Integer(vec![1]))])],
         ..Model::default()
     }
 }
 
-const PRISTINE: [f64; 8] = [5170.0, 1163232.0, 2308.0, 3059754.0, 172710.0, 94.0, 247056.0, 166390.56857056363];
+const PRISTINE: [f64; 8] = [
+    5170.0,
+    1163232.0,
+    2308.0,
+    3059754.0,
+    172710.0,
+    94.0,
+    247056.0,
+    166390.56857056363,
+];
 
 #[test]
 fn sums_match_the_pristine_printout() {
@@ -73,13 +92,20 @@ fn solver_leaves_a_unit_norm() {
     register(&mut reg);
     sim.setup(&m, &reg, &NullLogger, &SerialComm).unwrap();
     sim.run(&m, &NullLogger, &SerialComm).unwrap();
-    let id = sim.slot(1).unwrap().variable.expect("MeshChecksum_init adds meshcheck_var");
+    let id = sim
+        .slot(1)
+        .unwrap()
+        .variable
+        .expect("MeshChecksum_init adds meshcheck_var");
     let v = sim.vars.by_id(id);
     assert_eq!(v.name, "meshcheck_var");
     assert_eq!(v.conv.norm, 1.0);
     assert!(!v.output);
     // ListAddNewConstReal(Params, 'Reference Norm', 1).
-    assert_eq!(sim.slot(1).unwrap().params.0["reference norm"], Value::real(1.0));
+    assert_eq!(
+        sim.slot(1).unwrap().params.0["reference norm"],
+        Value::real(1.0)
+    );
 }
 
 #[test]
@@ -91,5 +117,9 @@ fn a_different_mesh_gives_a_norm_above_one() {
     let cs = checksum(&m, &model(PRISTINE));
     // slot 2: ratio 1/2 -> 2; slot 6: zero reference -> 1 + 94.
     let want = (7.0 + 2.0 + 0.0 + 95.0 - 1.0) / 8.0;
-    assert!((pseudo_norm(&cs, &wrong) - want).abs() < 1e-12, "{}", pseudo_norm(&cs, &wrong));
+    assert!(
+        (pseudo_norm(&cs, &wrong) - want).abs() < 1e-12,
+        "{}",
+        pseudo_norm(&cs, &wrong)
+    );
 }

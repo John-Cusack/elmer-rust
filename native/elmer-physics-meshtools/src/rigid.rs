@@ -78,7 +78,13 @@ impl RigidMeshMapper {
         if p.logical("mmg remesh") == Some(true) {
             return Err(unsupported("mmg remesh"));
         }
-        if ctx.sim.model.materials.iter().any(|m| m.get("mesh youngs modulus").is_some()) {
+        if ctx
+            .sim
+            .model
+            .materials
+            .iter()
+            .any(|m| m.get("mesh youngs modulus").is_some())
+        {
             return Err(unsupported("Mesh Youngs Modulus"));
         }
         Ok(())
@@ -94,7 +100,11 @@ impl RigidMeshMapper {
         // Moving and fixed BCs / bodies.
         let model = &mut ctx.sim.model;
         for (list, moving, fixed) in [
-            (&mut model.boundary_conditions, "moving boundary", "fixed boundary"),
+            (
+                &mut model.boundary_conditions,
+                "moving boundary",
+                "fixed boundary",
+            ),
             (&mut model.body_forces, "moving body", "fixed body"),
         ] {
             for sec in list.iter_mut() {
@@ -105,8 +115,13 @@ impl RigidMeshMapper {
                 }
             }
         }
-        let max_iter = ctx.params().integer("nonlinear system max iterations").unwrap_or(1);
-        let coeff = ctx.creal(ctx.params(), "nonlinear conductivity coefficient")?.unwrap_or(0.0);
+        let max_iter = ctx
+            .params()
+            .integer("nonlinear system max iterations")
+            .unwrap_or(1);
+        let coeff = ctx
+            .creal(ctx.params(), "nonlinear conductivity coefficient")?
+            .unwrap_or(0.0);
         let source = ctx.creal(ctx.params(), "mesh relax source")?.unwrap_or(0.0);
         let active: Vec<ElemId> = ctx.active_elements().collect();
         let mut local = LocalSystem::zeros(0);
@@ -126,13 +141,20 @@ impl RigidMeshMapper {
         if ctx.params().logical("mesh relax normalize") == Some(true) {
             let f = ctx.primary_mut().expect("relaxation variable");
             let max = f.values.iter().fold(0.0f64, |m, v| m.max(v.abs()));
-            ctx.info(CALLER, &format!("Normalizing deformation by:{max:12.3E}"), 6);
+            ctx.info(
+                CALLER,
+                &format!("Normalizing deformation by:{max:12.3E}"),
+                6,
+            );
             let f = ctx.primary_mut().expect("relaxation variable");
             f.values.iter_mut().for_each(|v| *v /= max);
         }
         if let Some(f) = ctx.primary() {
             if !f.values.is_empty() {
-                self.relax = Some((f.values.to_vec(), f.perm.map(<[u32]>::to_vec).unwrap_or_default()));
+                self.relax = Some((
+                    f.values.to_vec(),
+                    f.perm.map(<[u32]>::to_vec).unwrap_or_default(),
+                ));
             }
         }
         Ok(())
@@ -147,12 +169,10 @@ fn laplace_local(
     source: f64,
     out: &mut LocalSystem,
 ) -> Result<(), SolverError> {
-    let fe = ctx
-        .sim
-        .backends
-        .fe
-        .as_ref()
-        .ok_or_else(|| SolverError::NotWired("element basis and quadrature (elmer-fe)".into()))?;
+    let fe =
+        ctx.sim.backends.fe.as_ref().ok_or_else(|| {
+            SolverError::NotWired("element basis and quadrature (elmer-fe)".into())
+        })?;
     let el = ctx.mesh.element(e);
     let n = el.nodes.len();
     let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&i| ctx.mesh.coord(i)).collect();
@@ -194,7 +214,12 @@ fn laplace_local(
 }
 
 impl Solver for RigidMeshMapper {
-    fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
+    fn solve(
+        &mut self,
+        ctx: &mut SolverCtx<'_>,
+        _dt: f64,
+        _transient: bool,
+    ) -> Result<(), SolverError> {
         ctx.info(CALLER, "---------------------------------------", 4);
         ctx.info(CALLER, "Performing analytic mesh mapping ", 4);
         ctx.info(CALLER, "---------------------------------------", 4);
@@ -203,7 +228,9 @@ impl Solver for RigidMeshMapper {
         let params = ctx.params().clone();
         let cumulative = params.logical("cumulative displacements").unwrap_or(false);
         let use_original = !cumulative;
-        let store_original = params.logical("store original coordinates").unwrap_or(false);
+        let store_original = params
+            .logical("store original coordinates")
+            .unwrap_or(false);
         let angle_coeff = if ctx.simulation_params().logical("rotate in radians") == Some(true) {
             1.0
         } else {
@@ -211,7 +238,11 @@ impl Solver for RigidMeshMapper {
         };
         let whole_mode = params.logical("whole mesh mode").unwrap_or(false);
         if whole_mode {
-            ctx.info(CALLER, "Moving the whole mesh with keywords from Solver section!", 4);
+            ctx.info(
+                CALLER,
+                "Moving the whole mesh with keywords from Solver section!",
+                4,
+            );
         }
         let rotor_angle = ctx.creal(&ctx.sim.model.simulation, "rotor angle")?;
         let dim = ctx.mesh.dim();
@@ -232,7 +263,10 @@ impl Solver for RigidMeshMapper {
         let mut rotate_order = [1usize, 2, 3];
         if let Some(Value::Integer(ia)) = params.get("mesh rotation axis order") {
             if ia.len() != dim {
-                return Err(SolverError::fatal(CALLER, "Size of Mesh Rotation Axis Order must match dimension."));
+                return Err(SolverError::fatal(
+                    CALLER,
+                    "Size of Mesh Rotation Axis Order must match dimension.",
+                ));
             }
             for i in 0..ia.len() {
                 rotate_order[i] = ia[ia.len() - 1 - i] as usize;
@@ -241,9 +275,9 @@ impl Solver for RigidMeshMapper {
 
         // The relaxation field is solved on the first visit, when the solver
         // has a matrix (a variable).
-        let has_matrix = ctx.sim.slots[slot_index(ctx)].variable.is_some_and(|id| {
-            ctx.sim.vars.by_id(id).kind == elmer_core::FieldKind::Nodal
-        });
+        let has_matrix = ctx.sim.slots[slot_index(ctx)]
+            .variable
+            .is_some_and(|id| ctx.sim.vars.by_id(id).kind == elmer_core::FieldKind::Nodal);
         if has_matrix && !self.visited {
             self.solve_relaxation(ctx)?;
         }
@@ -262,7 +296,11 @@ impl Solver for RigidMeshMapper {
         let any_scale = any(&|p| has_prefix(p, "mesh scale"));
         let any_origin = any(&|p| has_prefix(p, "mesh origin"));
         let any_relax = any(&|p| p.get("mesh relax").is_some());
-        if model.body_forces.iter().any(|p| has_prefix(p, "mesh displacement")) {
+        if model
+            .body_forces
+            .iter()
+            .any(|p| has_prefix(p, "mesh displacement"))
+        {
             ctx.info(CALLER, "> Mesh Displacement < is an obsolete keyword", 3);
             ctx.warn(CALLER, "Replace with > Mesh Translate < ");
         }
@@ -270,7 +308,13 @@ impl Solver for RigidMeshMapper {
 
         let mut new = current.clone();
         let mut done = vec![false; current.len()];
-        let mut map = Map { trf: IDENTITY, origin: [0.0; 4], d_coord: [0.0; 3], got_matrix: false, got_translate: false };
+        let mut map = Map {
+            trf: IDENTITY,
+            origin: [0.0; 4],
+            d_coord: [0.0; 3],
+            got_matrix: false,
+            got_translate: false,
+        };
         let mut prev_list: Option<*const ParamMap> = None;
         let mut got_map = false;
         let mut sec_ptr: &ParamMap = &params;
@@ -278,7 +322,9 @@ impl Solver for RigidMeshMapper {
         for t in 0..ctx.mesh.n_bulk() as u32 {
             let e = ElemId(t);
             if !whole_mode {
-                let Some(bf) = ctx.body_params(e).and_then(|b| b.body_force) else { continue };
+                let Some(bf) = ctx.body_params(e).and_then(|b| b.body_force) else {
+                    continue;
+                };
                 sec_ptr = bf;
                 if constant_map {
                     got_map = prev_list == Some(bf as *const ParamMap);
@@ -296,9 +342,21 @@ impl Solver for RigidMeshMapper {
                         got_map = true;
                     }
                     self.read_map(
-                        ctx, section, node, &mut map,
-                        &Flags { any_matrix, any_rotate, any_translate, any_scale, any_origin },
-                        angle_coeff, rotor_angle, translate_before_rotate, rotate_order,
+                        ctx,
+                        section,
+                        node,
+                        &mut map,
+                        &Flags {
+                            any_matrix,
+                            any_rotate,
+                            any_translate,
+                            any_scale,
+                            any_origin,
+                        },
+                        angle_coeff,
+                        rotor_angle,
+                        translate_before_rotate,
+                        rotate_order,
                     )?;
                 }
                 let x0 = [orig[ni][0], orig[ni][1], orig[ni][2], 1.0];
@@ -307,7 +365,11 @@ impl Solver for RigidMeshMapper {
                     let x1: [f64; 4] = std::array::from_fn(|i| {
                         (0..4).fold(0.0, |s, k| s + map.trf[i][k] * v[k]) + map.origin[i]
                     });
-                    [x1[0] / x1[3] - x0[0], x1[1] / x1[3] - x0[1], x1[2] / x1[3] - x0[2]]
+                    [
+                        x1[0] / x1[3] - x0[0],
+                        x1[1] / x1[3] - x0[1],
+                        x1[2] / x1[3] - x0[2],
+                    ]
                 } else if map.got_translate {
                     map.d_coord
                 } else {
@@ -325,13 +387,24 @@ impl Solver for RigidMeshMapper {
                         dx.iter_mut().for_each(|d| *d *= r);
                     }
                 }
-                new[ni] = [dx[0] + orig[ni][0], dx[1] + orig[ni][1], dx[2] + orig[ni][2]];
+                new[ni] = [
+                    dx[0] + orig[ni][0],
+                    dx[1] + orig[ni][1],
+                    dx[2] + orig[ni][2],
+                ];
                 done[ni] = true;
             }
         }
 
         if !self.visited {
-            ctx.info(CALLER, &format!("Number of nodes mapped: {}", done.iter().filter(|&&d| d).count()), 4);
+            ctx.info(
+                CALLER,
+                &format!(
+                    "Number of nodes mapped: {}",
+                    done.iter().filter(|&&d| d).count()
+                ),
+                4,
+            );
             ctx.info(CALLER, "All done", 4);
         }
         apply_coords(CALLER, &current, &new)?;
@@ -385,7 +458,10 @@ impl RigidMeshMapper {
                         angles[i] = *v;
                     }
                 } else {
-                    for (k, key) in ["mesh rotate 1", "mesh rotate 2", "mesh rotate 3"].into_iter().enumerate() {
+                    for (k, key) in ["mesh rotate 1", "mesh rotate 2", "mesh rotate 3"]
+                        .into_iter()
+                        .enumerate()
+                    {
                         let r = node_real(ctx, vl, key, node)?;
                         angles[k] = r.unwrap_or(0.0);
                         got_rotate |= r.is_some();
@@ -407,7 +483,10 @@ impl RigidMeshMapper {
                         scaling[i] = *v;
                     }
                 } else {
-                    for (k, key) in ["mesh scale 1", "mesh scale 2", "mesh scale 3"].into_iter().enumerate() {
+                    for (k, key) in ["mesh scale 1", "mesh scale 2", "mesh scale 3"]
+                        .into_iter()
+                        .enumerate()
+                    {
                         let r = node_real(ctx, vl, key, node)?;
                         scaling[k] = r.unwrap_or(1.0);
                         got_scale |= r.is_some();
@@ -424,7 +503,10 @@ impl RigidMeshMapper {
                         map.d_coord[i] = *v;
                     }
                 } else {
-                    for (k, key) in ["mesh translate 1", "mesh translate 2", "mesh translate 3"].into_iter().enumerate() {
+                    for (k, key) in ["mesh translate 1", "mesh translate 2", "mesh translate 3"]
+                        .into_iter()
+                        .enumerate()
+                    {
                         let r = node_real(ctx, vl, key, node)?;
                         map.d_coord[k] = r.unwrap_or(0.0);
                         map.got_translate |= r.is_some();
@@ -472,7 +554,11 @@ impl RigidMeshMapper {
                         trs[i][3] = map.d_coord[i];
                     }
                 }
-                map.trf = if translate_before_rotate { matmul(&rot, &trs) } else { matmul(&trs, &rot) };
+                map.trf = if translate_before_rotate {
+                    matmul(&rot, &trs)
+                } else {
+                    matmul(&trs, &rot)
+                };
                 if got_scale {
                     let mut scl = IDENTITY;
                     for i in 0..3 {
@@ -491,7 +577,10 @@ impl RigidMeshMapper {
                     map.origin[i] = *v;
                 }
             } else {
-                for (k, key) in ["mesh origin 1", "mesh origin 2", "mesh origin 3"].into_iter().enumerate() {
+                for (k, key) in ["mesh origin 1", "mesh origin 2", "mesh origin 3"]
+                    .into_iter()
+                    .enumerate()
+                {
                     map.origin[k] = node_real(ctx, vl, key, node)?.unwrap_or(0.0);
                 }
             }

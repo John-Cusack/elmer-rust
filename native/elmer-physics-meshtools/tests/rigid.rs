@@ -32,7 +32,7 @@ fn mapper1_model(with_heat: bool) -> Model {
             ("Linear System Preconditioning", st("ILU1")),
             ("Linear System Abort Not Converged", lg(false)),
             ("Linear System Residual Output", ints(&[10])),
-            ("Reference Norm", Value::real(3.65751569982390654e-2)),
+            ("Reference Norm", Value::real(3.657_515_699_823_906_5e-2)),
         ]));
     }
     Model {
@@ -44,14 +44,27 @@ fn mapper1_model(with_heat: bool) -> Model {
         ]),
         solvers,
         equations: vec![sec(&[("Active Solvers", ints(&[2]))])],
-        bodies: vec![sec(&[("Equation", ints(&[1])), ("Body Force", ints(&[1])), ("Material", ints(&[1]))])],
+        bodies: vec![sec(&[
+            ("Equation", ints(&[1])),
+            ("Body Force", ints(&[1])),
+            ("Material", ints(&[1])),
+        ])],
         body_forces: vec![sec(&[
-            ("Mesh Translate 2", matc(&["coordinate 1"], "0.2*sin(2*pi*tx)")),
+            (
+                "Mesh Translate 2",
+                matc(&["coordinate 1"], "0.2*sin(2*pi*tx)"),
+            ),
             ("Mesh Relax", matc(&["coordinate 2"], "tx")),
             ("Heat Source", Value::real(1.0)),
         ])],
-        materials: vec![sec(&[("Heat Conductivity", Value::real(1.0)), ("Density", Value::real(1.0))])],
-        boundary_conditions: vec![sec(&[("Target Boundaries", ints(&[1])), ("Temperature", Value::real(0.0))])],
+        materials: vec![sec(&[
+            ("Heat Conductivity", Value::real(1.0)),
+            ("Density", Value::real(1.0)),
+        ])],
+        boundary_conditions: vec![sec(&[
+            ("Target Boundaries", ints(&[1])),
+            ("Temperature", Value::real(0.0)),
+        ])],
         ..Model::default()
     }
 }
@@ -75,7 +88,10 @@ fn mapper2_model() -> Model {
                 ("Nonlinear System Relaxation Factor", Value::real(0.5)),
                 ("Nonlinear System Relaxation After", ints(&[1])),
                 ("Nonlinear System Max Iterations", ints(&[30])),
-                ("Nonlinear System Convergence Tolerance", Value::real(1.4e-4)),
+                (
+                    "Nonlinear System Convergence Tolerance",
+                    Value::real(1.4e-4),
+                ),
                 ("Linear System Solver", st("Iterative")),
                 ("Linear System Iterative Method", st("BiCGStab")),
                 ("Linear System Max Iterations", ints(&[500])),
@@ -102,10 +118,21 @@ fn mapper2_model() -> Model {
                 ("Reference Norm", Value::real(4.41553009e-2)),
             ]),
         ],
-        equations: vec![sec(&[("Active Solvers", ints(&[1, 2]))]), sec(&[("Active Solvers", ints(&[2]))])],
+        equations: vec![
+            sec(&[("Active Solvers", ints(&[1, 2]))]),
+            sec(&[("Active Solvers", ints(&[2]))]),
+        ],
         bodies: vec![
-            sec(&[("Equation", ints(&[1])), ("Body Force", ints(&[1])), ("Material", ints(&[1]))]),
-            sec(&[("Equation", ints(&[2])), ("Body Force", ints(&[2])), ("Material", ints(&[2]))]),
+            sec(&[
+                ("Equation", ints(&[1])),
+                ("Body Force", ints(&[1])),
+                ("Material", ints(&[1])),
+            ]),
+            sec(&[
+                ("Equation", ints(&[2])),
+                ("Body Force", ints(&[2])),
+                ("Material", ints(&[2])),
+            ]),
         ],
         body_forces: vec![
             sec(&[
@@ -121,12 +148,25 @@ fn mapper2_model() -> Model {
             ]),
         ],
         materials: vec![
-            sec(&[("Heat Conductivity", Value::real(1.0)), ("Density", Value::real(1.0))]),
-            sec(&[("Heat Conductivity", Value::real(100.0)), ("Density", Value::real(1.0))]),
+            sec(&[
+                ("Heat Conductivity", Value::real(1.0)),
+                ("Density", Value::real(1.0)),
+            ]),
+            sec(&[
+                ("Heat Conductivity", Value::real(100.0)),
+                ("Density", Value::real(1.0)),
+            ]),
         ],
         boundary_conditions: vec![
-            sec(&[("Target Boundaries", ints(&[1])), ("Fixed Boundary", lg(true)), ("Temperature", Value::real(0.0))]),
-            sec(&[("Target Boundaries", ints(&[2])), ("Moving Boundary", lg(true))]),
+            sec(&[
+                ("Target Boundaries", ints(&[1])),
+                ("Fixed Boundary", lg(true)),
+                ("Temperature", Value::real(0.0)),
+            ]),
+            sec(&[
+                ("Target Boundaries", ints(&[2])),
+                ("Moving Boundary", lg(true)),
+            ]),
         ],
         ..Model::default()
     }
@@ -150,10 +190,16 @@ fn rigid1_heat_reaches_the_reference_norm() {
     let mesh = SimMesh::new(read_elmer_mesh(&data("rigid1"), 2));
     let sim = run(mapper1_model(true), &mesh).unwrap();
     let r = Reference::read("rigid1.txt");
-    let d = max_diff(&nodal(&sim, "temperature", mesh.mesh.coords.len()), &r.col("temperature"));
+    let d = max_diff(
+        &nodal(&sim, "temperature", mesh.mesh.coords.len()),
+        &r.col("temperature"),
+    );
     assert!(d < 1e-7, "temperature max |diff| {d:e}");
     let norm = sim.vars.get("temperature").unwrap().conv.norm;
-    assert!(((norm - 3.65751569982390654e-2) / norm).abs() < 1e-6, "{norm}");
+    assert!(
+        ((norm - 3.657_515_699_823_906_5e-2) / norm).abs() < 1e-6,
+        "{norm}"
+    );
 }
 
 #[test]

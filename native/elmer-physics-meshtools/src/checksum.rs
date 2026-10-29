@@ -71,7 +71,11 @@ pub struct MeshChecksum;
 impl MeshChecksum {
     fn slot_index(ctx: &SolverCtx<'_>) -> usize {
         let id = ctx.solver_id();
-        ctx.sim.slots.iter().position(|s| s.id == id).expect("running solver has a slot")
+        ctx.sim
+            .slots
+            .iter()
+            .position(|s| s.id == id)
+            .expect("running solver has a slot")
     }
 }
 
@@ -88,7 +92,12 @@ impl Solver for MeshChecksum {
         Ok(())
     }
 
-    fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
+    fn solve(
+        &mut self,
+        ctx: &mut SolverCtx<'_>,
+        _dt: f64,
+        _transient: bool,
+    ) -> Result<(), SolverError> {
         ctx.info(CALLER, "Checking for mesh consistency", 4);
         let cs = checksum(ctx.mesh, &ctx.sim.model);
         println!(" Checksums for file output:");
@@ -101,11 +110,18 @@ impl Solver for MeshChecksum {
         println!(" PseudoNorm:{norm:>24.16}");
         let ix = Self::slot_index(ctx);
         if let Some(id) = ctx.sim.slots[ix].variable {
-            ctx.sim.vars.by_id_mut(id).values.iter_mut().for_each(|v| *v = norm);
+            ctx.sim
+                .vars
+                .by_id_mut(id)
+                .values
+                .iter_mut()
+                .for_each(|v| *v = norm);
         }
         // By construction the reference norm should now be one.
         if ctx.sim.slots[ix].params.get("reference norm").is_none() {
-            ctx.sim.slots[ix].params.insert("Reference Norm", Value::real(1.0));
+            ctx.sim.slots[ix]
+                .params
+                .insert("Reference Norm", Value::real(1.0));
         }
         Ok(())
     }

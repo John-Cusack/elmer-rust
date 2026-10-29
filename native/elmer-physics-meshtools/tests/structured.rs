@@ -27,10 +27,16 @@ fn structmap_model(with_heat: bool) -> Model {
             ("Linear System Residual Output", ints(&[1])),
             ("Steady State Convergence Tolerance", Value::real(1.0e-5)),
             ("Stabilize", lg(true)),
-            ("Nonlinear System Convergence Tolerance", Value::real(1.0e-5)),
+            (
+                "Nonlinear System Convergence Tolerance",
+                Value::real(1.0e-5),
+            ),
             ("Nonlinear System Max Iterations", ints(&[1])),
             ("Nonlinear System Newton After Iterations", ints(&[3])),
-            ("Nonlinear System Newton After Tolerance", Value::real(1.0e-2)),
+            (
+                "Nonlinear System Newton After Tolerance",
+                Value::real(1.0e-2),
+            ),
             ("Nonlinear System Relaxation Factor", Value::real(1.0)),
             ("Reference Norm", Value::real(0.07352857410943443)),
         ]));
@@ -38,7 +44,10 @@ fn structmap_model(with_heat: bool) -> Model {
     solvers.push(sec(&[
         ("Exec Solver", st("before all")),
         ("Equation", st("MapCoordinate")),
-        ("Procedure", st("\"StructuredMeshMapper\" \"StructuredMeshMapper\"")),
+        (
+            "Procedure",
+            st("\"StructuredMeshMapper\" \"StructuredMeshMapper\""),
+        ),
         ("Active Coordinate", ints(&[2])),
     ]));
     Model {
@@ -50,22 +59,35 @@ fn structmap_model(with_heat: bool) -> Model {
         ]),
         solvers,
         equations: vec![sec(&[("Active Solvers", ints(&[1]))])],
-        bodies: vec![sec(&[("Equation", ints(&[1])), ("Body Force", ints(&[1])), ("Material", ints(&[1]))])],
+        bodies: vec![sec(&[
+            ("Equation", ints(&[1])),
+            ("Body Force", ints(&[1])),
+            ("Material", ints(&[1])),
+        ])],
         body_forces: vec![sec(&[("Heat Source", Value::real(1.0))])],
-        materials: vec![sec(&[("Heat Conductivity", Value::real(1.0)), ("Density", Value::real(1.0))])],
+        materials: vec![sec(&[
+            ("Heat Conductivity", Value::real(1.0)),
+            ("Density", Value::real(1.0)),
+        ])],
         boundary_conditions: vec![
             sec(&[
                 ("Target Boundaries", ints(&[1])),
                 ("Bottom Surface", matc(&["coordinate 1"], "0.1*cos(5*tx)")),
                 ("Temperature", Value::real(0.0)),
             ]),
-            sec(&[("Target Boundaries", ints(&[2])), ("Temperature", Value::real(0.0))]),
+            sec(&[
+                ("Target Boundaries", ints(&[2])),
+                ("Temperature", Value::real(0.0)),
+            ]),
             sec(&[
                 ("Target Boundaries", ints(&[3])),
                 ("Top Surface", matc(&["coordinate 1"], "1+0.1*sin(5*tx)")),
                 ("Temperature", Value::real(0.0)),
             ]),
-            sec(&[("Target Boundaries", ints(&[4])), ("Temperature", Value::real(0.0))]),
+            sec(&[
+                ("Target Boundaries", ints(&[4])),
+                ("Temperature", Value::real(0.0)),
+            ]),
         ],
         ..Model::default()
     }
@@ -89,7 +111,10 @@ fn structmap_heat_reaches_the_reference_norm() {
     let mesh = SimMesh::new(read_elmer_mesh(&data("structmap"), 2));
     let sim = run(structmap_model(true), &mesh).unwrap();
     let r = Reference::read("structmap.txt");
-    let d = max_diff(&nodal(&sim, "temperature", mesh.mesh.coords.len()), &r.col("temperature"));
+    let d = max_diff(
+        &nodal(&sim, "temperature", mesh.mesh.coords.len()),
+        &r.col("temperature"),
+    );
     assert!(d < 1e-8, "temperature max |diff| {d:e}");
     let norm = sim.vars.get("temperature").unwrap().conv.norm;
     assert!(((norm - 0.07352857410943443) / norm).abs() < 1e-8, "{norm}");

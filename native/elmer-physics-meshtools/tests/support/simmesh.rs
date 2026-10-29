@@ -23,7 +23,11 @@ impl SimMesh {
             .map(|e| e.nodes.iter().map(|&n| n as u32).collect())
             .collect();
         let coords = Arc::new(SharedCoords::new(mesh.coords.clone()));
-        Self { mesh, coords, nodes }
+        Self {
+            mesh,
+            coords,
+            nodes,
+        }
     }
 }
 

@@ -77,9 +77,18 @@ impl Target {
 
 /// `VariableGet`, or `DefaultVariableAdd` when missing: a name ending in a
 /// component number creates the whole vector variable.
-fn velocity_or_update(ctx: &mut SolverCtx<'_>, key: &str, nnodes: usize, dim: usize) -> Result<Option<Target>, SolverError> {
-    let Some(name) = ctx.params().string(key).map(str::to_string) else { return Ok(None) };
-    let existing = ctx.component(&name).map(|c| (c.len(), c.perm.map(<[u32]>::to_vec)));
+fn velocity_or_update(
+    ctx: &mut SolverCtx<'_>,
+    key: &str,
+    nnodes: usize,
+    dim: usize,
+) -> Result<Option<Target>, SolverError> {
+    let Some(name) = ctx.params().string(key).map(str::to_string) else {
+        return Ok(None);
+    };
+    let existing = ctx
+        .component(&name)
+        .map(|c| (c.len(), c.perm.map(<[u32]>::to_vec)));
     if let Some((len, perm)) = existing {
         if len != nnodes {
             return Err(fatal(format!("Sizes must agree: {name}")));
@@ -93,16 +102,36 @@ fn velocity_or_update(ctx: &mut SolverCtx<'_>, key: &str, nnodes: usize, dim: us
     let t = name.trim_end();
     if t.ends_with(['1', '2', '3']) {
         let base = t[..t.len() - 1].trim();
-        let v = Variable::new(base, FieldKind::Nodal, dim, Some(perm.clone()), vec![0.0; nnodes * dim]);
+        let v = Variable::new(
+            base,
+            FieldKind::Nodal,
+            dim,
+            Some(perm.clone()),
+            vec![0.0; nnodes * dim],
+        );
         ctx.sim.vars.add(v)?;
     } else {
-        ctx.sim.vars.add(Variable::new(t, FieldKind::Nodal, 1, Some(perm.clone()), vec![0.0; nnodes]))?;
+        ctx.sim.vars.add(Variable::new(
+            t,
+            FieldKind::Nodal,
+            1,
+            Some(perm.clone()),
+            vec![0.0; nnodes],
+        ))?;
     }
-    Ok(Some(Target { name, perm: Some(perm.to_vec()) }))
+    Ok(Some(Target {
+        name,
+        perm: Some(perm.to_vec()),
+    }))
 }
 
 impl Solver for StructuredMeshMapper {
-    fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, _transient: bool) -> Result<(), SolverError> {
+    fn solve(
+        &mut self,
+        ctx: &mut SolverCtx<'_>,
+        dt: f64,
+        _transient: bool,
+    ) -> Result<(), SolverError> {
         ctx.info(CALLER, "---------------------------------------", 4);
         ctx.info(CALLER, "Performing mapping on a structured mesh ", 4);
         ctx.info(CALLER, "---------------------------------------", 4);
@@ -134,7 +163,9 @@ impl Solver for StructuredMeshMapper {
         };
         let multi_layer = fixed.is_some();
         let bot_proj = params.logical("project to bottom").unwrap_or(false);
-        let active = params.integer("active coordinate").ok_or_else(|| fatal("Active Coordinate is missing"))?;
+        let active = params
+            .integer("active coordinate")
+            .ok_or_else(|| fatal("Active Coordinate is missing"))?;
         if !(1..=3).contains(&active) {
             return Err(fatal("Invalid value for Active Coordinate"));
         }
@@ -143,19 +174,33 @@ impl Solver for StructuredMeshMapper {
         if self.structure.is_none() || reinitialize {
             let mut unit = [0.0; 3];
             unit[dir] = if bot_proj { -1.0 } else { 1.0 };
-            let eps = ctx.creal(&params, "dot product tolerance")?.unwrap_or(1.0e-4);
-            let want = Want { layers: multi_layer, mid: !multi_layer };
+            let eps = ctx
+                .creal(&params, "dot product tolerance")?
+                .unwrap_or(1.0e-4);
+            let want = Want {
+                layers: multi_layer,
+                mid: !multi_layer,
+            };
             ctx.info(CALLER, "Determining extruded structure", 6);
             let mut s = detect_extruded_structure(ctx.mesh, &ctx.sim.model, unit, eps, want)?;
             if let Some(mut f) = fixed {
                 s.layers += 1;
                 if f[0] != 1 {
-                    ctx.warn(CALLER, &format!("Enforcing first fixed layer to: 1 (was {})", f[0]));
+                    ctx.warn(
+                        CALLER,
+                        &format!("Enforcing first fixed layer to: 1 (was {})", f[0]),
+                    );
                     f[0] = 1;
                 }
                 let last = f.len() - 1;
                 if f[last] as usize != s.layers {
-                    ctx.warn(CALLER, &format!("Enforcing last fixed layer to: {} (was {})", s.layers, f[last]));
+                    ctx.warn(
+                        CALLER,
+                        &format!(
+                            "Enforcing last fixed layer to: {} (was {})",
+                            s.layers, f[last]
+                        ),
+                    );
                     f[last] = s.layers as i32;
                 }
                 self.fixed_layers = f;
@@ -163,7 +208,17 @@ impl Solver for StructuredMeshMapper {
             self.structure = Some(s);
         }
         let s = self.structure.take().expect("structure detected above");
-        let r = self.map(ctx, &params, &s, dt, dir, dim, nnodes, multi_layer, bot_proj);
+        let r = self.map(
+            ctx,
+            &params,
+            &s,
+            dt,
+            dir,
+            dim,
+            nnodes,
+            multi_layer,
+            bot_proj,
+        );
         self.structure = Some(s);
         r
     }
@@ -207,26 +262,55 @@ impl StructuredMeshMapper {
         let (mut tangled, mut limited) = (0usize, 0usize);
         if multi_layer {
             self.multi_layer_mapper(
-                ctx, params, s, dt, &orig, &mut coord, displacement_mode, bot_proj, &velo, &update,
-                &mut tangled, &mut limited,
+                ctx,
+                params,
+                s,
+                dt,
+                &orig,
+                &mut coord,
+                displacement_mode,
+                bot_proj,
+                &velo,
+                &update,
+                &mut tangled,
+                &mut limited,
             )?;
         } else {
             self.binary_layer_mapper(
-                ctx, params, s, dt, &orig, &mut coord, displacement_mode, &velo, &update, &mut tangled, &mut limited,
+                ctx,
+                params,
+                s,
+                dt,
+                &orig,
+                &mut coord,
+                displacement_mode,
+                &velo,
+                &update,
+                &mut tangled,
+                &mut limited,
             )?;
         }
         if limited > 0 {
-            ctx.info(CALLER, &format!("There seems to be {limited} (out of {nnodes}) limited heights!"), 6);
+            ctx.info(
+                CALLER,
+                &format!("There seems to be {limited} (out of {nnodes}) limited heights!"),
+                6,
+            );
         }
         if tangled > 0 {
-            ctx.info(CALLER, &format!("There seems to be {tangled} (out of {nnodes}) tangled nodes!"), 5);
+            ctx.info(
+                CALLER,
+                &format!("There seems to be {tangled} (out of {nnodes}) tangled nodes!"),
+                5,
+            );
         }
         if params.logical("mesh mapping passive").unwrap_or(false) {
             ctx.info(CALLER, "Taking back the suggested mapping!", 5);
             coord.clone_from(&orig);
         }
-        if velo.is_some() && !self.visited && params.logical("mesh velocity first zero").unwrap_or(false) {
-            let v = velo.as_ref().expect("checked");
+        if let Some(v) = velo.as_ref().filter(|_| {
+            !self.visited && params.logical("mesh velocity first zero").unwrap_or(false)
+        }) {
             for n in 0..nnodes {
                 v.set(ctx, n, 0.0);
             }
@@ -242,12 +326,19 @@ impl StructuredMeshMapper {
 
     /// The surface values of `key` from the boundary conditions, written
     /// into `Field` at the element nodes (later elements win).
-    fn bc_surface(&mut self, ctx: &SolverCtx<'_>, key: &str, nnodes: usize) -> Result<(), SolverError> {
+    fn bc_surface(
+        &mut self,
+        ctx: &SolverCtx<'_>,
+        key: &str,
+        nnodes: usize,
+    ) -> Result<(), SolverError> {
         let field = self.field.get_or_insert_with(|| vec![0.0; nnodes]);
         let elems: Vec<ElemId> = ctx.boundary_elements().collect();
         for e in elems {
             let bc = ctx.bc_params(e).expect("boundary element with a BC");
-            let Some(vals) = ctx.real_at_nodes(bc, key, e)? else { continue };
+            let Some(vals) = ctx.real_at_nodes(bc, key, e)? else {
+                continue;
+            };
             for (&n, &x) in ctx.mesh.element(e).nodes.iter().zip(&vals) {
                 field[n as usize] = x;
             }
@@ -274,22 +365,42 @@ impl StructuredMeshMapper {
         let detangle = params.logical("correct surface").unwrap_or(false);
         let min_height = self.min_height;
         if detangle {
-            ctx.info(CALLER, "> Correct Surface < in case of intersecting upper and lower surface", 4);
+            ctx.info(
+                CALLER,
+                "> Correct Surface < in case of intersecting upper and lower surface",
+                4,
+            );
         }
 
-        let (top_mode, top_val0, top_var) = self.surface_mode(ctx, params, "top surface level", "top surface variable name", "top surface", nnodes)?;
+        let (top_mode, top_val0, top_var) = self.surface_mode(
+            ctx,
+            params,
+            "top surface level",
+            "top surface variable name",
+            "top surface",
+            nnodes,
+        )?;
         if top_mode == Mode::None {
             return Err(fatal("Top surface BC entry is missing"));
         }
-        let (bot_mode, bot_val0, bot_var) =
-            self.surface_mode(ctx, params, "bottom surface level", "bottom surface variable name", "bottom surface", nnodes)?;
+        let (bot_mode, bot_val0, bot_var) = self.surface_mode(
+            ctx,
+            params,
+            "bottom surface level",
+            "bottom surface variable name",
+            "bottom surface",
+            nnodes,
+        )?;
         if let Some(mid) = &s.mid {
             let _ = mid;
             self.bc_surface(ctx, "mid surface", nnodes)?;
         }
         let field = self.field.clone();
 
-        let var_value = |v: &Option<(Vec<f64>, Option<Vec<u32>>)>, node: usize, what: &str| -> Result<f64, SolverError> {
+        let var_value = |v: &Option<(Vec<f64>, Option<Vec<u32>>)>,
+                         node: usize,
+                         what: &str|
+         -> Result<f64, SolverError> {
             let (vals, perm) = v.as_ref().expect("variable mode has a variable");
             match perm {
                 Some(p) => {
@@ -332,7 +443,11 @@ impl StructuredMeshMapper {
             };
 
             // Check whether the mesh gets tangled (only the upper part with a mid layer).
-            let mut dx = if displacement_mode { top_val + x0top - mid_val - x0mid } else { top_val - mid_val };
+            let mut dx = if displacement_mode {
+                top_val + x0top - mid_val - x0mid
+            } else {
+                top_val - mid_val
+            };
             if dx < min_height {
                 if dx < f64::MIN_POSITIVE {
                     *tangled_count += 1;
@@ -340,7 +455,11 @@ impl StructuredMeshMapper {
                 *limited_count += 1;
                 if detangle {
                     dx = min_height;
-                    top_val = if displacement_mode { mid_val + x0mid + x0top + dx } else { mid_val + dx };
+                    top_val = if displacement_mode {
+                        mid_val + x0mid + x0top + dx
+                    } else {
+                        mid_val + dx
+                    };
                 }
             }
 
@@ -392,15 +511,39 @@ impl StructuredMeshMapper {
         }
         if let Some(name) = params.string(var_key) {
             let Some(c) = ctx.component(name) else {
-                return Err(fatal(format!("{} surface variable is missing: {name}", if bc_key.starts_with("top") { "Top" } else { "Bottom" })));
+                return Err(fatal(format!(
+                    "{} surface variable is missing: {name}",
+                    if bc_key.starts_with("top") {
+                        "Top"
+                    } else {
+                        "Bottom"
+                    }
+                )));
             };
             if ctx.sim.vars.get(name).is_some_and(|v| v.dofs != 1) {
-                return Err(fatal(format!("{} surface variable should have only 1 dof", if bc_key.starts_with("top") { "Top" } else { "Bottom" })));
+                return Err(fatal(format!(
+                    "{} surface variable should have only 1 dof",
+                    if bc_key.starts_with("top") {
+                        "Top"
+                    } else {
+                        "Bottom"
+                    }
+                )));
             }
             let vals: Vec<f64> = c.iter().collect();
-            return Ok((Mode::Variable, 0.0, Some((vals, c.perm.map(<[u32]>::to_vec)))));
+            return Ok((
+                Mode::Variable,
+                0.0,
+                Some((vals, c.perm.map(<[u32]>::to_vec))),
+            ));
         }
-        if ctx.sim.model.boundary_conditions.iter().any(|b| b.get(bc_key).is_some()) {
+        if ctx
+            .sim
+            .model
+            .boundary_conditions
+            .iter()
+            .any(|b| b.get(bc_key).is_some())
+        {
             self.bc_surface(ctx, bc_key, nnodes)?;
             return Ok((Mode::Bc, 0.0, None));
         }
@@ -433,11 +576,21 @@ impl StructuredMeshMapper {
             .ok_or_else(|| fatal("No > Fixed Layer Variable < found"))?
             .to_string();
         let (fixed_dofs, fixed_vals, fixed_perm) = {
-            let v = ctx.sim.vars.get(&name).ok_or_else(|| fatal(format!("Could not find variable: {name}")))?;
-            (v.dofs, v.values.clone(), v.perm.as_ref().map(|p| p.to_vec()))
+            let v = ctx
+                .sim
+                .vars
+                .get(&name)
+                .ok_or_else(|| fatal(format!("Could not find variable: {name}")))?;
+            (
+                v.dofs,
+                v.values.clone(),
+                v.perm.as_ref().map(|p| p.to_vec()),
+            )
         };
         if fixed_dofs != nfixed {
-            return Err(fatal(format!("Invalid number of components in fixed layer variable:{fixed_dofs}")));
+            return Err(fatal(format!(
+                "Invalid number of components in fixed layer variable:{fixed_dofs}"
+            )));
         }
         let min_height = self.min_height;
         let fl = &self.fixed_layers;
@@ -496,25 +649,37 @@ impl StructuredMeshMapper {
 
             for (l, row) in proj.iter().enumerate() {
                 let p = row.iter().zip(fixed_coord).fold(0.0, |a, (x, y)| a + x * y);
-                stride_coord[l] = if displacement_mode { stride_coord[l] + p } else { p };
+                stride_coord[l] = if displacement_mode {
+                    stride_coord[l] + p
+                } else {
+                    p
+                };
             }
 
             if detangle {
                 let n = nlayers;
                 if bot_proj {
-                    let cnt = (0..n - 1).filter(|&l| stride_coord[l] - stride_coord[l + 1] < min_height).count();
+                    let cnt = (0..n - 1)
+                        .filter(|&l| stride_coord[l] - stride_coord[l + 1] < min_height)
+                        .count();
                     if cnt > 0 {
                         *limited_count += cnt;
-                        *tangled_count += (0..n - 1).filter(|&l| stride_coord[l] - stride_coord[l + 1] < f64::MIN_POSITIVE).count();
+                        *tangled_count += (0..n - 1)
+                            .filter(|&l| stride_coord[l] - stride_coord[l + 1] < f64::MIN_POSITIVE)
+                            .count();
                         for k in 1..n {
                             stride_coord[k] = stride_coord[k].min(stride_coord[k - 1] - min_height);
                         }
                     }
                 } else {
-                    let cnt = (0..n - 1).filter(|&l| stride_coord[l + 1] - stride_coord[l] < min_height).count();
+                    let cnt = (0..n - 1)
+                        .filter(|&l| stride_coord[l + 1] - stride_coord[l] < min_height)
+                        .count();
                     if cnt > 0 {
                         *limited_count += cnt;
-                        *tangled_count += (0..n - 1).filter(|&l| stride_coord[l + 1] - stride_coord[l] < f64::MIN_POSITIVE).count();
+                        *tangled_count += (0..n - 1)
+                            .filter(|&l| stride_coord[l + 1] - stride_coord[l] < f64::MIN_POSITIVE)
+                            .count();
                         for k in 1..n {
                             stride_coord[k] = stride_coord[k].max(stride_coord[k - 1] + min_height);
                         }

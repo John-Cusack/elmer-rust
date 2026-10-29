@@ -55,7 +55,10 @@ impl SharedCoords {
     }
 
     pub fn snapshot(&self) -> Vec<[f64; 3]> {
-        self.0.read().unwrap_or_else(PoisonError::into_inner).clone()
+        self.0
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 }
 

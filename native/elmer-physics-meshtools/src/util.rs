@@ -8,8 +8,15 @@ use crate::motion;
 
 /// `ListGetReal(section, key, 1, [node])`: the keyword at one node, `None`
 /// when the section lacks it.
-pub fn node_real(ctx: &SolverCtx<'_>, section: &ParamMap, key: &str, node: u32) -> Result<Option<f64>, SolverError> {
-    let Some(v) = section.get(key) else { return Ok(None) };
+pub fn node_real(
+    ctx: &SolverCtx<'_>,
+    section: &ParamMap,
+    key: &str,
+    node: u32,
+) -> Result<Option<f64>, SolverError> {
+    let Some(v) = section.get(key) else {
+        return Ok(None);
+    };
     let b = &ctx.sim.backends;
     let xs = eval_at_nodes_with(v, &[node], &ctx.fields(), b.matc.as_deref(), &b.udfs)?;
     Ok(xs.first().copied())
@@ -52,5 +59,9 @@ pub fn coords_of(mesh: &dyn elmer_core::MeshView) -> Vec<[f64; 3]> {
 
 pub fn slot_index(ctx: &SolverCtx<'_>) -> usize {
     let id = ctx.solver_id();
-    ctx.sim.slots.iter().position(|s| s.id == id).expect("running solver has a slot")
+    ctx.sim
+        .slots
+        .iter()
+        .position(|s| s.id == id)
+        .expect("running solver has a slot")
 }
