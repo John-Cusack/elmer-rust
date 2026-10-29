@@ -1,13 +1,10 @@
-//! Test-only stand-ins for S1's `elmer-mesh` (mesh-file reader), `elmer-fe`
-//! (basis, quadrature, copied from `elmer-physics-heat`'s tests) and
-//! `elmer-sif` (the hand-built MinimalExample model). Replace them with the
-//! real crates once S1 merges.
+//! Test-only stand-ins for S1's `elmer-mesh` (mesh-file reader) and a
+//! hand-built MinimalExample model for the tests that edit it. Replace the
+//! reader with `elmer-mesh` once it merges.
 #![allow(dead_code, clippy::needless_range_loop)]
 
-pub mod basis;
 pub mod case;
 pub mod mesh;
-pub mod quad;
 
 use std::io::Write;
 use std::sync::{Arc, Mutex};

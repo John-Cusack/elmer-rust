@@ -13,7 +13,7 @@ use elmer_cli::ExitCode;
 use elmer_core::{SerialComm, Value};
 use elmer_run::{run_case, Case, NativeEngine};
 use elmer_solver::SolverError;
-use support::case::{fe, minimal_example, scratch_case, sif_frontend, HandBuilt};
+use support::case::{minimal_example, scratch_case, sif_frontend, HandBuilt};
 use support::logger;
 use support::mesh::FileMesh;
 
@@ -24,7 +24,6 @@ const TOLERANCE: f64 = 1.0e-5;
 
 #[test]
 fn minimal_example_norm_test_passed_and_vtu() {
-    let _ = elmer_physics_heat::install_fe(fe());
     let dir = scratch_case("minimal_example", "direct");
     let mesh = FileMesh::read(&dir.join("triangle"), 2);
     let (log, buf) = logger();
@@ -113,11 +112,11 @@ fn cli_driver_refuses_without_side_effects() {
     // A procedure no crate provides is refused before setup, not skipped.
     let dir = scratch_case("minimal_example", "procedure");
     let engine = NativeEngine::new(Box::new(HandBuilt(|m| {
-        m.solvers[0].insert("Procedure", Value::Str("\"StatCurrentSolve\" \"StatCurrentSolver\"".into()));
+        m.solvers[0].insert("Procedure", Value::Str("\"MagneticSolve\" \"MagneticSolver\"".into()));
     })));
     let (action, _, diag) = drive(&engine, &dir);
     assert_eq!(action, Action::Exit(ExitCode::Refuse));
-    assert!(diag.contains("StatCurrentSolve"), "{diag}");
+    assert!(diag.contains("MagneticSolve"), "{diag}");
 }
 
 #[test]
@@ -135,8 +134,21 @@ fn missing_linear_system_solver_is_fatal_without_output() {
 }
 
 #[test]
+fn implicit_legacy_heat_equation_solver() {
+    // `Equation = Heat Equation` with no Procedure or Variable: AddEquationBasics
+    // supplies HeatSolve and Temperature.
+    let dir = scratch_case("minimal_example", "legacy");
+    let engine = NativeEngine::new(Box::new(HandBuilt(|m| {
+        m.solvers[0].0.remove("procedure");
+        m.solvers[0].0.remove("variable");
+    })));
+    let (action, out, diag) = drive(&engine, &dir);
+    assert_eq!(action, Action::Exit(ExitCode::Pass), "{out}\n{diag}");
+    assert_eq!(std::fs::read_to_string(dir.join("TEST.PASSED")).unwrap(), "1\n");
+}
+
+#[test]
 fn transient_post_file_is_refused() {
-    let _ = elmer_physics_heat::install_fe(fe());
     let dir = scratch_case("minimal_example", "transient");
     let mesh = FileMesh::read(&dir.join("triangle"), 2);
     let mut model = minimal_example();

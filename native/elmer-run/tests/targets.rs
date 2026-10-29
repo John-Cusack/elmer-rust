@@ -21,7 +21,6 @@ const TOLERANCE: f64 = 1.0e-5;
 fn run(case: &str, sif: &str, tag: &str) -> (Outcome, PathBuf) {
     let dir = scratch_case(case, tag);
     let frontend = sif_frontend();
-    let _ = elmer_physics_heat::install_fe(frontend.fe());
     let loaded = frontend.load(&dir.join(sif)).unwrap_or_else(|e| panic!("{tag}: {e}"));
     let (log, buf) = logger();
     let case = Case {

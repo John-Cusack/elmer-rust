@@ -3,12 +3,10 @@
 use std::path::{Path, PathBuf};
 
 use elmer_core::{ParamMap, Value};
-use elmer_physics_heat::FeProvider;
 use elmer_run::{Frontend, LoadedCase, SifFrontend};
 use elmer_solver::Model;
 
 use super::mesh::FileMesh;
-use super::{basis::TestBasis, quad::TestQuadrature};
 
 pub fn data(case: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data").join(case)
@@ -75,13 +73,9 @@ pub fn minimal_example() -> Model {
     }
 }
 
-pub fn fe() -> FeProvider {
-    || (Box::new(TestBasis), Box::new(TestQuadrature))
-}
-
-/// `elmer-sif` with the test-local mesh reader and basis.
+/// `elmer-sif` with the test-local mesh reader.
 pub fn sif_frontend() -> SifFrontend {
-    SifFrontend { mesh: super::mesh::load, fe: fe() }
+    SifFrontend { mesh: super::mesh::load }
 }
 
 /// Serves the hand-built model for any `.sif`, with the mesh from
@@ -89,10 +83,6 @@ pub fn sif_frontend() -> SifFrontend {
 pub struct HandBuilt(pub fn(&mut Model));
 
 impl Frontend for HandBuilt {
-    fn fe(&self) -> FeProvider {
-        fe()
-    }
-
     fn load(&self, sif: &Path) -> Result<LoadedCase, String> {
         let case_dir = sif.parent().unwrap().to_path_buf();
         let mesh_dir = case_dir.join("triangle");
