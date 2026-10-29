@@ -5,6 +5,7 @@
 #![allow(dead_code, clippy::needless_range_loop)]
 
 pub mod basis;
+pub mod fixtures;
 pub mod mesh;
 pub mod poisson;
 pub mod quad;
@@ -12,6 +13,7 @@ pub mod quad;
 use std::sync::Mutex;
 
 use elmer_core::{ParamMap, Value};
+use elmer_solver::Model;
 
 /// Collects every message as `caller: msg`, warnings with Elmer's prefix.
 #[derive(Default)]
@@ -62,4 +64,43 @@ pub fn split_change(l: &str) -> (String, String, f64, String) {
     let nrm = rest[..15].to_string();
     let relc: f64 = rest[15..30].trim().parse().unwrap();
     (head.to_string(), nrm, relc, rest[30..].to_string())
+}
+
+/// The sections of a `.sif` as the solver framework reads them, through
+/// `elmer-sif`'s parser (as `elmer-savedata`'s tests do). Elmer's
+/// `ListAddString` lowercases string values; `elmer-sif` keeps the case of
+/// quoted text, so this lowercases them.
+pub fn sif_model(path: &std::path::Path) -> Model {
+    let parsed = elmer_sif::parse_file(path.to_str().unwrap()).unwrap();
+    let m = parsed.sif.merged();
+    let convert = |s: &elmer_sif::Section| -> ParamMap {
+        let mut p = elmer_sif::section_to_param_map(s);
+        for v in p.0.values_mut() {
+            if let Value::Str(t) = v {
+                *t = t.to_lowercase();
+            }
+        }
+        p
+    };
+    let numbered = |v: &[elmer_sif::Section]| -> Vec<ParamMap> {
+        let n = v.iter().map(|s| s.id as usize).max().unwrap_or(0);
+        let mut out = vec![ParamMap::new(); n];
+        for s in v {
+            out[s.id as usize - 1] = convert(s);
+        }
+        out
+    };
+    let one = |s: &Option<elmer_sif::Section>| s.as_ref().map(convert).unwrap_or_default();
+    Model {
+        header: ParamMap::new(),
+        simulation: one(&m.simulation),
+        constants: one(&m.constants),
+        solvers: numbered(&m.solvers),
+        equations: numbered(&m.equations),
+        bodies: numbered(&m.bodies),
+        materials: numbered(&m.materials),
+        body_forces: numbered(&m.body_forces),
+        initial_conditions: numbered(&m.ics),
+        boundary_conditions: numbered(&m.bcs),
+    }
 }

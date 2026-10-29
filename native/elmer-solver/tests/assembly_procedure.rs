@@ -10,49 +10,12 @@ mod support;
 use std::path::Path;
 use std::sync::Arc;
 
-use elmer_core::{ElemId, LocalSystem, SerialComm, Value};
-use elmer_fixtures::poisson_assembly::{BulkProps, Element, PoissonAssembly};
-use elmer_solver::{ElementAssembly, Model, Simulation, SolverCtx, SolverError, SolverRegistry};
+use elmer_core::{SerialComm, Value};
+use elmer_solver::{Model, Simulation, SolverError, SolverRegistry};
+use support::fixtures::Bulk;
 use support::{i, r, s, sec, split_change, Capture};
 
 const STDOUT: &str = include_str!("data/coupled_poisson1_stdout.txt");
-
-/// `BulkAssembly` as the routine sees `DefUtils`: the element's material
-/// values at its nodes (`GetReal`) and its coordinates (`GetElementNodes`).
-#[derive(Default)]
-struct Bulk(PoissonAssembly);
-
-impl ElementAssembly for Bulk {
-    fn assemble(
-        &mut self,
-        ctx: &SolverCtx<'_>,
-        e: ElemId,
-        _dt: f64,
-        _transient: bool,
-        local: &mut LocalSystem,
-    ) -> Result<(), SolverError> {
-        let el = ctx.mesh.element(e);
-        let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
-        let mat = ctx.body_params(e).and_then(|b| b.material).expect("material");
-        let get = |k: &str| ctx.real_at_nodes(mat, k, e);
-        let (cond, source, reaction) = (get("conductivity")?, get("source")?, get("reaction")?);
-        let props = BulkProps {
-            conductivity: cond.as_deref(),
-            source: source.as_deref(),
-            reaction: reaction.as_deref(),
-        };
-        self.0
-            .bulk(
-                Element { etype: el.etype, nodes: &xyz },
-                props,
-                &support::basis::TestBasis,
-                &support::quad::TestQuadrature,
-                ctx.log,
-                local,
-            )
-            .map_err(|err| SolverError::fatal("PoissonBulkAssembly", err.to_string()))
-    }
-}
 
 fn model() -> Model {
     let solver = sec(&[
@@ -133,7 +96,7 @@ fn missing_and_unregistered_routines_are_fatal() {
         "BlockSystemAssembly: Assembly routine not found: ./PoissonAssembly BulkAssembly"
     );
     let mut m = model();
-    m.solvers[0].insert("Coupled Solver", Value::Logical(true));
+    m.solvers[0].insert("Block Solver", Value::Logical(true));
     m.solvers[0].insert("Assembly Solver", Value::Logical(false));
     let err = Simulation::new(m).setup(&mesh, &SolverRegistry::new(), &log, &SerialComm).unwrap_err();
     assert!(matches!(err, SolverError::Unsupported(_)), "{err}");

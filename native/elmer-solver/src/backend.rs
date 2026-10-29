@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use elmer_core::{
-    normalize_key, CsrMatrix, DirectSolver, ElemId, IterativeSolver, LocalSystem, MeshView, ParamMap,
-    Preconditioner,
+    normalize_key, CsrMatrix, DirectSolver, ElemId, ElementBasis, IterativeSolver, LocalSystem, MeshView, ParamMap,
+    Preconditioner, Quadrature,
 };
 
 use elmer_expr::UdfRegistry;
@@ -280,6 +280,16 @@ pub struct Backends {
     /// "entry"`), looked up before the process-wide registry. Fixtures that
     /// read the model take [`crate::Simulation::live_model`].
     pub udfs: Arc<UdfRegistry>,
+    /// Basis functions and Gauss rules for the integrals the framework
+    /// itself computes (`Coupled Solver` integral constraints). `elmer-fe`
+    /// provides them.
+    pub fe: Option<FeBackend>,
+}
+
+/// `ElementInfo` and `GaussPoints` for the framework's own integrals.
+pub struct FeBackend {
+    pub basis: Box<dyn ElementBasis + Send + Sync>,
+    pub quadrature: Box<dyn Quadrature + Send + Sync>,
 }
 
 impl Default for Backends {
@@ -290,6 +300,7 @@ impl Default for Backends {
             linear: crate::linsys::elmer_registry(),
             matc: None,
             udfs: Arc::new(UdfRegistry::new()),
+            fe: None,
         }
     }
 }

@@ -1,0 +1,63 @@
+CoupledSolver: ---------------------------------------
+CoupledSolver: Solving a system of equations
+CoupledSolver: ---------------------------------------
+CoupledSolver: Variable t1 does not exist, creating
+CoupledSolver: Variable t2 does not exist, creating
+CoupledSolver: Permutation offset 1:             0
+CoupledSolver: Permutation offset 2:             231
+CoupledSolver: Permutation offset 3:             352
+CoupledSolver: Number of coupled variables:      2
+CoupledSolver: Number of constraints:            1
+CoupledSolver: Size of coupled system:           353
+CoupledSolver: New coupled variable added: Alldofs
+CoupledSolver: -------------------------------------------------
+CoupledSolver: Coupled iteration:                    1
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Using assembly routine: ./PoissonAssembly BulkAssembly
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Using assembly routine: ./PoissonAssembly BulkAssembly
+CoupledSolver: Starting constraint assembly
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Using assembly routine: ./PoissonAssembly BulkAssembly
+PoissonBulkAssembly: 1st time
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Using assembly routine: ./PoissonAssembly BulkAssembly
+CoupledSolver: Starting constraint assembly
+CoupledSolver: Setting coupled system Dirichlet conditions
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.78520468E-01  2.0000000     ) :: test
+CoupledSolver: -------------------------------------------------
+CoupledSolver: Copying results into original variables
+CoupledSolver: Coupled iteration:                    2
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Using assembly routine: ./PoissonAssembly BulkAssembly
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Using assembly routine: ./PoissonAssembly BulkAssembly
+CoupledSolver: Starting constraint assembly
+CoupledSolver: Setting coupled system Dirichlet conditions
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.78520468E-01 0.57977790E-09 ) :: test
+CoupledSolver: -------------------------------------------------
+CoupledSolver: Copying results into original variables
+CoupledSolver: Coupled iteration:                    3
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Using assembly routine: ./PoissonAssembly BulkAssembly
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Starting block system assembly
+BlockSystemAssembly: Using assembly routine: ./PoissonAssembly BulkAssembly
+CoupledSolver: Starting constraint assembly
+CoupledSolver: Setting coupled system Dirichlet conditions
+ComputeChange: NS (ITER=3) (NRM,RELC): ( 0.78520468E-01 0.39169240E-09 ) :: test
+CoupledSolver: -------------------------------------------------
+CoupledSolver: Copying results into original variables
+CoupledSolver: All done
+CoupledSolver: -------------------------------------------------
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.78409170E-01  2.0000000     ) :: test
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 7.84091700E-02  RefNorm = 7.84091700E-02
+CompareToReferenceSolution: Relative Error to reference norm: 2.713748E-10
+CompareToReferenceSolution: PASSED all 1 tests!
