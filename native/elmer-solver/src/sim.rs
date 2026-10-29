@@ -798,7 +798,7 @@ impl Simulation {
         }
         let layout: Option<Arc<dyn crate::SolverDofs>> = match &self.backends.dofs {
             Some(b) => b
-                .for_solver(mesh, &self.model, &slot.params, &slot.active, spec.dofs)
+                .for_solver_id(mesh, &self.model, slot.id, &slot.params, &slot.active, spec.dofs)
                 .transpose()?
                 .map(Arc::from),
             None => None,
