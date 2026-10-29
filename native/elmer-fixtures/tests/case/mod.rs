@@ -258,6 +258,8 @@ pub fn run(case: &str, dir: &Path, sif: &str) -> Result<Outcome, SolverError> {
     let LoadedCase { mut model, reloads, mesh, case_dir, .. } =
         SifFrontend { mesh: load_mesh }.load(&dir.join(sif)).map_err(SolverError::Unsupported)?;
     model.solvers.retain(|p| !is_result_output(p));
+    // LoadModel's defaults for missing kinds of sections (ModelDescription.F90:1314).
+    model.add_default_sections();
     legacy_heat(&mut model);
 
     let split = mesh_levels(mesh.as_ref(), &model.simulation, &model.boundary_conditions).map_err(levels_err)?;

@@ -19,6 +19,7 @@
 //!   checks and [`single_edge_elements`] their H(curl) version;
 //!   [`model_pde_handle`]: `ModelPDEhandle`'s `AdvDiffSolver`;
 //!   [`model_pde_splitted`]: ModelPDE as `_bulk`/`_boundary` steps;
+//!   [`poisson_ml`]: the matrix-free p-element Poisson of `PoissonML`;
 //!   [`stokes_proj`]: `StokesProj`'s velocity and pressure solvers;
 //!   [`bentonite`]: the `bentonite` case's coupled 3-dof solver;
 //!   [`l2nd_derivatives`]: the basis and second-derivative check of
@@ -40,6 +41,7 @@ pub mod linalg;
 pub mod model_pde_handle;
 pub mod model_pde_splitted;
 pub mod poisson_assembly;
+pub mod poisson_ml;
 pub mod poisson_solver;
 pub mod registry;
 pub mod single_edge_elements;
