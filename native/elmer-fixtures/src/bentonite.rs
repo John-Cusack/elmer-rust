@@ -215,6 +215,7 @@ fn nodal_fields(ctx: &SolverCtx<'_>, e: ElemId) -> Result<[Vec<f64>; 3], SolverE
 
 impl Solver for BentoniteSolver {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        crate::hooks::check_element_definitions(ctx)?;
         if ctx.primary().is_none_or(|v| v.dofs != DOFS) {
             return Err(SolverError::Unsupported("BentoniteSolver: Variable DOFs = 3".into()));
         }

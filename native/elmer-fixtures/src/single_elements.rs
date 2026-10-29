@@ -99,6 +99,7 @@ pub fn element_sums(
 
 impl Solver for SingleElements {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        crate::hooks::check_element_definitions(ctx)?;
         if ctx.primary().is_none() {
             return Err(SolverError::NotWired(
                 "SingleElements: its _init variable (elmer_fixtures::registry::init_sections before setup)".into(),

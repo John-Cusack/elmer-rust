@@ -115,6 +115,7 @@ pub fn local_matrix(
 
 impl Solver for PoissonSolver {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        crate::hooks::check_element_definitions(ctx)?;
         if ctx.primary().is_none_or(|v| v.dofs != 1) {
             return Err(SolverError::Unsupported("Poisson PoissonSolver: a scalar Variable (Variable DOFs = 1)".into()));
         }

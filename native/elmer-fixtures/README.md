@@ -28,6 +28,7 @@ References below are paths under `/home/john/runs/elmer-fork/orig_src/fem/tests/
 | `SingleEdgeElements`, `SingleEdgeElements_init` | `ElementUnitTest_edge*/SingleEdgeElements.F90` | solver procedure on `elmer-fe-hp`'s Whitney and Piola edge bases; the `_init` edit sets the variable, the edge element choice stays in the solver | `single_edge_elements` |
 | `AdvDiffSolver_bulk`, `AdvDiffSolver_boundary` | `ModelPDEsplitted/ModelPDEsplitted.f90` (+ `SD_ModelPDEsplitted`) | two step routines Elmer drives as `SOLVER_MODE_STEPS` (`ExecSolverInSteps`, ported as the driver); p dofs from `elmer-pdofs`, local bubbles condensed | `model_pde_splitted` |
 | `PoissonSolver` | `PoissonML/PoissonML.f90` | matrix-free solver procedure on p elements: element matrices, Dirichlet rows inside them, its own Jacobi-preconditioned CG | `poisson_ml` |
+| `ShellSolver` | `p-FEM_two_solvers/BenchmarkShell.F90` (the same file in `SD_p-FEM_two_solvers`, `p-FEM_with_varying_p`, `SD_p-FEM_with_varying_p`, `SD_Classical2DShell`) | solver procedure: Reissner-Mindlin cylindrical shell on p elements, local bubbles condensed as `DefaultUpdateEquations` does, energy-error record | `benchmark_shell` |
 | `TestSolver` | `L2ndDerivatives/L2ndDerivativesTest.f90` | solver procedure checking basis, gradients and second derivatives (L2 projections, `STOP` on a failed check) | `l2nd_derivatives` |
 | `AlternatingSource` | `HeatControlExplicit/AlternatingSource.F90` | scalar function, `Variable "cpar, time"`, `SAVE sgn`, prints each flip | `udf::AlternatingSource` (not registered, see below) |
 
@@ -55,6 +56,7 @@ plugins) printed:
 | `bentonite` (29 nonlinear iterations, as pristine) | `BentoniteSolver` | 1.95292467E+02 |
 | `ModelPDEsplitted`, `SD_ModelPDEsplitted` (`Element = "p:2"`, full and serendipity) | `AdvDiffSolver_bulk`/`_boundary` | 9.23486039E-01, 1.05785926E+00 |
 | `PoissonML` (`Element = "p:9"`, matrix-free CG: 73 iterations, final residual ratio equal to 9 digits) | `PoissonSolver` | 1.71580608E-01 |
+| `SD_p-FEM_two_solvers` (shell on `p:4`, ModelPDE on `p:2`; energy error `3.4142444709132004E-002` against `...09098718E-002`) | `ShellSolver` | 1.72402774E-02, 2.10847920E-01 |
 | `L2ndDerivatives` (no `Body`/`Equation` sections: `LoadModel`'s defaults activate all 20 elements; same `PASSED` records as pristine) | `TestSolver` | the null variable's 0 |
 
 `StokesProj` names `Before Linsolve = "EliminateDirichlet"`, which nothing
@@ -112,6 +114,14 @@ Refused with a named reason:
   place, as for `_h1`). Wedges have no p basis in `elmer-pdofs` yet either. Its parentless 404 boundary face is "not an active p
   element" for `elmer-pdofs`, while the pristine run gives it a p basis (its
   stiffness sum differs from `_h1`'s).
+- The other shell cases are registered and refused by name. `p-FEM_two_solvers`
+  defines its degrees body-wise (`Solver 1: Element` in each Body) and
+  `SD_p-FEM_with_varying_p` in its Equation section. `elmer-pdofs` lays out a
+  solver from its own section only, so the plugins that have a nodal path
+  refuse such definitions (`hooks::check_element_definitions`) rather than
+  run on nodal elements. `p-FEM_with_varying_p`'s `p:%bodywisep` degree
+  function fails in MATC (`Undeclared identifier: [cx]`), and
+  `SD_Classical2DShell` needs SaveLine polylines.
 - `BlockPoisson1`, `BlockPoisson2`: registered, but `Block Solver = True` is
   refused by `elmer-solver` (`coupled.rs`).
 
@@ -293,7 +303,6 @@ largest group and the best next target after the scalar batch; `CountSolver` and
 | `Q1Q0/Q1Q0.f90` | StokesSolver:solver | SAVE Nodes; init Norm=0, mu=1.0d0; work arrays | default_* solve path; elmer-fe; p/edge/face Element in .sif; writes Solver%Variable |
 | `RaviartThomas2D/ComputeError.F90` | IntegrateError:solver | SAVE SolDOFs, Indices, AllocationsDone; init ; work arrays | elmer-fe; edge/face basis (L15); writes Solver%Variable |
 | `RaviartThomas3D/ComputeError.F90` | IntegrateError:solver | SAVE SolDOFs, Indices, AllocationsDone; init ; work arrays | elmer-fe; edge/face basis (L15); writes Solver%Variable |
-| `SD_Classical2DShell/BenchmarkShell.F90` (+4: SD_p-FEM_two_solvers, SD_p-FEM_with_varying_p, p-FEM_two_solvers, p-FEM_with_varying_p) | ShellSolver:solver | SAVE Nodes | default_* solve path; elmer-fe; p/edge/face Element in .sif; writes Solver%Variable |
 | `SD_P2ndDerivatives/P2ndDerivativesTest.f90` | TestSolver:solver | SAVE Nodes; work arrays | elmer-fe; p/edge/face Element in .sif; writes Solver%Variable |
 | `SD_PoissonPFEM/Poisson.f90` (+2: SD_SolverSpecificMeshes, SolverSpecificMeshes) | PoissonSolver:solver | SAVE STIFF, LOAD, FORCE, AllocationsDone, Nodes; init ; work arrays | default_* solve path; elmer-fe; p/edge/face Element in .sif |
 | `SecondOrderEdgeElement2D/EdgeElementTest.F90` | EdgeElementSolver:solver | SAVE STIFF, LOAD, FORCE, Acoef, AllocationsDone, Nodes, Indices, PrismBasis, PrismCurlBasis, Br; init BricksVisited=.FALSE., PyramidsVisited=.FALSE.; work arrays | default_* solve path; elmer-fe; edge/face basis (L15); p/edge/face Element in .sif; writes Solver%Variable |

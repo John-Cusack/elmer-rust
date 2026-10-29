@@ -96,3 +96,29 @@ fn poisson_ml_matches_pristine() {
     assert_eq!(out.passed, Some(true), "reference check\n{}", out.log);
     case::assert_norm_prints("PoissonML", out.norm(1), "1.71580608E-01");
 }
+
+/// `fem/tests/SD_p-FEM_two_solvers` (`BenchmarkShell.so`, `ElmerGrid 1 2
+/// eighth`): the shell solver on `p:4` serendipity elements next to
+/// ModelPDE on `p:2`, both norms as pristine. The pristine run prints
+/// `Relative energy error = 3.4142444709098718E-002`; the port gives
+/// `3.4142444709132004E-002`.
+#[test]
+fn sd_p_fem_two_solvers_matches_pristine() {
+    let name = "SD_p-FEM_two_solvers";
+    let dir = case::stage(name, None);
+    let out = case::run(name, &dir, "two_solvers.sif").unwrap_or_else(|e| panic!("{name}: {e}"));
+    assert_eq!(out.passed, Some(true), "reference check\n{}", out.log);
+    case::assert_norm_prints(name, out.norm(1), "1.72402774E-02");
+    case::assert_norm_prints(name, out.norm(2), "2.10847920E-01");
+}
+
+/// `p-FEM_two_solvers` gives its p degrees body-wise (`Solver 1: Element`
+/// in each Body), which the solver's dof layout does not see: the shell
+/// solver refuses instead of running on nodal elements (pristine norm
+/// 9.50681481E-03).
+#[test]
+fn p_fem_two_solvers_body_wise_elements_are_refused() {
+    let dir = case::stage("p-FEM_two_solvers", None);
+    let err = case::run("p-FEM_two_solvers", &dir, "two_solvers.sif").err().expect("refused");
+    assert!(err.to_string().contains("body-wise element definitions"), "{err}");
+}
