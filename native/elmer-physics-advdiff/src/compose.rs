@@ -103,7 +103,10 @@ pub fn advdiff_bulk_local(
     let n = xyz.len();
     check_nodal(n, nodal)?;
     if !(1..=3).contains(&cfg.dim) {
-        return Err(AdvDiffError::Invalid(format!("dim {} not in 1..=3", cfg.dim)));
+        return Err(AdvDiffError::Invalid(format!(
+            "dim {} not in 1..=3",
+            cfg.dim
+        )));
     }
     let dim = cfg.dim;
 
@@ -267,9 +270,8 @@ pub fn advdiff_bulk_local(
             }
             for p in 0..nb {
                 let load = if stabilized { tau * su[p] } else { 1.0 };
-                let soret: f64 = c_thermal
-                    * sor_d
-                    * (0..dim).map(|i| grad_t[i] * dphi[p][i]).sum::<f64>();
+                let soret: f64 =
+                    c_thermal * sor_d * (0..dim).map(|i| grad_t[i] * dphi[p][i]).sum::<f64>();
                 out.force[p] -= s * soret * load;
             }
         }

@@ -89,7 +89,9 @@ pub fn eval_with_bubbles(
     out: &mut BasisEval,
 ) -> Result<(), AdvDiffError> {
     let n = xyz.len();
-    basis.eval(etype, xyz, uvw, out).map_err(AdvDiffError::Basis)?;
+    basis
+        .eval(etype, xyz, uvw, out)
+        .map_err(AdvDiffError::Basis)?;
     let (lin_code, picks): (u16, &[usize]) = match etype.0 / 100 {
         2 => (202, &[0, 1]),
         3 => (303, &[0, 1, 2]),
@@ -144,7 +146,13 @@ pub fn eval_with_bubbles(
 /// by static condensation, updating the leading `n x n` block of `k` and the
 /// first `n` entries of `f` and `f1`. The leading block is left in place in the
 /// `(n+nb)`-strided layout.
-pub fn condensate(n: usize, nb: usize, k: &mut [f64], f: &mut [f64], f1: Option<&mut [f64]>) -> Result<(), AdvDiffError> {
+pub fn condensate(
+    n: usize,
+    nb: usize,
+    k: &mut [f64],
+    f: &mut [f64],
+    f1: Option<&mut [f64]>,
+) -> Result<(), AdvDiffError> {
     if nb == 0 {
         return Ok(());
     }

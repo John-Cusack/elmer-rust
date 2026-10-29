@@ -9,7 +9,9 @@ use elmer_fe::{stab_param, ElmerQuadrature, LagrangeBasis};
 use elmer_solver::backend::TimeTerms;
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
-use crate::compose::{advdiff_boundary_local, advdiff_bulk_local, AdvDiffConfig, AdvDiffNodal, Stabilization};
+use crate::compose::{
+    advdiff_boundary_local, advdiff_bulk_local, AdvDiffConfig, AdvDiffNodal, Stabilization,
+};
 use crate::error::AdvDiffError;
 use crate::fe::{condensate, BasisHessian, Fe};
 use crate::preflight::{
@@ -190,13 +192,13 @@ fn diffusivity(
             }
             Ok(vec![k; n])
         }
-        Some(Value::Dependent(d)) if d.rows * d.cols > 1 => Err(SolverError::Unsupported(
-            format!("\"{key}\": a non-constant tensor"),
-        )),
+        Some(Value::Dependent(d)) if d.rows * d.cols > 1 => Err(SolverError::Unsupported(format!(
+            "\"{key}\": a non-constant tensor"
+        ))),
         Some(_) => {
-            let d = ctx
-                .real_at_nodes(mat, key, e)?
-                .ok_or_else(|| SolverError::fatal("AdvectionDiffusion", format!("{key} missing")))?;
+            let d = ctx.real_at_nodes(mat, key, e)?.ok_or_else(|| {
+                SolverError::fatal("AdvectionDiffusion", format!("{key} missing"))
+            })?;
             Ok(d.iter()
                 .map(|&x| {
                     let mut k = [[0.0; 3]; 3];
@@ -465,9 +467,9 @@ impl AdvDiffSolver {
         constants: &ParamMap,
     ) -> Result<(AdvDiffNodal, bool, bool), SolverError> {
         const CALLER: &str = "AdvectionDiffusion";
-        let bp = ctx.body_params(e).ok_or_else(|| {
-            SolverError::fatal(CALLER, format!("element {} has no body", e.0))
-        })?;
+        let bp = ctx
+            .body_params(e)
+            .ok_or_else(|| SolverError::fatal(CALLER, format!("element {} has no body", e.0)))?;
         let empty = ParamMap::new();
         let eq = bp.equation.unwrap_or(&empty);
         let mat = bp.material.unwrap_or(&empty);
@@ -555,9 +557,10 @@ impl AdvDiffSolver {
                 .string(&format!("{comp} Convection Field Variable"))
                 .or_else(|| mat.string("Convection Field Variable"))
                 .unwrap_or("flow solution");
-            let v = ctx.sim.vars.get(name).ok_or_else(|| {
-                SolverError::fatal(CALLER, "Give > Convection Field Variable <")
-            })?;
+            let v =
+                ctx.sim.vars.get(name).ok_or_else(|| {
+                    SolverError::fatal(CALLER, "Give > Convection Field Variable <")
+                })?;
             if !matches!(v.dofs, 3 | 4) {
                 return Err(SolverError::Unsupported(format!(
                     "Convection Field Variable {name} with {} dofs",

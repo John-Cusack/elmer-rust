@@ -90,16 +90,22 @@ fn adv_diff1_matches_elmer() {
     let got = nodal(&sim, "poison", n);
     let want = read_solution(&data("adv_diff1").join("solution.dat"));
     assert!(max_diff(&got, &want) < TOL, "{:e}", max_diff(&got, &want));
-    assert!((rms(&got) - 0.42696309972986873).abs() < 1e-7, "{}", rms(&got));
+    assert!(
+        (rms(&got) - 0.42696309972986873).abs() < 1e-7,
+        "{}",
+        rms(&got)
+    );
 }
 
 /// `adv_diff2`'s model: 404 elements, absolute mass, constant convection and
 /// a mass-transfer boundary. `bubbles` is the Elmer default; `steady` drops
 /// the BDF2 time stepping.
-fn adv_diff2_model(bubbles: bool, steady: bool) -> Model {
+fn adv_diff2_model(method: Method, steady: bool) -> Model {
     let mut v = iterative_ilu1();
-    if !bubbles {
-        v.push(("Bubbles", Value::Logical(false)));
+    match method {
+        Method::Bubbles => {}
+        Method::Galerkin => v.push(("Bubbles", Value::Logical(false))),
+        Method::Supg => v.push(("Stabilize", Value::Logical(true))),
     }
     let simulation = if steady {
         sec(&[
@@ -139,12 +145,19 @@ fn adv_diff2_model(bubbles: bool, steady: bool) -> Model {
     }
 }
 
-fn check_adv_diff2(bubbles: bool, steady: bool, file: &str, norm: f64) {
-    let mesh = SimMesh::new(read_elmer_mesh(&data("adv_diff2"), 2));
+#[derive(Copy, Clone)]
+enum Method {
+    Bubbles,
+    Galerkin,
+    Supg,
+}
+
+fn check_adv_diff2(method: Method, steady: bool, mesh_dir: &str, file: &str, norm: f64) {
+    let mesh = SimMesh::new(read_elmer_mesh(&data(mesh_dir), 2));
     let n = mesh.mesh.coords.len();
-    let sim = run(adv_diff2_model(bubbles, steady), &mesh).unwrap();
+    let sim = run(adv_diff2_model(method, steady), &mesh).unwrap();
     let got = nodal(&sim, "poison", n);
-    let want = read_solution(&data("adv_diff2").join(file));
+    let want = read_solution(&data(mesh_dir).join(file));
     assert!(max_diff(&got, &want) < TOL, "{:e}", max_diff(&got, &want));
     assert!((rms(&got) - norm).abs() < 1e-7, "{}", rms(&got));
 }
@@ -153,17 +166,48 @@ fn check_adv_diff2(bubbles: bool, steady: bool, file: &str, norm: f64) {
 fn adv_diff2_matches_elmer() {
     // The default residual-free bubbles, condensed after BDF2 on the nodal
     // block, with a mass-transfer boundary.
-    check_adv_diff2(true, false, "solution.dat", 0.8766881677902325);
+    check_adv_diff2(
+        Method::Bubbles,
+        false,
+        "adv_diff2",
+        "solution.dat",
+        0.8766881677902325,
+    );
 }
 
 #[test]
 fn adv_diff2_galerkin_convection_matches_elmer() {
-    check_adv_diff2(false, false, "nb_solution.dat", 0.8691287700487503);
+    check_adv_diff2(
+        Method::Galerkin,
+        false,
+        "adv_diff2",
+        "nb_solution.dat",
+        0.8691287700487503,
+    );
 }
 
 #[test]
 fn adv_diff2_steady_bubbles_match_elmer() {
-    check_adv_diff2(true, true, "st_solution.dat", 0.9980513902691243);
+    check_adv_diff2(
+        Method::Bubbles,
+        true,
+        "adv_diff2",
+        "st_solution.dat",
+        0.9980513902691243,
+    );
+}
+
+#[test]
+fn adv_diff2_supg_on_triangles_matches_elmer() {
+    // `Stabilize = True` on 303 elements, with `hK` and `mK` from elmer-fe's
+    // StabParam; second derivatives of linear triangles vanish.
+    check_adv_diff2(
+        Method::Supg,
+        false,
+        "adv_diff2_tri",
+        "solution.dat",
+        0.8844887712095778,
+    );
 }
 
 fn soret_model(absolute: bool, with_soret: bool) -> Model {
@@ -235,7 +279,11 @@ fn check_soret(absolute: bool) {
     let t_want = read_solution(&data("adv_diff_soret").join("temp.dat"));
     let file = if absolute { "conc_abs.dat" } else { "conc.dat" };
     let c_want = read_solution(&data("adv_diff_soret").join(file));
-    assert!(max_diff(&t, &t_want) < 1e-9 * 400.0, "{:e}", max_diff(&t, &t_want));
+    assert!(
+        max_diff(&t, &t_want) < 1e-9 * 400.0,
+        "{:e}",
+        max_diff(&t, &t_want)
+    );
     assert!(max_diff(&c, &c_want) < 1e-10, "{:e}", max_diff(&c, &c_want));
     assert!((rms(&c) - 0.7638989898318287).abs() < 1e-10, "{}", rms(&c));
 
@@ -306,7 +354,10 @@ fn model_pde_model(transient_case: bool) -> Model {
                 ("Robin Coefficient", real(10.0)),
                 ("External Field", real(5.0)),
             ]),
-            sec(&[("Target Boundaries", ints(&[3, 4])), ("Field Flux", real(10.0))]),
+            sec(&[
+                ("Target Boundaries", ints(&[3, 4])),
+                ("Field Flux", real(10.0)),
+            ]),
         ],
         ..Model::default()
     }
@@ -332,4 +383,70 @@ fn model_pde_transient_with_reaction_matches_elmer() {
     let got = nodal(&sim, "field", n);
     let want = read_solution(&data("model_pde").join("evol_solution.dat"));
     assert!(max_diff(&got, &want) < 1e-10, "{:e}", max_diff(&got, &want));
+}
+
+fn setup_error(model: Model, mesh: &SimMesh) -> String {
+    let (mut sim, reg) = support::cases::simulation(model);
+    sim.setup(mesh, &reg, &elmer_core::NullLogger, &elmer_core::SerialComm)
+        .unwrap_err()
+        .to_string()
+}
+
+#[test]
+fn unsupported_advdiff_cases_are_refused_at_setup() {
+    let mesh = SimMesh::new(read_elmer_mesh(&data("adv_diff2"), 2));
+
+    let mut m = adv_diff2_model(Method::Bubbles, true);
+    m.equations[0].insert("Concentration Units", st("Mass To Max Solubility"));
+    assert!(setup_error(m, &mesh).contains("Concentration Units"));
+
+    let mut m = adv_diff2_model(Method::Bubbles, true);
+    m.materials[0].insert("Compressibility Model", st("Perfect Gas 1"));
+    assert!(setup_error(m, &mesh).contains("Compressibility Model"));
+
+    let mut m = adv_diff2_model(Method::Bubbles, true);
+    m.simulation
+        .insert("Coordinate System", st("Axi Symmetric"));
+    assert!(setup_error(m, &mesh).contains("Coordinate System"));
+
+    let mut m = adv_diff2_model(Method::Bubbles, true);
+    m.boundary_conditions[1].insert("Poison Solubility Change Boundary", Value::Logical(true));
+    assert!(setup_error(m, &mesh).contains("Solubility Change Boundary"));
+
+    // Elmer's own fatal errors.
+    let mut m = adv_diff2_model(Method::Supg, true);
+    m.solvers[0].insert("Bubbles", Value::Logical(true));
+    assert!(setup_error(m, &mesh).contains("Choose either Bubbles or Stabilize"));
+
+    let mut m = adv_diff2_model(Method::Bubbles, true);
+    m.solvers[0].insert("Stabilization Method", st("streamline"));
+    assert!(setup_error(m, &mesh).contains("Unknown stabilization method"));
+}
+
+#[test]
+fn supg_on_quadrilaterals_is_refused_until_second_derivatives_exist() {
+    // SU(p) needs ddBasisddx, which elmer-fe does not provide for 404.
+    let mesh = SimMesh::new(read_elmer_mesh(&data("adv_diff2"), 2));
+    let err = run(adv_diff2_model(Method::Supg, true), &mesh)
+        .err()
+        .expect("must be refused")
+        .to_string();
+    assert!(err.contains("second derivatives"), "{err}");
+}
+
+#[test]
+fn unsupported_model_pde_cases_are_refused_at_setup() {
+    let mesh = SimMesh::new(read_elmer_mesh(&data("model_pde"), 2));
+
+    let mut m = model_pde_model(false);
+    m.solvers[0].insert("Element", st("p:2"));
+    assert!(setup_error(m, &mesh).contains("Element"));
+
+    let mut m = model_pde_model(false);
+    m.solvers[0].insert("CutFEM", Value::Logical(true));
+    assert!(setup_error(m, &mesh).contains("CutFEM"));
+
+    let mut m = model_pde_model(false);
+    m.solvers[0].insert("Relative Integration Order", ints(&[1]));
+    assert!(setup_error(m, &mesh).contains("Relative Integration Order"));
 }

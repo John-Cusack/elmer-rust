@@ -24,7 +24,6 @@ pub struct AdvDiffSections<'a> {
 /// The sections one `ModelPDE` `AdvDiffSolver` solve reads.
 pub struct ModelPdeSections<'a> {
     pub solver: &'a dyn Params,
-    pub boundaries: Vec<&'a dyn Params>,
 }
 
 enum Test {
@@ -141,7 +140,10 @@ pub fn check_advdiff_supported(
 
 const MODEL_PDE_SOLVER: &[Rule] = &[
     flag("CutFEM", "cut finite elements are not implemented"),
-    flag("Integ Test", "the integration test totals are not implemented"),
+    flag(
+        "Integ Test",
+        "the integration test totals are not implemented",
+    ),
     present(
         "Relative Integration Order",
         "GaussPointsAdapt rules other than the element default are not implemented",
@@ -182,9 +184,6 @@ pub fn check_model_pde_supported(sections: &ModelPdeSections<'_>) -> Result<(), 
                 reason: "p-element and higher-degree bases are not implemented",
             });
         }
-    }
-    for k in ["bulk gauss:", "bc gauss:"] {
-        let _ = k; // namespaced integration rules are keyed `bulk gauss: <key>`; none is read here.
     }
     Ok(())
 }

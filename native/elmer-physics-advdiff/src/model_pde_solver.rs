@@ -13,7 +13,11 @@ use crate::preflight::{check_model_pde_supported, ModelPdeSections, MODEL_PDE_PR
 
 /// Registers `("ModelPDE", "AdvDiffSolver")`.
 pub fn register_model_pde(registry: &mut SolverRegistry) {
-    registry.register(MODEL_PDE_PROCEDURE.0, MODEL_PDE_PROCEDURE.1, model_pde_factory);
+    registry.register(
+        MODEL_PDE_PROCEDURE.0,
+        MODEL_PDE_PROCEDURE.1,
+        model_pde_factory,
+    );
 }
 
 /// [`SolverFactory`](elmer_solver::SolverFactory) for [`ModelPdeSolver`].
@@ -35,7 +39,9 @@ fn nodal_or_zero(
     n: usize,
 ) -> Result<Vec<f64>, SolverError> {
     match p {
-        Some(p) => Ok(ctx.real_at_nodes(p, key, e)?.unwrap_or_else(|| vec![0.0; n])),
+        Some(p) => Ok(ctx
+            .real_at_nodes(p, key, e)?
+            .unwrap_or_else(|| vec![0.0; n])),
         None => Ok(vec![0.0; n]),
     }
 }
@@ -47,16 +53,8 @@ impl Solver for ModelPdeSolver {
                 "ModelPDE solves a scalar variable (Variable DOFs = 1)".into(),
             ));
         }
-        let bcs: Vec<&dyn Params> = ctx
-            .sim
-            .model
-            .boundary_conditions
-            .iter()
-            .map(|p| p as &dyn Params)
-            .collect();
         check_model_pde_supported(&ModelPdeSections {
             solver: ctx.params(),
-            boundaries: bcs,
         })?;
         Ok(())
     }
@@ -93,7 +91,8 @@ impl Solver for ModelPdeSolver {
                     let (m, bf) = (bp.material, bp.body_force);
                     let mut velocity = vec![[0.0; 3]; n];
                     for i in 0..dim {
-                        let v = nodal_or_zero(ctx, m, &format!("convection velocity {}", i + 1), e, n)?;
+                        let v =
+                            nodal_or_zero(ctx, m, &format!("convection velocity {}", i + 1), e, n)?;
                         for (vel, x) in velocity.iter_mut().zip(v) {
                             vel[i] = x;
                         }

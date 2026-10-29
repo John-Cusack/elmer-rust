@@ -26,11 +26,19 @@ pub enum AdvDiffError {
     Invalid(String),
 }
 
-pub(crate) fn check_len(what: &'static str, expected: usize, got: usize) -> Result<(), AdvDiffError> {
+pub(crate) fn check_len(
+    what: &'static str,
+    expected: usize,
+    got: usize,
+) -> Result<(), AdvDiffError> {
     if expected == got {
         Ok(())
     } else {
-        Err(AdvDiffError::NodalLength { what, expected, got })
+        Err(AdvDiffError::NodalLength {
+            what,
+            expected,
+            got,
+        })
     }
 }
 
