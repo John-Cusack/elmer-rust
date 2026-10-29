@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["tools/elmer-regrade"]
 members = [
     "crates/elmer-grid/prelude",
     "crates/elmer-grid/egutils",
