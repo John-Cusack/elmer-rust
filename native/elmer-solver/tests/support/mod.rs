@@ -72,7 +72,36 @@ pub fn split_change(l: &str) -> (String, String, f64, String) {
 /// quoted text, so this lowercases them.
 pub fn sif_model(path: &std::path::Path) -> Model {
     let parsed = elmer_sif::parse_file(path.to_str().unwrap()).unwrap();
-    let m = parsed.sif.merged();
+    to_model(&parsed.sif.merged())
+}
+
+/// One `Model` per `RUN` block, each holding only that block's entries.
+/// A block with no entries after the last `RUN` is dropped: Elmer's
+/// `ReloadInputFile` finds nothing and the session ends.
+pub fn sif_runs(path: &std::path::Path) -> Vec<Model> {
+    let parsed = elmer_sif::parse_file(path.to_str().unwrap()).unwrap();
+    let mut runs: Vec<Model> = parsed.sif.runs.iter().map(to_model).collect();
+    let empty = |m: &Model| {
+        [&m.simulation, &m.constants].iter().all(|p| p.0.is_empty())
+            && [
+                &m.solvers,
+                &m.equations,
+                &m.bodies,
+                &m.materials,
+                &m.body_forces,
+                &m.initial_conditions,
+                &m.boundary_conditions,
+            ]
+            .iter()
+            .all(|v| v.iter().all(|p| p.0.is_empty()))
+    };
+    while runs.len() > 1 && runs.last().is_some_and(empty) {
+        runs.pop();
+    }
+    runs
+}
+
+fn to_model(m: &elmer_sif::Model) -> Model {
     let convert = |s: &elmer_sif::Section| -> ParamMap {
         let mut p = elmer_sif::section_to_param_map(s);
         for v in p.0.values_mut() {
