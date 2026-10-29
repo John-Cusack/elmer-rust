@@ -100,15 +100,23 @@ impl<T: IterScalar> IterativeSolver<T> for Gcr<T> {
         let cfg = &self.cfg;
         let cplx = T::IS_COMPLEX;
         // The complex Fortran routine has no pseudo-complex or min-iteration logic.
-        let pseudo = if cplx { PseudoComplex::Off } else { cfg.pseudo_complex };
+        let pseudo = if cplx {
+            PseudoComplex::Off
+        } else {
+            cfg.pseudo_complex
+        };
         let min_iter = if cplx { 0 } else { cfg.min_iterations };
         let restart = cfg.gcr_restart;
         if restart < 1 {
-            return Err(LinalgError::Unsupported("GCR restart must be at least 1".into()));
+            return Err(LinalgError::Unsupported(
+                "GCR restart must be at least 1".into(),
+            ));
         }
         let n = b.len();
         if pseudo != PseudoComplex::Off && n & 1 == 1 {
-            return Err(LinalgError::Dim("GCR pseudo-complex needs an even length".into()));
+            return Err(LinalgError::Dim(
+                "GCR pseudo-complex needs an even length".into(),
+            ));
         }
         self.history.0.clear();
         self.messages.clear();

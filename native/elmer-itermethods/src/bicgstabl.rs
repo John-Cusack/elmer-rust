@@ -55,7 +55,9 @@ impl<T: IterScalar> IterativeSolver<T> for BiCgStabL<T> {
         let cfg = &self.cfg;
         let l = cfg.bicgstabl_degree;
         if l < 2 {
-            return Err(LinalgError::Unsupported("BiCGStab(l): polynomial degree < 2".into()));
+            return Err(LinalgError::Unsupported(
+                "BiCGStab(l): polynomial degree < 2".into(),
+            ));
         }
         if cfg.pseudo_complex != PseudoComplex::Off && !T::IS_COMPLEX {
             return Err(LinalgError::Unsupported(
@@ -115,7 +117,11 @@ impl<T: IterScalar> IterativeSolver<T> for BiCgStabL<T> {
             return Err(breakdown("errorind = NaN"));
         }
         let mut conv = errorind < tol;
-        let mut div = if cplx { diverged(errorind, max_tol) } else { errorind > max_tol };
+        let mut div = if cplx {
+            diverged(errorind, max_tol)
+        } else {
+            errorind > max_tol
+        };
         if conv || div {
             return Ok(finish(0, errorind, conv, div, None));
         }
@@ -227,8 +233,9 @@ impl<T: IterScalar> IterativeSolver<T> for BiCgStabL<T> {
             }
             // gram[col][row] holds rwork(row, col); the (l-1)x(l-1) block is
             // rows/cols 1..l, copied before factorisation.
-            let mut lu: Vec<Vec<T>> =
-                (1..l).map(|i| (1..l).map(|j| gram[j][i]).collect()).collect();
+            let mut lu: Vec<Vec<T>> = (1..l)
+                .map(|i| (1..l).map(|j| gram[j][i]).collect())
+                .collect();
             let piv = lu_factor(&mut lu);
 
             y0[0] = -T::one();
@@ -270,7 +277,8 @@ impl<T: IterScalar> IterativeSolver<T> for BiCgStabL<T> {
                 kappal = small_dot(&yl, &yv).abs().sqrt();
                 // zero or NaN kappa: the Fortran warns and leaves the loop
                 if !(kappa0 > 0.0) || !(kappal > 0.0) {
-                    self.messages.push("kappa^2 is zero or NaN, iteration halted".into());
+                    self.messages
+                        .push("kappa^2 is zero or NaN, iteration halted".into());
                     break 'rounds;
                 }
             } else {
@@ -396,6 +404,12 @@ impl<T: IterScalar> IterativeSolver<T> for BiCgStabL<T> {
         pcond(m, &t, x);
         axpy(T::one(), &w[xp], x);
 
-        Ok(finish(rounds_done.min(cfg.max_iterations), errorind, conv, div, halted))
+        Ok(finish(
+            rounds_done.min(cfg.max_iterations),
+            errorind,
+            conv,
+            div,
+            halted,
+        ))
     }
 }

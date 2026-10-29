@@ -198,9 +198,7 @@ impl IterMethodsConfig {
                 .map(|v| v.max(0) as usize)
                 .unwrap_or(0),
             tolerance,
-            divergence_limit: p
-                .real("Linear System Divergence Limit")
-                .unwrap_or(1.0e20),
+            divergence_limit: p.real("Linear System Divergence Limit").unwrap_or(1.0e20),
             output_interval: match p.integer("Linear System Residual Output") {
                 None => 1,
                 Some(v) if v <= 0 => usize::MAX,

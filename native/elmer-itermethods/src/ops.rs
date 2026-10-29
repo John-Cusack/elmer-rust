@@ -42,12 +42,7 @@ pub(crate) fn axmy<T: Scalar>(a: T, x: &[T], y: &mut [T]) {
 }
 
 /// `r = b - A x`, using `r` as the matvec output.
-pub(crate) fn residual<T: Scalar>(
-    a: &dyn LinearOperator<T>,
-    x: &[T],
-    b: &[T],
-    r: &mut [T],
-) {
+pub(crate) fn residual<T: Scalar>(a: &dyn LinearOperator<T>, x: &[T], b: &[T], r: &mut [T]) {
     a.apply(x, r);
     for (ri, bi) in r.iter_mut().zip(b) {
         *ri = *bi - *ri;

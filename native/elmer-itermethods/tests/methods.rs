@@ -33,7 +33,9 @@ fn jacobi_matches_hand_iteration() {
     cfg.tolerance = 1e-30;
     let mut j = Jacobi::new(&cfg, &a).unwrap();
     let mut x = vec![0.0; 2];
-    let st = j.solve(&a, &IdentityPrecond, &b, &mut x, &SerialComm).unwrap();
+    let st = j
+        .solve(&a, &IdentityPrecond, &b, &mut x, &SerialComm)
+        .unwrap();
     assert_eq!(x, vec![0.25, 0.4]);
     assert_eq!(st.iterations, 1);
     assert_eq!(st.status, SolveStatus::MaxIterations);
@@ -70,7 +72,9 @@ fn richardson_first_sweep_discards_guess() {
     let b = rhs_real(N);
     let mut r = Richardson::new(&cfg("richardson"), &a);
     let mut x = vec![123.0; N];
-    let st = r.solve(&a, &IdentityPrecond, &b, &mut x, &SerialComm).unwrap();
+    let st = r
+        .solve(&a, &IdentityPrecond, &b, &mut x, &SerialComm)
+        .unwrap();
     assert_eq!(st.status, SolveStatus::Converged);
     assert!(rel_resid(&a, &x, &b) < 1e-9);
 
@@ -79,7 +83,8 @@ fn richardson_first_sweep_discards_guess() {
     c.max_iterations = 1;
     let mut r = Richardson::new(&c, &a);
     let mut x = vec![123.0; N];
-    r.solve(&a, &IdentityPrecond, &b, &mut x, &SerialComm).unwrap();
+    r.solve(&a, &IdentityPrecond, &b, &mut x, &SerialComm)
+        .unwrap();
     assert!((x[5] - b[5] / 1.0).abs() < 1e-14);
     assert!((x[0] - b[0] / (5.0 / 6.0)).abs() < 1e-14);
 }
@@ -391,7 +396,9 @@ fn initial_guess_already_converged_returns_zero_iterations() {
     for m in ["gcr", "idrs"] {
         let mut x = x0.clone();
         let mut s = cfg(m).build_real(&a).unwrap();
-        let st = s.solve(&a, &IdentityPrecond, &b, &mut x, &SerialComm).unwrap();
+        let st = s
+            .solve(&a, &IdentityPrecond, &b, &mut x, &SerialComm)
+            .unwrap();
         assert_eq!(st.iterations, 0, "{m}");
         assert_eq!(st.status, SolveStatus::Converged, "{m}");
         assert_eq!(x, x0, "{m}");

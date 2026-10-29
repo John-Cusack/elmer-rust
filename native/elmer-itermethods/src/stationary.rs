@@ -97,11 +97,19 @@ impl IterativeSolver<f64> for Jacobi {
         }
         self.history.0.clear();
         let diag = &self.diag;
-        Ok(run(&self.cfg, a, b, x, comm, &mut self.history, |_, x, r| {
-            for ((xi, ri), d) in x.iter_mut().zip(r).zip(diag) {
-                *xi += ri / d;
-            }
-        }))
+        Ok(run(
+            &self.cfg,
+            a,
+            b,
+            x,
+            comm,
+            &mut self.history,
+            |_, x, r| {
+                for ((xi, ri), d) in x.iter_mut().zip(r).zip(diag) {
+                    *xi += ri / d;
+                }
+            },
+        ))
     }
 }
 
@@ -147,15 +155,23 @@ impl IterativeSolver<f64> for Richardson {
         }
         self.history.0.clear();
         let lumped = &self.lumped;
-        Ok(run(&self.cfg, a, b, x, comm, &mut self.history, |k, x, r| {
-            for (i, xi) in x.iter_mut().enumerate() {
-                if k == 1 {
-                    *xi = b[i] / lumped[i];
-                } else {
-                    *xi += r[i] / lumped[i];
+        Ok(run(
+            &self.cfg,
+            a,
+            b,
+            x,
+            comm,
+            &mut self.history,
+            |k, x, r| {
+                for (i, xi) in x.iter_mut().enumerate() {
+                    if k == 1 {
+                        *xi = b[i] / lumped[i];
+                    } else {
+                        *xi += r[i] / lumped[i];
+                    }
                 }
-            }
-        }))
+            },
+        ))
     }
 }
 
@@ -206,14 +222,22 @@ impl IterativeSolver<f64> for Sgs<'_> {
             }
             x[i] += omega * (b[i] - s) / diag[i];
         };
-        Ok(run(&self.cfg, a, b, x, comm, &mut self.history, |_, x, _| {
-            for i in 0..b.len() {
-                row_update(i, x);
-            }
-            for i in (0..b.len()).rev() {
-                row_update(i, x);
-            }
-        }))
+        Ok(run(
+            &self.cfg,
+            a,
+            b,
+            x,
+            comm,
+            &mut self.history,
+            |_, x, _| {
+                for i in 0..b.len() {
+                    row_update(i, x);
+                }
+                for i in (0..b.len()).rev() {
+                    row_update(i, x);
+                }
+            },
+        ))
     }
 }
 

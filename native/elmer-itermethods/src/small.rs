@@ -72,7 +72,11 @@ mod tests {
     #[test]
     fn solves_with_pivoting() {
         // Needs a row swap: leading entry is zero.
-        let mut a = vec![vec![0.0, 2.0, 1.0], vec![1.0, 1.0, 0.0], vec![3.0, 0.0, 1.0]];
+        let mut a = vec![
+            vec![0.0, 2.0, 1.0],
+            vec![1.0, 1.0, 0.0],
+            vec![3.0, 0.0, 1.0],
+        ];
         let a0 = a.clone();
         let piv = lu_factor(&mut a);
         let mut x = vec![1.0, 2.0, 3.0];
@@ -87,7 +91,10 @@ mod tests {
     #[test]
     fn solves_complex() {
         let c = |r, i| Complex64::new(r, i);
-        let mut a = vec![vec![c(1.0, 1.0), c(2.0, 0.0)], vec![c(0.0, 1.0), c(3.0, -1.0)]];
+        let mut a = vec![
+            vec![c(1.0, 1.0), c(2.0, 0.0)],
+            vec![c(0.0, 1.0), c(3.0, -1.0)],
+        ];
         let a0 = a.clone();
         let piv = lu_factor(&mut a);
         let rhs = vec![c(1.0, 0.0), c(0.0, 2.0)];

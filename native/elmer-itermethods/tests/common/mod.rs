@@ -82,3 +82,118 @@ pub fn cfg(method: &str) -> elmer_itermethods::IterMethodsConfig {
         ..Default::default()
     }
 }
+
+/// The `linearsolvers` quick-test heat system (408 unknowns, Dirichlet
+/// eliminated), dumped by the pristine ElmerSolver with `Linear System Save`
+/// before scaling and preconditioning, plus the initial guess (see tests/fixtures/README.md).
+/// Returns `(A, b, x0)`.
+pub fn fortran_system() -> (CsrMatrix<f64>, Vec<f64>, Vec<f64>) {
+    let a_txt = include_str!("../fixtures/linsys_a.dat");
+    let b_txt = include_str!("../fixtures/linsys_b.dat");
+    let mut row_ptr = vec![0usize];
+    let mut col_idx = Vec::new();
+    let mut values = Vec::new();
+    let mut cur = 1usize;
+    for line in a_txt.lines() {
+        let mut it = line.split_whitespace();
+        let i: usize = it.next().unwrap().parse().unwrap();
+        let j: usize = it.next().unwrap().parse().unwrap();
+        let v: f64 = it.next().unwrap().parse().unwrap();
+        while cur < i {
+            row_ptr.push(col_idx.len());
+            cur += 1;
+        }
+        col_idx.push((j - 1) as u32);
+        values.push(v);
+    }
+    row_ptr.push(col_idx.len());
+    let n = row_ptr.len() - 1;
+    let diag = (0..n)
+        .map(|i| {
+            (row_ptr[i]..row_ptr[i + 1])
+                .find(|&k| col_idx[k] as usize == i)
+                .unwrap()
+        })
+        .collect();
+    let b = b_txt
+        .lines()
+        .map(|l| l.split_whitespace().nth(1).unwrap().parse().unwrap())
+        .collect();
+    // Dirichlet values were already written into the initial temperature.
+    let x0 = include_str!("../fixtures/linsys_x0.dat")
+        .lines()
+        .map(|l| l.split_whitespace().nth(1).unwrap().parse().unwrap())
+        .collect();
+    (
+        CsrMatrix {
+            nrows: n,
+            ncols: n,
+            row_ptr,
+            col_idx,
+            values,
+            diag: Some(diag),
+        },
+        b,
+        x0,
+    )
+}
+
+/// `(iteration, value)` pairs printed by the Fortran run.
+pub fn fortran_history(txt: &str) -> Vec<f64> {
+    txt.lines()
+        .map(|l| l.split_whitespace().nth(1).unwrap().parse().unwrap())
+        .collect()
+}
+
+/// The `linearsolvers_cmplx` Helmholtz system (2110 complex unknowns): complex
+/// CSR rebuilt from the real `[[a, -b], [b, a]]` dump, right-hand side, and a
+/// zero initial guess. Returns `(A, b)`.
+pub fn fortran_helmholtz() -> (CsrMatrix<Complex64>, Vec<Complex64>) {
+    let mut row_ptr = vec![0usize];
+    let mut col_idx = Vec::new();
+    let mut values = Vec::new();
+    let mut cur = 1usize;
+    for line in include_str!("../fixtures/helm_a.dat").lines() {
+        let mut it = line.split_whitespace();
+        let i: usize = it.next().unwrap().parse().unwrap();
+        let j: usize = it.next().unwrap().parse().unwrap();
+        let re: f64 = it.next().unwrap().parse().unwrap();
+        let im: f64 = it.next().unwrap().parse().unwrap();
+        while cur < i {
+            row_ptr.push(col_idx.len());
+            cur += 1;
+        }
+        col_idx.push((j - 1) as u32);
+        values.push(Complex64::new(re, im));
+    }
+    row_ptr.push(col_idx.len());
+    let n = row_ptr.len() - 1;
+    let diag = (0..n)
+        .map(|i| {
+            (row_ptr[i]..row_ptr[i + 1])
+                .find(|&k| col_idx[k] as usize == i)
+                .unwrap()
+        })
+        .collect();
+    let b = include_str!("../fixtures/helm_b.dat")
+        .lines()
+        .map(|l| {
+            let mut it = l.split_whitespace().skip(1);
+            Complex64::new(
+                it.next().unwrap().parse().unwrap(),
+                it.next().unwrap().parse().unwrap(),
+            )
+        })
+        .collect();
+    (
+        CsrMatrix {
+            nrows: n,
+            ncols: n,
+            row_ptr,
+            col_idx,
+            values,
+            diag: Some(diag),
+        },
+        b,
+    )
+}

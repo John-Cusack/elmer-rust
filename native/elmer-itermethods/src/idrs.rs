@@ -54,7 +54,9 @@ impl<T: IterScalar> IterativeSolver<T> for Idrs<T> {
         let cfg = &self.cfg;
         let s = cfg.idrs_s;
         if s < 1 {
-            return Err(LinalgError::Unsupported("IDR(s): s must be at least 1".into()));
+            return Err(LinalgError::Unsupported(
+                "IDR(s): s must be at least 1".into(),
+            ));
         }
         if cfg.pseudo_complex != PseudoComplex::Off && !T::IS_COMPLEX {
             return Err(LinalgError::Unsupported(
