@@ -8,17 +8,30 @@ use super::meshio::Mesh;
 pub struct SimMesh {
     pub mesh: Mesh,
     nodes: Vec<Vec<u32>>,
+    /// Bulk elements holding every node of a boundary element (first two).
+    parents: Vec<[Option<ElemId>; 2]>,
 }
 
 impl SimMesh {
     pub fn new(mesh: Mesh) -> Self {
-        let nodes = mesh
+        let nodes: Vec<Vec<u32>> = mesh
             .bulk
             .iter()
             .chain(&mesh.boundary)
             .map(|e| e.nodes.iter().map(|&n| n as u32).collect())
             .collect();
-        Self { mesh, nodes }
+        let nb = mesh.bulk.len();
+        let parents = (nb..nodes.len())
+            .map(|b| {
+                let mut found = (0..nb).filter(|&e| nodes[b].iter().all(|n| nodes[e].contains(n)));
+                [found.next(), found.next()].map(|e| e.map(|e| ElemId(e as u32)))
+            })
+            .collect();
+        Self {
+            mesh,
+            nodes,
+            parents,
+        }
     }
 }
 
@@ -49,7 +62,11 @@ impl MeshView for SimMesh {
             etype: ElementType(el.etype.0),
             nodes: &self.nodes[i],
             tag: el.tag,
-            parents: [None, None],
+            parents: if i < self.mesh.bulk.len() {
+                [None, None]
+            } else {
+                self.parents[i - self.mesh.bulk.len()]
+            },
         }
     }
 }

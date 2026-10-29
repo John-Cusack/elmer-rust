@@ -3,7 +3,7 @@
 //! The kernels would silently ignore these keywords, so the driver calls
 //! [`check_supported`] before assembling and fails the case instead.
 
-use elmer_core::Params;
+use elmer_core::{Params, Value};
 
 use crate::error::HeatError;
 
@@ -48,7 +48,6 @@ const fn flag(key: &'static str, reason: &'static str) -> Rule {
 }
 
 const SOLVER: &[Rule] = &[
-    flag("Legacy Assembly", "HeatSolveLegacy path is not ported"),
     flag("Bubbles", "bubble degrees of freedom are not implemented"),
     flag("Discontinuous Galerkin", "DG heat is not implemented"),
     flag("DG Reduced Basis", "DG heat is not implemented"),
@@ -79,10 +78,6 @@ const EQUATION: &[Rule] = &[
 
 const MATERIAL: &[Rule] = &[
     present("Phase Change Model", "phase change is not implemented"),
-    present(
-        "Compressibility Model",
-        "compressible heat is not implemented",
-    ),
     present("Draw Velocity", "draw velocity is not implemented"),
     present("Effective Heat Capacity", "phase change is not implemented"),
     present("Enthalpy", "phase change is not implemented"),
@@ -98,7 +93,6 @@ const MATERIAL: &[Rule] = &[
 const AT_IP: &str = "evaluation at integration points is not implemented";
 
 const BODY_FORCE: &[Rule] = &[
-    present("Smart Heater Control", "not implemented"),
     present("Integral Heat Source", "not implemented"),
     present("Friction Heat", "not implemented"),
     flag("Joule Heat", "coupled Joule heating is not implemented"),
@@ -109,7 +103,6 @@ const BODY_FORCE: &[Rule] = &[
 ];
 
 const BOUNDARY: &[Rule] = &[
-    present("Radiation", "radiation is not implemented"),
     present(
         "Farfield Temperature",
         "far-field condition is not implemented",
@@ -141,6 +134,31 @@ fn scan(params: &dyn Params, section: &'static str, rules: &[Rule]) -> Result<()
     Ok(())
 }
 
+/// `Radiation`: `Idealized` is the Newton-linearised grey radiation to a given
+/// external temperature, which the legacy path implements; the diffuse gray
+/// and radiosity models need view factors.
+fn check_radiation(bc: &dyn Params, legacy: bool) -> Result<(), HeatError> {
+    let Some(v) = bc.get("Radiation") else {
+        return Ok(());
+    };
+    let ok = match v {
+        Value::Str(s) => {
+            let s = s.to_ascii_lowercase();
+            s == "none" || (legacy && s == "idealized")
+        }
+        _ => false,
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(HeatError::Unsupported {
+            section: "boundary condition",
+            keyword: "Radiation".into(),
+            reason: "radiation is not implemented",
+        })
+    }
+}
+
 /// Elmer's `GetStabilizeFlag`: `Stabilize`, overridden by `Stabilization
 /// Method` (`stabilized` on, `bubbles` and `none` off).
 pub(crate) fn stabilized(solver: &dyn Params) -> bool {
@@ -160,6 +178,7 @@ pub(crate) fn stabilized(solver: &dyn Params) -> bool {
 /// Convection is allowed only with SUPG (`Stabilize = True`): without it
 /// Elmer adds a residual-free bubble, which this crate does not implement.
 pub fn check_supported(sections: &HeatSections<'_>) -> Result<(), HeatError> {
+    let legacy = sections.solver.logical("Legacy Assembly") == Some(true);
     scan(sections.solver, "solver", SOLVER)?;
     if let Some(e) = sections.equation {
         scan(e, "equation", EQUATION)?;
@@ -191,9 +210,18 @@ pub fn check_supported(sections: &HeatSections<'_>) -> Result<(), HeatError> {
     }
     if let Some(b) = sections.body_force {
         scan(b, "body force", BODY_FORCE)?;
+        if b.get("Smart Heater Control").is_some() && !legacy {
+            // HeatSolver_init: `ListWarnUnsupportedKeyword` with FatalFound.
+            return Err(HeatError::Unsupported {
+                section: "body force",
+                keyword: "Smart Heater Control".into(),
+                reason: "only the Legacy Assembly path implements it",
+            });
+        }
     }
     for bc in &sections.boundaries {
         scan(*bc, "boundary condition", BOUNDARY)?;
+        check_radiation(*bc, legacy)?;
     }
     Ok(())
 }

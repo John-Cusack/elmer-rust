@@ -47,10 +47,18 @@ fn plain_conduction_case_passes() {
 }
 
 #[test]
-fn refuses_radiation_phase_change_and_legacy() {
-    let mut s = solver();
+fn refuses_radiation_and_phase_change() {
+    let s = solver();
     let mut bc = ParamMap::new();
     bc.insert("Radiation", Value::Str("Idealized".into()));
+    assert_eq!(
+        keyword(check_supported(&sections(&s, None, None, vec![&bc])).unwrap_err()),
+        "Radiation"
+    );
+    // `none` is no radiation at all.
+    bc.insert("Radiation", Value::Str("none".into()));
+    check_supported(&sections(&s, None, None, vec![&bc])).unwrap();
+    bc.insert("Radiation", Value::Str("diffuse gray".into()));
     assert_eq!(
         keyword(check_supported(&sections(&s, None, None, vec![&bc])).unwrap_err()),
         "Radiation"
@@ -62,15 +70,36 @@ fn refuses_radiation_phase_change_and_legacy() {
         keyword(check_supported(&sections(&s, None, Some(&m), vec![])).unwrap_err()),
         "Phase Change Model"
     );
+}
 
+#[test]
+fn legacy_assembly_allows_idealized_radiation_and_smart_heater() {
+    let mut s = solver();
     s.insert("Legacy Assembly", Value::Logical(true));
+    let mut bc = ParamMap::new();
+    bc.insert("Radiation", Value::Str("idealized".into()));
+    check_supported(&sections(&s, None, None, vec![&bc])).unwrap();
+    // The diffuse gray model still needs view factors.
+    bc.insert("Radiation", Value::Str("diffuse gray".into()));
     assert_eq!(
-        keyword(check_supported(&sections(&s, None, None, vec![])).unwrap_err()),
-        "Legacy Assembly"
+        keyword(check_supported(&sections(&s, None, None, vec![&bc])).unwrap_err()),
+        "Radiation"
     );
-    // A false flag is fine.
+
+    let mut bf = ParamMap::new();
+    bf.insert("Smart Heater Control", Value::Logical(true));
+    let mut with_bf = sections(&s, None, None, vec![]);
+    with_bf.body_force = Some(&bf);
+    check_supported(&with_bf).unwrap();
+
+    // The default assembly reports it as unsupported, as HeatSolver_init does.
     s.insert("Legacy Assembly", Value::Logical(false));
-    check_supported(&sections(&s, None, None, vec![])).unwrap();
+    let mut with_bf = sections(&s, None, None, vec![]);
+    with_bf.body_force = Some(&bf);
+    assert_eq!(
+        keyword(check_supported(&with_bf).unwrap_err()),
+        "Smart Heater Control"
+    );
 }
 
 #[test]

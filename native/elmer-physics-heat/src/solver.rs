@@ -54,9 +54,9 @@ impl From<HeatError> for SolverError {
 }
 
 pub struct HeatSolver {
-    basis: Box<dyn ElementBasis + Send>,
-    quad: Box<dyn Quadrature + Send>,
-    local: LocalSystem,
+    pub(crate) basis: Box<dyn ElementBasis + Send>,
+    pub(crate) quad: Box<dyn Quadrature + Send>,
+    pub(crate) local: LocalSystem,
 }
 
 impl HeatSolver {
@@ -72,7 +72,7 @@ impl HeatSolver {
 /// `ListGetElementReal` of a scalar keyword at the nodes of element `e`:
 /// constants, tables, MATC and procedures through `elmer-expr`, evaluated at
 /// the current iterate of the fields they depend on.
-fn real_at_nodes(
+pub(crate) fn real_at_nodes(
     ctx: &SolverCtx<'_>,
     p: Option<&ParamMap>,
     key: &str,
@@ -86,7 +86,7 @@ fn real_at_nodes(
 
 /// `Heat Conductivity` by shape: 1x1 scalar, n x 1 diagonal, n x n full.
 /// A scalar may depend on fields; a tensor must be constant.
-fn conductivity(
+pub(crate) fn conductivity(
     ctx: &SolverCtx<'_>,
     p: &ParamMap,
     e: ElemId,
@@ -124,7 +124,7 @@ fn conductivity(
 
 /// `Convection = Constant`: `Convection Velocity i` of the material at the
 /// element nodes; a component without its own keyword is zero.
-fn convection_velocity(
+pub(crate) fn convection_velocity(
     ctx: &SolverCtx<'_>,
     m: Option<&ParamMap>,
     e: ElemId,
@@ -141,7 +141,79 @@ fn convection_velocity(
     Ok(v)
 }
 
-fn axisymmetric(ctx: &SolverCtx<'_>) -> Result<bool, SolverError> {
+/// The kernel inputs of bulk element `e` with `n` nodes: material and body
+/// force evaluated at the element nodes. `legacy` forms the heat source as
+/// HeatSolveLegacy does, the nodal product `Density * Heat Source`, instead
+/// of `HeatSolveVec`'s product of interpolants.
+pub(crate) fn bulk_inputs(
+    ctx: &SolverCtx<'_>,
+    e: ElemId,
+    n: usize,
+    legacy: bool,
+) -> Result<HeatMaterialAtNodes, SolverError> {
+    const CALLER: &str = "HeatSolver";
+    let bp = ctx
+        .body_params(e)
+        .ok_or_else(|| SolverError::fatal(CALLER, format!("element {} has no body", e.0)))?;
+    let (m, bf) = (bp.material, bp.body_force);
+    // Elmer's `init` accepts these; only a solver that runs needs the flow
+    // solution they read, so the refusal waits for the solve (a solver with
+    // `Exec Solver = Never` never gets here).
+    if bp
+        .equation
+        .and_then(|q| q.string("Convection"))
+        .is_some_and(|c| c.eq_ignore_ascii_case("computed"))
+    {
+        return Err(SolverError::Unsupported(
+            "Convection = Computed: reading the flow solution as the convection field is \
+             not implemented"
+                .into(),
+        ));
+    }
+    if m.is_some_and(|m| m.get("Compressibility Model").is_some()) {
+        return Err(SolverError::Unsupported(
+            "material keyword \"Compressibility Model\": compressible heat is not \
+             implemented"
+                .into(),
+        ));
+    }
+    let convected = bp
+        .equation
+        .and_then(|q| q.string("Convection"))
+        .is_some_and(|c| c.eq_ignore_ascii_case("constant"));
+    let density = real_at_nodes(ctx, m, "Density", e)?;
+    let mut heat_source = real_at_nodes(ctx, bf, "Heat Source", e)?;
+    let mut volumetric_heat_source = real_at_nodes(ctx, bf, "Volumetric Heat Source", e)?;
+    if legacy && volumetric_heat_source.is_none() {
+        if let Some(src) = heat_source.take() {
+            let rho = density.as_deref();
+            volumetric_heat_source = Some(
+                src.iter()
+                    .enumerate()
+                    .map(|(i, s)| s * rho.map_or(0.0, |r| r[i]))
+                    .collect(),
+            );
+        }
+    }
+    Ok(HeatMaterialAtNodes {
+        conductivity: match m {
+            Some(m) => conductivity(ctx, m, e, n)?,
+            None => None,
+        },
+        density,
+        heat_capacity: real_at_nodes(ctx, m, "Heat Capacity", e)?,
+        heat_transfer_multiplier: real_at_nodes(ctx, m, "Heat Transfer Multiplier", e)?,
+        heat_source,
+        volumetric_heat_source,
+        convection_velocity: if convected {
+            Some(convection_velocity(ctx, m, e, n)?)
+        } else {
+            None
+        },
+    })
+}
+
+pub(crate) fn axisymmetric(ctx: &SolverCtx<'_>) -> Result<bool, SolverError> {
     match ctx.simulation_params().string("coordinate system") {
         None => Ok(false),
         Some(s) => {
@@ -190,17 +262,6 @@ impl Solver for HeatSolver {
                 boundaries: bcs.clone(),
             };
             check_supported(&sections)?;
-            if bp
-                .equation
-                .and_then(|e| e.string("Convection"))
-                .is_some_and(|c| c.eq_ignore_ascii_case("computed"))
-            {
-                return Err(SolverError::Unsupported(
-                    "Convection = Computed: reading the flow solution as the convection \
-                     field is not implemented"
-                        .into(),
-                ));
-            }
         }
         Ok(())
     }
@@ -212,6 +273,9 @@ impl Solver for HeatSolver {
         transient: bool,
     ) -> Result<(), SolverError> {
         const CALLER: &str = "HeatSolver";
+        if ctx.params().logical("Legacy Assembly") == Some(true) {
+            return self.solve_legacy(ctx, transient);
+        }
         let axisym = axisymmetric(ctx)?;
         let dim = ctx.mesh.dim();
         let maxiter = ctx
@@ -253,42 +317,7 @@ impl Solver for HeatSolver {
                 let el = ctx.mesh.element(e);
                 let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
                 let n = xyz.len();
-                let mat = {
-                    let bp = ctx.body_params(e).ok_or_else(|| {
-                        SolverError::fatal(CALLER, format!("element {} has no body", e.0))
-                    })?;
-                    let (m, bf) = (bp.material, bp.body_force);
-                    let convected = bp
-                        .equation
-                        .and_then(|q| q.string("Convection"))
-                        .is_some_and(|c| c.eq_ignore_ascii_case("constant"));
-                    HeatMaterialAtNodes {
-                        conductivity: match m {
-                            Some(m) => conductivity(ctx, m, e, n)?,
-                            None => None,
-                        },
-                        density: real_at_nodes(ctx, m, "Density", e)?,
-                        heat_capacity: real_at_nodes(ctx, m, "Heat Capacity", e)?,
-                        heat_transfer_multiplier: real_at_nodes(
-                            ctx,
-                            m,
-                            "Heat Transfer Multiplier",
-                            e,
-                        )?,
-                        heat_source: real_at_nodes(ctx, bf, "Heat Source", e)?,
-                        volumetric_heat_source: real_at_nodes(
-                            ctx,
-                            bf,
-                            "Volumetric Heat Source",
-                            e,
-                        )?,
-                        convection_velocity: if convected {
-                            Some(convection_velocity(ctx, m, e, n)?)
-                        } else {
-                            None
-                        },
-                    }
-                };
+                let mat = bulk_inputs(ctx, e, n, false)?;
                 bulk_cfg.stabilization = if supg && mat.convection_velocity.is_some() {
                     let (m_k, h_k) = elmer_fe::stab_param(el.etype, &xyz, dim, long_edge)
                         .map_err(|err| SolverError::fatal(CALLER, err.to_string()))?;
