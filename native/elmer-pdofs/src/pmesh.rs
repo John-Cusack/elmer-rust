@@ -4,24 +4,30 @@
 //! * `NonNodalElements` (MeshLoad.F90:713): per-element nodal and bubble DOF
 //!   counts and the p definitions (`Element % PDefs`), including the
 //!   MATC-dependent degree `p:%f` evaluated element by element;
-//! * `FindMeshEdges2D` (MeshBasics.F90:3875): the global edge table, edges
-//!   numbered in first-visit order over bulk then boundary elements;
+//! * `FindMeshEdges2D` (MeshBasics.F90:3875), or `FindMeshFaces3D`
+//!   (MeshBasics.F90:4135) and `FindMeshEdges3D` (MeshBasics.F90:4558):
+//!   the global edge and face tables, numbered in first-visit order over
+//!   bulk then boundary elements;
 //! * `SetMeshEdgeFaceDOFs` (MeshBasics.F90:2123) and `AssignLocalNumber`
-//!   (MeshBasics.F90:5826): edge degrees and DOF counts, and the local edge
-//!   (`PDefs % LocalNumber`) and parent of every p boundary element, whose
-//!   nodes are **reordered** to the parent's edge orientation;
+//!   (MeshBasics.F90:5826): edge and face degrees and DOF counts, and the
+//!   local edge or face (`PDefs % LocalNumber`) and parent of every p
+//!   boundary element, whose nodes are **reordered** to the parent's edge
+//!   or face orientation (in 3D its edges become the parent's face edges);
 //! * `SetMeshMaxDOFs` (MeshBasics.F90:2271): integration point counts
 //!   (`getNumberOfGaussPoints`, PElementMaps.F90:1135), the mesh maxima and
 //!   the bubble index blocks.
 //!
-//! Supported: meshes of first-order 1D and 2D elements (`202`, `303`,
-//! `404`; boundary `101`, `202`). 3D meshes (face tables, `ConvertToACTetra`)
-//! are refused with [`Error::Unsupported`]. Element definitions given in
+//! Supported: meshes of first-order elements; DOF tables for every type,
+//! the p basis (see [`crate::basis`]) for `202`, `303`, `404` and `808`.
+//! Tetrahedral p elements (`ConvertToACTetra`) are refused with
+//! [`Error::Unsupported`]. Element definitions given in
 //! equation sections are not handled (the caller must refuse them); solver
 //! sections and body-wise `Solver i: Element` keywords are.
 
 use elmer_core::{ElemId, MeshView};
-use elmer_fe_hp::maps::{bubble_dofs, bubble_max_degree_1d, edge_map, face_dofs};
+use elmer_fe_hp::maps::{
+    bubble_dofs, bubble_max_degree_1d, edge_map, face_dofs, face_edge_map, face_map,
+};
 
 use crate::defs::{is_mesh_dependent, ElementDefs, MaxDefs};
 use crate::Error;
@@ -78,6 +84,9 @@ pub struct PElement {
     pub parents: [Option<u32>; 2],
     /// `EdgeIndexes`, 0-based global edges; empty when not associated.
     pub edges: Vec<u32>,
+    /// `FaceIndexes`, 0-based global faces (3D meshes); empty when not
+    /// associated.
+    pub faces: Vec<u32>,
     pub pdefs: Option<PDefs>,
     /// `NDOFs`: nodal DOFs of the element (nodes times DOFs per node).
     pub ndofs: usize,
@@ -131,6 +140,57 @@ pub struct MeshEdge {
     pub bdofs: usize,
 }
 
+/// A global face of a 3D mesh (`Mesh % Faces(i)`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MeshFace {
+    /// `303` or `404`.
+    pub code: u16,
+    /// Nodes in the face map order of the first element visiting it.
+    pub nodes: Vec<u32>,
+    /// `BoundaryInfo % Left / Right`: the first two bulk elements visiting
+    /// the face.
+    pub left: Option<u32>,
+    pub right: Option<u32>,
+    /// `EdgeIndexes`, 0-based, in face-edge-map order (0 entries of the
+    /// Fortran are `u32::MAX` until set).
+    pub edges: Vec<u32>,
+    pub pdefs: Option<PDefs>,
+    /// `BDOFs`: face DOF count.
+    pub bdofs: usize,
+}
+
+fn n_faces(code: u16) -> usize {
+    match code / 100 {
+        5 => 4,
+        6 | 7 => 5,
+        8 => 6,
+        _ => 0,
+    }
+}
+
+/// Nodes of face `k` (0-based) of a 3D element type.
+fn face_node_count(code: u16, k: usize) -> usize {
+    match code / 100 {
+        3 | 5 => 3,
+        4 | 8 => 4,
+        6 => {
+            if k == 0 {
+                4
+            } else {
+                3
+            }
+        }
+        7 => {
+            if k <= 1 {
+                3
+            } else {
+                4
+            }
+        }
+        _ => 0,
+    }
+}
+
 fn n_edges(code: u16) -> usize {
     match code / 100 {
         2 => 1,
@@ -146,6 +206,14 @@ fn n_edges(code: u16) -> usize {
 
 fn first_order(code: u16) -> bool {
     matches!(code, 101 | 202 | 303 | 404 | 504 | 605 | 706 | 808)
+}
+
+/// An element's edge map (1-based end nodes) and face edge map (1-based
+/// local edges per face).
+type EdgeMaps = (Vec<[usize; 2]>, Vec<Vec<usize>>);
+
+fn pd_tetra_type(el: &PElement) -> i32 {
+    el.pdefs.as_ref().map_or(1, |pd| pd.tetra_type.max(1))
 }
 
 /// Local (1-based) end nodes of edge `k` (1-based) of a 1D or 2D element,
@@ -205,12 +273,14 @@ pub struct PMesh {
     /// Bulk then boundary elements, as `Mesh % Elements`.
     pub elements: Vec<PElement>,
     pub edges: Vec<MeshEdge>,
-    /// `Mesh % NumberOfFaces` (always 0: 3D is not supported).
+    pub faces: Vec<MeshFace>,
+    /// `Mesh % NumberOfFaces`.
     pub n_faces: usize,
     pub max_ndofs: usize,
     pub max_edge_dofs: usize,
     pub min_edge_dofs: usize,
     pub max_face_dofs: usize,
+    pub min_face_dofs: usize,
     pub max_bdofs: usize,
     pub max_element_dofs: usize,
     pub max_element_nodes: usize,
@@ -267,6 +337,7 @@ impl PMesh {
                 boundary_tag: if boundary { el.tag } else { 0 },
                 parents: el.parents.map(|p| p.map(|e| e.0)),
                 edges: Vec::new(),
+                faces: Vec::new(),
                 pdefs: None,
                 ndofs: 0,
                 bdofs: 0,
@@ -286,11 +357,13 @@ impl PMesh {
             n_bulk,
             elements,
             edges: Vec::new(),
+            faces: Vec::new(),
             n_faces: 0,
             max_ndofs: 0,
             max_edge_dofs: 0,
             min_edge_dofs: usize::MAX,
             max_face_dofs: 0,
+            min_face_dofs: usize::MAX,
             max_bdofs: 0,
             max_element_dofs: 0,
             max_element_nodes: 0,
@@ -470,7 +543,7 @@ impl PMesh {
             need_edges = ne;
         }
         if need_edges {
-            self.set_mesh_edge_face_dofs(&edge_dofs, &face_dofs)?;
+            self.set_mesh_edge_face_dofs(&edge_dofs, &face_dofs, in_dofs)?;
         }
         if self.max_element_dofs == 0 {
             self.max_element_dofs = self.max_element_nodes;
@@ -484,8 +557,11 @@ impl PMesh {
             && !solvers.iter().any(|s| s.dg);
         if del && !self.edges.is_empty() {
             self.edges.clear();
+            self.faces.clear();
+            self.n_faces = 0;
             for el in &mut self.elements {
                 el.edges.clear();
+                el.faces.clear();
             }
         }
         Ok(())
@@ -548,19 +624,296 @@ impl PMesh {
         self.edges = edges;
     }
 
+    /// The face map `FindMeshFaces3D` uses for element `i` (1-based local
+    /// nodes per face) and its face count: `GetElementFaceMap` for p
+    /// elements, the routine's own tables otherwise.
+    fn element_face_map(&self, i: usize) -> Result<Vec<Vec<usize>>, Error> {
+        let el = &self.elements[i];
+        let code = el.code;
+        if code / 100 == 3 || code / 100 == 4 {
+            let n = face_node_count(code, 0);
+            return Ok(vec![(1..=n).collect()]);
+        }
+        let rows: Vec<Vec<usize>> = if el.pdefs.is_some() {
+            if code / 100 == 5 {
+                return Err(Error::Unsupported(
+                    "tetrahedral p elements (ConvertToACTetra)".into(),
+                ));
+            }
+            let map = face_map(code)
+                .ok_or_else(|| Error::Unsupported(format!("face map of type {code}")))?;
+            (0..n_faces(code))
+                .map(|k| map[k][..face_node_count(code, k)].to_vec())
+                .collect()
+        } else {
+            let t: &[&[usize]] = match code / 100 {
+                5 => &[&[1, 2, 3], &[1, 2, 4], &[2, 3, 4], &[3, 1, 4]],
+                6 => &[
+                    &[1, 2, 3, 4],
+                    &[1, 2, 5],
+                    &[2, 3, 5],
+                    &[3, 4, 5],
+                    &[4, 1, 5],
+                ],
+                7 => &[
+                    &[1, 2, 3],
+                    &[4, 5, 6],
+                    &[1, 2, 5, 4],
+                    &[3, 2, 5, 6],
+                    &[3, 1, 4, 6],
+                ],
+                8 => &[
+                    &[1, 2, 3, 4],
+                    &[5, 6, 7, 8],
+                    &[1, 2, 6, 5],
+                    &[2, 3, 7, 6],
+                    &[3, 4, 8, 7],
+                    &[4, 1, 5, 8],
+                ],
+                _ => {
+                    return Err(Error::Unsupported(format!(
+                        "FindMeshFaces: element type {code}"
+                    )))
+                }
+            };
+            t.iter().map(|r| r.to_vec()).collect()
+        };
+        Ok(rows)
+    }
+
+    /// `FindMeshFaces3D` without a mask: faces numbered in first-visit
+    /// order over bulk then boundary elements (types 300 and up), keyed by
+    /// their three lowest node numbers.
+    fn find_mesh_faces_3d(&mut self) -> Result<(), Error> {
+        let mut table: Vec<Vec<(u32, u32, u32)>> = vec![Vec::new(); self.coords.len()];
+        let mut faces: Vec<MeshFace> = Vec::new();
+        for i in 0..self.elements.len() {
+            let code = self.elements[i].code;
+            if code < 300 {
+                continue;
+            }
+            let map = self.element_face_map(i)?;
+            let mut idx = vec![0u32; map.len()];
+            for (k, local) in map.iter().enumerate() {
+                let nodes: Vec<u32> = local
+                    .iter()
+                    .map(|&l| self.elements[i].nodes[l - 1])
+                    .collect();
+                let mut nf = nodes.clone();
+                nf.sort_unstable();
+                let found = table[nf[0] as usize]
+                    .iter()
+                    .find(|&&(a, b, _)| a == nf[1] && b == nf[2])
+                    .map(|&(_, _, f)| f);
+                let face = match found {
+                    Some(f) => f,
+                    None => {
+                        let f = faces.len() as u32;
+                        table[nf[0] as usize].push((nf[1], nf[2], f));
+                        let pdefs = self.elements[i]
+                            .pdefs
+                            .as_ref()
+                            .map(|pd| PDefs::new(pd.serendipity));
+                        faces.push(MeshFace {
+                            code: if nodes.len() == 3 { 303 } else { 404 },
+                            nodes,
+                            left: None,
+                            right: None,
+                            edges: Vec::new(),
+                            pdefs,
+                            bdofs: 0,
+                        });
+                        f
+                    }
+                };
+                idx[k] = face;
+                if i < self.n_bulk {
+                    let fc = &mut faces[face as usize];
+                    if fc.left.is_some() {
+                        fc.right = Some(i as u32);
+                    } else {
+                        fc.left = Some(i as u32);
+                    }
+                }
+            }
+            self.elements[i].faces = idx;
+        }
+        self.faces = faces;
+        self.n_faces = self.faces.len();
+        Ok(())
+    }
+
+    /// The edge map (1-based local end nodes) and, for 3D types, the face
+    /// edge map (1-based local edges per face) `FindMeshEdges3D` uses for
+    /// element `i`.
+    fn element_edge_maps(&self, i: usize) -> Result<EdgeMaps, Error> {
+        let el = &self.elements[i];
+        let code = el.code;
+        let ne = n_edges(code);
+        if el.pdefs.is_some() {
+            let em = edge_map(code)
+                .ok_or_else(|| Error::Unsupported(format!("edge map of type {code}")))?;
+            let fem = if code >= 500 {
+                let m = face_edge_map(code, pd_tetra_type(el))
+                    .ok_or_else(|| Error::Unsupported(format!("face edge map of type {code}")))?;
+                (0..n_faces(code))
+                    .map(|k| m[k].iter().copied().filter(|&x| x > 0).collect())
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            return Ok((em[..ne].to_vec(), fem));
+        }
+        let (em, fem): (&[[usize; 2]], &[&[usize]]) = match code / 100 {
+            2 => (&[[1, 2]], &[]),
+            3 => (&[[1, 2], [2, 3], [3, 1]], &[]),
+            4 => (&[[1, 2], [2, 3], [3, 4], [4, 1]], &[]),
+            5 => (
+                &[[1, 2], [2, 3], [3, 1], [1, 4], [2, 4], [3, 4]],
+                &[&[1, 2, 3], &[1, 5, 4], &[2, 6, 5], &[3, 4, 6]],
+            ),
+            6 => (
+                &[
+                    [1, 2],
+                    [2, 3],
+                    [3, 4],
+                    [4, 1],
+                    [1, 5],
+                    [2, 5],
+                    [3, 5],
+                    [4, 5],
+                ],
+                &[
+                    &[1, 2, 3, 4],
+                    &[1, 6, 5],
+                    &[2, 7, 6],
+                    &[3, 8, 7],
+                    &[4, 5, 8],
+                ],
+            ),
+            7 => (
+                &[
+                    [1, 2],
+                    [2, 3],
+                    [1, 3],
+                    [4, 5],
+                    [5, 6],
+                    [6, 4],
+                    [1, 4],
+                    [2, 5],
+                    [3, 6],
+                ],
+                &[
+                    &[1, 2, 3],
+                    &[4, 5, 6],
+                    &[1, 8, 4, 7],
+                    &[2, 9, 5, 8],
+                    &[3, 7, 6, 9],
+                ],
+            ),
+            8 => (
+                &[
+                    [1, 2],
+                    [2, 3],
+                    [4, 3],
+                    [1, 4],
+                    [5, 6],
+                    [6, 7],
+                    [8, 7],
+                    [5, 8],
+                    [1, 5],
+                    [2, 6],
+                    [3, 7],
+                    [4, 8],
+                ],
+                &[
+                    &[1, 2, 3, 4],
+                    &[5, 6, 7, 8],
+                    &[1, 10, 5, 9],
+                    &[2, 11, 6, 10],
+                    &[3, 12, 7, 11],
+                    &[4, 9, 8, 12],
+                ],
+            ),
+            _ => {
+                return Err(Error::Unsupported(format!(
+                    "FindMeshEdges3D: element type {code}"
+                )))
+            }
+        };
+        Ok((em.to_vec(), fem.iter().map(|r| r.to_vec()).collect()))
+    }
+
+    /// `FindMeshEdges3D`: edges numbered in first-visit order over bulk then
+    /// boundary elements; the faces of 3D elements get their edges through
+    /// the face edge maps. (Edge `BoundaryInfo` is not kept: in 3D Elmer
+    /// fills it with elements and faces alike and only uses it to orient
+    /// the edge's own node order, which no DOF or basis reads.)
+    fn find_mesh_edges_3d(&mut self) -> Result<(), Error> {
+        let mut table: Vec<Vec<(u32, u32)>> = vec![Vec::new(); self.coords.len()];
+        let mut edges: Vec<MeshEdge> = Vec::new();
+        for f in &mut self.faces {
+            f.edges = vec![u32::MAX; if f.code == 303 { 3 } else { 4 }];
+        }
+        for i in 0..self.elements.len() {
+            if self.elements[i].code < 200 {
+                continue;
+            }
+            let (em, fem) = self.element_edge_maps(i)?;
+            let mut idx = vec![0u32; em.len()];
+            for (k, &[a, b]) in em.iter().enumerate() {
+                let (na, nb) = (self.elements[i].nodes[a - 1], self.elements[i].nodes[b - 1]);
+                let (n1, n2) = if na < nb { (na, nb) } else { (nb, na) };
+                let found = table[n1 as usize]
+                    .iter()
+                    .find(|&&(n, _)| n == n2)
+                    .map(|&(_, e)| e);
+                let edge = match found {
+                    Some(e) => e,
+                    None => {
+                        let e = edges.len() as u32;
+                        table[n1 as usize].push((n2, e));
+                        let pdefs = self.elements[i]
+                            .pdefs
+                            .as_ref()
+                            .map(|pd| PDefs::new(pd.serendipity));
+                        edges.push(MeshEdge {
+                            nodes: [na, nb],
+                            left: None,
+                            right: None,
+                            pdefs,
+                            bdofs: 0,
+                        });
+                        e
+                    }
+                };
+                idx[k] = edge;
+                for (ii, row) in fem.iter().enumerate() {
+                    let face = self.elements[i].faces[ii] as usize;
+                    if let Some(jj) = row.iter().position(|&x| x == k + 1) {
+                        self.faces[face].edges[jj] = edge;
+                    }
+                }
+            }
+            self.elements[i].edges = idx;
+        }
+        self.edges = edges;
+        Ok(())
+    }
+
     /// `SetMeshEdgeFaceDOFs` with `EdgeDOFs`/`FaceDOFs`/`inDOFs` present and
     /// `NeedEdges` absent.
     fn set_mesh_edge_face_dofs(
         &mut self,
         edge_dofs: &[usize],
-        _face_dofs: &[usize],
+        face_dofs: &[usize],
+        in_dofs: &MaxDefs,
     ) -> Result<(), Error> {
         match self.dim {
             1 | 2 => self.find_mesh_edges_2d(),
             3 => {
-                return Err(Error::Unsupported(
-                    "3D meshes for p elements (FindMeshFaces3D / FindMeshEdges3D)".into(),
-                ))
+                self.find_mesh_faces_3d()?;
+                self.find_mesh_edges_3d()?;
             }
             _ => {
                 return Err(Error::Unsupported(
@@ -585,8 +938,10 @@ impl PMesh {
                     pd.is_edge = true;
                     // (BDOFs+2)**DIMENSION, an edge being 1D.
                     pd.gauss_points = ed.bdofs + 2;
+                    // In 3D the edge's parent is a face or an element, and
+                    // AssignLocalNumber only reorders the edge's own nodes.
                     let parent = ed.left.or(ed.right);
-                    if let Some(parent) = parent {
+                    if let (Some(parent), true) = (parent, self.dim < 3) {
                         self.assign_local_number_edge(e, parent as usize);
                     }
                 }
@@ -598,7 +953,43 @@ impl PMesh {
             if self.min_edge_dofs > self.max_edge_dofs {
                 self.min_edge_dofs = self.max_edge_dofs;
             }
-            // Faces: none in 1D/2D.
+            let el_faces = self.elements[i].faces.clone();
+            for (j, &face) in el_faces.iter().enumerate() {
+                let f = face as usize;
+                if self.faces[f].edges.contains(&u32::MAX) {
+                    continue;
+                }
+                if let Some(pd) = self.elements[i].pdefs.clone() {
+                    let code = self.elements[i].code;
+                    let fc = &mut self.faces[f];
+                    let fp = fc.pdefs.get_or_insert_with(|| PDefs::new(pd.serendipity));
+                    fp.p = pd.p.max(fp.p);
+                    let p = fp.p;
+                    fp.is_edge = true;
+                    fc.bdofs =
+                        fc.bdofs
+                            .max(elmer_fe_hp::maps::face_dofs(code, p, j + 1, pd.serendipity));
+                    let gp = self.face_gauss_points(f);
+                    self.faces[f]
+                        .pdefs
+                        .as_mut()
+                        .expect("set above")
+                        .gauss_points = gp;
+                    // AssignLocalNumber(Face, Left) only reorders the
+                    // face's own nodes, which no DOF or basis reads.
+                }
+                let fc = &mut self.faces[f];
+                let fam = usize::from(fc.code / 100);
+                fc.bdofs = fc
+                    .bdofs
+                    .max(face_dofs[i])
+                    .max(in_dofs[fam + 5][4].max(0) as usize);
+                self.min_face_dofs = self.min_face_dofs.min(fc.bdofs);
+                self.max_face_dofs = self.max_face_dofs.max(fc.bdofs);
+            }
+        }
+        if self.min_face_dofs > self.max_face_dofs {
+            self.min_face_dofs = self.max_face_dofs;
         }
 
         for i in self.n_bulk..self.elements.len() {
@@ -610,7 +1001,7 @@ impl PMesh {
                     let mut d = PDefs::new(pd.serendipity);
                     d.is_edge = true;
                     self.elements[i].pdefs = Some(d);
-                    self.assign_local_number_boundary(i, l as usize);
+                    self.assign_local_number_boundary(i, l as usize)?;
                 }
             }
             if let Some(r) = right {
@@ -619,10 +1010,82 @@ impl PMesh {
                         let mut d = PDefs::new(pd.serendipity);
                         d.is_edge = true;
                         self.elements[i].pdefs = Some(d);
-                        self.assign_local_number_boundary(i, r as usize);
+                        self.assign_local_number_boundary(i, r as usize)?;
                     }
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// `getNumberOfGaussPointsFace(Face, Mesh)`.
+    fn face_gauss_points(&self, f: usize) -> usize {
+        let fc = &self.faces[f];
+        let edge_p = fc
+            .edges
+            .iter()
+            .map(|&e| self.edges[e as usize].pdefs.as_ref().map_or(0, |d| d.p))
+            .max()
+            .unwrap_or(0);
+        let pd = fc.pdefs.as_ref().expect("p face");
+        let maxp = if fc.bdofs == 0 {
+            edge_p
+        } else {
+            edge_p.max(pd.p)
+        };
+        if pd.serendipity && fc.code / 100 == 4 && maxp > 1 && maxp <= 8 {
+            return [8, 12, 20, 25, 36, 45, 60][maxp as usize - 2];
+        }
+        ((maxp + 1) as usize).pow(2)
+    }
+
+    /// `AssignLocalNumber(Element, Parent)` for a boundary face element of
+    /// a 3D parent: local face and parent, nodes reordered to the parent's
+    /// face map, the face's p definitions and DOF count, and the parent's
+    /// edges of that face (`getFaceEdgeMap`) as the element's edges.
+    fn assign_local_number_face(&mut self, i: usize, parent: usize) -> Result<(), Error> {
+        let pel = &self.elements[parent];
+        let code = pel.code;
+        let map =
+            face_map(code).ok_or_else(|| Error::Unsupported(format!("face map of type {code}")))?;
+        let fem = face_edge_map(code, pd_tetra_type(pel))
+            .ok_or_else(|| Error::Unsupported(format!("face edge map of type {code}")))?;
+        let nodes = self.elements[i].nodes.clone();
+        for k in 0..n_faces(code) {
+            let face = &self.faces[pel.faces[k] as usize];
+            let n = face.nodes.iter().filter(|g| nodes.contains(g)).count();
+            if n != nodes.len() {
+                continue;
+            }
+            let bindex: Vec<u32> = map[k][..n].iter().map(|&l| pel.nodes[l - 1]).collect();
+            let hits = face.nodes.iter().filter(|g| bindex.contains(g)).count();
+            let (is_edge, gp, p) = match &face.pdefs {
+                Some(pd) => (pd.is_edge, pd.gauss_points, pd.p),
+                None => (false, 0, 0),
+            };
+            let face_bdofs = face.bdofs;
+            let edges: Vec<u32> = if face.edges.is_empty() {
+                Vec::new()
+            } else {
+                (0..face.edges.len())
+                    .map(|j| pel.edges[fem[k][j] - 1])
+                    .collect()
+            };
+            let el = &mut self.elements[i];
+            if hits == n {
+                el.nodes[..n].copy_from_slice(&bindex);
+            }
+            let pd = el.pdefs.as_mut().expect("p boundary element");
+            pd.local_number = k + 1;
+            pd.local_parent = Some(parent as u32);
+            pd.is_edge = is_edge;
+            pd.gauss_points = gp;
+            pd.p = p;
+            el.bdofs = el.bdofs.max(face_bdofs);
+            if !edges.is_empty() {
+                el.edges = edges;
+            }
+            return Ok(());
         }
         Ok(())
     }
@@ -632,7 +1095,8 @@ impl PMesh {
     fn find_local_edge(&self, nodes: &[u32], parent: usize) -> Option<(usize, [u32; 2])> {
         let pel = &self.elements[parent];
         if pel.dim() != 2 {
-            // AssignLocalNumber: nothing to do for 0D/1D parents; 3D refused.
+            // AssignLocalNumber: nothing to do for 0D/1D parents; 3D parents
+            // go through `assign_local_number_face`.
             return None;
         }
         let map = edge_map(pel.code)?;
@@ -672,13 +1136,15 @@ impl PMesh {
     }
 
     /// `AssignLocalNumber(Element, Parent)` for a boundary element.
-    fn assign_local_number_boundary(&mut self, i: usize, parent: usize) {
-        if self.elements[parent].dim() < 2 {
-            return;
+    fn assign_local_number_boundary(&mut self, i: usize, parent: usize) -> Result<(), Error> {
+        match self.elements[parent].dim() {
+            0 | 1 => return Ok(()),
+            3 => return self.assign_local_number_face(i, parent),
+            _ => {}
         }
         let nodes = self.elements[i].nodes.clone();
         let Some((num, bindex)) = self.find_local_edge(&nodes, parent) else {
-            return;
+            return Ok(());
         };
         let edge = &self.edges[self.elements[parent].edges[num - 1] as usize];
         let (is_edge, gp, p) = match &edge.pdefs {
@@ -699,6 +1165,7 @@ impl PMesh {
         pd.gauss_points = gp;
         pd.p = p;
         el.bdofs = el.bdofs.max(edge_bdofs);
+        Ok(())
     }
 
     /// `getNumberOfGaussPoints(Element, Mesh)` for a bulk p element.
@@ -715,7 +1182,17 @@ impl PMesh {
                 edge_p = edge_p.max(ed.pdefs.as_ref().map_or(0, |d| d.p));
             }
         }
-        let face_p = 0;
+        let face_p = if el.dim() == 3 {
+            el.faces
+                .iter()
+                .map(|&f| &self.faces[f as usize])
+                .filter(|f| f.bdofs > 0)
+                .map(|f| f.pdefs.as_ref().map_or(0, |d| d.p))
+                .max()
+                .unwrap_or(0)
+        } else {
+            0
+        };
         let mut bubble_p = effective_bubble_p(el.code, pd.p, el.bdofs, pd.serendipity);
         if pd.serendipity && el.family() == 4 {
             let maxp = 1.max(edge_p).max(face_p).max(bubble_p);
@@ -749,12 +1226,18 @@ impl PMesh {
         for i in 0..self.n_bulk {
             let el = &self.elements[i];
             self.max_element_dofs = self.max_element_dofs.max(
-                (el.nodes.len() * self.max_ndofs + el.n_edges() * self.max_edge_dofs + el.bdofs)
+                (el.nodes.len() * self.max_ndofs
+                    + el.n_edges() * self.max_edge_dofs
+                    + n_faces(el.code) * self.max_face_dofs
+                    + el.bdofs)
                     .max(el.dg_dofs),
             );
             if el.bdofs > 0 {
                 self.elements[i].bubble_base = self.max_bdofs * i + 1;
             }
+        }
+        if self.min_face_dofs == usize::MAX {
+            self.min_face_dofs = self.max_face_dofs;
         }
         if self.min_edge_dofs == usize::MAX {
             self.min_edge_dofs = self.max_edge_dofs;
