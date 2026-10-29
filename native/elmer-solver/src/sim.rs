@@ -1357,7 +1357,7 @@ impl Simulation {
         if self.is_scanning() {
             return Err(SolverError::Unsupported("Simulation Type = Scanning".into()));
         }
-        for k in ["periodic time", "convergence control", "predictor-corrector control", "parallel timestepping"] {
+        for k in ["periodic time", "predictor-corrector control", "parallel timestepping"] {
             if simp.get(k).is_some_and(|v| *v != Value::Logical(false)) {
                 return Err(SolverError::Unsupported(format!("Simulation keyword {k}")));
             }
@@ -1397,6 +1397,7 @@ impl Simulation {
         };
         let ratios = real_array("timestep ratios");
         let adaptive = transient && simp.logical("adaptive timestepping") == Some(true);
+        let divergence_control = transient && !adaptive && simp.logical("convergence control") == Some(true);
         let coupled_min = simp.integer("steady state min iterations").unwrap_or(1);
         let output_intervals = match simp.get("output intervals") {
             Some(Value::Integer(v)) => {
@@ -1457,6 +1458,10 @@ impl Simulation {
                 let reached = if adaptive {
                     let rt = &mut real_timestep;
                     self.adaptive_step(&simp, dt, coupled_min, coupled_max, rt, &mut adapt, mesh, log, comm)?;
+                    false
+                } else if divergence_control {
+                    let rt = &mut real_timestep;
+                    self.divergence_step(&simp, dt, coupled_min, coupled_max, rt, &mut adapt, mesh, log, comm)?;
                     false
                 } else {
                     let r = self.solve_equations(
@@ -1687,6 +1692,97 @@ impl Simulation {
         }
         self.vars.set_scalar("timestep size", dt);
         self.vars.set_scalar("time", s0 + dt);
+        Ok(())
+    }
+
+    /// One step of `Convergence Control` (ElmerSolver.F90:3333-3395):
+    /// substeps of size `ddt` (grown by `Adaptive Increase Coefficient`
+    /// on entry, capped by `Adaptive Max Timestep`) cover `dt`. A substep
+    /// whose nonlinear iteration of some solver diverged (`NonlinConverged >
+    /// 1`, `Nonlinear System Divergence Limit`) is repeated with `ddt` shrunk
+    /// by `Adaptive Decrease Coefficient` (not below `Adaptive Min Timestep`,
+    /// where the run stops), from each variable's last committed values;
+    /// otherwise the after-timestep solvers run and `ddt` grows again.
+    #[allow(clippy::too_many_arguments)]
+    fn divergence_step(
+        &mut self,
+        simp: &ParamMap,
+        dt: f64,
+        cmin: i32,
+        cmax: i32,
+        real_timestep: &mut usize,
+        st: &mut AdaptiveState,
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+        comm: &dyn Communicator,
+    ) -> Result<(), SolverError> {
+        let max_dt = simp.real("adaptive max timestep").map_or(dt, |m| m.min(dt));
+        let min_dt = simp.real("adaptive min timestep").unwrap_or(1.0e-8 * max_dt);
+        let increase = simp.real("adaptive increase coefficient").unwrap_or(2.0);
+        let decrease = simp.real("adaptive decrease coefficient").unwrap_or(0.5);
+        let rough = simp.logical("adaptive rough timestep") == Some(true);
+        let smart = simp.logical("adaptive smart timestep") == Some(true);
+        let at = Phases { before: true, at: true, after: false };
+        let after = Phases { before: false, at: false, after: true };
+
+        log.info("ExecSimulation", "Solving equations with divergence control", 6);
+        let mut cum_time = 0.0;
+        st.ddt *= increase;
+        if st.ddt < 0.0 || st.ddt > max_dt {
+            st.ddt = max_dt;
+        }
+        let s0 = self.vars.scalar("time").unwrap_or(0.0) - dt;
+        while cum_time < dt - 1.0e-12 {
+            if !rough {
+                st.ddt = st.ddt.min(dt - cum_time);
+                if smart && dt - cum_time - st.ddt > 1.0e-12 {
+                    log.info("ExecSimulation", "Splitted timestep into two equal parts", 12);
+                    st.ddt = st.ddt.min((dt - cum_time) / 2.0);
+                }
+            }
+            let ddt = st.ddt;
+            self.vars.set_scalar("time", s0 + cum_time + ddt);
+            self.vars.set_scalar("timestep size", ddt);
+            self.solve_equations_in(ddt, true, cmin, cmax, Some(*real_timestep), at, mesh, log, comm)?;
+            let diverged = self.slots.iter().enumerate().find(|(_, s)| {
+                s.variable.is_some_and(|id| self.vars.by_id(id).conv.nonlin_converged > 1)
+            });
+            match diverged {
+                None => {
+                    log.info("ExecSimulation", "No solver has diverged", 8);
+                    self.solve_equations_in(ddt, true, cmin, cmax, Some(*real_timestep), after, mesh, log, comm)?;
+                    cum_time += ddt;
+                    *real_timestep += 1;
+                    st.ddt = increase * ddt;
+                    if st.ddt > max_dt {
+                        st.ddt = max_dt;
+                        st.step_control = 0;
+                    }
+                }
+                Some((ix, _)) => {
+                    log.info("ExecSimulation", &format!("Solver {} has diverged", ix + 1), 8);
+                    if ddt < min_dt * (1.0 + 1.0e-8) {
+                        return Err(SolverError::fatal(
+                            "ExecSimulation",
+                            "Could not find stable timestep above given minimum",
+                        ));
+                    }
+                    log.info("ExecSimulation", "Reducing timestep due to divergence problems!", 6);
+                    st.ddt = (decrease * ddt).max(min_dt);
+                    st.step_control = 1;
+                    log.info("ExecSimulation", "Reverting to previous timestep as initial guess", 8);
+                    let ids: Vec<VarId> = self.slots.iter().filter_map(|s| s.variable).collect();
+                    for id in ids {
+                        let v = self.vars.by_id_mut(id);
+                        if let Some(p) = v.prev_values.first() {
+                            let p = p.clone();
+                            v.values.copy_from_slice(&p);
+                            v.conv.norm = v.conv.prev_norm;
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
