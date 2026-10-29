@@ -1,15 +1,16 @@
-//! The `Post File = "*.vtu"` auto-solver (ElmerSolver.F90 `AddVtuOutputSolverHack`)
-//! written with `elmer-vtu` once the run finishes.
+//! VTU output through `ResultOutputSolver` semantics, written with
+//! `elmer-vtu` once the run finishes: the `Post File = "*.vtu"` auto-solver
+//! (ElmerSolver.F90 `AddVtuOutputSolverHack`), either still a Simulation
+//! keyword or already injected as a solver section by `elmer-sif`.
 //!
-//! Only the steady case is composed: the output solver runs `after saving`,
-//! which for a steady run is once, after the last steady iteration. Transient
-//! runs with a `Post File` are refused until the output solver is a scheduled
-//! `Solver` slot.
+//! Only the steady case with `Exec Solver = After Saving` is composed: that
+//! runs once, after the last steady iteration. Transient runs and other exec
+//! modes are refused until the output solver is a scheduled `Solver` slot.
 
 use std::path::{Path, PathBuf};
 
 use elmer_core::{ElemId, ElementRef, FieldKind, FieldSource, MeshView, ParamMap, Params};
-use elmer_solver::{variable::Snapshot, Model, Simulation, SolverError};
+use elmer_solver::{solver::procedure_of, variable::Snapshot, Model, Simulation, SolverError};
 use elmer_vtu::{post_file_solver, FileIndexer, GeometryIds, VtuNaming, VtuOptions};
 
 /// A configured VTU output.
@@ -19,25 +20,53 @@ pub struct VtuOutput {
     dir: PathBuf,
 }
 
-/// Turns the Simulation `Post File` into a VTU output, removing the keyword
-/// as Fortran's `ListRemove` does. `mesh_dir` is the default output
-/// directory (`SolverOutputDirectory(..., UseMeshDir = .TRUE.)`), `case_dir`
-/// the base of a relative `Output Directory`. Refuses what the composition
-/// cannot write correctly.
-pub fn take_post_file(model: &mut Model, case_dir: &Path, mesh_dir: &Path) -> Result<Option<VtuOutput>, SolverError> {
-    let Some(post) = model.simulation.string("post file").map(str::to_string) else {
-        return Ok(None);
+fn is_result_output(params: &ParamMap) -> bool {
+    procedure_of(params).is_some_and(|(lib, entry)| {
+        lib.eq_ignore_ascii_case("resultoutputsolve") && entry.eq_ignore_ascii_case("resultoutputsolver")
+    })
+}
+
+/// Takes the model's VTU output: a Simulation `Post File` (removed, as
+/// Fortran's `ListRemove` does) or a `ResultOutputSolver` section (left in
+/// place as an empty section, so later solver ids keep their numbers).
+/// `mesh_dir` is the default output directory (`SolverOutputDirectory(...,
+/// UseMeshDir = .TRUE.)`), `case_dir` the base of a relative `Output
+/// Directory`. Refuses what the composition cannot write correctly.
+pub fn take_vtu_output(model: &mut Model, case_dir: &Path, mesh_dir: &Path) -> Result<Option<VtuOutput>, SolverError> {
+    let params = if let Some(post) = model.simulation.string("post file").map(str::to_string) {
+        let Some(params) = post_file_solver(&model.simulation, &model.solvers) else {
+            return Err(SolverError::Unsupported(format!("Post File = {post} (only .vtu is composed)")));
+        };
+        model.simulation.0.remove("post file");
+        params
+    } else {
+        let mut found = model.solvers.iter().enumerate().filter(|(_, p)| is_result_output(p));
+        let Some((ix, _)) = found.next() else {
+            return Ok(None);
+        };
+        if found.next().is_some() {
+            return Err(SolverError::Unsupported("several ResultOutputSolver sections".into()));
+        }
+        let params = std::mem::take(&mut model.solvers[ix]);
+        let vtu = params.logical("vtu format") == Some(true)
+            || params.string("output format").is_some_and(|f| f.eq_ignore_ascii_case("vtu"));
+        if !vtu {
+            return Err(SolverError::Unsupported(format!("Solver {}: ResultOutputSolver other than VTU", ix + 1)));
+        }
+        if !params.string("exec solver").is_some_and(|e| e.eq_ignore_ascii_case("after saving")) {
+            return Err(SolverError::Unsupported(format!(
+                "Solver {}: ResultOutputSolver without Exec Solver = After Saving",
+                ix + 1
+            )));
+        }
+        params
     };
-    let Some(params) = post_file_solver(&model.simulation, &model.solvers) else {
-        return Err(SolverError::Unsupported(format!("Post File = {post} (only .vtu is composed)")));
-    };
-    model.simulation.0.remove("post file");
     let transient = model
         .simulation
         .string("simulation type")
         .is_some_and(|s| s.eq_ignore_ascii_case("transient"));
     if transient {
-        return Err(SolverError::Unsupported("Post File in a transient simulation".into()));
+        return Err(SolverError::Unsupported("VTU output in a transient simulation".into()));
     }
 
     let mut opts = VtuOptions::from_params(&params);
@@ -46,7 +75,7 @@ pub fn take_post_file(model: &mut Model, case_dir: &Path, mesh_dir: &Path) -> Re
         return Err(SolverError::Unsupported(format!("VTU output: {}", opts.unsupported.join(", "))));
     }
     if opts.output_file_name.contains('/') {
-        return Err(SolverError::Unsupported("a directory in the Post File name".into()));
+        return Err(SolverError::Unsupported("a directory in the VTU output file name".into()));
     }
     if opts.save_geometry_ids {
         opts = opts.with_geometry(geometry(model));

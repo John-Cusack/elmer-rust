@@ -9,7 +9,7 @@ use elmer_solver::{
 };
 
 use crate::compose::solver_registry;
-use crate::output::take_post_file;
+use crate::output::take_vtu_output;
 
 /// A parsed case and its mesh.
 pub struct Case<'a> {
@@ -35,9 +35,11 @@ pub struct Outcome {
 
 /// Refuses solver sections this build cannot run: `Simulation` skips a
 /// procedure missing from the registry, which would drop a solver silently.
+/// `Exec Solver = Never` sections are exempt.
 fn preflight(model: &Model, registry: &SolverRegistry) -> Result<(), SolverError> {
     for (i, params) in model.solvers.iter().enumerate() {
-        if params.0.is_empty() {
+        // A section that never runs needs no implementation (heateq_bdf2's SaveScalars).
+        if params.0.is_empty() || params.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never")) {
             continue;
         }
         let Some((lib, entry)) = procedure_of(params) else {
@@ -67,8 +69,8 @@ pub fn run_case(case: Case<'_>, log: &dyn Logger, comm: &dyn Communicator) -> Re
     }
     let Case { mut model, mesh, case_dir, mesh_dir } = case;
     let registry = solver_registry();
+    let mut post = take_vtu_output(&mut model, &case_dir, &mesh_dir)?;
     preflight(&model, &registry)?;
-    let mut post = take_post_file(&mut model, &case_dir, &mesh_dir)?;
 
     let mut sim = Simulation::new(model);
     sim.setup(mesh, &registry, log, comm)?;

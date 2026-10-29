@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use elmer_core::{ElemId, ElementRef, ElementType, MeshView};
+use elmer_core::{ElemId, ElementRef, ElementType, MeshView, ParamMap, Params, Value};
 
 struct Elem {
     etype: ElementType,
@@ -82,4 +82,21 @@ impl MeshView for FileMesh {
         let el = &self.elems[e.0 as usize];
         ElementRef { etype: el.etype, nodes: &el.nodes, tag: el.tag, parents: [None, None] }
     }
+}
+
+/// [`elmer_run::MeshLoader`]: the mesh DB with its dimension taken from the
+/// bulk elements and a scalar `Coordinate Scaling` applied.
+pub fn load(dir: &Path, simulation: &ParamMap) -> Result<Box<dyn MeshView>, String> {
+    let mesh = FileMesh::read(dir, 3);
+    let dim = match mesh.elems[..mesh.n_bulk].iter().map(|e| e.etype.family()).max() {
+        Some(2) => 1,
+        Some(3 | 4) => 2,
+        _ => 3,
+    };
+    let scale = match simulation.get("coordinate scaling") {
+        None => 1.0,
+        Some(Value::Real { data, .. }) if data.len() == 1 => data[0],
+        Some(_) => return Err("Coordinate Scaling other than one real".into()),
+    };
+    Ok(Box::new(FileMesh { dim, ..mesh }.scaled(scale)))
 }

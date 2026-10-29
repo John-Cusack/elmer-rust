@@ -9,6 +9,7 @@ description = "Serial end-to-end composition of the native Elmer crates: case ->
 [dependencies]
 elmer-core.workspace = true
 elmer-solver = { path = "../elmer-solver" }
+elmer-sif = { path = "../elmer-sif" }
 elmer-physics-heat = { path = "../elmer-physics-heat" }
 elmer-vtu = { path = "../elmer-vtu" }
 elmer-cli = { path = "../elmer-cli" }

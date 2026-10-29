@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use elmer_core::{ParamMap, Value};
 use elmer_physics_heat::FeProvider;
-use elmer_run::{Frontend, LoadedCase};
+use elmer_run::{Frontend, LoadedCase, SifFrontend};
 use elmer_solver::Model;
 
 use super::mesh::FileMesh;
@@ -79,6 +79,11 @@ pub fn fe() -> FeProvider {
     || (Box::new(TestBasis), Box::new(TestQuadrature))
 }
 
+/// `elmer-sif` with the test-local mesh reader and basis.
+pub fn sif_frontend() -> SifFrontend {
+    SifFrontend { mesh: super::mesh::load, fe: fe() }
+}
+
 /// Serves the hand-built model for any `.sif`, with the mesh from
 /// `<sif dir>/triangle`, after applying `edit`.
 pub struct HandBuilt(pub fn(&mut Model));
@@ -97,193 +102,3 @@ impl Frontend for HandBuilt {
     }
 }
 
-fn real_vec(v: &[f64]) -> Value {
-    Value::Real { rows: v.len(), cols: 1, data: v.to_vec() }
-}
-
-/// The linear-system and nonlinear keywords shared by the iterative cases.
-fn iterative(extra: &[(&'static str, Value)]) -> Vec<(&'static str, Value)> {
-    let mut v = vec![
-        ("Equation", st("heat equation")),
-        ("Procedure", st("\"HeatSolve\" \"HeatSolver\"")),
-        ("Variable", st("temperature")),
-        ("Linear System Solver", st("iterative")),
-        ("Linear System Iterative Method", st("bicgstab")),
-    ];
-    v.extend_from_slice(extra);
-    v
-}
-
-/// `ThermalPipe2D/case.sif`: three bodies, BCs on four tags each.
-pub fn thermal_pipe_2d() -> Model {
-    let solver = iterative(&[
-        ("Exec Solver", st("always")),
-        ("Stabilize", Value::Logical(true)),
-        ("Bubbles", Value::Logical(false)),
-        ("Lumped Mass Matrix", Value::Logical(false)),
-        ("Optimize Bandwidth", Value::Logical(true)),
-        ("Steady State Convergence Tolerance", Value::real(1.0e-5)),
-        ("Nonlinear System Convergence Tolerance", Value::real(1.0e-7)),
-        ("Nonlinear System Max Iterations", ints(&[1])),
-        ("Nonlinear System Newton After Iterations", ints(&[3])),
-        ("Nonlinear System Newton After Tolerance", Value::real(1.0e-3)),
-        ("Nonlinear System Relaxation Factor", Value::real(1.0)),
-        ("Linear System Max Iterations", ints(&[500])),
-        ("Linear System Convergence Tolerance", Value::real(1.0e-10)),
-        ("BiCGstabl polynomial degree", ints(&[2])),
-        ("Linear System Preconditioning", st("ilu0")),
-        ("Linear System ILUT Tolerance", Value::real(1.0e-3)),
-        ("Linear System Abort Not Converged", Value::Logical(false)),
-        ("Linear System Residual Output", ints(&[20])),
-        ("Linear System Precondition Recompute", ints(&[1])),
-        ("Reference Norm", Value::real(5.44659991)),
-    ]);
-    let body = |i: i32, name: &str| {
-        sec(&[
-            ("Target Bodies", ints(&[i])),
-            ("Name", Value::Str(name.into())),
-            ("Equation", ints(&[1])),
-            ("Material", ints(&[1])),
-        ])
-    };
-    Model {
-        header: sec(&[("Check Keywords", st("warn")), ("Mesh DB", st("\".\" \"OnePipe\""))]),
-        simulation: sec(&[
-            ("Max Output Level", ints(&[5])),
-            ("Coordinate System", st("cartesian")),
-            ("Coordinate Mapping", ints(&[1, 2, 3])),
-            ("Simulation Type", st("steady state")),
-            ("Steady State Max Iterations", ints(&[1])),
-            ("Output Intervals", ints(&[1])),
-            ("Timestepping Method", st("bdf")),
-            ("BDF Order", ints(&[1])),
-            ("Post File", st("case.vtu")),
-        ]),
-        constants: sec(&[
-            ("Gravity", real_vec(&[0.0, -1.0, 0.0, 9.82])),
-            ("Stefan Boltzmann", Value::real(5.67e-08)),
-            ("Permittivity of Vacuum", Value::real(8.8542e-12)),
-            ("Boltzmann Constant", Value::real(1.3807e-23)),
-            ("Unit Charge", Value::real(1.602e-19)),
-        ]),
-        solvers: vec![sec(&solver)],
-        equations: vec![sec(&[("Name", Value::Str("HeatEquation".into())), ("Active Solvers", ints(&[1]))])],
-        bodies: vec![body(1, "Ground"), body(2, "Grout"), body(3, "Pipe")],
-        materials: vec![sec(&[
-            ("Name", Value::Str("Ideal".into())),
-            ("Heat Conductivity", Value::real(1.0)),
-            ("Density", Value::real(1000.0)),
-        ])],
-        boundary_conditions: vec![
-            sec(&[
-                ("Target Boundaries", ints(&[9, 10, 11, 12])),
-                ("Name", Value::Str("Exterior".into())),
-                ("Temperature", Value::real(10.0)),
-            ]),
-            sec(&[("Target Boundaries", ints(&[5, 6, 7, 8])), ("Name", Value::Str("Grout BC".into()))]),
-            sec(&[
-                ("Target Boundaries", ints(&[1, 2, 3, 4])),
-                ("Name", Value::Str("Pipe BC".into())),
-                ("Temperature", Value::real(0.0)),
-            ]),
-        ],
-        ..Model::default()
-    }
-}
-
-/// `CoordinateScaling/case.sif`. The mesh must be scaled by 0.001 at load.
-pub fn coordinate_scaling() -> Model {
-    let solver = iterative(&[
-        ("Steady State Convergence Tolerance", Value::real(1.0e-5)),
-        ("Nonlinear System Convergence Tolerance", Value::real(1.0e-4)),
-        ("Nonlinear System Max Iterations", ints(&[1])),
-        ("Nonlinear System Newton After Iterations", ints(&[3])),
-        ("Nonlinear System Newton After Tolerance", Value::real(1.0e-5)),
-        ("Nonlinear System Relaxation Factor", Value::real(1.0)),
-        ("Nonlinear System Convergence Measure", st("solution")),
-        ("Linear System Max Iterations", ints(&[500])),
-        ("Linear System Convergence Tolerance", Value::real(1.0e-8)),
-        ("Linear System Preconditioning", st("ilu1")),
-        ("Linear System ILUT Tolerance", Value::real(1.0e-3)),
-        ("Linear System Abort Not Converged", Value::Logical(false)),
-        ("Linear System Residual Output", ints(&[10])),
-        ("Linear System Precondition Recompute", ints(&[1])),
-        ("Reference Norm", Value::real(3.937790364340947e-2)),
-    ]);
-    let mut solver = sec(&solver);
-    solver.insert("Equation", st("heatsolver"));
-    Model {
-        header: sec(&[("Mesh DB", st("\".\" \"square\""))]),
-        simulation: sec(&[
-            ("Max Output Level", ints(&[5])),
-            ("Coordinate System", st("cartesian")),
-            ("Coordinate Scaling", Value::real(0.001)),
-            ("Simulation Type", st("steady")),
-            ("Output Intervals", ints(&[1])),
-            ("Steady State Max Iterations", ints(&[1])),
-        ]),
-        solvers: vec![solver],
-        equations: vec![sec(&[("Name", Value::Str("Heat".into())), ("Active Solvers", ints(&[1]))])],
-        bodies: vec![sec(&[("Equation", ints(&[1])), ("Body Force", ints(&[1])), ("Material", ints(&[1]))])],
-        body_forces: vec![sec(&[("Heat Source", Value::real(1.0))])],
-        materials: vec![sec(&[
-            ("Name", Value::Str("Ideal".into())),
-            ("Heat Conductivity", Value::real(1.0)),
-            ("Density", Value::real(1.0)),
-        ])],
-        boundary_conditions: vec![sec(&[("Target Boundaries", ints(&[1])), ("Temperature", Value::real(0.0))])],
-        ..Model::default()
-    }
-}
-
-/// `wildcardsize/case.sif`: `(*)` sizes, so `Heat Conductivity(*) = 1 2` is
-/// a diagonal tensor and `Active Solvers(*) = 1 2` names a missing solver.
-pub fn wildcardsize() -> Model {
-    let solver = iterative(&[
-        ("Exec Solver", st("always")),
-        ("Linear System Max Iterations", ints(&[350])),
-        ("Linear System Convergence Tolerance", Value::real(1.0e-8)),
-        ("Linear System Abort Not Converged", Value::Logical(true)),
-        ("Linear System Preconditioning", st("ilu0")),
-        ("Linear System Residual Output", ints(&[1])),
-        ("Steady State Convergence Tolerance", Value::real(1.0e-5)),
-        ("Nonlinear System Convergence Tolerance", Value::real(1.0e-5)),
-        ("Nonlinear System Max Iterations", ints(&[1])),
-        ("Reference Norm", Value::real(3.50844423e-2)),
-    ]);
-    Model {
-        header: sec(&[("Check Keywords", st("warn")), ("Mesh DB", st("\".\" \"square\""))]),
-        simulation: sec(&[
-            ("Max Output Level", ints(&[5])),
-            ("Coordinate System", st("cartesian")),
-            ("Coordinate Mapping", ints(&[1, 2, 3])),
-            ("Simulation Type", st("steady state")),
-            ("Steady State Max Iterations", ints(&[1])),
-            ("Output Intervals", ints(&[0])),
-        ]),
-        constants: sec(&[
-            ("Gravity", real_vec(&[0.0, -1.0, 0.0, 9.82])),
-            ("Stefan Boltzmann", Value::real(5.67e-08)),
-        ]),
-        solvers: vec![sec(&solver)],
-        equations: vec![sec(&[("Name", Value::Str("Equations".into())), ("Active Solvers", ints(&[1, 2]))])],
-        bodies: vec![sec(&[
-            ("Name", Value::Str("Body".into())),
-            ("Body Force", ints(&[1])),
-            ("Equation", ints(&[1])),
-            ("Material", ints(&[1])),
-        ])],
-        body_forces: vec![sec(&[("Name", Value::Str("BodyForce".into())), ("Heat Source", Value::real(1.0))])],
-        materials: vec![sec(&[
-            ("Name", Value::Str("Material".into())),
-            ("Density", Value::real(1.0)),
-            ("Heat Conductivity", real_vec(&[1.0, 2.0])),
-        ])],
-        boundary_conditions: vec![sec(&[
-            ("Name", Value::Str("Zero".into())),
-            ("Target Boundaries", ints(&[1, 2, 3])),
-            ("Temperature", Value::real(0.0)),
-        ])],
-        ..Model::default()
-    }
-}
