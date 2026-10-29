@@ -36,14 +36,13 @@ const SIMULATION: &[Rule] = &[
 /// Read by the solver's own procedure; skipped for `Exec Solver = Never`.
 const SOLVER: &[Rule] = &[
     present("Mesh", "solver-specific meshes are not implemented"),
-    flag("Apply Integral BCs", "integral constraints are not implemented"),
     flag("Apply Conforming BCs", "conforming BCs are not implemented"),
     flag("Apply Mortar BCs", "mortar BCs are not implemented"),
     present("Namespace", "solver keyword namespaces are not implemented"),
     flag("Adaptive Mesh Refinement", "mesh refinement is not implemented"),
 ];
 
-const BODY_FORCE: &[Rule] = &[flag("Integral BC", "integral constraints are not implemented")];
+const BODY_FORCE: &[Rule] = &[];
 
 const BOUNDARY: &[Rule] = &[
     // MapBodiesAndBCs fallbacks `Model::bc_of_tag` does not apply.
@@ -56,7 +55,6 @@ const BOUNDARY: &[Rule] = &[
     flag("Discontinuous Boundary", "discontinuous boundaries (mesh splitting) are not implemented"),
     present("Mortar BC", "mortar BCs are not implemented"),
     present("Conforming BC", "conforming BCs are not implemented"),
-    flag("Integral BC", "integral constraints are not implemented"),
     present("Target Nodes", "point BCs (Target Nodes) are not implemented"),
     present("Target Coordinates", "point BCs (Target Coordinates) are not implemented"),
 ];
