@@ -46,8 +46,6 @@ const BOUNDARY: &[Rule] = &[
     present("Intersection BC", "intersection BCs are not implemented"),
     present("Intersection Body", "intersection BCs are not implemented"),
     present("Conforming BC", "conforming BCs are not implemented"),
-    present("Target Nodes", "point BCs (Target Nodes) are not implemented"),
-    present("Target Coordinates", "point BCs (Target Coordinates) are not implemented"),
 ];
 
 /// `SetNormalizedKeywords` (MainUtils.F90:224): `<keyword> Normalize by
@@ -271,7 +269,8 @@ mod tests {
             boundary_conditions: vec![pm(&[("target nodes", Value::Integer(vec![100])), ("temperature", real.clone())])],
             ..Model::default()
         };
-        assert_eq!(refusal(&model), "Boundary Condition 1: Target Nodes: point BCs (Target Nodes) are not implemented");
+        // Point Dirichlet conditions are elmer-solver's.
+        assert!(check(&model).is_ok());
 
         let model = Model {
             solvers: vec![heat(&[])],
