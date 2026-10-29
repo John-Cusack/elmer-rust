@@ -100,6 +100,7 @@ fn bulk(m: &Mesh, e: usize, s: &Setup, o: &Opt<'_>) -> LocalSystem {
         heat_expansion: o.heat_expansion,
         want_mass: o.want_mass,
         np: None,
+        ip: None,
     };
     let mut out = LocalSystem::zeros(0);
     stress_bulk_local(&P1Basis, &Gauss, &inp, &mut out).unwrap();
@@ -460,6 +461,7 @@ fn unsupported_shapes_are_refused() {
         heat_expansion: None,
         want_mass: false,
         np: None,
+        ip: None,
     };
     let mut out = LocalSystem::zeros(0);
     assert!(matches!(

@@ -20,6 +20,24 @@ pub enum CoordSystem {
     AxiSymmetric,
 }
 
+/// Material and load data asked for at the integration points rather than
+/// interpolated from the nodes (`Youngs Modulus at IP`, `Poisson Ratio at IP`,
+/// `Heat Expansion Coefficient IP`, `Stress Bodyforce at IP`). Each vector has one
+/// entry per Gauss point, in the order of `Quadrature::gauss_points`; a quantity
+/// left `None` is interpolated from the nodes as usual. Isotropic materials only,
+/// as in `ElasticSolve.F90`.
+#[derive(Clone, Debug, Default)]
+pub struct IpProps {
+    pub young: Option<Vec<f64>>,
+    pub poisson: Option<Vec<f64>>,
+    /// One value, applied to the three diagonal entries of the expansion tensor.
+    pub beta: Option<Vec<f64>>,
+    /// `Stress Bodyforce 1..3` per point; replaces the nodal load.
+    pub load: Option<Vec<[f64; 3]>>,
+    /// `Stress Pressure` per point; read with the load, as `LoadIP_h(4)` is.
+    pub pressure: Option<Vec<f64>>,
+}
+
 /// Everything `LocalMatrix` reads for one bulk element, already evaluated at
 /// the element nodes (`n` values each; Lagrange elements, so `ntot == n`).
 #[derive(Clone, Debug)]
@@ -53,6 +71,27 @@ pub struct StressBulkInput<'a> {
     pub want_mass: bool,
     /// Gauss points per element; `None` is the Elmer default rule.
     pub np: Option<usize>,
+    /// Quantities given at the integration points.
+    pub ip: Option<&'a IpProps>,
+}
+
+/// Shape function values at each Gauss point of the element's rule, `n_ip` rows
+/// of `n` values, row-major: what `elmer_expr::Compiled::eval_ips` interpolates
+/// its dependencies with.
+pub fn shape_at_points(
+    basis: &dyn ElementBasis,
+    quad: &dyn Quadrature,
+    etype: ElementType,
+    xyz: &[[f64; 3]],
+    np: Option<usize>,
+) -> Result<Vec<f64>, StressError> {
+    let mut be = BasisEval::default();
+    let mut out = Vec::new();
+    for qp in quad.gauss_points(etype, np) {
+        basis.eval(etype, xyz, qp.uvw, &mut be).map_err(StressError::Basis)?;
+        out.extend_from_slice(&be.basis[..xyz.len()]);
+    }
+    Ok(out)
 }
 
 fn dot3(a: &[f64; 3], b: &[f64; 3]) -> f64 {
@@ -159,9 +198,12 @@ pub fn stress_bulk_local(
         }
     };
 
+    let ip = inp.ip;
+    let beta_ip = ip.is_some_and(|p| p.beta.is_some());
     let has_heat = match (inp.temperature, inp.heat_expansion) {
-        (Some(t), Some(b)) => {
-            t.iter().any(|x| *x != 0.0) && b.iter().any(|v| v.iter().any(|x| *x != 0.0))
+        (Some(t), b) => {
+            t.iter().any(|x| *x != 0.0)
+                && (beta_ip || b.is_some_and(|b| b.iter().any(|v| v.iter().any(|x| *x != 0.0))))
         }
         _ => false,
     };
@@ -174,12 +216,25 @@ pub fn stress_bulk_local(
     let got_offset = has_voigt || has_heat;
 
     let points = quad.gauss_points(inp.etype, inp.np);
+    if let Some(p) = ip {
+        let np = points.len();
+        let lens = [
+            p.young.as_ref().map(Vec::len),
+            p.poisson.as_ref().map(Vec::len),
+            p.beta.as_ref().map(Vec::len),
+            p.load.as_ref().map(Vec::len),
+            p.pressure.as_ref().map(Vec::len),
+        ];
+        if lens.iter().flatten().any(|&l| l != np) {
+            return Err(StressError::Input(format!("integration point data must have {np} entries")));
+        }
+    }
     let mut be = BasisEval::default();
     // Reused across points and trial functions.
     let mut dstress: Vec<Tensor3> = vec![ZERO3; ndof];
     let mut ddefg: Vec<Tensor3> = vec![ZERO3; ndof];
 
-    for qp in &points {
+    for (ipt, qp) in points.iter().enumerate() {
         basis
             .eval(inp.etype, inp.xyz, qp.uvw, &mut be)
             .map_err(StressError::Basis)?;
@@ -196,29 +251,53 @@ pub fn stress_bulk_local(
         for (i, f) in force.iter_mut().enumerate().take(cdim) {
             *f = (0..n).map(|k| inp.load[k][i] * bas[k]).sum();
         }
+        if let Some(l) = ip.and_then(|p| p.load.as_ref()) {
+            force[..cdim].copy_from_slice(&l[ipt][..cdim]);
+        }
         let density: f64 = (0..n).map(|k| inp.density[k] * bas[k]).sum();
         let damping: f64 = inp
             .damping
             .map_or(0.0, |d| (0..n).map(|k| d[k] * bas[k]).sum());
-        let pressure: f64 = inp
+        let mut pressure: f64 = inp
             .pressure_load
             .map_or(0.0, |p| (0..n).map(|k| p[k] * bas[k]).sum());
+        if let Some(p) = ip.and_then(|p| p.pressure.as_ref()) {
+            pressure = p[ipt];
+        }
 
         // Constitutive law at the point.
         let mut heat_exp = ZERO3;
         let mut temperature = 0.0;
         if has_heat {
-            let (t, b) = (inp.temperature.unwrap(), inp.heat_expansion.unwrap());
+            let t = inp.temperature.unwrap();
             temperature = (0..n).map(|k| t[k] * bas[k]).sum();
-            for i in 0..3 {
-                heat_exp[i][i] = (0..n).map(|k| b[k][i] * bas[k]).sum();
+            if let Some(b) = ip.and_then(|p| p.beta.as_ref()) {
+                for (i, row) in heat_exp.iter_mut().enumerate() {
+                    row[i] = b[ipt];
+                }
+            } else if let Some(b) = inp.heat_expansion {
+                for i in 0..3 {
+                    heat_exp[i][i] = (0..n).map(|k| b[k][i] * bas[k]).sum();
+                }
             }
         }
         let law = match inp.law {
-            ElasticLaw::Isotropic { .. } => PointLaw::Iso {
-                lame1: (0..n).map(|k| lame1_n[k] * bas[k]).sum(),
-                lame2: (0..n).map(|k| lame2_n[k] * bas[k]).sum(),
-            },
+            ElasticLaw::Isotropic { young, poisson } => {
+                let mut lame1 = (0..n).map(|k| lame1_n[k] * bas[k]).sum();
+                let mut lame2 = (0..n).map(|k| lame2_n[k] * bas[k]).sum();
+                if let Some(p) = ip.filter(|p| p.young.is_some() || p.poisson.is_some()) {
+                    let e = p.young.as_ref().map_or_else(|| (0..n).map(|k| young[k] * bas[k]).sum(), |v| v[ipt]);
+                    let nu: f64 =
+                        p.poisson.as_ref().map_or_else(|| (0..n).map(|k| poisson[k] * bas[k]).sum(), |v| v[ipt]);
+                    lame1 = if plane_stress {
+                        e * nu / (1.0 - nu * nu)
+                    } else {
+                        e * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
+                    };
+                    lame2 = e / (2.0 * (1.0 + nu));
+                }
+                PointLaw::Iso { lame1, lame2 }
+            }
             ElasticLaw::Anisotropic { c, rotation } => {
                 let mut g = [[0.0; 6]; 6];
                 for (i, row) in g.iter_mut().enumerate() {

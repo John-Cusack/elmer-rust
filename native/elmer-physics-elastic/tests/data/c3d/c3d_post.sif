@@ -1,0 +1,176 @@
+
+Header
+  Mesh DB "." "."
+End
+
+Simulation
+  Max Output Level = 5
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 0
+  Optimize Bandwidth = Logical False
+End
+
+Body 1
+  Equation = 1
+  Material = 1
+End
+
+Material 1
+  Density = 1.0
+  Youngs Modulus(6,6) = Real \
+    1346.154  576.923  576.923    0.000    0.000    0.000 \
+     576.923 1346.154  576.923    0.000    0.000    0.000 \
+     576.923  576.923 1346.154  200.000    0.000    0.000 \
+       0.000    0.000  200.000  384.615    0.000    0.000 \
+       0.000    0.000    0.000    0.000  384.615    0.000 \
+       0.000    0.000    0.000    0.000    0.000  384.615
+End
+
+Solver 2
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Exec Solver = After Timestep
+  Variable 1 = Stress_xx
+  Operator 1 = sum
+  Variable 2 = Stress_xx
+  Operator 2 = norm
+  Variable 3 = Stress_xx
+  Operator 3 = max abs
+  Variable 4 = Stress_yy
+  Operator 4 = sum
+  Variable 5 = Stress_yy
+  Operator 5 = norm
+  Variable 6 = Stress_yy
+  Operator 6 = max abs
+  Variable 7 = Stress_zz
+  Operator 7 = sum
+  Variable 8 = Stress_zz
+  Operator 8 = norm
+  Variable 9 = Stress_zz
+  Operator 9 = max abs
+  Variable 10 = Stress_xy
+  Operator 10 = sum
+  Variable 11 = Stress_xy
+  Operator 11 = norm
+  Variable 12 = Stress_xy
+  Operator 12 = max abs
+  Variable 13 = vonMises
+  Operator 13 = sum
+  Variable 14 = vonMises
+  Operator 14 = norm
+  Variable 15 = vonMises
+  Operator 15 = max abs
+  Variable 16 = Strain_xx
+  Operator 16 = sum
+  Variable 17 = Strain_xx
+  Operator 17 = norm
+  Variable 18 = Strain_xx
+  Operator 18 = max abs
+  Variable 19 = Strain_yy
+  Operator 19 = sum
+  Variable 20 = Strain_yy
+  Operator 20 = norm
+  Variable 21 = Strain_yy
+  Operator 21 = max abs
+  Variable 22 = Strain_zz
+  Operator 22 = sum
+  Variable 23 = Strain_zz
+  Operator 23 = norm
+  Variable 24 = Strain_zz
+  Operator 24 = max abs
+  Variable 25 = Strain_xy
+  Operator 25 = sum
+  Variable 26 = Strain_xy
+  Operator 26 = norm
+  Variable 27 = Strain_xy
+  Operator 27 = max abs
+  Variable 28 = Tresca
+  Operator 28 = sum
+  Variable 29 = Tresca
+  Operator 29 = norm
+  Variable 30 = Tresca
+  Operator 30 = max abs
+  Variable 31 = Principal Stress 1
+  Operator 31 = sum
+  Variable 32 = Principal Stress 1
+  Operator 32 = norm
+  Variable 33 = Principal Stress 1
+  Operator 33 = max abs
+  Variable 34 = Principal Stress 3
+  Operator 34 = sum
+  Variable 35 = Principal Stress 3
+  Operator 35 = norm
+  Variable 36 = Principal Stress 3
+  Operator 36 = max abs
+  Variable 37 = Principal Strain 1
+  Operator 37 = sum
+  Variable 38 = Principal Strain 1
+  Operator 38 = norm
+  Variable 39 = Principal Strain 1
+  Operator 39 = max abs
+  Variable 40 = Stress_yz
+  Operator 40 = sum
+  Variable 41 = Stress_yz
+  Operator 41 = norm
+  Variable 42 = Stress_yz
+  Operator 42 = max abs
+  Variable 43 = Stress_xz
+  Operator 43 = sum
+  Variable 44 = Stress_xz
+  Operator 44 = norm
+  Variable 45 = Stress_xz
+  Operator 45 = max abs
+  Variable 46 = Strain_yz
+  Operator 46 = sum
+  Variable 47 = Strain_yz
+  Operator 47 = norm
+  Variable 48 = Strain_yz
+  Operator 48 = max abs
+  Variable 49 = Strain_xz
+  Operator 49 = sum
+  Variable 50 = Strain_xz
+  Operator 50 = norm
+  Variable 51 = Strain_xz
+  Operator 51 = max abs
+End
+Equation 1
+  Active Solvers(2) = 1 2
+End
+
+Solver 1
+  Equation = "Elasticity"
+  Procedure = "ElasticSolve" "ElasticSolver"
+  Variable = -dofs 3 Displacement
+
+  Large Deflection = False
+
+  Displace Mesh = Logical False
+
+  Linear System Solver = Direct
+  Linear System Direct Method = UMFPack
+
+  Nonlinear System Max Iterations = 1
+  Calculate Stresses = Logical True
+  Calculate Strains = Logical True
+  Calculate Principal = Logical True
+  Nonlinear System Convergence Tolerance = 1.0e-11
+  Steady State Convergence Tolerance = 1.0e-9
+End
+
+Boundary Condition 1
+  Target Boundaries(1) = 5
+  Displacement 1 = Real 0.0
+  Displacement 2 = Real 0.0
+  Displacement 3 = Real 0.0
+End
+
+Boundary Condition 2
+  Target Boundaries(1) = 6
+  Displacement 1 = Real 1.0e-3
+  Displacement 2 = Real 2.0e-3
+  Displacement 3 = Real 0.5e-3
+End
+
