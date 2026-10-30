@@ -12,7 +12,7 @@ use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 use crate::boundary::{incompressible_boundary_local, incompressible_boundary_local_with, IncompressibleBoundaryInput};
 use crate::bulk::{
     incompressible_bulk_local, incompressible_bulk_local_with, lcondensate, lcondensate_bdf1, pin_pressure, HMode,
-    Compressibility, CompressModel, IncompressibleBulkInput, PressureStab,
+    Compressibility, CompressModel, IncompressibleBulkInput, PressureStab, ViscosityModel,
 };
 use crate::error::IncompressibleError;
 
@@ -209,6 +209,8 @@ fn check_solver_params(p: &ParamMap, pdofs: bool) -> Result<(), SolverError> {
         }
     }
     for (key, what) in [
+        ("newtonian viscosity condition", "Newtonian Viscosity Condition"),
+        ("constant-viscosity start", "Constant-Viscosity Start"),
         ("block preconditioner", "the block preconditioner"),
         ("nonlinear system linesearch", "nonlinear line search"),
         ("save viscosity", "Save Viscosity"),
@@ -305,8 +307,21 @@ fn check_body(mat: Option<&ParamMap>, bf: Option<&ParamMap>) -> Result<(), Solve
                 return Err(unsupported(format!("Compressibility Model = {c}")));
             }
         }
-        if m.get("viscosity model").is_some() {
-            return Err(unsupported("Viscosity Model (non-newtonian viscosity)"));
+        if let Some(v) = m.string("viscosity model") {
+            let v = elmer_core::normalize_key(v);
+            if !["power law", "carreau", "cross", "powell eyring"].contains(&v.as_str()) {
+                return Err(unsupported(format!(
+                    "Viscosity Model = {v} (only power law, carreau, cross, powell eyring)"
+                )));
+            }
+            // Fatal in the pristine solver ("Parameter > Basis < is required").
+            for key in ["nominal shear rate", "yasuda exponent"] {
+                if m.get(key).is_some() {
+                    return Err(unsupported(format!("{key} of a Viscosity Model")));
+                }
+            }
+        } else if m.get("viscosity model").is_some() {
+            return Err(unsupported("Viscosity Model given as other than a string"));
         }
         if m.get("turbulence model").is_some() {
             return Err(unsupported("turbulence model viscosity"));
@@ -328,6 +343,37 @@ fn compress_model(mat: Option<&ParamMap>) -> Option<&'static str> {
         Some("perfect gas" | "perfect gas equation 1") => Some("perfect gas"),
         _ => None,
     }
+}
+
+/// The material's non-newtonian `Viscosity Model` (`EffectiveViscosityVec`),
+/// its parameters element constants.
+fn viscosity_model(ctx: &SolverCtx<'_>, m: &ParamMap, e: ElemId) -> Result<Option<ViscosityModel>, SolverError> {
+    let Some(v) = m.string("viscosity model").map(elmer_core::normalize_key) else { return Ok(None) };
+    let c = |key: &str| element_constant(ctx, m, key, e);
+    Ok(Some(match v.as_str() {
+        "power law" => ViscosityModel::PowerLaw {
+            exponent: c("viscosity exponent")?,
+            critical: match m.get("critical shear rate") {
+                Some(_) => Some(c("critical shear rate")?),
+                None => None,
+            },
+        },
+        "carreau" => ViscosityModel::Carreau {
+            difference: c("viscosity difference")?,
+            exponent: c("viscosity exponent")?,
+            transition: c("viscosity transition")?,
+        },
+        "cross" => ViscosityModel::Cross {
+            difference: c("viscosity difference")?,
+            exponent: c("viscosity exponent")?,
+            transition: c("viscosity transition")?,
+        },
+        "powell eyring" => ViscosityModel::PowellEyring {
+            difference: c("viscosity difference")?,
+            transition: c("viscosity transition")?,
+        },
+        other => return Err(unsupported(format!("Viscosity Model = {other}"))),
+    }))
 }
 
 /// `ListGetElementReal` of a keyword constant over the element (zero when
@@ -740,6 +786,15 @@ impl Solver for IncompressibleNsSolver {
                     return Err(unsupported("Density varying within an element"));
                 }
                 let viscosity = reorder(nodal(ctx, mat, "viscosity", e, n)?, el.nodes, nodes);
+                let viscosity_model = match mat {
+                    Some(m) => viscosity_model(ctx, m, e)?,
+                    None => None,
+                };
+                if viscosity_model.is_some() && (newton || linear_assembly) {
+                    return Err(unsupported(
+                        "the Newton linearization (or Linear Equation) of a non-newtonian Viscosity Model",
+                    ));
+                }
                 let compress = match (compress_model(mat), mat) {
                     (Some(model), Some(m)) => {
                         if pstab || (transient && stokes) {
@@ -836,6 +891,7 @@ impl Solver for IncompressibleNsSolver {
                     pstab: PressureStab { coeff, hmode, hk },
                     np: rule_np.for_type(el.etype),
                     axisymmetric,
+                    viscosity_model,
                     compress: compress.as_ref().map(|(temperature, model, prev)| Compressibility {
                         temperature,
                         model: *model,
