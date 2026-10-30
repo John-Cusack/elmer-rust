@@ -998,6 +998,7 @@ impl<'a> SolverCtx<'a> {
         let sim = &mut *self.sim;
         let nonlin_iter = sim.vars.scalar("nonlin iter");
         let schur = schur_matrix(sim, &sim.slots[slot_ix].params);
+        let mg = crate::multigrid::transfers(sim, slot_ix, mesh)?;
         // SolveCore.F90:3150-3163 (ListGetCReal).
         let relaxation = crate::expr::eval_creal(
             &sim.slots[slot_ix].params,
@@ -1164,7 +1165,12 @@ impl<'a> SolverCtx<'a> {
             || (p.logical("linear system nullify first guess") == Some(true) && nonlin_iter.is_some_and(|i| i.round() <= 1.0));
         if let (Some(a), Some(x)) = (&mut ca, &mut cx) {
             log.info("SolveWithLinearRestriction", "Now solving the linear system with constraints!", 10);
-            let env = BlockEnv { dofs: var.dofs, simulation: &sim.model.simulation, schur: schur.as_ref() };
+            let env = BlockEnv {
+                dofs: var.dofs,
+                simulation: &sim.model.simulation,
+                schur: schur.as_ref(),
+                multigrid: mg.as_deref(),
+            };
             sim.slots[slot_ix].lin_converged = solve_linear(&sim.backends.linear, &env, p, a, b, x, bnorm, nullify, log, comm)?;
             // ComputeChange over the collection solution, multipliers
             // included; then 'Picking solution from collection solution'.
@@ -1210,7 +1216,12 @@ impl<'a> SolverCtx<'a> {
             log.info("SolveWithLinearRestriction", "All done", 10);
         } else {
             let x = &mut var.values[..n];
-            let env = BlockEnv { dofs: var.dofs, simulation: &sim.model.simulation, schur: schur.as_ref() };
+            let env = BlockEnv {
+                dofs: var.dofs,
+                simulation: &sim.model.simulation,
+                schur: schur.as_ref(),
+                multigrid: mg.as_deref(),
+            };
             sim.slots[slot_ix].lin_converged =
                 solve_linear(&sim.backends.linear, &env, p, &mut sys.matrix, b, x, bnorm, nullify, log, comm)?;
             var.values_changed = true;
@@ -1260,6 +1271,8 @@ pub(crate) struct BlockEnv<'a> {
     pub dofs: usize,
     pub simulation: &'a ParamMap,
     pub schur: Option<&'a elmer_core::CsrMatrix<f64>>,
+    /// The interpolation operators of geometric multigrid, level 2 up.
+    pub multigrid: Option<&'a [elmer_core::CsrMatrix<f64>]>,
 }
 
 /// The matrix of the solver whose variable `Block Matrix Schur Variable`
@@ -1355,7 +1368,15 @@ pub(crate) fn solve_linear(
         let is_block = p
             .string("linear system solver")
             .is_some_and(|s| elmer_core::normalize_key(s) == "block");
-        let solved = if is_block {
+        let is_multigrid = p
+            .string("linear system solver")
+            .is_some_and(|s| elmer_core::normalize_key(s) == "multigrid");
+        let solved = if is_multigrid {
+            let interps = block
+                .multigrid
+                .ok_or_else(|| SolverError::Unsupported("Linear System Solver = Multigrid without its mesh hierarchy".into()))?;
+            crate::multigrid::solve(p, matrix, b, x, interps, log).map(|_| true)
+        } else if is_block {
             let opts = elmer_block::BlockOptions {
                 additive_namespaces: block.simulation.logical("additive namespaces") == Some(true),
                 outer_scaling: scaling.as_ref().map(|rs| elmer_block::OuterScaling {

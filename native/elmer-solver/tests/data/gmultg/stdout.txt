@@ -1,0 +1,9 @@
+GMGSolve: MG Residual at level: 2 iter: 1 is: 0.212558171299E-012 0.649298133665E-014
+GMGSolve: MG Residual at level: 3 iter: 1 is: 0.115344567053E-006 0.421441573175E-007
+GMGSolve: MG Residual at level: 4 iter: 1 is: 0.139904648162E-003 0.139904648162E-003
+GMGSolve: MG Residual at level: 2 iter: 1 is: 0.123418458411E-011 0.651849071968E-014
+GMGSolve: MG Residual at level: 3 iter: 1 is: 0.345894801713E-002 0.964546413154E-007
+GMGSolve: MG Residual at level: 4 iter: 2 is: 0.515428676180E-008 0.515428676180E-008
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.80833842E-01  2.0000000     ) :: heat equation
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.80833842E-01  2.0000000     ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 8.08338419E-02  RefNorm = 8.08338420E-02

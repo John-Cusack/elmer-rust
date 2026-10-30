@@ -36,6 +36,7 @@ pub mod live;
 mod loads;
 mod lumped;
 mod monolithic;
+mod multigrid;
 pub mod model;
 pub mod norm;
 mod normalize;
