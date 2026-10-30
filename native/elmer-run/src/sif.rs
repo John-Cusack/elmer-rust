@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use elmer_core::{MeshView, ParamMap};
+use elmer_core::{MeshView, ParamMap, Value};
 use elmer_sif::{section_to_param_map, Section};
 use elmer_solver::Model;
 
@@ -119,6 +119,29 @@ fn is_empty(m: &elmer_sif::Model) -> bool {
             .all(|v| v.iter().all(|s| s.entries.is_empty()))
 }
 
+/// `elmer-mesh`'s reader and its load transforms (`MapCoordinates`,
+/// `MapBodiesAndBCs`, `MapInternalExternalBCs`, `CreateIntersectionBCs`,
+/// MeshLoad.F90 / MeshTagging.F90), for the cases whose BCs need the
+/// `Intersection BC` elements the pluggable reader does not create. The
+/// transformed mesh is tagged with body and BC indices, so the model's
+/// targets become the identity.
+fn load_with_transforms(
+    dir: &Path,
+    sif: &elmer_sif::Model,
+    model: &mut Model,
+) -> Result<elmer_mesh::Mesh, String> {
+    let path = dir.to_str().ok_or("non-UTF-8 mesh path")?;
+    let mut mesh = elmer_mesh::load(path).map_err(|e| format!("mesh: {}", e.msg))?;
+    elmer_mesh::transform(&mut mesh, sif).map_err(|e| format!("mesh load transforms: {}", e.msg))?;
+    for (i, body) in model.bodies.iter_mut().enumerate() {
+        body.insert("Target Bodies", Value::Integer(vec![i as i32 + 1]));
+    }
+    for (i, bc) in model.boundary_conditions.iter_mut().enumerate() {
+        bc.insert("Target Boundaries", Value::Integer(vec![i as i32 + 1]));
+    }
+    Ok(mesh)
+}
+
 impl Frontend for SifFrontend {
     fn load(&self, sif: &Path) -> Result<LoadedCase, String> {
         let path = sif.to_str().ok_or("non-UTF-8 case path")?;
@@ -144,7 +167,12 @@ impl Frontend for SifFrontend {
         let case_dir = sif.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
         let (db, name) = first.header.mesh_db.clone().ok_or("no Mesh DB in Header")?;
         let mesh_dir = case_dir.join(db).join(name);
-        let mesh = (self.mesh)(&mesh_dir, &model.simulation)?;
+        let intersection = first.bcs.iter().any(|b| b.get("intersection bc").is_some());
+        let mesh: Box<dyn MeshView> = if intersection {
+            Box::new(load_with_transforms(&mesh_dir, first, &mut model)?)
+        } else {
+            (self.mesh)(&mesh_dir, &model.simulation)?
+        };
         Ok(LoadedCase { model, reloads, mesh, case_dir, mesh_dir })
     }
 }

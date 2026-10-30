@@ -28,6 +28,7 @@ elmer-fixtures = { path = "../elmer-fixtures" }
 elmer-pdofs = { path = "../elmer-pdofs" }
 elmer-mesh-levels = { path = "../elmer-mesh-levels" }
 elmer-mesh-ops = { path = "../elmer-mesh-ops" }
+elmer-mesh = { path = "../elmer-mesh" }
 elmer-mortar = { path = "../elmer-mortar" }
 elmer-expr = { path = "../elmer-expr" }
 elmer-vtu = { path = "../elmer-vtu" }
