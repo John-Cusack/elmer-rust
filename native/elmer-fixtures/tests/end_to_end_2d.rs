@@ -144,22 +144,23 @@ fn stokes_pfem_matches_pristine_without_bc_numbering() {
     assert!(rel < 1e-6, "iterative norm {} vs pristine 5.41277436E+00", out.norm(1));
 }
 
-/// The case as given is refused by name before anything runs.
+/// The case as given (`Set Dirichlet BCs by BC Numbering`, composed since
+/// #205) passes its reference check.
 #[test]
-fn stokes_pfem_as_given_is_refused_for_bc_numbering() {
+fn stokes_pfem_as_given_passes() {
     let dir = case::stage("StokesPFEM", None);
-    let err = case::run("StokesPFEM", &dir, "ptest.sif").err().expect("refused");
-    assert!(err.to_string().contains("BC Numbering"), "{err}");
+    let out = case::run("StokesPFEM", &dir, "ptest.sif").unwrap_or_else(|e| panic!("StokesPFEM: {e}"));
+    assert_eq!(out.passed, Some(true), "reference check\n{}", out.log);
 }
 
-/// `HeatControlExplicit` has its `AlternatingSource` registered, and is
-/// refused by name before anything runs: its argument `cpar` comes from
-/// `Apply Explicit Control`, which is not implemented.
+/// `HeatControlExplicit` has its `AlternatingSource` registered; its
+/// argument `cpar` comes from `Apply Explicit Control` (#200, HeatSolve's
+/// `DefaultFinish`), and the case passes its reference check.
 #[test]
-fn heat_control_explicit_is_refused_for_explicit_control() {
+fn heat_control_explicit_passes() {
     let dir = case::stage("HeatControlExplicit", None);
-    let err = case::run("HeatControlExplicit", &dir, "case.sif").err().expect("refused");
-    assert!(err.to_string().contains("Apply Explicit Control"), "{err}");
+    let out = case::run("HeatControlExplicit", &dir, "case.sif").unwrap_or_else(|e| panic!("HeatControlExplicit: {e}"));
+    assert_eq!(out.passed, Some(true), "reference check\n{}", out.log);
 }
 
 /// `fem/tests/p-FEM_with_varying_p` (`BenchmarkShell.so`): the shell solver

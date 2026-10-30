@@ -31,6 +31,7 @@ use crate::model_pde_handle;
 use crate::model_pde_splitted;
 use crate::poisson_ml;
 use crate::poisson_solver;
+use crate::count_solver;
 use crate::single_edge_elements;
 use crate::single_elements;
 use crate::stokes_pfem;
@@ -137,6 +138,9 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("SD_ModelPDEsplitted", "ModelPDEsplitted", "AdvDiffSolver", Hook::Solver(model_pde_splitted::factory)),
     ("PoissonML", "PoissonML", "PoissonSolver", Hook::Solver(poisson_ml::factory)),
     ("StokesPFEM", "Stokes1", "StokesSolver", Hook::Solver(stokes_pfem::factory)),
+    ("SlaveSolverSlots", "CountSolver", "CountSolver", Hook::Solver(count_solver::factory)),
+    // The same source as `CountSolver2.F90`.
+    ("SlaveSolverSlotsScan", "CountSolver2", "CountSolver", Hook::Solver(count_solver::factory)),
     // One `BenchmarkShell.F90` in all five shell cases.
     ("p-FEM_two_solvers", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
     ("SD_p-FEM_two_solvers", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),

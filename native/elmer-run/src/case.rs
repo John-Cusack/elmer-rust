@@ -59,16 +59,33 @@ pub fn legacy_procedure(equation: &str) -> Option<(&'static str, &'static str)> 
     }
 }
 
+/// Ids of the solvers other solvers call as slaves (`Pre Solvers`,
+/// `Post Solvers`, their `Nonlinear` forms, `Slave Solvers`): they run
+/// whatever their own `Exec Solver` says.
+fn slave_solvers(model: &Model) -> Vec<usize> {
+    const KEYS: [&str; 5] = ["pre solvers", "post solvers", "nonlinear pre solvers", "nonlinear post solvers", "slave solvers"];
+    let mut ids = Vec::new();
+    for p in &model.solvers {
+        for key in KEYS {
+            if let Some(Value::Integer(v)) = p.get(key) {
+                ids.extend(v.iter().filter(|&&i| i > 0).map(|&i| i as usize));
+            }
+        }
+    }
+    ids
+}
+
 /// A SaveData section with `Exec Solver = Never` never runs and creates no
 /// field another solver reads, but `elmer-solver` builds every slot and
 /// `elmer-savedata` refuses some operators (`cpu time`) when built. Such a
 /// section is blanked, as an unset solver id is (MortarPoisson2D's timing
 /// SaveScalars).
 fn drop_never_savedata(model: &mut Model) {
-    for p in &mut model.solvers {
+    let slaves = slave_solvers(model);
+    for (i, p) in model.solvers.iter_mut().enumerate() {
         let never = p.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never"));
         let savedata = procedure_of(p).is_some_and(|(lib, _)| lib.eq_ignore_ascii_case("savedata"));
-        if never && savedata {
+        if never && savedata && !slaves.contains(&(i + 1)) {
             *p = ParamMap::new();
         }
     }
@@ -120,9 +137,12 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
 /// `Exec Solver = Never` sections are exempt. Then refuses the model
 /// features no provider implements ([`crate::unported`]).
 fn preflight(model: &Model, registry: &SolverRegistry) -> Result<(), SolverError> {
+    let slaves = slave_solvers(model);
     for (i, params) in model.solvers.iter().enumerate() {
-        // A section that never runs needs no implementation (heateq_bdf2's SaveScalars).
-        if params.0.is_empty() || params.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never")) {
+        // A section that never runs needs no implementation (heateq_bdf2's
+        // SaveScalars), unless another solver calls it as a slave.
+        let never = params.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never"));
+        if params.0.is_empty() || (never && !slaves.contains(&(i + 1))) {
             continue;
         }
         // Checked and served by [`crate::output`].
