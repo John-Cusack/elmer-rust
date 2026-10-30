@@ -332,6 +332,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "elmer-block"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-direct",
+ "elmer-itermethods",
+ "elmer-krylov",
+ "elmer-sparse",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "elmer-cli"
 version = "0.1.0"
 dependencies = [
@@ -351,6 +363,23 @@ dependencies = [
  "quick-xml",
  "rayon",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "elmer-coverage"
+version = "0.1.0"
+dependencies = [
+ "elmer-cli",
+ "elmer-core",
+ "elmer-fe",
+ "elmer-fixtures",
+ "elmer-physics-elastic",
+ "elmer-physics-flux",
+ "elmer-physics-heat",
+ "elmer-run",
+ "elmer-savedata",
+ "elmer-sif",
+ "elmer-solver",
 ]
 
 [[package]]
@@ -394,6 +423,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "elmer-fe"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "elmer-fe-hp"
 version = "0.1.0"
 dependencies = [
@@ -405,8 +442,18 @@ name = "elmer-fixtures"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "elmer-cli",
  "elmer-core",
  "elmer-expr",
+ "elmer-fe",
+ "elmer-fe-hp",
+ "elmer-mesh",
+ "elmer-mesh-levels",
+ "elmer-pdofs",
+ "elmer-physics-meshtools",
+ "elmer-run",
+ "elmer-sif",
+ "elmer-solver",
  "thiserror 2.0.21",
 ]
 
@@ -455,6 +502,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "elmer-mesh"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-sif",
+]
+
+[[package]]
+name = "elmer-mesh-levels"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-expr",
+ "elmer-sif",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "elmer-mesh-ops"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-mesh-levels",
+ "elmer-sif",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "elmer-mortar"
+version = "0.1.0"
+dependencies = [
+ "elmer-assembly",
+ "elmer-core",
+ "elmer-fe",
+ "elmer-interp",
+ "elmer-mesh",
+ "elmer-run",
+ "elmer-sif",
+ "elmer-solver",
+ "elmer-sparse",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "elmer-mpi"
 version = "0.1.0"
 dependencies = [
@@ -464,11 +555,94 @@ dependencies = [
 ]
 
 [[package]]
+name = "elmer-mpi-run"
+version = "0.1.0"
+dependencies = [
+ "elmer-assembly",
+ "elmer-cli",
+ "elmer-core",
+ "elmer-dist",
+ "elmer-fe",
+ "elmer-itermethods",
+ "elmer-krylov",
+ "elmer-mesh",
+ "elmer-mesh-levels",
+ "elmer-mpi",
+ "elmer-run",
+ "elmer-solver",
+ "elmer-sparse",
+]
+
+[[package]]
+name = "elmer-pdofs"
+version = "0.1.0"
+dependencies = [
+ "elmer-assembly",
+ "elmer-core",
+ "elmer-direct",
+ "elmer-fe",
+ "elmer-fe-hp",
+ "elmer-sif",
+ "elmer-solver",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "elmer-physics-advdiff"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-fe",
+ "elmer-krylov",
+ "elmer-pdofs",
+ "elmer-physics-heat",
+ "elmer-solver",
+ "elmer-sparse",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "elmer-physics-datatofield"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-fe",
+ "elmer-interp",
+ "elmer-solver",
+]
+
+[[package]]
 name = "elmer-physics-elastic"
 version = "0.1.0"
 dependencies = [
  "elmer-core",
  "elmer-expr",
+ "elmer-fe",
+ "elmer-pdofs",
+ "elmer-sif",
+ "elmer-solver",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "elmer-physics-elasticsolve"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-expr",
+ "elmer-physics-elastic",
+ "elmer-run",
+ "elmer-sif",
+ "elmer-solver",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "elmer-physics-flow"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-fe",
  "elmer-solver",
  "thiserror 2.0.21",
 ]
@@ -489,9 +663,80 @@ name = "elmer-physics-heat"
 version = "0.1.0"
 dependencies = [
  "elmer-core",
+ "elmer-fe",
  "elmer-krylov",
  "elmer-solver",
  "elmer-sparse",
+ "elmer-viewfactors",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "elmer-physics-incompressible"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-fe",
+ "elmer-pdofs",
+ "elmer-physics-flow",
+ "elmer-solver",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "elmer-physics-magneto"
+version = "0.1.0"
+dependencies = [
+ "elmer-assembly",
+ "elmer-core",
+ "elmer-fe",
+ "elmer-fe-hp",
+ "elmer-itermethods",
+ "elmer-krylov",
+ "elmer-mesh",
+ "elmer-sif",
+ "elmer-solver",
+ "elmer-sparse",
+ "num-complex",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "elmer-physics-meshtools"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-expr",
+ "elmer-fe",
+ "elmer-krylov",
+ "elmer-physics-heat",
+ "elmer-sif",
+ "elmer-solver",
+ "elmer-sparse",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "elmer-physics-scalar"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-pdofs",
+ "elmer-solver",
+ "num-complex",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "elmer-physics-thermoelectric"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-fe",
+ "elmer-fe-hp",
+ "elmer-pdofs",
+ "elmer-physics-flow",
+ "elmer-solver",
  "thiserror 2.0.21",
 ]
 
@@ -501,10 +746,42 @@ version = "0.1.0"
 dependencies = [
  "elmer-cli",
  "elmer-core",
+ "elmer-expr",
+ "elmer-fe",
+ "elmer-fixtures",
+ "elmer-mesh-levels",
+ "elmer-mesh-ops",
+ "elmer-mortar",
+ "elmer-pdofs",
+ "elmer-physics-advdiff",
+ "elmer-physics-datatofield",
+ "elmer-physics-elastic",
+ "elmer-physics-elasticsolve",
+ "elmer-physics-flow",
+ "elmer-physics-flux",
  "elmer-physics-heat",
+ "elmer-physics-incompressible",
+ "elmer-physics-magneto",
+ "elmer-physics-meshtools",
+ "elmer-physics-scalar",
+ "elmer-physics-thermoelectric",
+ "elmer-savedata",
  "elmer-sif",
  "elmer-solver",
  "elmer-vtu",
+]
+
+[[package]]
+name = "elmer-savedata"
+version = "0.1.0"
+dependencies = [
+ "elmer-assembly",
+ "elmer-core",
+ "elmer-expr",
+ "elmer-physics-heat",
+ "elmer-saveio",
+ "elmer-sif",
+ "elmer-solver",
 ]
 
 [[package]]
@@ -527,13 +804,17 @@ name = "elmer-solver"
 version = "0.1.0"
 dependencies = [
  "elmer-assembly",
+ "elmer-block",
  "elmer-core",
  "elmer-direct",
  "elmer-expr",
+ "elmer-fixtures",
  "elmer-itermethods",
  "elmer-krylov",
+ "elmer-sif",
  "elmer-sparse",
  "elmer-timeint",
+ "num-complex",
  "thiserror 2.0.21",
 ]
 
@@ -550,6 +831,13 @@ name = "elmer-timeint"
 version = "0.1.0"
 dependencies = [
  "elmer-core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "elmer-viewfactors"
+version = "0.1.0"
+dependencies = [
  "thiserror 2.0.21",
 ]
 

@@ -157,6 +157,9 @@ pub struct SolverSlot {
     pub(crate) finished: bool,
     /// `Variable % LinConverged` of the last linear solve.
     pub(crate) lin_converged: bool,
+    /// The coarser meshes of geometric multigrid, coarsest first
+    /// ([`Simulation::set_multigrid_meshes`]).
+    pub(crate) mg_meshes: Option<Vec<Box<dyn MeshView>>>,
 }
 
 impl SolverSlot {
@@ -187,6 +190,7 @@ impl SolverSlot {
             started: false,
             finished: false,
             lin_converged: true,
+            mg_meshes: None,
         })
     }
 
@@ -377,6 +381,18 @@ impl Simulation {
     /// keyword values see the variables and functions it defined.
     pub fn set_matc(&mut self, matc: Rc<dyn MatcEngine>) {
         self.backends.matc = Some(Box::new(SharedMatc(matc)));
+    }
+
+    /// The coarser meshes of `MG Equal Split` geometric multigrid for solver
+    /// `solver_id` (`Linear System Solver = Multigrid`), coarsest first: the
+    /// meshes `SplitMeshEqual` refined into the simulation's mesh, which is
+    /// the finest level (MainUtils.F90:2730-2770).
+    pub fn set_multigrid_meshes(&mut self, solver_id: usize, coarse: Vec<Box<dyn MeshView>>) -> Result<(), SolverError> {
+        let ix = self
+            .slot_ix(solver_id)
+            .ok_or_else(|| SolverError::fatal("MultiGrid", format!("no solver {solver_id}")))?;
+        self.slots[ix].mg_meshes = Some(coarse);
+        Ok(())
     }
 
     /// The fields as `elmer-expr` reads them.

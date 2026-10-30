@@ -21,4 +21,5 @@ thiserror.workspace = true
 
 [dev-dependencies]
 elmer-fixtures = { path = "../elmer-fixtures" }
+elmer-mesh-levels = { path = "../elmer-mesh-levels" }
 elmer-sif = { path = "../elmer-sif" }
