@@ -171,13 +171,36 @@ fn run_blocks_reload_the_simulation() {
 }
 
 #[test]
-fn run_block_changing_physics_is_refused_before_running() {
-    let dir = scratch_case("minimal_example", "reload-refused");
+fn run_block_changing_a_material_reruns_with_it() {
+    // A second block doubling the heat conductivity (heat source, zero
+    // Dirichlet) halves the temperature: the solvers read the new value.
+    let dir = scratch_case("minimal_example", "reload-material");
     let mesh = FileMesh::read(&dir.join("triangle"), 2);
     let mut block = elmer_solver::Model::default();
     let mut mat = elmer_core::ParamMap::new();
     mat.insert("Heat Conductivity", Value::real(2.0));
     block.materials = vec![mat];
+    let mut s1 = elmer_core::ParamMap::new();
+    s1.insert("Reference Norm", Value::real(REFERENCE_NORM / 2.0));
+    block.solvers = vec![s1];
+    let (log, buf) = logger();
+    let case = Case {
+        model: minimal_example(),
+        reloads: vec![block],
+        mesh: &mesh,
+        case_dir: dir.clone(),
+        mesh_dir: dir.join("triangle"),
+    };
+    let out = run_case(case, &log, &SerialComm).unwrap_or_else(|e| panic!("{e}\n{}", buf.text()));
+    assert_eq!(out.passed, Some(true), "{}", buf.text());
+}
+
+#[test]
+fn run_block_changing_the_simulation_is_refused_before_running() {
+    let dir = scratch_case("minimal_example", "reload-refused");
+    let mesh = FileMesh::read(&dir.join("triangle"), 2);
+    let mut block = elmer_solver::Model::default();
+    block.simulation.insert("Angular Frequency", Value::real(2.0));
     let (log, _) = logger();
     let case = Case {
         model: minimal_example(),
@@ -187,7 +210,7 @@ fn run_block_changing_physics_is_refused_before_running() {
         mesh_dir: dir.join("triangle"),
     };
     let err = run_case(case, &log, &SerialComm).unwrap_err().to_string();
-    assert!(err.contains("RUN block 2 changes Material 1"), "{err}");
+    assert!(err.contains("RUN block 2 changes Simulation angular frequency"), "{err}");
     assert!(!dir.join("TEST.PASSED").exists());
 }
 

@@ -79,6 +79,7 @@ pub fn install_fe(cdim: usize) -> Result<(), SolverError> {
         let _ = elmer_physics_incompressible::install_fe(provider);
         let _ = elmer_physics_scalar::install_fe(provider);
         let _ = elmer_physics_thermoelectric::install_fe(provider);
+        let _ = elmer_savedata::install_fe(provider);
         let services = || elmer_physics_elastic::FeServices {
             basis: Box::new(LagrangeBasis::new(cdim)),
             quad: Box::new(ElmerQuadrature),
