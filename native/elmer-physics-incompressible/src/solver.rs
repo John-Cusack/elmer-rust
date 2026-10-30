@@ -9,7 +9,7 @@ use elmer_core::{ElemId, ElementBasis, LocalSystem, ParamMap, Params, Quadrature
 use elmer_solver::sim::parse_variable_spec;
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
-use crate::boundary::{incompressible_boundary_local, IncompressibleBoundaryInput};
+use crate::boundary::{incompressible_boundary_local, incompressible_boundary_local_with, IncompressibleBoundaryInput};
 use crate::bulk::{
     incompressible_bulk_local, incompressible_bulk_local_with, lcondensate, lcondensate_bdf1, pin_pressure, HMode,
     Compressibility, CompressModel, IncompressibleBulkInput, PressureStab,
@@ -418,7 +418,7 @@ struct PElement {
 }
 
 /// `values` (at `mesh_nodes`) at `nodes` instead.
-fn reorder(values: Vec<f64>, mesh_nodes: &[u32], nodes: &[u32]) -> Vec<f64> {
+fn reorder<T: Copy>(values: Vec<T>, mesh_nodes: &[u32], nodes: &[u32]) -> Vec<T> {
     if mesh_nodes == nodes {
         return values;
     }
@@ -886,15 +886,21 @@ impl Solver for IncompressibleNsSolver {
                 if !any(&ext) && !traction.iter().any(|t| any(t)) && !slip.iter().any(|s| any(s)) {
                     continue;
                 }
-                if pdofs {
-                    return Err(unsupported("boundary tractions, pressures and slip on p elements"));
-                }
                 if axisymmetric {
                     return Err(unsupported("boundary tractions, pressures and slip in Axi Symmetric coordinates"));
                 }
                 let parent_center = normal_parent(ctx, e)
                     .map(|pe| elmer_physics_flow::boundary::element_center(&node_xyz(ctx.mesh, ctx.mesh.element(pe).nodes)));
-                let xyz = node_xyz(ctx.mesh, el.nodes);
+                // A p boundary element lists its nodes in its parent's edge or
+                // face order; its values follow that order.
+                let p_nodes = ctx.solver_dofs().map(|d| d.element_nodes(e));
+                let nodes = p_nodes.as_deref().unwrap_or(el.nodes);
+                let (ext, traction, slip) = (
+                    reorder(ext, el.nodes, nodes),
+                    reorder(traction, el.nodes, nodes),
+                    reorder(slip, el.nodes, nodes),
+                );
+                let xyz = node_xyz(ctx.mesh, nodes);
                 let inp = IncompressibleBoundaryInput {
                     etype: el.etype,
                     xyz: &xyz,
@@ -905,7 +911,15 @@ impl Solver for IncompressibleNsSolver {
                     parent_center,
                     np: None,
                 };
-                incompressible_boundary_local(basis, quad, &inp, &mut self.local)?;
+                match ctx.solver_dofs() {
+                    Some(d) => {
+                        let pb = d.element_basis(e).map_err(|m| SolverError::fatal("ElementInfo", m))?;
+                        let rule = d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?;
+                        let nd = dofs.len() / nsdofs;
+                        incompressible_boundary_local_with(&*pb, &rule, nd, &inp, &mut self.local)?;
+                    }
+                    None => incompressible_boundary_local(basis, quad, &inp, &mut self.local)?,
+                }
                 ctx.default_update(&self.local, e)?;
             }
             ctx.default_finish_boundary_assembly()?;

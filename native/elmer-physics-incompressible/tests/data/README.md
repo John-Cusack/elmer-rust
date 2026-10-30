@@ -23,6 +23,7 @@ the resulting reference:
 | `taylorhood_quad` | `StokesStabilized/quad_taylorhood.sif` (`ElmerGrid 1 2 Step.grd`) | Stokes on `Element = "p:2"` serendipity quads, no `Pressure Stabilization`: edge pressures pinned |
 | `taylorhood_tri` | `StokesStabilized/tri_taylorhood.sif` (`ElmerGrid 1 2 Step.grd -triangles`) | the same on p:2 triangles |
 | `taylorhood_tet` | `StokesStabilized/tet_taylorhood.sif` (the `stokes_tet` mesh) | the same on p:2 tetrahedra (reordered nodes), `Element Integration Points = "-tetra 5"` |
+| `taylorhood_quad_loads` | `quad_taylorhood.sif` with outflow loads | `External Pressure` (a table in y) and `Surface Traction 1` on the p:2 boundary edges; norm 4.3990594E-02 |
 | `taylorhood_quad_full` | `quad_taylorhood.sif` with `Serendipity P Elements = False` | full p:2 quads, one bubble each condensed (`LCondensate`, no pressure pinning in a Stokes run); velocity only (the unpinned pressure has spurious modes) |
 | `mini_quad` | `StokesStabilized/quad.sif` without `Pressure Stabilization` | `_Init0`'s MINI element `p:1 -quad b:3`, velocity bubbles condensed; norm 7.5549150E-02 |
 | `mini_tri` | `StokesStabilized/tri.sif` without `Pressure Stabilization` | the same, `-tri b:1` |
