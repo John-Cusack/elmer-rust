@@ -1,0 +1,45 @@
+Header
+  Mesh DB "." "../intbc/poisson"
+End
+Simulation
+  Max Output Level = 7
+  Coordinate System = "Cartesian"
+  Simulation Type = Steady
+  Steady State Max Iterations = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Heat Conductivity = 1.0
+  Density = 1.0
+End
+Solver 1
+  Equation = HeatSolver
+  Variable = Temperature
+  Procedure = "HeatSolve" "HeatSolver"
+  Nonlinear System Max Iterations = 1
+  Linear System Solver = Direct
+  Linear System Direct Method = Umfpack
+  Constraint Modes Analysis = True
+  Constraint Modes Fluxes = Logical True
+  Constraint Modes Lumped = Logical True
+  Constraint Modes Fluxes Symmetric = Logical True
+  Constraint Modes Fluxes Norm = Logical True
+End
+Boundary Condition 1
+  Target Boundaries = 1
+  Constraint Modes Temperature = Logical True
+End
+Boundary Condition 2
+  Target Boundaries = 3
+  Constraint Modes Temperature = Logical True
+End
+Boundary Condition 3
+  Target Boundaries = 2
+  Temperature = 0
+End

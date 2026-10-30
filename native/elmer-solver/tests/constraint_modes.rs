@@ -1,12 +1,17 @@
-//! `Constraint Modes Analysis` with `Constraint Modes Temperature = True` on
-//! two boundaries, checked against the pristine ElmerSolver (26.2-devel, Rev
-//! 9f6af2f85) run of `tests/data/cmodes/case.sif` (HeatSolve without
-//! sources on LinControlCoordHeat's square mesh, the third boundary at
-//! zero, `Max Output Level = 7`): the mode count, one constrained solve per
-//! boundary dof (40 `NS` lines, the iteration count running through the
-//! modes) and the steady-state change of the last mode; and of
+//! `Constraint Modes Analysis` with `Constraint Modes Temperature = True`,
+//! checked against the pristine ElmerSolver (26.2-devel, Rev 9f6af2f85) run
+//! of `tests/data/cmodes/case.sif` (HeatSolve without sources on
+//! LinControlCoordHeat's square mesh, whose boundary elements all carry tag
+//! 1: the first condition covers the whole boundary, the other two name
+//! tags the mesh lacks; `Max Output Level = 7`): the counts (two mode
+//! boundaries, 40 modes), one constrained solve per boundary dof (40 `NS`
+//! lines, the iteration count running through the modes) and the
+//! steady-state change of the last mode; of
 //! `fluxes.sif` (the same with `Constraint Modes Fluxes`, `... Symmetric`
-//! and `... Norm`): the lumped matrix, its norm and the `res:` entry.
+//! and `... Norm`): the lumped matrix, its norm and the `res:` entry; and of
+//! `lumped.sif` (`Constraint Modes Lumped` on IntegralConstraintPoisson's
+//! mesh, boundaries 1 and 3 the modes, 2 at zero): two modes, their
+//! solves and the 2 x 2 lumped matrix.
 //! HeatSolve is the test-local stand-in.
 
 mod support;
@@ -111,4 +116,48 @@ fn lumped_fluxes_matrix() {
     }
     let nrm = sim.model.simulation.real("res: temperature lumped matrix norm").unwrap();
     assert!((nrm - 43.9459).abs() < 1e-3, "{nrm}");
+}
+
+#[test]
+fn lumped_modes_one_per_boundary() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/cmodes");
+    let mesh = support::mesh::FileMesh::read(&dir.join("../intbc/poisson"), 2);
+    let model = sif_model(&dir.join("lumped.sif"));
+    let mut reg = SolverRegistry::new();
+    reg.register("HeatSolve", "HeatSolver", heat_nl);
+    let log = Level7(Capture::default());
+    let mut sim = Simulation::new(model);
+    sim.backends.fe = Some(FeBackend {
+        basis: Box::new(support::basis::TestBasis),
+        quadrature: Box::new(support::quad::TestQuadrature),
+    });
+    sim.setup(&mesh, &reg, &log, &SerialComm).unwrap();
+    sim.run(&mesh, &log, &SerialComm).unwrap();
+
+    let stdout = std::fs::read_to_string(dir.join("lumped_stdout.txt")).unwrap();
+    let want: Vec<&str> = stdout.lines().collect();
+    let got = log.0.lines(&[
+        "SetConstraintModesBoundaries: Number",
+        "ConstraintModesDriver: Setting up",
+        "StoreLumpedFluxes: Allocating",
+        "FinalizeLumpedMatrix",
+        "ComputeChange: NS",
+        "ComputeChange: SS",
+    ]);
+    let got: Vec<&String> = got.iter().filter(|l| !l.ends_with("did not converge to tolerance")).collect();
+    assert_eq!(got.len(), want.len(), "{got:#?}");
+    let entry = |l: &str| -> f64 { l.split_whitespace().last().unwrap().parse().unwrap() };
+    for (g, w) in got.iter().zip(&want) {
+        if w.starts_with("ComputeChange") {
+            let (gh, gn, gr, gt) = split_change(g);
+            let (wh, wn, wr, wt) = split_change(w);
+            assert_eq!((gh, gn, gt), (wh, wn, wt));
+            assert!((gr - wr).abs() <= 1e-9 * wr.max(1e-6), "{g}\n{w}");
+        } else if w.starts_with("FinalizeLumpedMatrix:  ") || w.contains("lumped matrix norm") {
+            assert_eq!(g[..g.rfind(' ').unwrap()], w[..w.rfind(' ').unwrap()]);
+            assert!((entry(g) - entry(w)).abs() <= 1e-9 * entry(w).abs().max(1.0), "{g}\n{w}");
+        } else {
+            assert_eq!(g.as_str(), *w);
+        }
+    }
 }
