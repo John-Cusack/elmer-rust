@@ -86,6 +86,9 @@ pub(crate) struct ResultWriter {
 /// One entry of Elmer's variable list as `SaveResult` sees it.
 struct Entry<'a> {
     name: String,
+    /// `Var % Name` in the header: a vector declared with components
+    /// carries them, `flow solution[velocity:2 pressure:1]`.
+    header_name: String,
     dofs: usize,
     size: usize,
     perm: Option<&'a Arc<[u32]>>,
@@ -116,8 +119,18 @@ fn entries<'a>(sim: &'a Simulation) -> Vec<Entry<'a>> {
                 VarHandle::Component { parent, component } => (parent, component, sim.vars.by_id(parent).dofs, 1),
             };
             let v = sim.vars.by_id(id);
+            // Declared components (`Flow[Velocity:2 Pressure:1]`) show; the
+            // default `<name> k` ones may or may not have been declared, and
+            // stay out.
+            let comps = sim.vars.component_names(id);
+            let declared = comps.iter().enumerate().any(|(k, c)| *c != format!("{name} {}", k + 1));
+            let header_name = match h {
+                VarHandle::Primary(_) if dofs > 1 && declared => format!("{name}[{}]", component_spec(&comps)),
+                _ => name.clone(),
+            };
             Entry {
                 name,
+                header_name,
                 dofs,
                 size: v.values.len() / stride,
                 perm: v.perm.as_ref(),
@@ -130,6 +143,24 @@ fn entries<'a>(sim: &'a Simulation) -> Vec<Entry<'a>> {
             }
         })
         .collect()
+}
+
+/// The `[name:dofs ...]` of a vector variable from its per-dof component
+/// names: consecutive `<base> <k>` names make one `<base>:<count>`.
+fn component_spec(names: &[String]) -> String {
+    let base = |n: &str| match n.rsplit_once(' ') {
+        Some((b, k)) if !k.is_empty() && k.bytes().all(|c| c.is_ascii_digit()) => b.to_string(),
+        _ => n.to_string(),
+    };
+    let mut groups: Vec<(String, usize)> = Vec::new();
+    for n in names {
+        let b = base(n);
+        match groups.last_mut() {
+            Some((g, c)) if *g == b && b != *n => *c += 1,
+            _ => groups.push((b, 1)),
+        }
+    }
+    groups.iter().map(|(b, c)| format!("{b}:{c}")).collect::<Vec<_>>().join(" ")
 }
 
 impl ResultWriter {
@@ -165,7 +196,7 @@ impl ResultWriter {
                 let perm_size = e.perm.map_or(0, |p| p.len());
                 out.push_str(&format!(
                     "{:<24} : {:>8}{:>8}{:>4} : {}\n",
-                    e.name, e.size, perm_size, e.dofs, e.equation
+                    e.header_name, e.size, perm_size, e.dofs, e.equation
                 ));
                 if !vector {
                     dofs += 1;
@@ -268,6 +299,15 @@ mod tests {
     /// MinimalExample's `triangle/case.result` from the pristine Release
     /// arm: the binary part byte for byte, and the preamble but for the
     /// date and the equation name (the variable here has no solver slot).
+    #[test]
+    fn vector_names_carry_their_components() {
+        let s = |v: &[&str]| component_spec(&v.iter().map(|x| x.to_string()).collect::<Vec<_>>());
+        assert_eq!(s(&["velocity 1", "velocity 2", "pressure"]), "velocity:2 pressure:1");
+        assert_eq!(s(&["temperature flux 1", "temperature flux 2"]), "temperature flux:2");
+        assert_eq!(s(&["temperature", "potential"]), "temperature:1 potential:1");
+        assert_eq!(s(&["stress_xx", "stress_yy"]), "stress_xx:1 stress_yy:1");
+    }
+
     #[test]
     fn minimal_example_matches_pristine() {
         let dir = std::env::temp_dir().join(format!("elmer-run-result-{}", std::process::id()));
