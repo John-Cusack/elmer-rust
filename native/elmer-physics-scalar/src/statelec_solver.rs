@@ -17,8 +17,8 @@ use crate::common::{
 use crate::post::{self, Derived, PostField, PostSpec};
 use crate::potential::{Coefficient, PostConfig, PotentialPostLocal};
 use crate::statelec::{
-    stat_elec_boundary_local, stat_elec_bulk_local, StatElecAtNodes, StatElecBcAtNodes,
-    StatElecConfig, PHYSICAL_EPS0,
+    stat_elec_boundary_local, stat_elec_boundary_local_with, stat_elec_bulk_local,
+    stat_elec_bulk_local_with, StatElecAtNodes, StatElecBcAtNodes, StatElecConfig, PHYSICAL_EPS0,
 };
 use crate::{STAT_ELEC_PROCEDURE, STAT_ELEC_VEC_PROCEDURE};
 
@@ -213,6 +213,16 @@ impl Solver for StatElecSolver {
         let dim = ctx.mesh.dim();
 
         if ctx.params().get("variable").is_none() {
+            if ctx
+                .params()
+                .string("element")
+                .is_some_and(|e| elmer_core::normalize_key(e) != "n:1")
+            {
+                return Err(unsupported(
+                    "Element without a Variable keyword",
+                    "the default potential variable is created nodal",
+                ));
+            }
             let mesh = ctx.mesh;
             let id = ctx.solver_id();
             let sim = &mut *ctx.sim;
@@ -292,6 +302,12 @@ impl Solver for StatElecSolver {
         );
         ctx.info(CALLER, "Solving static electric field for insulators", 4);
 
+        if ctx.solver_dofs().is_some() && post::post_active(ctx.params(), &POST) {
+            return Err(unsupported(
+                "field and energy postprocessing on p elements",
+                "the potential post-processing integrates with the nodal basis only",
+            ));
+        }
         let mut dofs = Vec::new();
         for _ in 1..=maxiter {
             ctx.default_initialize()?;
@@ -300,15 +316,32 @@ impl Solver for StatElecSolver {
                 let el = ctx.mesh.element(e);
                 let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
                 let mat = bulk_inputs(ctx, e, xyz.len())?;
-                stat_elec_bulk_local(
-                    &*self.basis,
-                    &*self.quad,
-                    el.etype,
-                    &xyz,
-                    &mat,
-                    &cfg,
-                    &mut self.local,
-                )?;
+                match ctx.solver_dofs() {
+                    Some(d) => {
+                        // LocalMatrix(Element, n, nd+nb, nb), then CondensateP(nd, nb).
+                        let p = p_element(d, e)?;
+                        stat_elec_bulk_local_with(
+                            &*p.basis,
+                            &p.rule,
+                            el.etype,
+                            &xyz,
+                            &mat,
+                            &cfg,
+                            p.nd + p.nb,
+                            &mut self.local,
+                        )?;
+                        condense(&mut self.local, p.nd, p.nb)?;
+                    }
+                    None => stat_elec_bulk_local(
+                        &*self.basis,
+                        &*self.quad,
+                        el.etype,
+                        &xyz,
+                        &mat,
+                        &cfg,
+                        &mut self.local,
+                    )?,
+                }
                 ctx.default_update(&self.local, e)?;
             }
 
@@ -321,16 +354,39 @@ impl Solver for StatElecSolver {
                     continue;
                 };
                 let el = ctx.mesh.element(e);
-                let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
-                stat_elec_boundary_local(
-                    &*self.basis,
-                    &*self.quad,
-                    el.etype,
-                    &xyz,
-                    &bc,
-                    &cfg,
-                    &mut self.local,
-                )?;
+                match ctx.solver_dofs() {
+                    Some(d) => {
+                        // A p boundary element lists its nodes in the parent's
+                        // edge order (AssignLocalNumber); its values follow it.
+                        let p = p_element(d, e)?;
+                        let xyz: Vec<[f64; 3]> =
+                            p.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
+                        let bc = bc.reordered(el.nodes, &p.nodes);
+                        stat_elec_boundary_local_with(
+                            &*p.basis,
+                            &p.rule,
+                            el.etype,
+                            &xyz,
+                            &bc,
+                            &cfg,
+                            dofs.len(),
+                            &mut self.local,
+                        )?;
+                    }
+                    None => {
+                        let xyz: Vec<[f64; 3]> =
+                            el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
+                        stat_elec_boundary_local(
+                            &*self.basis,
+                            &*self.quad,
+                            el.etype,
+                            &xyz,
+                            &bc,
+                            &cfg,
+                            &mut self.local,
+                        )?;
+                    }
+                }
                 ctx.default_update(&self.local, e)?;
             }
 
@@ -366,6 +422,99 @@ impl Solver for StatElecSolver {
         }
         Ok(())
     }
+}
+
+/// An element's basis, rule, node order, dof count and local bubble count
+/// from the solver's p dofs.
+struct PElement {
+    basis: Box<dyn elmer_core::ElementBasis + Send + Sync>,
+    rule: Vec<elmer_core::QuadPoint>,
+    nodes: Vec<u32>,
+    nd: usize,
+    nb: usize,
+}
+
+fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId) -> Result<PElement, SolverError> {
+    let mut slots = Vec::new();
+    d.element_slots(e, &mut slots);
+    Ok(PElement {
+        basis: d
+            .element_basis(e)
+            .map_err(|m| SolverError::fatal("ElementInfo", m))?,
+        rule: d
+            .element_rule(e)
+            .map_err(|m| SolverError::fatal("GaussPoints", m))?,
+        nodes: d.element_nodes(e),
+        nd: slots.len(),
+        nb: d.local_bubbles(e),
+    })
+}
+
+/// `CondensateP(nd, nb, STIFF, FORCE)`: eliminates the last `nb` of the
+/// `nd + nb` local dofs, leaving an `nd`-square system.
+fn condense(local: &mut LocalSystem, nd: usize, nb: usize) -> Result<(), SolverError> {
+    if nb == 0 {
+        return Ok(());
+    }
+    let m = nd + nb;
+    let k = &local.stiff;
+    let f = &local.force;
+    // Kbb^-1 by Gauss-Jordan with partial pivoting.
+    let mut a: Vec<f64> = (0..nb * nb)
+        .map(|ij| k[(nd + ij / nb) * m + nd + ij % nb])
+        .collect();
+    let mut inv = vec![0.0; nb * nb];
+    for i in 0..nb {
+        inv[i * nb + i] = 1.0;
+    }
+    for c in 0..nb {
+        let piv = (c..nb)
+            .max_by(|&x, &y| a[x * nb + c].abs().total_cmp(&a[y * nb + c].abs()))
+            .unwrap_or(c);
+        if a[piv * nb + c] == 0.0 {
+            return Err(SolverError::fatal(
+                CALLER,
+                "CondensateP: singular bubble block",
+            ));
+        }
+        for j in 0..nb {
+            a.swap(c * nb + j, piv * nb + j);
+            inv.swap(c * nb + j, piv * nb + j);
+        }
+        let dg = a[c * nb + c];
+        for j in 0..nb {
+            a[c * nb + j] /= dg;
+            inv[c * nb + j] /= dg;
+        }
+        for i in 0..nb {
+            if i != c {
+                let fac = a[i * nb + c];
+                if fac != 0.0 {
+                    for j in 0..nb {
+                        a[i * nb + j] -= fac * a[c * nb + j];
+                        inv[i * nb + j] -= fac * inv[c * nb + j];
+                    }
+                }
+            }
+        }
+    }
+    let mut ks = vec![0.0; nd * nd];
+    let mut fs = vec![0.0; nd];
+    for i in 0..nd {
+        // Klb Kbb^-1, row i.
+        let g: Vec<f64> = (0..nb)
+            .map(|j| (0..nb).map(|l| k[i * m + nd + l] * inv[l * nb + j]).sum())
+            .collect();
+        fs[i] = f[i] - (0..nb).map(|j| g[j] * f[nd + j]).sum::<f64>();
+        for c in 0..nd {
+            ks[i * nd + c] =
+                k[i * m + c] - (0..nb).map(|j| g[j] * k[(nd + j) * m + c]).sum::<f64>();
+        }
+    }
+    local.n = nd;
+    local.stiff = ks;
+    local.force = fs;
+    Ok(())
 }
 
 fn bulk_inputs(ctx: &SolverCtx<'_>, e: ElemId, n: usize) -> Result<StatElecAtNodes, SolverError> {

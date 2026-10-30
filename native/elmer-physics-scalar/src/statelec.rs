@@ -4,7 +4,7 @@
 
 use std::f64::consts::PI;
 
-use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, Quadrature};
+use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, QuadPoint, Quadrature};
 
 use crate::common::{check_len, check_opt, interp};
 use crate::error::ScalarError;
@@ -82,6 +82,30 @@ fn weight(cfg: &StatElecConfig, w: f64, phi: &[f64], xyz: &[[f64; 3]]) -> f64 {
     }
 }
 
+impl StatElecBcAtNodes {
+    /// The same values at `nodes`, given at `mesh_nodes` (the same set in
+    /// another order).
+    pub fn reordered(&self, mesh_nodes: &[u32], nodes: &[u32]) -> Self {
+        let map: Vec<usize> = nodes
+            .iter()
+            .map(|n| {
+                mesh_nodes
+                    .iter()
+                    .position(|m| m == n)
+                    .expect("same node set")
+            })
+            .collect();
+        let f = |v: &Option<Vec<f64>>| v.as_ref().map(|v| map.iter().map(|&i| v[i]).collect());
+        Self {
+            electric_flux: f(&self.electric_flux),
+            layer_relative_permittivity: f(&self.layer_relative_permittivity),
+            layer_thickness: f(&self.layer_thickness),
+            electrode_potential: f(&self.electrode_potential),
+            layer_charge_density: f(&self.layer_charge_density),
+        }
+    }
+}
+
 /// Bulk element matrices of `LocalMatrix` (StatElecSolve.F90:748) for an
 /// element with `nd = n` nodes: `stiff[p*n + q] = int eps0 eps_r grad(phi_q) .
 /// grad(phi_p)` and `force[p] = int rho phi_p`. Gradients use all three
@@ -104,30 +128,82 @@ pub fn stat_elec_bulk_local(
             cfg.dim
         )));
     }
-    reset(out, n);
     let ips = quad.gauss_points(etype, cfg.quad_points);
+    bulk_with(basis, &ips, etype, xyz, mat, cfg, n, out)
+}
+
+/// [`stat_elec_bulk_local`] for `nd >= n` basis functions (the nodal ones
+/// first, then a p element's edge, face and bubble functions) on the given
+/// rule: `LocalMatrix(Element, n, nd, ...)` before `CondensateP`, material
+/// values interpolated with the nodal functions only. `out` is `nd x nd`.
+#[allow(clippy::too_many_arguments)]
+pub fn stat_elec_bulk_local_with(
+    basis: &dyn ElementBasis,
+    ips: &[QuadPoint],
+    etype: ElementType,
+    xyz: &[[f64; 3]],
+    mat: &StatElecAtNodes,
+    cfg: &StatElecConfig,
+    nd: usize,
+    out: &mut LocalSystem,
+) -> Result<(), ScalarError> {
+    let n = xyz.len();
+    check_len("relative permittivity", n, mat.relative_permittivity.len())?;
+    check_opt("charge density", n, &mat.charge_density)?;
+    if !(1..=3).contains(&cfg.dim) {
+        return Err(ScalarError::Invalid(format!(
+            "dim {} not in 1..=3",
+            cfg.dim
+        )));
+    }
+    if nd < n {
+        return Err(ScalarError::Invalid(format!("{nd} dofs for {n} nodes")));
+    }
+    bulk_with(basis, ips, etype, xyz, mat, cfg, nd, out)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn bulk_with(
+    basis: &dyn ElementBasis,
+    ips: &[QuadPoint],
+    etype: ElementType,
+    xyz: &[[f64; 3]],
+    mat: &StatElecAtNodes,
+    cfg: &StatElecConfig,
+    nd: usize,
+    out: &mut LocalSystem,
+) -> Result<(), ScalarError> {
+    let n = xyz.len();
+    reset(out, nd);
     if ips.is_empty() {
         return Err(ScalarError::NoQuadrature(etype.0));
     }
     let mut be = BasisEval::default();
-    for qp in &ips {
+    for qp in ips {
         basis
             .eval(etype, xyz, qp.uvw, &mut be)
             .map_err(ScalarError::Basis)?;
-        let phi = &be.basis[..n];
-        let dphi = &be.dbasis_dx[..n];
-        let w = weight(cfg, qp.weight * be.det_j, phi, xyz);
+        if be.basis.len() < nd {
+            return Err(ScalarError::Invalid(format!(
+                "{} basis functions for {nd} dofs",
+                be.basis.len()
+            )));
+        }
+        let phi = &be.basis[..nd];
+        let dphi = &be.dbasis_dx[..nd];
+        let nphi = &phi[..n];
+        let w = weight(cfg, qp.weight * be.det_j, nphi, xyz);
 
-        let eps = cfg.eps0 * interp(phi, &mat.relative_permittivity);
-        for p in 0..n {
-            for q in 0..n {
+        let eps = cfg.eps0 * interp(nphi, &mat.relative_permittivity);
+        for p in 0..nd {
+            for q in 0..nd {
                 let s: f64 = (0..3).map(|i| dphi[p][i] * dphi[q][i]).sum();
-                out.stiff[p * n + q] += w * eps * s;
+                out.stiff[p * nd + q] += w * eps * s;
             }
         }
         if let Some(rho) = &mat.charge_density {
-            let f = interp(phi, rho);
-            for p in 0..n {
+            let f = interp(nphi, rho);
+            for p in 0..nd {
                 out.force[p] += w * f * phi[p];
             }
         }
@@ -159,17 +235,68 @@ pub fn stat_elec_boundary_local(
     check_opt("layer thickness", n, &bc.layer_thickness)?;
     check_opt("electrode potential", n, &bc.electrode_potential)?;
     check_opt("layer charge density", n, &bc.layer_charge_density)?;
-    reset(out, n);
     let ips = quad.gauss_points(etype, cfg.quad_points);
+    boundary_with(basis, &ips, etype, xyz, bc, cfg, n, out)
+}
+
+/// [`stat_elec_boundary_local`] for `nd >= n` basis functions on the given
+/// rule (`LocalMatrixBC(Element, n, nd, ...)`); `out` is `nd x nd`.
+#[allow(clippy::too_many_arguments)]
+pub fn stat_elec_boundary_local_with(
+    basis: &dyn ElementBasis,
+    ips: &[QuadPoint],
+    etype: ElementType,
+    xyz: &[[f64; 3]],
+    bc: &StatElecBcAtNodes,
+    cfg: &StatElecConfig,
+    nd: usize,
+    out: &mut LocalSystem,
+) -> Result<(), ScalarError> {
+    let n = xyz.len();
+    check_opt("electric flux", n, &bc.electric_flux)?;
+    check_opt(
+        "layer relative permittivity",
+        n,
+        &bc.layer_relative_permittivity,
+    )?;
+    check_opt("layer thickness", n, &bc.layer_thickness)?;
+    check_opt("electrode potential", n, &bc.electrode_potential)?;
+    check_opt("layer charge density", n, &bc.layer_charge_density)?;
+    if nd < n {
+        return Err(ScalarError::Invalid(format!("{nd} dofs for {n} nodes")));
+    }
+    boundary_with(basis, ips, etype, xyz, bc, cfg, nd, out)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn boundary_with(
+    basis: &dyn ElementBasis,
+    ips: &[QuadPoint],
+    etype: ElementType,
+    xyz: &[[f64; 3]],
+    bc: &StatElecBcAtNodes,
+    cfg: &StatElecConfig,
+    nd: usize,
+    out: &mut LocalSystem,
+) -> Result<(), ScalarError> {
+    let n = xyz.len();
+    reset(out, nd);
     if ips.is_empty() {
         return Err(ScalarError::NoQuadrature(etype.0));
     }
     let mut be = BasisEval::default();
-    for qp in &ips {
+    for qp in ips {
         basis
             .eval(etype, xyz, qp.uvw, &mut be)
             .map_err(ScalarError::Basis)?;
-        let phi = &be.basis[..n];
+        if be.basis.len() < nd {
+            return Err(ScalarError::Invalid(format!(
+                "{} basis functions for {nd} dofs",
+                be.basis.len()
+            )));
+        }
+        let all = &be.basis[..nd];
+        let phi = &all[..n];
         let w = weight(cfg, qp.weight * be.det_j, phi, xyz);
 
         let mut alpha = 0.0;
@@ -195,11 +322,11 @@ pub fn stat_elec_boundary_local(
         if !got_some {
             continue;
         }
-        for p in 0..n {
-            for q in 0..n {
-                out.stiff[p * n + q] += w * alpha * phi[q] * phi[p];
+        for p in 0..nd {
+            for q in 0..nd {
+                out.stiff[p * nd + q] += w * alpha * all[q] * all[p];
             }
-            out.force[p] += w * beta * phi[p];
+            out.force[p] += w * beta * all[p];
         }
     }
     Ok(())
