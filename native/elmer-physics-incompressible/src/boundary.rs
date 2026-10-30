@@ -4,10 +4,12 @@
 //!
 //! The element integrals are those of `NavierStokesBoundary`, which
 //! `elmer-physics-flow` already carries bit for bit, so this delegates to
-//! `flow_boundary_local` with no mass flux.
+//! `flow_boundary_local` with no mass flux; on p elements
+//! [`incompressible_boundary_local_with`] integrates them over all the
+//! boundary element's functions.
 
-use elmer_core::{ElementBasis, ElementType, LocalSystem, Quadrature};
-use elmer_physics_flow::{flow_boundary_local, FlowBoundaryInput, FlowError};
+use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, QuadPoint, Quadrature};
+use elmer_physics_flow::{flow_boundary_local, outward_normal, FlowBoundaryInput, FlowError};
 
 use crate::error::IncompressibleError;
 
@@ -56,4 +58,85 @@ pub fn incompressible_boundary_local(
         np: inp.np,
     };
     flow_boundary_local(basis, quad, &f, out).map_err(convert)
+}
+
+/// [`incompressible_boundary_local`] for `nd >= n` basis functions (a p
+/// boundary element: its nodes, then its edge and face functions) on the
+/// given rule: `LocalBoundaryMatrix(Element, n, nd)` without normal-
+/// tangential conditions. The loads and slip are interpolated with the
+/// nodal functions. `out` is resized to `nd * (dim + 1)`.
+pub fn incompressible_boundary_local_with(
+    basis: &dyn ElementBasis,
+    points: &[QuadPoint],
+    nd: usize,
+    inp: &IncompressibleBoundaryInput<'_>,
+    out: &mut LocalSystem,
+) -> Result<(), IncompressibleError> {
+    let n = inp.xyz.len();
+    let dim = inp.dim;
+    let c = dim + 1;
+    for (what, got) in [
+        ("element nodes", inp.etype.n_nodes()),
+        ("traction", inp.traction.len()),
+        ("external pressure", inp.ext_pressure.len()),
+        ("slip coefficient", inp.slip.len()),
+    ] {
+        if got != n {
+            return Err(IncompressibleError::NodalLength { what, expected: n, got });
+        }
+    }
+    if nd < n {
+        return Err(IncompressibleError::Unsupported(format!("{nd} basis functions for {n} nodes")));
+    }
+    let m = nd * c;
+    *out = LocalSystem::zeros(m);
+    let has_normal_force = inp.ext_pressure.iter().any(|&p| p != 0.0);
+    let has_slip = inp.slip.iter().any(|s| s.iter().any(|&x| x != 0.0));
+    let parent_center = match (has_normal_force, inp.parent_center) {
+        (true, None) => {
+            return Err(IncompressibleError::Unsupported(
+                "a normal force on a boundary element with no parent (normal orientation)".into(),
+            ))
+        }
+        (_, pc) => pc,
+    };
+    if points.is_empty() {
+        return Err(IncompressibleError::NoQuadrature(inp.etype.0));
+    }
+    let mut be = BasisEval::default();
+    for qp in points {
+        basis.eval(inp.etype, inp.xyz, qp.uvw, &mut be).map_err(IncompressibleError::Basis)?;
+        if be.basis.len() < nd {
+            return Err(IncompressibleError::Unsupported(format!("{} basis functions for {nd} dofs", be.basis.len())));
+        }
+        let s = be.det_j * qp.weight;
+        let phi = &be.basis[..nd];
+        let mut force = [0.0; 3];
+        for (i, f) in force.iter_mut().enumerate().take(dim) {
+            *f = (0..n).map(|k| inp.traction[k][i] * phi[k]).sum();
+        }
+        if let Some(pc) = parent_center.filter(|_| has_normal_force) {
+            let normal = outward_normal(inp.etype, inp.xyz, qp.uvw, pc).map_err(convert)?;
+            let alpha: f64 = (0..n).map(|k| inp.ext_pressure[k] * phi[k]).sum();
+            for i in 0..dim {
+                force[i] += alpha * normal[i];
+            }
+        }
+        if has_slip {
+            for i in 0..dim {
+                let slip: f64 = (0..n).map(|k| inp.slip[k][i] * phi[k]).sum();
+                for p in 0..nd {
+                    for q in 0..nd {
+                        out.stiff[(p * c + i) * m + q * c + i] += s * slip * phi[q] * phi[p];
+                    }
+                }
+            }
+        }
+        for q in 0..nd {
+            for (i, f) in force.iter().enumerate().take(dim) {
+                out.force[q * c + i] += s * phi[q] * f;
+            }
+        }
+    }
+    Ok(())
 }

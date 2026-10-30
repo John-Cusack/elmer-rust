@@ -47,6 +47,15 @@ fn step(mesh: &TestMesh) -> (Vec<ParamMap>, f64) {
     (bcs, 1.0e3)
 }
 
+/// The step with loads on the outflow: `External Pressure` 100 at y = 0 to
+/// 300 at y = 2 along the outward normal and `Surface Traction 1 = 10`.
+fn step_loads(mesh: &TestMesh) -> (Vec<ParamMap>, f64) {
+    let (mut bcs, viscosity) = step(mesh);
+    bcs[1].insert("External Pressure", table(2, &[(0.0, 100.0), (2.0, 300.0)]));
+    bcs[1].insert("Surface Traction 1", real(10.0));
+    (bcs, viscosity)
+}
+
 /// The step of `tests/data/ns_tri` (Navier-Stokes): viscosity 0.1.
 fn ns_step(mesh: &TestMesh) -> (Vec<ParamMap>, f64) {
     (step(mesh).0, 0.1)
@@ -429,4 +438,12 @@ fn axisymmetric_stokes_matches_elmer() {
     for c in 0..3 {
         assert!(err[c] <= 1e-10 * scale[c], "component {c} max error {} (scale {})", err[c], scale[c]);
     }
+}
+
+/// `tests/data/taylorhood_quad_loads`: Taylor-Hood with the outflow loads,
+/// integrated over the p:2 boundary edges (their edge functions take the
+/// load as well).
+#[test]
+fn taylorhood_boundary_loads_match_elmer() {
+    run_case("taylorhood_quad_loads", 2, step_loads, &p2(), 1720, 0.04399059383796517);
 }
