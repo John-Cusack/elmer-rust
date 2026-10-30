@@ -119,6 +119,9 @@ pub fn parse_result_bytes(buf: &[u8], origin: &str) -> Result<ResultFile> {
     let header = std::str::from_utf8(&buf[..header_end])
         .map_err(|_| cur.fail("non-UTF8 header"))?;
     let header = header.trim();
+    if header == "ASCII 3" {
+        return parse_ascii_result(buf, origin);
+    }
     if !header.starts_with("BINARY 3.") || header.len() != "BINARY 3.X".len() {
         return Err(cur.fail("not a binary result file"));
     }
@@ -135,6 +138,7 @@ pub fn parse_result_bytes(buf: &[u8], origin: &str) -> Result<ResultFile> {
         .iter()
         .position(|&b| b == 0)
         .ok_or_else(|| cur.fail("missing binary marker NUL"))?;
+    let sizes = preamble_sizes(&buf[header_end..header_end + nul_at]);
     cur.pos = header_end + nul_at + 1;
 
     let mut steps = Vec::new();
@@ -206,11 +210,9 @@ pub fn parse_result_bytes(buf: &[u8], origin: &str) -> Result<ResultFile> {
             // SaveResult writes exactly the positive Perm entries (or the
             // full array when Perm is NULL), so count from the block.
             let count = match &perm {
-                None => {
-                    return Err(cur.fail(
-                        "NULL-Perm variables need mesh sizes; not supported yet",
-                    ));
-                }
+                None => null_perm_count(&sizes, &name).ok_or_else(|| {
+                    cur.fail(&format!("NULL-Perm variable {name:?} missing from the preamble"))
+                })?,
                 Some(pairs) => pairs.len(),
             };
             let mut values = Vec::with_capacity(count);
@@ -237,7 +239,128 @@ pub fn parse_result_bytes(buf: &[u8], origin: &str) -> Result<ResultFile> {
     Ok(ResultFile { steps })
 }
 
-/// Read and parse a binary `.result` file from disk.
+/// `SIZE(Var % Values)` per variable from the `Degrees of freedom:`
+/// preamble `InitializeFile` writes (`name : size permsize dofs : eq`). A
+/// variable with a NULL Perm stores its whole value array, and this is the
+/// only place the file records how long that is.
+fn preamble_sizes(preamble: &[u8]) -> Vec<(String, usize)> {
+    let text = String::from_utf8_lossy(preamble);
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let mut parts = line.splitn(3, " : ");
+        let (Some(name), Some(nums)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        if let Some(size) = nums.split_whitespace().next().and_then(|n| n.parse().ok()) {
+            out.push((name.trim().to_string(), size));
+        }
+    }
+    out
+}
+
+fn null_perm_count(sizes: &[(String, usize)], name: &str) -> Option<usize> {
+    sizes.iter().find(|(n, _)| n == name).map(|&(_, s)| s)
+}
+
+/// Parse the ASCII form (`Binary Output` off): the same blocks as text,
+/// values list-directed (17 significant digits, so the round trip is
+/// exact), `Perm: use previous` meaning the last Perm written.
+fn parse_ascii_result(buf: &[u8], origin: &str) -> Result<ResultFile> {
+    let fail = |what: &str| OracleError::Parse(format!("{origin}: {what}"));
+    let text = String::from_utf8_lossy(buf);
+    let mut lines = text.lines().peekable();
+    let mut preamble = String::new();
+    while let Some(l) = lines.peek() {
+        if l.starts_with("Time:") {
+            break;
+        }
+        preamble.push_str(l);
+        preamble.push('\n');
+        lines.next();
+    }
+    let sizes = preamble_sizes(preamble.as_bytes());
+    let mut steps = Vec::new();
+    let mut prev_perm: Option<(Vec<(i32, i32)>, i32)> = None;
+    while let Some(line) = lines.next() {
+        let rest = line
+            .strip_prefix("Time:")
+            .ok_or_else(|| fail(&format!("expected Time: line, found {line:?}")))?;
+        let mut nums = rest.split_whitespace();
+        let mut next_num = |what: &str| nums.next().ok_or_else(|| fail(what));
+        let saves_done = next_num("Time: saves")?.parse().map_err(|_| fail("Time: saves"))?;
+        let ntime = next_num("Time: step")?.parse().map_err(|_| fail("Time: step"))?;
+        let sim_time = next_num("Time: time")?.parse().map_err(|_| fail("Time: time"))?;
+        let mut vars = Vec::new();
+        while let Some(l) = lines.peek() {
+            if l.starts_with("Time:") {
+                break;
+            }
+            let name = l.trim_end().to_string();
+            lines.next();
+            let perm_line = lines.next().ok_or_else(|| fail("missing Perm line"))?;
+            let perm_spec = perm_line
+                .strip_prefix("Perm:")
+                .ok_or_else(|| fail(&format!("expected Perm: for {name:?}")))?
+                .trim();
+            let (perm, perm_size) = match perm_spec {
+                "NULL" => (None, 0),
+                "use previous" => {
+                    let (pairs, size) =
+                        prev_perm.clone().ok_or_else(|| fail("use previous with no Perm yet"))?;
+                    (Some(pairs), size)
+                }
+                spec => {
+                    let mut it = spec.split_whitespace().map(|n| n.parse::<i32>());
+                    let size = it.next().and_then(|r| r.ok()).ok_or_else(|| fail("Perm size"))?;
+                    let nnz = it.next().and_then(|r| r.ok()).ok_or_else(|| fail("Perm count"))?;
+                    let mut pairs = Vec::with_capacity(nnz.max(0) as usize);
+                    for _ in 0..nnz {
+                        let pl = lines.next().ok_or_else(|| fail("truncated Perm"))?;
+                        let mut p = pl.split_whitespace().map(|n| n.parse::<i32>());
+                        match (p.next(), p.next()) {
+                            (Some(Ok(a)), Some(Ok(b))) => pairs.push((a, b)),
+                            _ => return Err(fail(&format!("bad Perm pair {pl:?}"))),
+                        }
+                    }
+                    prev_perm = Some((pairs.clone(), size));
+                    (Some(pairs), size)
+                }
+            };
+            let count = match &perm {
+                None => null_perm_count(&sizes, &name)
+                    .ok_or_else(|| fail(&format!("NULL-Perm variable {name:?} not in preamble")))?,
+                Some(pairs) => pairs.len(),
+            };
+            let mut values = Vec::with_capacity(count);
+            for _ in 0..count {
+                let vl = lines.next().ok_or_else(|| fail("truncated values"))?;
+                values.push(
+                    vl.trim()
+                        .parse::<f64>()
+                        .map_err(|_| fail(&format!("bad value {vl:?}")))?,
+                );
+            }
+            vars.push(VariableData {
+                name,
+                perm,
+                perm_size,
+                values,
+            });
+        }
+        steps.push(TimeStep {
+            saves_done,
+            ntime,
+            sim_time,
+            vars,
+        });
+    }
+    if steps.is_empty() {
+        return Err(fail("no timesteps found"));
+    }
+    Ok(ResultFile { steps })
+}
+
+/// Read and parse a `.result` file (binary or ASCII) from disk.
 pub fn read_result_file(path: &Path) -> Result<ResultFile> {
     let buf = std::fs::read(path).map_err(|e| io_with(path, e))?;
     parse_result_bytes(&buf, &path.display().to_string())
@@ -315,6 +438,28 @@ mod tests {
         assert_eq!(v1.perm, v0.perm);
         assert_eq!(v1.values, vec![301.0, 311.5]);
         assert_eq!(f.steps[1].sim_time, 1.0);
+    }
+
+    #[test]
+    fn ascii_form_parses_with_use_previous_and_null_perm() {
+        let text = " ASCII 3\n!File started at: x\n Degrees of freedom: \n\
+temperature              :        3       3   1 : heat equation\n\
+cost                     :        2       0   1 : heat equation\n\
+ Total DOFs:            1\n\
+Time:       1      1  1.00000000E+000\n\
+temperature\nPerm:            3            2\n          1          2\n          3          1\n\
+   1.5000000000000000     \n   2.2500000000000000     \n\
+cost\nPerm: NULL\n   7.0000000000000000     \n   8.0000000000000000     \n\
+Time:       2      2  2.00000000E+000\n\
+temperature\nPerm: use previous\n   3.0000000000000000     \n   4.0000000000000000     \n";
+        let r = parse_result_bytes(text.as_bytes(), "t").unwrap();
+        assert_eq!(r.steps.len(), 2);
+        assert_eq!(r.steps[0].vars[0].perm, Some(vec![(1, 2), (3, 1)]));
+        assert_eq!(r.steps[0].vars[0].values, vec![1.5, 2.25]);
+        assert_eq!(r.steps[0].vars[1].perm, None);
+        assert_eq!(r.steps[0].vars[1].values, vec![7.0, 8.0]);
+        assert_eq!(r.steps[1].vars[0].perm, Some(vec![(1, 2), (3, 1)]));
+        assert_eq!(r.steps[1].vars[0].values, vec![3.0, 4.0]);
     }
 
     #[test]

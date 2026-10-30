@@ -141,6 +141,24 @@ pub fn grade_variable(
     }
 }
 
+/// Pair each golden variable of one step with the candidate variable of
+/// the same name and the same occurrence: a step can carry one name twice
+/// (a solver-specific mesh writing its own copy), and the k-th golden
+/// copy grades against the k-th candidate copy, never the first.
+pub fn pair_vars<'a>(
+    golden: &'a [VariableData],
+    candidate: &'a [VariableData],
+) -> Vec<(&'a VariableData, Option<&'a VariableData>)> {
+    golden
+        .iter()
+        .enumerate()
+        .map(|(i, g)| {
+            let k = golden[..i].iter().filter(|v| v.name == g.name).count();
+            (g, candidate.iter().filter(|c| c.name == g.name).nth(k))
+        })
+        .collect()
+}
+
 /// Grade every saved step of a candidate `.result` file against a golden
 /// one: variables matched by exact name, steps by index. `allowed` is
 /// the Tier bar applied uniformly; per-field tables refine it later.
@@ -149,7 +167,6 @@ pub fn grade_results(
     candidate: &crate::result::ResultFile,
     allowed: f64,
 ) -> Vec<Mismatch> {
-    use std::collections::HashMap;
     let mut out = Vec::new();
     if golden.steps.len() != candidate.steps.len() {
         out.push(Mismatch {
@@ -162,16 +179,8 @@ pub fn grade_results(
         });
     }
     for (step, (g_step, c_step)) in golden.steps.iter().zip(candidate.steps.iter()).enumerate() {
-        let c_vars: HashMap<&str, &VariableData> =
-            c_step.vars.iter().map(|v| (v.name.as_str(), v)).collect();
-        for g_var in &g_step.vars {
-            out.extend(grade_variable(
-                &g_var.name,
-                step,
-                g_var,
-                c_vars.get(g_var.name.as_str()).copied(),
-                allowed,
-            ));
+        for (g_var, c_var) in pair_vars(&g_step.vars, &c_step.vars) {
+            out.extend(grade_variable(&g_var.name, step, g_var, c_var, allowed));
         }
     }
     out

@@ -171,7 +171,9 @@ fn tokenize(line: &str) -> Vec<String> {
     for c in line.chars() {
         match c {
             '"' => in_quote = !in_quote,
-            _ if (c.is_whitespace() || c == '(' || c == ')') && !in_quote => {
+            // An unquoted `;` separates CMake list elements, so
+            // `ElmerGrid 1 2 Step;` passes `Step` and nothing else.
+            _ if (c.is_whitespace() || c == '(' || c == ')' || c == ';') && !in_quote => {
                 flush(&mut cur, &mut tokens);
             }
             _ => cur.push(c),
@@ -255,7 +257,13 @@ pub fn plan_test(spec: &TestSpec, runtest: &str, np: u32, _arm: &Arm) -> Result<
                         "WORKING_DIRECTORY" => {
                             i += 1;
                         }
-                        _ => args.push(rest[i].clone()),
+                        // `cmake -P` runs in the test's binary dir, so
+                        // its current binary dir is the run dir itself.
+                        _ => args.push(
+                            rest[i]
+                                .replace("${MPIEXEC_NTASKS}", &np.to_string())
+                                .replace("${CMAKE_CURRENT_BINARY_DIR}", "."),
+                        ),
                     }
                     i += 1;
                 }
@@ -434,6 +442,27 @@ pub struct SifInject {
     pub o2: bool,
     /// Append `Linear System Save` + `Save Perm` to every Solver section.
     pub o2m: bool,
+    /// Raise (never lower) `Max Output Level` in the Simulation section,
+    /// so iteration counts reach the log as diagnostics.
+    pub max_output: Option<u32>,
+}
+
+impl SifInject {
+    pub fn is_active(&self) -> bool {
+        self.o2 || self.o2m || self.max_output.is_some()
+    }
+}
+
+/// Result file the O2 injection names for one sif. The startinfo sif keeps
+/// `case.result` (the name every existing golden uses); any other sif of a
+/// multi-sif test gets its own `<stem>.result`, so successive solver runs
+/// against the same mesh cannot overwrite each other's golden.
+pub fn result_name_for(sif: &str, startinfo: Option<&str>) -> String {
+    if startinfo.is_none_or(|s| s == sif) {
+        return String::from("case.result");
+    }
+    let stem = sif.strip_suffix(".sif").unwrap_or(sif);
+    format!("{stem}.result")
 }
 
 /// Insert capture keywords into every root-level `.sif` in `dir`.
@@ -441,6 +470,7 @@ pub struct SifInject {
 /// keywords are left untouched.
 pub fn inject_sif(dir: &Path, inj: &SifInject) -> Result<Vec<String>> {
     let mut modified = Vec::new();
+    let startinfo = read_startinfo(dir)?;
     let entries = std::fs::read_dir(dir).map_err(|e| io_with(dir, e))?;
     for entry in entries {
         let entry = entry.map_err(|e| io_with(dir, e))?;
@@ -448,9 +478,16 @@ pub fn inject_sif(dir: &Path, inj: &SifInject) -> Result<Vec<String>> {
         if path.extension().is_none_or(|e| e != "sif") {
             continue;
         }
-        let text = std::fs::read_to_string(&path).map_err(|e| io_with(&path, e))?;
-        let out = inject_text(&text, inj);
+        // Sifs are bytes, not UTF-8 (several quick tests carry Latin-1
+        // comments): decode each byte as one char so the round trip is
+        // lossless; the injection itself only adds ASCII.
+        let bytes = std::fs::read(&path).map_err(|e| io_with(&path, e))?;
+        let text: String = bytes.iter().map(|&b| char::from(b)).collect();
+        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let result_name = result_name_for(&name, startinfo.as_deref());
+        let out = inject_text(&text, inj, &result_name);
         if out != text {
+            let out: Vec<u8> = out.chars().map(|c| c as u32 as u8).collect();
             std::fs::write(&path, &out).map_err(|e| io_with(&path, e))?;
             modified.push(path.file_name().unwrap_or_default().to_string_lossy().to_string());
         }
@@ -458,21 +495,110 @@ pub fn inject_sif(dir: &Path, inj: &SifInject) -> Result<Vec<String>> {
     Ok(modified)
 }
 
-fn inject_text(text: &str, inj: &SifInject) -> String {
+/// Raise every parseable `Max Output Level` line to `level`; append one
+/// when the section has none. Returns the block lines to emit.
+fn raise_max_output(block: &[String], level: u32) -> Vec<String> {
+    let mut lines = block.to_vec();
+    let mut found = false;
+    for l in lines.iter_mut() {
+        if keyword_of(l).as_deref() != Some("max output level") {
+            continue;
+        }
+        let Some((head, tail)) = strip_sif_comment(l).split_once('=') else {
+            continue;
+        };
+        let head = head.to_string();
+        let value = tail.trim();
+        let value = value
+            .strip_prefix("Integer")
+            .or_else(|| value.strip_prefix("integer"))
+            .unwrap_or(value)
+            .trim();
+        if let Ok(v) = value.parse::<u32>() {
+            found = true;
+            if v < level {
+                *l = format!("{head}= {level}");
+            }
+        }
+    }
+    if !found {
+        lines.push(format!("  Max Output Level = {level}"));
+    }
+    lines
+}
+
+/// Whether a (comment-stripped) sif line opens a multi-line table that
+/// its own `End` closes: the value ends in a bare type word, optionally
+/// with interpolation modifiers (`Real`, `= Variable Time Real`,
+/// `Real cubic`), as `SectionContents` reads it. `Real MATC "..."` and
+/// `Integer 20` carry their value and open nothing.
+fn opens_table(line: &str) -> bool {
+    let value = line.rsplit_once('=').map_or(line, |(_, v)| v).to_lowercase();
+    let mut tokens: Vec<&str> = value.split_whitespace().collect();
+    while tokens
+        .last()
+        .is_some_and(|t| matches!(*t, "cubic" | "monotone" | "harmonic" | "linear"))
+    {
+        tokens.pop();
+    }
+    tokens
+        .last()
+        .is_some_and(|t| matches!(*t, "real" | "integer" | "logical" | "string" | "file"))
+}
+
+/// A sif line with its `!`/`#` comment removed (quotes respected).
+fn strip_sif_comment(line: &str) -> &str {
+    let mut in_quote = false;
+    for (i, c) in line.char_indices() {
+        match c {
+            '"' => in_quote = !in_quote,
+            '!' | '#' if !in_quote => return &line[..i],
+            _ => {}
+        }
+    }
+    line
+}
+
+/// Lowercased keyword of a `key = value` line, whitespace collapsed;
+/// `None` for comments, table rows and lines without `=`.
+fn keyword_of(line: &str) -> Option<String> {
+    let (key, _) = strip_sif_comment(line).split_once('=')?;
+    let key = key.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    (!key.is_empty()).then_some(key)
+}
+
+/// Insert the capture keywords into the Simulation and Solver sections of
+/// one sif, following the top level of `LoadInputFile`: directives
+/// (`Check Keywords`, `Echo`, `Include`, `RUN`), `Section :: key = value`
+/// one-liners and `/* */` blocks pass through; any other line opens a
+/// section closed by its `End` (table `End`s do not count).
+fn inject_text(text: &str, inj: &SifInject, result_name: &str) -> String {
     let mut out = String::new();
     let mut section = String::new();
     let mut block: Vec<String> = Vec::new();
+    // `Simulation :: Output File = ...` one-liners count as present.
+    let oneliner_output = text.lines().any(|l| {
+        let code = strip_sif_comment(l).to_lowercase();
+        code.split_once("::").is_some_and(|(sec, rest)| {
+            sec.trim() == "simulation" && keyword_of(rest).as_deref() == Some("output file")
+        })
+    });
     let flush = |out: &mut String, section: &str, block: &[String]| {
-        let is_simulation = section.eq_ignore_ascii_case("simulation");
-        let is_solver = section.to_lowercase().starts_with("solver");
-        let has_output = block.iter().any(|l| l.to_lowercase().contains("output file"));
-        let has_save = block.iter().any(|l| l.to_lowercase().contains("linear system save"));
-        for line in block {
+        let is_simulation = section.starts_with("simulation");
+        let is_solver = section.starts_with("solver");
+        let keys: Vec<String> = block.iter().filter_map(|l| keyword_of(l)).collect();
+        let has_output = oneliner_output || keys.iter().any(|k| k == "output file");
+        let has_save = keys.iter().any(|k| k == "linear system save");
+        let lines = match inj.max_output {
+            Some(level) if is_simulation => raise_max_output(block, level),
+            _ => block.to_vec(),
+        };
+        for line in &lines {
             out.push_str(line);
             out.push('\n');
         }
         if inj.o2 && is_simulation && !has_output {
-            out.push_str("  Output File = \"case.result\"\n");
+            out.push_str(&format!("  Output File = \"{result_name}\"\n"));
             out.push_str("  Binary Output = Logical True\n");
         }
         if inj.o2m && is_solver && !has_save {
@@ -480,27 +606,46 @@ fn inject_text(text: &str, inj: &SifInject) -> String {
             out.push_str("  Linear System Save Perm = Logical True\n");
         }
     };
+    let mut in_table = false;
+    let mut in_comment_block = false;
     for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.eq_ignore_ascii_case("end") && !section.is_empty() {
-            flush(&mut out, &section, &block);
-            block.clear();
-            section.clear();
+        let code = strip_sif_comment(line).trim();
+        let lower = code.to_lowercase();
+        if in_comment_block {
+            in_comment_block = lower != "*/";
             out.push_str(line);
             out.push('\n');
-        } else if section.is_empty() && !trimmed.is_empty() && !trimmed.starts_with('!') && !trimmed.contains('=') && !trimmed.starts_with('$') {
-            // Lines outside any section (leading comments, `Solver 1 ::`
-            // prefixes, the `RUN` trailer) pass through verbatim; only
-            // then does the new section start.
-            for pending in block.drain(..) {
-                out.push_str(&pending);
-                out.push('\n');
-            }
-            section = trimmed.to_string();
-            out.push_str(line);
-            out.push('\n');
-        } else {
+        } else if in_table {
+            // Elmer ends a table at the first row that starts with `end`.
+            in_table = !lower.starts_with("end");
             block.push(line.to_string());
+        } else if !section.is_empty() {
+            if lower == "end" {
+                flush(&mut out, &section, &block);
+                block.clear();
+                section.clear();
+                out.push_str(line);
+                out.push('\n');
+            } else {
+                in_table = opens_table(code);
+                block.push(line.to_string());
+            }
+        } else {
+            let directive = lower.is_empty()
+                || lower.starts_with('$')
+                || lower.contains("::")
+                || lower.starts_with("include")
+                || lower.starts_with("echo ")
+                || lower.starts_with("check ")
+                || lower == "run"
+                || lower == "stop";
+            if lower == "/*" {
+                in_comment_block = true;
+            } else if !directive {
+                section = lower;
+            }
+            out.push_str(line);
+            out.push('\n');
         }
     }
     // Unterminated trailing block: flush without injection.
@@ -518,12 +663,9 @@ fn inject_text(text: &str, inj: &SifInject) -> String {
      plan: &Plan,
      source_dir: &Path,
      run_dir: &Path,
-    inject: Option<&SifInject>,
+    staging: &Staging,
  ) -> Result<RunOutcome> {
-     stage_tree(source_dir, run_dir)?;
-    if let Some(inj) = inject {
-        inject_sif(run_dir, inj)?;
-    }
+    stage_test(arm, source_dir, run_dir, staging)?;
     for step in &plan.steps {
         match step {
             Step::Tool { bin, args } => {
@@ -598,6 +740,165 @@ fn inject_text(text: &str, inj: &SifInject) -> String {
             .unwrap_or(false),
         exit_ok: true,
         failed_step: None,
+        compare_lines: compare_lines(&stdout),
+        cpu_time: parse_total_time(&stdout, 1),
+        real_time: parse_total_time(&stdout, 2),
+    })
+}
+
+/// What the oracle adds to a staged test beyond its sources.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Staging {
+    pub inject: Option<SifInject>,
+    /// Directories to create in the run dir before any step runs: the
+    /// homes of solver-internal meshes (`<mesh>-isomesh`, split meshes)
+    /// that exist only in memory, so the injected `Output File`, which
+    /// Elmer writes as `<mesh name>/<file>`, has somewhere to land.
+    pub mkdirs: Vec<String>,
+}
+
+/// Copy the test sources into `run_dir`, add the arm's own build of any
+/// test-local plugin, then apply the capture injection.
+fn stage_test(arm: &Arm, source_dir: &Path, run_dir: &Path, staging: &Staging) -> Result<()> {
+    stage_tree(source_dir, run_dir)?;
+    if let Some(dir) = source_dir.file_name() {
+        stage_arm_modules(&arm.build_dir.join("fem").join("tests").join(dir), run_dir)?;
+    }
+    if let Some(inj) = &staging.inject {
+        inject_sif(run_dir, inj)?;
+    }
+    for d in &staging.mkdirs {
+        let path = run_dir.join(d);
+        std::fs::create_dir_all(&path).map_err(|e| io_with(&path, e))?;
+    }
+    Ok(())
+}
+
+/// Output directories a failed run could not open: the parent of every
+/// `Cannot open file '<dir>/<name>.result...'` the solver logs report.
+/// Only result files the injection asked for qualify, so a test whose own
+/// inputs are missing is never papered over.
+pub fn missing_output_dirs(run_dir: &Path) -> Vec<String> {
+    let mut dirs = Vec::new();
+    let Ok(entries) = std::fs::read_dir(run_dir) else {
+        return dirs;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "log") {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(&bytes);
+        for piece in text.split("Cannot open file '").skip(1) {
+            let Some((file, _)) = piece.split_once('\'') else {
+                continue;
+            };
+            let Some((dir, name)) = file.rsplit_once('/') else {
+                continue;
+            };
+            let is_result = name.ends_with(".result")
+                || name
+                    .rsplit_once(".result.")
+                    .is_some_and(|(_, n)| n.bytes().all(|b| b.is_ascii_digit()));
+            if is_result
+                && !dir.is_empty()
+                && !dir.starts_with('/')
+                && !dir.contains("..")
+                && !dirs.iter().any(|d| d == dir)
+            {
+                dirs.push(dir.to_string());
+            }
+        }
+    }
+    dirs.sort();
+    dirs
+}
+
+/// `ADD_ELMERTEST_MODULE` builds test-local plugins into the arm's binary
+/// test directory, never the source tree; each arm uses its own build of
+/// them (the FMA arm's plugin carries the FMA flags too).
+fn stage_arm_modules(build_test_dir: &Path, run_dir: &Path) -> Result<()> {
+    let Ok(entries) = std::fs::read_dir(build_test_dir) else {
+        return Ok(());
+    };
+    for entry in entries {
+        let entry = entry.map_err(|e| io_with(build_test_dir, e))?;
+        let src = entry.path();
+        if src.is_file() && src.extension().is_some_and(|e| e == "so") {
+            let dst = run_dir.join(entry.file_name());
+            std::fs::copy(&src, &dst).map_err(|e| io_with(&src, e))?;
+        }
+    }
+    Ok(())
+}
+
+/// Replay a registered test's own `runtest.cmake` through `cmake -P` in a
+/// staged run dir, with the arguments ctest would pass (container paths
+/// remapped to the host). This is the faithful path for tests whose
+/// `runtest.cmake` carries custom logic (`IF`, macros, `file(...)`) that
+/// [`plan_test`] refuses to interpret: the verdict is CMake's own, a zero
+/// exit plus a passing `TEST.PASSED`.
+pub fn run_replay(
+    arm: &Arm,
+    reg: &crate::registry::RegisteredTest,
+    source_dir: &Path,
+    run_dir: &Path,
+    staging: &Staging,
+) -> Result<RunOutcome> {
+    stage_test(arm, source_dir, run_dir, staging)?;
+    let recorded = reg.define("BINARY_DIR").ok_or_else(|| {
+        OracleError::Parse(format!("{}: registration has no BINARY_DIR", reg.name))
+    })?;
+    let mut args: Vec<String> = Vec::new();
+    let mut iter = reg.command.iter().skip(1);
+    while let Some(a) = iter.next() {
+        if a == "-P" {
+            // Run the staged copy, never the source tree's.
+            iter.next();
+            args.push(a.clone());
+            args.push(run_dir.join("runtest.cmake").display().to_string());
+            continue;
+        }
+        args.push(crate::registry::remap_arg(a, recorded, &arm.build_dir));
+    }
+    let passed_name = if reg.np > 1 {
+        format!("TEST.PASSED_{}", reg.np)
+    } else {
+        String::from("TEST.PASSED")
+    };
+    let _ = std::fs::remove_file(run_dir.join(&passed_name));
+    let build = arm.build_dir.display().to_string();
+    let output = Command::new("cmake")
+        .args(&args)
+        .current_dir(run_dir)
+        .env("LD_LIBRARY_PATH", arm_lib_dirs(&build))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| OracleError::SolverFailed(format!("spawn cmake replay: {e}")))?;
+    std::fs::write(run_dir.join("replay-stdout.log"), &output.stdout)
+        .map_err(|e| io_with(&run_dir.join("replay-stdout.log"), e))?;
+    std::fs::write(run_dir.join("replay-stderr.log"), &output.stderr)
+        .map_err(|e| io_with(&run_dir.join("replay-stderr.log"), e))?;
+    // An MPI-enabled build names the logs `_<ntasks>` even for one task.
+    let stdout = std::fs::read_to_string(run_dir.join(format!("test-stdout_{}.log", reg.np)))
+        .or_else(|_| std::fs::read_to_string(run_dir.join("test-stdout.log")))
+        .unwrap_or_default();
+    let verdict = std::fs::read_to_string(run_dir.join(&passed_name))
+        .map(|s| s.trim() == "1")
+        .unwrap_or(false);
+    let passed = verdict && output.status.success();
+    Ok(RunOutcome {
+        passed,
+        exit_ok: output.status.success(),
+        failed_step: if passed {
+            None
+        } else {
+            Some(format!("cmake replay exited {}", output.status))
+        },
         compare_lines: compare_lines(&stdout),
         cpu_time: parse_total_time(&stdout, 1),
         real_time: parse_total_time(&stdout, 2),
@@ -843,6 +1144,101 @@ mod tests {
     }
 
     #[test]
+    fn tool_args_split_lists_and_expand_ntasks() {
+        let runtest = "include(test_macros)\nexecute_process(COMMAND ${ELMERGRID_BIN} 1 2 Step;)\nexecute_process(COMMAND ${ELMERGRID_BIN} 1 2 a.grd -metis ${MPIEXEC_NTASKS} 3)\nRUN_ELMER_TEST()\n";
+        let plan = plan_test(&spec(), runtest, 4, &test_arm()).unwrap();
+        let args: Vec<_> = plan
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                Step::Tool { args, .. } => Some(args.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(args[0], vec!["1", "2", "Step"]);
+        assert_eq!(args[1], vec!["1", "2", "a.grd", "-metis", "4", "3"]);
+    }
+
+    #[test]
+    fn max_output_raises_never_lowers() {
+        let sif = "Simulation\n  Max Output Level = 3\nEnd\n";
+        let inj = SifInject { o2: false, o2m: false, max_output: Some(5) };
+        let once = inject_text(sif, &inj, "case.result");
+        assert!(once.contains("Max Output Level = 5"));
+        assert_eq!(inject_text(&once, &inj, "case.result"), once);
+        let high = "Simulation\n  Max Output Level = 30\nEnd\n";
+        assert_eq!(inject_text(high, &inj, "case.result"), high);
+        let none = inject_text("Simulation\nEnd\n", &inj, "case.result");
+        assert!(none.contains("Max Output Level = 5"));
+    }
+
+    #[test]
+    fn non_startinfo_sifs_get_their_own_result_file() {
+        assert_eq!(result_name_for("case.sif", Some("case.sif")), "case.result");
+        assert_eq!(result_name_for("case.sif", None), "case.result");
+        assert_eq!(result_name_for("quad.sif", Some("tet.sif")), "quad.result");
+    }
+
+    #[test]
+    fn missing_output_dirs_reads_only_result_targets() {
+        let dir = std::env::temp_dir().join(format!("elmer-oracle-mod-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("test-stderr.log"),
+            "Fortran runtime error: Cannot open file 'square-tri-isomesh/case.result': No such file\n\
+             Fortran runtime error: Cannot open file 'part/case.result.3': No such file\n\
+             Fortran runtime error: Cannot open file 'mesh/mesh.nodes': No such file\n",
+        )
+        .unwrap();
+        assert_eq!(missing_output_dirs(&dir), vec!["part", "square-tri-isomesh"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn latin1_sif_survives_injection_byte_for_byte() {
+        let dir = std::env::temp_dir().join(format!("elmer-oracle-l1-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut sif = b"! Bj\xf6rn's case\nSimulation\n  Simulation Type = Steady\nEnd\n".to_vec();
+        std::fs::write(dir.join("case.sif"), &sif).unwrap();
+        let inj = SifInject { o2: true, o2m: false, max_output: None };
+        inject_sif(&dir, &inj).unwrap();
+        let out = std::fs::read(dir.join("case.sif")).unwrap();
+        let tail = b"  Output File = \"case.result\"\n  Binary Output = Logical True\nEnd\n";
+        sif.truncate(sif.len() - 4);
+        sif.extend_from_slice(tail);
+        assert_eq!(out, sif);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn table_end_does_not_close_the_section() {
+        let sif = "Simulation\n  Density = Variable Coordinate 1\n    Real\n      0 1\n      1 2\n    End\n  Max Output Level = 5\nEnd\n";
+        let inj = SifInject { o2: true, o2m: false, max_output: None };
+        let out = inject_text(sif, &inj, "case.result");
+        let table_end = out.find("    End\n").unwrap();
+        let output = out.find("Output File").unwrap();
+        assert!(output > table_end, "injected inside the table:\n{out}");
+        assert!(out.ends_with("  Binary Output = Logical True\nEnd\n"));
+        assert!(opens_table("Real cubic"));
+        assert!(opens_table("Name = Variable Time Real"));
+        assert!(!opens_table("Real MATC \"1+tx\""));
+        assert!(!opens_table("Extruded Mesh Levels = Integer 20"));
+    }
+
+    #[test]
+    fn directives_and_comments_do_not_hide_sections() {
+        let sif = "Check Keywords \"Warn\"\n\nHeader :: Mesh DB \".\" \"square\"\n\nSimulation\n! Output File = \"old.dat\"\n! Max Output Level = 3\n  Max Output Level = 4\nEnd\n/*\nSolver 9\nEnd\n*/\nSolver 1 :: Reference Norm = 1.0\nRUN\n";
+        let inj = SifInject { o2: true, o2m: true, max_output: Some(5) };
+        let out = inject_text(sif, &inj, "case.result");
+        assert!(out.contains("  Output File = \"case.result\"\n"), "{out}");
+        assert!(out.contains("! Max Output Level = 3\n"), "comment rewritten: {out}");
+        assert!(out.contains("  Max Output Level = 5\n"), "{out}");
+        // The commented-out Solver 9 inside /* */ gains nothing.
+        assert!(!out.contains("Linear System Save"), "{out}");
+        assert!(out.ends_with("Solver 1 :: Reference Norm = 1.0\nRUN\n"));
+    }
+
+    #[test]
     fn mpi_plan_names_suffixed_files() {
         let runtest = "include(test_macros)\nRUN_ELMER_TEST()\n";
         let plan = plan_test(&spec(), runtest, 4, &test_arm()).unwrap();
@@ -906,8 +1302,8 @@ mod tests {
     #[test]
     fn injection_targets_sections_and_is_idempotent() {
         let sif = "Header\n  Mesh DB = \".\" \"m\"\nEnd\n\nSimulation\n  Simulation Type = \"Steady State\"\nEnd\n\nSolver 1\n  Equation = \"Heat Equation\"\nEnd\n";
-        let inj = SifInject { o2: true, o2m: true };
-        let once = inject_text(sif, &inj);
+        let inj = SifInject { o2: true, o2m: true, max_output: None };
+        let once = inject_text(sif, &inj, "case.result");
         assert!(once.contains("Output File = \"case.result\""));
         assert!(once.contains("Binary Output = Logical True"));
         assert!(once.contains("Linear System Save = Logical True"));
@@ -918,14 +1314,14 @@ mod tests {
         let solver = once.split("Solver 1").nth(1).unwrap();
         assert!(!solver.contains("Output File"));
         // Second pass changes nothing.
-        assert_eq!(inject_text(&once, &inj), once);
+        assert_eq!(inject_text(&once, &inj, "case.result"), once);
     }
 
     #[test]
     fn injection_skips_files_without_target_sections() {
         let sif = "Header\n  Mesh DB = \".\" \"m\"\nEnd\n";
-        let inj = SifInject { o2: true, o2m: true };
-        assert_eq!(inject_text(sif, &inj), sif);
+        let inj = SifInject { o2: true, o2m: true, max_output: None };
+        assert_eq!(inject_text(sif, &inj, "case.result"), sif);
     }
 
     #[test]
@@ -934,10 +1330,10 @@ mod tests {
         // section; a bare word like RUN must not eat them (HeatControl2
         // lost its Reference Norm this way and graded vacuous).
         let sif = "Solver 1\n  Equation = \"Heat Equation\"\nEnd\n\nSolver 1 :: Reference Norm = 428.79\nRUN\n";
-        let idle = SifInject { o2: false, o2m: false };
-        assert_eq!(inject_text(sif, &idle), sif);
-        let inj = SifInject { o2: true, o2m: true };
-        let once = inject_text(sif, &inj);
+        let idle = SifInject { o2: false, o2m: false, max_output: None };
+        assert_eq!(inject_text(sif, &idle, "case.result"), sif);
+        let inj = SifInject { o2: true, o2m: true, max_output: None };
+        let once = inject_text(sif, &inj, "case.result");
         assert!(once.contains("Solver 1 :: Reference Norm = 428.79"));
         assert!(once.contains("\nRUN\n"));
     }
