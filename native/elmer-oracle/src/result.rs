@@ -360,6 +360,28 @@ fn parse_ascii_result(buf: &[u8], origin: &str) -> Result<ResultFile> {
     Ok(ResultFile { steps })
 }
 
+/// `SIZE(Var % Values)` per variable name, from a result file's preamble
+/// (either form): the full length of each solver array, whether or not
+/// every entry is reachable through the Perm.
+pub fn value_sizes(buf: &[u8]) -> Vec<(String, usize)> {
+    let end = buf
+        .iter()
+        .position(|&b| b == 0)
+        .or_else(|| buf.windows(6).position(|w| w == b"\nTime:"))
+        .unwrap_or(buf.len());
+    preamble_sizes(&buf[..end])
+}
+
+/// `Number Of Nodes:` from a result file's preamble (the mesh's nodal
+/// count; a longer Perm carries edge, face or DG entries).
+pub fn number_of_nodes(buf: &[u8]) -> Option<usize> {
+    let head = &buf[..buf.len().min(1 << 16)];
+    let text = String::from_utf8_lossy(head);
+    text.lines()
+        .find_map(|l| l.trim().strip_prefix("Number Of Nodes:"))
+        .and_then(|n| n.trim().parse().ok())
+}
+
 /// Read and parse a `.result` file (binary or ASCII) from disk.
 pub fn read_result_file(path: &Path) -> Result<ResultFile> {
     let buf = std::fs::read(path).map_err(|e| io_with(path, e))?;

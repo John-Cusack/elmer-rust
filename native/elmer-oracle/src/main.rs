@@ -4,7 +4,7 @@ use elmer_oracle::manifest::{hash_tree, Manifest};
 use elmer_oracle::registry::read_registry_under;
 use elmer_oracle::runner::{
     discover_tests, known_bins, missing_output_dirs, parse_cmakelists, plan_test, read_runtest, read_startinfo,
-    run_plan, run_replay, Arm, SifInject, Staging,
+    run_plan, run_replay, Arm, SifInject, Staging, Step,
 };
 use std::path::{Path, PathBuf};
 
@@ -14,6 +14,7 @@ fn usage() -> ! {
     eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE]");
     eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE]");
     eprintln!("  elmer-oracle registry <build-dir> [--label L|'!L'] [--suite fem/tests|elmerice]");
+    eprintln!("  elmer-oracle refnorm-validate <build-dir> <tests-dir> <golden-root> <out-root>");
     eprintln!("  elmer-oracle grade-tree <tests-dir> <golden-root> <candidate-root> <tolerances.json> [--fallback X]");
     eprintln!("  elmer-oracle mutation-suite <tests-dir> <golden-root> <tolerances.json> [--fallback X]");
     eprintln!("  elmer-oracle sigma-table <tests-dir> <out.json> <golden-root> <arm=root>...");
@@ -121,6 +122,7 @@ fn execute(args: &[String]) -> Executed {
     let mut staging = Staging {
         inject: inj.is_active().then_some(inj),
         mkdirs: Vec::new(),
+        refnorms: Vec::new(),
     };
     let outcome = loop {
         let result = match (&plan.custom, &registered) {
@@ -164,6 +166,138 @@ fn execute(args: &[String]) -> Executed {
     Executed {
         passed: outcome.passed,
         arm: arm.name,
+    }
+}
+
+/// One test of `refnorm-validate`: (verdict, solvers validated, detail).
+fn refnorm_one(
+    arm: &Arm,
+    tests_dir: &Path,
+    golden_root: &Path,
+    out_root: &Path,
+    test: &str,
+    dir: &str,
+    np: &str,
+) -> (String, usize, String) {
+    let skip = |why: &str| (String::from("out-of-class"), 0, why.to_string());
+    if np != "1" {
+        return skip("MPI");
+    }
+    let src = tests_dir.join(dir);
+    let Ok(cmake) = std::fs::read_to_string(src.join("CMakeLists.txt")) else {
+        return skip("no CMakeLists.txt");
+    };
+    let mut spec = parse_cmakelists(dir, &cmake);
+    spec.startinfo_sif = read_startinfo(&src).ok().flatten();
+    let Some(sif) = spec.startinfo_sif.clone() else {
+        return skip("no ELMERSOLVER_STARTINFO");
+    };
+    let Ok(runtest) = read_runtest(&src) else {
+        return skip("no runtest");
+    };
+    let Ok(plan) = plan_test(&spec, &runtest, 1, arm) else {
+        return skip("plan error");
+    };
+    if plan.custom.is_some() {
+        return skip("custom runtest (replay)");
+    }
+    let solver_steps = plan.steps.iter().filter(|s| matches!(s, Step::Solver { .. })).count();
+    if solver_steps != 1 {
+        return skip("several solver runs");
+    }
+    let text: String = std::fs::read(src.join(&sif))
+        .unwrap_or_default()
+        .iter()
+        .map(|&b| char::from(b))
+        .collect();
+    let solvers = match elmer_oracle::refnorm::reference_solvers(&text) {
+        Ok(s) if s.is_empty() => return skip("no Reference Norm in a Solver section"),
+        Ok(s) => s,
+        Err(why) => return skip(&why),
+    };
+    let golden_run = golden_root.join(test).join("run");
+    let files = elmer_oracle::sigma::result_files(&golden_run, &src).unwrap_or_default();
+    let mut refnorms = Vec::new();
+    let mut notes = Vec::new();
+    let mut non_nodal = false;
+    for s in &solvers {
+        let var = match &s.variable {
+            Ok(v) => v,
+            Err(why) => {
+                notes.push(format!("solver {}: {why}", s.number));
+                continue;
+            }
+        };
+        // The variable must live in exactly one result file: several
+        // meshes carrying one name leave the solver's own copy ambiguous.
+        let mut found = Vec::new();
+        let mut why = String::from("not in any result file");
+        for f in &files {
+            let path = golden_run.join(f);
+            let (Ok(r), Ok(buf)) =
+                (elmer_oracle::result::read_result_file(&path), std::fs::read(&path))
+            else {
+                continue;
+            };
+            if !r.steps.iter().any(|st| st.vars.iter().any(|v| v.name.to_lowercase() == *var)) {
+                continue;
+            }
+            let sizes = elmer_oracle::result::value_sizes(&buf);
+            let nodes = elmer_oracle::result::number_of_nodes(&buf);
+            non_nodal |= elmer_oracle::refnorm::non_nodal(&r, nodes, var);
+            match elmer_oracle::refnorm::golden_norm(&r, &sizes, var) {
+                Ok(n) => found.push(n),
+                Err(e) => {
+                    why = e;
+                    found.push(f64::NAN);
+                }
+            }
+        }
+        match found.as_slice() {
+            [n] if !n.is_nan() => refnorms.push((s.number, *n)),
+            [_] => notes.push(format!("solver {}: {var}: {why}", s.number)),
+            [] => notes.push(format!("solver {}: {var} {why}", s.number)),
+            _ => notes.push(format!("solver {}: {var} in several result files", s.number)),
+        }
+    }
+    if refnorms.is_empty() {
+        return skip(&notes.join("; "));
+    }
+    if text.to_lowercase().lines().any(|l| {
+        let code = l.split('!').next().unwrap_or("");
+        code.contains("adaptive mesh refinement") && code.contains("true")
+    }) {
+        return skip("adaptive remeshing (O1+O4 class)");
+    }
+    let run_dir = out_root.join(test);
+    if run_dir.exists() {
+        return skip("run dir exists; use a fresh out-root");
+    }
+    let mut staging = Staging {
+        inject: Some(SifInject { o2: true, ..SifInject::default() }),
+        mkdirs: Vec::new(),
+        refnorms: refnorms.clone(),
+    };
+    let solvers_n = refnorms.len();
+    // Same in-memory-mesh retry as `capture`.
+    let mut result = run_plan(arm, &spec, &plan, &src, &run_dir, &staging);
+    if result.as_ref().is_ok_and(|o| !o.passed) {
+        let missing = missing_output_dirs(&run_dir);
+        if !missing.is_empty() && std::fs::remove_dir_all(&run_dir).is_ok() {
+            staging.mkdirs = missing;
+            result = run_plan(arm, &spec, &plan, &src, &run_dir, &staging);
+        }
+    }
+    match result {
+        Ok(o) if o.passed => (String::from("bitwise"), solvers_n, notes.join("; ")),
+        Ok(o) => {
+            notes.extend(o.compare_lines.iter().filter(|l| l.contains("FAILED")).cloned());
+            // A known grader gap, not a capture failure: edge, face and DG
+            // unknowns follow solver-specific norm paths.
+            let verdict = if non_nodal { "grader-gap-non-nodal" } else { "MISMATCH" };
+            (String::from(verdict), solvers_n, notes.join("; "))
+        }
+        Err(e) => (String::from("ERROR"), solvers_n, e.to_string()),
     }
 }
 
@@ -410,6 +544,37 @@ fn main() {
             if errors > 0 {
                 std::process::exit(1);
             }
+        }
+        "refnorm-validate" => {
+            // refnorm-validate <build-dir> <tests-dir> <golden-root> <out-root>:
+            // §4.3 item 2 on the eligible class (see refnorm.rs).
+            if args.len() < 6 {
+                usage();
+            }
+            let build_dir = PathBuf::from(&args[2]);
+            let tests_dir = PathBuf::from(&args[3]);
+            let golden_root = PathBuf::from(&args[4]);
+            let out_root = PathBuf::from(&args[5]);
+            let registry = std::fs::read_to_string(golden_root.join("registry.tsv"))
+                .unwrap_or_else(|_| usage());
+            let arm = arm_from_build(build_dir, "release");
+            let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+            // Rows go to <out-root>/refnorm.tsv: tool steps inherit stdout.
+            let mut rows = vec![String::from("test\tverdict\tsolvers\tdetail")];
+            for line in registry.lines() {
+                let cols: Vec<&str> = line.split('\t').collect();
+                let (test, dir, np) = (cols[0], cols[1], cols.get(2).copied().unwrap_or("1"));
+                let (verdict, solvers, detail) =
+                    refnorm_one(&arm, &tests_dir, &golden_root, &out_root, test, dir, np);
+                let key = verdict.split(':').next().unwrap_or(&verdict).to_string();
+                *counts.entry(key).or_default() += 1;
+                rows.push(format!("{test}\t{verdict}\t{solvers}\t{detail}"));
+            }
+            std::fs::create_dir_all(&out_root).unwrap_or_else(|_| usage());
+            std::fs::write(out_root.join("refnorm.tsv"), rows.join("\n") + "\n")
+                .unwrap_or_else(|_| usage());
+            let summary: Vec<String> = counts.iter().map(|(k, v)| format!("{k}={v}")).collect();
+            eprintln!("{}", summary.join(" "));
         }
         "grade-tree" => {
             // grade-tree <tests-dir> <golden-root> <candidate-root> <tolerances.json> [--fallback X]:

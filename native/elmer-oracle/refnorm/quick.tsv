@@ -1,0 +1,483 @@
+test	verdict	solvers	detail
+1dtests	bitwise	1	
+1dtests_MeshLevels	bitwise	1	
+AdvDiffFluxes	out-of-class	0	4 RUN blocks
+AdvDiffMigration	bitwise	2	
+AdvDiffMigrationAbsMass	bitwise	2	
+AdvDiffSoret	bitwise	2	
+AdvDiffSoretAbsMass	bitwise	2	
+AdvReactDB	bitwise	1	
+AdvReactDB_np6	out-of-class	0	MPI
+AdvReactDBmap	bitwise	1	
+AdvReactDBmap_np6	out-of-class	0	MPI
+AdvReactDG	bitwise	1	
+AdvReactDG_P	bitwise	1	
+AdvReactDG_np6	out-of-class	0	MPI
+AnalyticalTest	out-of-class	0	two Solver 1 sections (merged by Elmer)
+AngleMetisLayer	bitwise	1	
+AngleMetisLayer_np2	out-of-class	0	MPI
+AngleMetisLayer_np3	out-of-class	0	MPI
+AngleMetisLayer_np4	out-of-class	0	MPI
+BDM2D	bitwise	1	
+BlockLinElast1	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+BlockLinElast2	out-of-class	0	solver 1: disp not in any result file
+BlockLinElast2b	out-of-class	0	solver 1: disp not in any result file
+BlockLinElast2bMany	out-of-class	0	solver 1: dispa not in any result file; solver 2: dispb not in any result file
+BlockPoisson1	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+BlockPoisson2	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+BoundaryFluxes	out-of-class	0	solver 2: norm option show norm index
+BoundaryFluxes2	out-of-class	0	solver 2: norm option show norm index
+CapacitanceMatrix	bitwise	1	
+CapacitanceMatrix3	bitwise	1	solver 3: norm option show norm
+CapacitanceMatrix3_np3	out-of-class	0	MPI
+CapacitanceMatrix4	bitwise	1	solver 3: norm option show norm
+CapacitanceMatrix4_np3	out-of-class	0	MPI
+CavityLid	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+ChannelFlowCoulomb	out-of-class	0	custom runtest (replay)
+CoilSolver1	out-of-class	0	solver 1: no explicit Variable (legacy or default name); solver 2: no explicit Variable (legacy or default name); solver 3: no explicit Variable (legacy or default name)
+CoilSolver1_np2	out-of-class	0	MPI
+CoilSolver1_np4	out-of-class	0	MPI
+CoilSolver2	out-of-class	0	two Solver 1 sections (merged by Elmer)
+CoilSolver3	out-of-class	0	two Solver 1 sections (merged by Elmer)
+CoilSolver4	out-of-class	0	two Solver 1 sections (merged by Elmer)
+CoilSolver5	out-of-class	0	two Solver 1 sections (merged by Elmer)
+CoilSolver6	out-of-class	0	two Solver 1 sections (merged by Elmer)
+CoilSolverLoop	out-of-class	0	solver 1: no explicit Variable (legacy or default name); solver 2: no explicit Variable (legacy or default name)
+CoilSolverLoop_np2	out-of-class	0	MPI
+CoilSolverLoop_np4	out-of-class	0	MPI
+ComponentResistance	bitwise	1	solver 2: norm option show norm index
+ComponentResistance_np4	out-of-class	0	MPI
+ConstantBCTemperature	bitwise	1	solver 2: norm option show norm index
+ConstantUnknownPotStatCurrent	bitwise	1	solver 2: norm option show norm index
+ConstantUnknownPotStatCurrent2	bitwise	1	solver 2: norm option show norm index
+ContactPatch2D	out-of-class	0	solver 1: multi-dof variable
+ContactPatch2DIncompressible	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+ContactPatch2Dnt	out-of-class	0	solver 2: multi-dof variable
+ContactPatch2Dtie	out-of-class	0	solver 1: multi-dof variable
+CoordinateScaling	bitwise	1	
+CoordinateTrans	bitwise	1	
+CoupledPoisson1	bitwise	1	
+CoupledPoisson1b	bitwise	1	
+CoupledPoisson3	out-of-class	0	solver 1: alldofs not in any result file
+CoupledPoisson4	out-of-class	0	solver 1: alldofs not in any result file
+CoupledPoisson5	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+CoupledPoisson6	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+CoupledPoisson7	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+CoupledPoisson8	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+CoupledPoisson9	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+CurvedBndryPFEM	bitwise	1	
+CurvedBndryPFEM2	bitwise	1	
+CurvedBoundaryP	bitwise	1	solver 2: norm option show norm index
+CurvedBoundaryPatchH	bitwise	1	
+CutFEMPoisson1	out-of-class	0	solver 1: potential in several result files; solver 2: norm option show norm index
+CutFEMPoisson1Lib	out-of-class	0	solver 1: potential in several result files; solver 2: norm option show norm index
+CutFEMPoisson1LibLim	out-of-class	0	solver 1: potential in several result files; solver 2: norm option show norm index
+CutFEMPoisson2	out-of-class	0	solver 1: potential in several result files; solver 2: norm option show norm index
+CutFEMPoisson3	out-of-class	0	solver 1: potential in several result files; solver 2: norm option show norm index
+DataToField	bitwise	1	
+DataToField2	bitwise	1	
+DefaultIntExtBCs	bitwise	1	
+DgVariable	bitwise	1	solver 2: norm option show norm index
+DgVariable2	bitwise	1	solver 2: norm option show norm index
+DirichletNeumann	bitwise	1	
+DirichletNeumannSlave	bitwise	1	
+DisContBoundary	bitwise	1	
+DisContBoundary3D	bitwise	1	
+DisContBoundaryDouble	bitwise	1	
+DisContBoundaryDoubleMortar	bitwise	1	
+DisContBoundaryDoubleNames	bitwise	1	
+DisContBoundaryFullAngle	bitwise	1	
+DisContBoundaryMortarCont	bitwise	1	
+DisContBoundaryMortarContElim	bitwise	1	
+DisContBoundaryMortarJump	bitwise	1	
+DisContBoundaryMortarJumpC	bitwise	1	
+DisContBoundaryNodalJump	bitwise	1	
+DisContBoundaryNodalJumpB	bitwise	1	
+DisContBoundaryNodalProj	bitwise	1	
+DiscontinuousTempSlabDG	bitwise	2	
+EMWavePiola2D	out-of-class	0	solver 1: e not in any result file
+EM_port_eigen_unit_voltage	out-of-class	0	solver 3: norm option show norm index
+ElastElstat1DBeam	out-of-class	0	solver 1: displacement not in any result file
+ElastElstatBeam	out-of-class	0	solver 3: displacement not in any result file
+ElastPelem2dQuad	out-of-class	0	solver 1: multi-dof variable; solver 2: norm option show norm index
+ElastPelem2dTri	out-of-class	0	solver 1: multi-dof variable; solver 2: norm option show norm index
+ElasticAnisotropic2D	out-of-class	0	2 RUN blocks
+ElasticAnisotropic3D	out-of-class	0	solver 2: norm option show norm index
+ElasticAnisotropicAxi	out-of-class	0	solver 2: norm option show norm index
+ElasticBlockDamping	out-of-class	0	solver 1: multi-dof variable; solver 2: multi-dof variable
+ElasticBlockDampingAlpha	out-of-class	0	solver 1: multi-dof variable; solver 2: multi-dof variable
+ElasticBlockDampingFirstOrder	out-of-class	0	solver 1: multi-dof variable; solver 2: multi-dof variable
+ElasticBlockInertia	out-of-class	0	solver 1: multi-dof variable; solver 2: multi-dof variable
+ElasticBlockQuasiStationary	out-of-class	0	solver 1: multi-dof variable; solver 2: multi-dof variable
+ElasticBubbleBoundaryRule3D	out-of-class	0	solver 1: vector variable; solver 2: vector variable
+ElasticBuckling	out-of-class	0	solver 2: norm option show norm
+ElasticConstantSystem	out-of-class	0	3 RUN blocks
+ElasticConstantSystemFull	out-of-class	0	2 RUN blocks
+ElasticCylindric	out-of-class	0	solver 1: multi-dof variable
+ElasticGeomStiff	out-of-class	0	solver 2: norm option show norm
+ElasticIncompressible	out-of-class	0	solver 1: vector variable; solver 2: vector variable; solver 3: norm option show norm index
+ElasticIncompressible3D	out-of-class	0	solver 1: vector variable; solver 2: vector variable
+ElasticIncompressibleP2	out-of-class	0	solver 1: vector variable; solver 2: vector variable; solver 3: norm option show norm index
+ElasticIntegrationOrder	out-of-class	0	3 RUN blocks
+ElasticMaxwellStressLoad	out-of-class	0	solver 1: multi-dof variable; solver 2: norm option show norm index
+ElasticModelLumping	out-of-class	0	solver 1: multi-dof variable
+ElasticModelLumpingFixdisp	out-of-class	0	solver 1: multi-dof variable; solver 2: norm option show norm index
+ElasticNeoHookeanCompressible	out-of-class	0	solver 2: norm option show norm index
+ElasticPrestressAdvection	out-of-class	0	solver 1: vector variable; solver 2: vector variable
+ElasticStabilized	out-of-class	0	custom runtest (replay)
+ElasticStressLoad	out-of-class	0	solver 2: norm option show norm index
+ElasticStressLoadPlane	out-of-class	0	solver 2: norm option show norm index
+ElasticThermalAnisotropic	out-of-class	0	solver 2: norm option show norm index
+ElasticThermalBiMetal	out-of-class	0	solver 1: displacement not in any result file
+ElasticTwoInstances	out-of-class	0	solver 1: vector variable; solver 2: vector variable; solver 3: norm option show norm index
+ElasticTwoInstancesP2	out-of-class	0	solver 1: vector variable; solver 2: vector variable; solver 3: norm option show norm index
+ElemVariable	bitwise	1	solver 2: norm option show norm index
+ElemVariable2	bitwise	1	solver 2: norm option show norm index
+ElementUnitTest_edge	out-of-class	0	12 RUN blocks
+ElementUnitTest_edge_piola	out-of-class	0	12 RUN blocks
+ElementUnitTest_edge_quadratic	out-of-class	0	12 RUN blocks
+ElementUnitTest_h1	out-of-class	0	12 RUN blocks
+ElementUnitTest_p1	out-of-class	0	12 RUN blocks
+ElmerGridConvertComsol	bitwise	1	solver 1: no explicit Variable (legacy or default name)
+ElmerGridConvertFvcom	bitwise	1	solver 1: no explicit Variable (legacy or default name)
+ElmerGridConvertGmshBinary	bitwise	1	solver 1: no explicit Variable (legacy or default name)
+ElmerGridConvertUnv	bitwise	1	solver 1: no explicit Variable (legacy or default name)
+ElmerGridExtrudeHelicity	bitwise	1	
+ElmerGridExtrudeMaterial	bitwise	1	
+ElmerGridExtrudeMaterial2	bitwise	1	
+ElmerGridExtrudeOffset	bitwise	1	
+ExtrudedMesh	bitwise	1	
+ExtrudedMesh2	bitwise	1	
+ExtrudedMesh3	bitwise	1	
+ExtrudedMesh4	bitwise	1	
+ExtrudedMesh6	bitwise	1	
+ExtrudedMesh7	bitwise	1	
+ExtrudedMesh8	bitwise	1	
+ExtrudedMesh9	bitwise	1	
+ExtrudedMeshBaseline1	bitwise	2	
+FaceElement2D_BCs	bitwise	1	
+FaceElement3D_BCs	bitwise	1	
+FacetShell	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+FacetShell2	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+FilmFlowLine	out-of-class	0	sif uses Include
+FilmFlowPipe	out-of-class	0	sif uses Include
+FilmFlowPlane	out-of-class	0	sif uses Include
+FilmFlowPlane2	out-of-class	0	sif uses Include
+FilmFlowPlane3	out-of-class	0	sif uses Include
+FilmFlowPlane4	out-of-class	0	solver 1: no explicit Variable (legacy or default name); solver 3: norm option show norm index
+FilmFlowPlane5	out-of-class	0	solver 1: no explicit Variable (legacy or default name); solver 3: norm option show norm index
+FixPotentialLevels	bitwise	1	
+FixTangentVelo	out-of-class	0	custom runtest (replay)
+FluxIntegralBCInduction	out-of-class	0	solver 1: vector variable; solver 4: norm option show norm index
+FluxIntegralBCTemperature	bitwise	1	solver 2: norm option show norm index
+HeatAndDiffusion	bitwise	2	
+HeatControl	bitwise	1	
+HeatControl2	bitwise	1	
+HeatControlExplicit	bitwise	1	solver 2: norm option show norm index
+HeatControlExplicit_np3	out-of-class	0	MPI
+HeatEqExitCondition	bitwise	1	solver 2: norm option show norm index
+HeatGap	bitwise	1	
+HeatSolveVecCondMatrix	out-of-class	0	solver 1: temperature not in any result file; solver 2: no explicit Variable (legacy or default name)
+HelmholtzBEM	out-of-class	0	solver 1: pressure not in any result file
+HelmholtzEdge	out-of-class	0	solver 1: tangent component not in any result file
+HelmholtzFEM	out-of-class	0	2 RUN blocks
+HelmholtzFace	out-of-class	0	solver 1: normal velocity not in any result file
+HelmholtzPlaneWaves	out-of-class	0	solver 2: norm option show norm index
+HelmholtzPlaneWavesAxis	out-of-class	0	solver 2: norm option show norm index
+HelmholtzStructure2	out-of-class	0	solver 2: pressure not in any result file
+HybridMeshMap	bitwise	1	
+IncompressibleNSAxi	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+IncreaseOrderBrick	bitwise	1	
+IncreaseOrderPrism	bitwise	1	
+IncreaseOrderQuad	bitwise	1	
+IncreaseOrderTet	bitwise	1	
+IncreaseOrderTri	bitwise	1	
+InductionHeating	out-of-class	0	solver 1: potential not in any result file
+InductionHeating2	bitwise	1	
+InductionHeating3	out-of-class	0	solver 1: vector variable; solver 2: norm option show norm index
+InductionHeating4	out-of-class	0	solver 1: vector variable; solver 2: norm option show norm index
+IntegralConstraintFlow	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+IntegralConstraintPoisson	bitwise	1	
+IntegralConstraintPoissonBF	bitwise	1	
+IntersectionBCs	bitwise	1	
+IntersectionBCs0D	bitwise	1	
+IntersectionBody1D	bitwise	1	
+IntersectionBody1Ddiscont	bitwise	1	
+IpVariable	bitwise	1	solver 2: norm option show norm index
+IpVariable2	bitwise	1	solver 2: norm option show norm index
+IpVariable3	bitwise	1	solver 2: norm option show norm index
+IpVariable4	bitwise	1	
+IsolineGmsh	bitwise	1	solver 2: no explicit Variable (legacy or default name)
+IsosurfaceFixed	bitwise	1	solver 2: no explicit Variable (legacy or default name)
+IsosurfaceLevels	bitwise	1	solver 2: no explicit Variable (legacy or default name)
+JouleHeatToOpenFOAM	bitwise	1	solver 2: no explicit Variable (legacy or default name)
+L2ndDerivatives	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+LinControlCoordDisp	out-of-class	0	solver 1: multi-dof variable
+LinControlCoordHeat	bitwise	1	
+LinControlFourHeaters	bitwise	1	
+LinControlLoadDisp	out-of-class	0	solver 1: multi-dof variable
+LinControlMaxHeat	bitwise	1	
+LinearSystemNamespace	bitwise	1	
+LinearSystemNamespace2	bitwise	1	
+LubricationTunedForce	out-of-class	0	solver 3: vector variable
+MarchingODE1	bitwise	1	
+MarchingODE2	bitwise	2	
+MarchingODE3	bitwise	1	
+MarchingODE4	out-of-class	0	solver 2: integrator: 143 values, 66 saved (non-nodal unknowns)
+MatDepMat	bitwise	1	
+MeshColour	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+MeshLevelsRestart	out-of-class	0	several solver runs
+MgDynDiscontBCs	grader-gap-non-nodal	1	WARNING:: CompareToReferenceSolution: Solver 1 FAILED:  Norm = 2.06923835E-04  RefNorm = 1.89945318E-04; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!
+MinimalExample	bitwise	1	
+MixedPoisson2D	bitwise	1	
+MixedPoisson3D	bitwise	1	
+MixedPoisson3D_Brick	bitwise	1	
+ModelPDE	bitwise	1	
+ModelPDEhandle	bitwise	1	
+ModelPDEsplitted	bitwise	1	
+MonolithicSlave	bitwise	1	
+MonolithicSlave2	bitwise	1	
+MortarMixedDimensions	bitwise	1	
+MortarPoisson2D	bitwise	1	
+MortarSaveProjection	bitwise	1	solver 2: no explicit Variable (legacy or default name)
+NeoHookean2D	out-of-class	0	solver 1: displacement not in any result file
+NonnewtonianChannelFlow	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+NonnewtonianChannelFlow_vec	out-of-class	0	custom runtest (replay)
+NormalTangentialDisplacement	out-of-class	0	solver 2: multi-dof variable
+NormalTangentialDisplacement2	out-of-class	0	solver 2: multi-dof variable
+NormalizeBC	bitwise	1	
+NormalizeBF	bitwise	1	
+NormalizeMaterial	bitwise	1	
+OdeSolver1stOrder	out-of-class	0	solver 1: ode not in any result file
+OdeSolver2ndOrder	out-of-class	0	solver 1: ode not in any result file
+OtherMeshResults	out-of-class	0	solver 1: temperature in several result files; solver 3: norm option show norm
+OtherMeshResults_np4	out-of-class	0	MPI
+Outlet2InletBCv2	bitwise	1	
+ParStokes_NormalTangentialBC	out-of-class	0	solver 3: flowvar not in any result file
+ParallelSlices_np2	out-of-class	0	MPI
+ParticleElstat	bitwise	2	solver 2: no explicit Variable (legacy or default name)
+ParticleElstatMag	bitwise	2	solver 2: no explicit Variable (legacy or default name)
+ParticleFalling	bitwise	1	
+ParticleFallingPathIntegral	bitwise	1	solver 1: no explicit Variable (legacy or default name)
+PerfectGasCompress_vec	out-of-class	0	solver 2: no explicit Variable (legacy or default name)
+PerfectGasCompress_vec_transient	out-of-class	0	solver 2: no explicit Variable (legacy or default name)
+PhaseChange2	bitwise	1	
+PhaseChange3	MISMATCH	1	solver 1: no explicit Variable (legacy or default name); solver 2: no explicit Variable (legacy or default name); WARNING:: CompareToReferenceSolution: Solver 3 FAILED:  Norm = 9.69756455E-01  RefNorm = 1.94623870E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!
+PhaseChange4	bitwise	1	solver 1: no explicit Variable (legacy or default name); solver 2: no explicit Variable (legacy or default name)
+PlatesEigenComplex	out-of-class	0	solver 2: norm option show norm
+PoissonBEM	bitwise	1	
+PoissonDG	grader-gap-non-nodal	1	WARNING:: CompareToReferenceSolution: Solver 1 FAILED:  Norm = 4.12584942E-02  RefNorm = 4.12584854E-02; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!
+PoissonDG_np3	out-of-class	0	MPI
+PoissonDG_np8	out-of-class	0	MPI
+PoissonML	bitwise	1	
+PoissonPFEM	bitwise	1	
+PorousPipe	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+PredictorCorrector	bitwise	1	
+ProfileBCTemperature	bitwise	1	
+ProfileBCTemperatureRobin	bitwise	1	
+Q1Q0	out-of-class	0	solver 1: vector variable
+QuadraturesBrick	out-of-class	0	3 RUN blocks
+QuadraturesWedge	out-of-class	0	16 RUN blocks
+RaviartThomas2D	bitwise	1	
+RaviartThomas3D	bitwise	1	
+ResultOutputBCs	bitwise	1	solver 2: no explicit Variable (legacy or default name)
+RigidMeshMapper1	bitwise	1	
+RigidMeshMapper2	bitwise	1	
+RotatingBCPoisson3DGenericTets	bitwise	1	
+RotatingFlow	out-of-class	0	2 RUN blocks
+SD_BlockLinElast1	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+SD_CapacitanceMatrix3	bitwise	1	solver 3: norm option show norm
+SD_CapacitanceMatrix3_np3	out-of-class	0	MPI
+SD_Classical2DShell	out-of-class	0	solver 1: u not in any result file
+SD_CurvedBndryPFEM	bitwise	1	
+SD_CurvedBndryPFEM2	bitwise	1	
+SD_ElastPelem2dQuad	out-of-class	0	solver 1: multi-dof variable; solver 2: norm option show norm index
+SD_ElementUnitTest_p1	out-of-class	0	10 RUN blocks
+SD_FilmFlowPlane	out-of-class	0	sif uses Include
+SD_FilmFlowPlane2	out-of-class	0	sif uses Include
+SD_FilmFlowPlane3	out-of-class	0	sif uses Include
+SD_ModelPDE	bitwise	1	
+SD_ModelPDEsplitted	bitwise	1	
+SD_NonnewtonianChannelFlow_vec	out-of-class	0	custom runtest (replay)
+SD_P2ndDerivatives	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+SD_PoissonPFEM	bitwise	1	
+SD_QuadraturesBrick	out-of-class	0	4 RUN blocks
+SD_QuadraturesWedge	out-of-class	0	19 RUN blocks
+SD_SolverSpecificMeshes	bitwise	1	
+SD_Step_stokes_block	out-of-class	0	solver 1: rotsol not in any result file
+SD_Step_stokes_vec_blockprec	out-of-class	0	custom runtest (replay)
+SD_p-FEM_two_solvers	bitwise	1	solver 1: u not in any result file
+SD_p-FEM_with_varying_p	out-of-class	0	solver 1: u not in any result file
+SD_structmap_p2	bitwise	1	solver 3: norm option show norm index
+SaveDependence	bitwise	1	solver 2: norm option show norm index
+SaveDependenceSpline	out-of-class	0	3 RUN blocks
+SaveLine	out-of-class	0	3 RUN blocks
+SecondOrderEdgeElement2D	bitwise	1	
+SecondOrderEdgeElement2D_BCs	bitwise	1	
+SecondOrderEdgeElement3D	bitwise	1	
+SensTemperature	bitwise	1	
+Shell_And_Solid	out-of-class	0	solver 2: displacement not in any result file
+Shell_And_Solid2	out-of-class	0	solver 2: u not in any result file
+Shell_Cantilever	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+Shell_PlateCase_Quad	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+Shell_with_Beam_Sections	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+ShoeboxStaticPlate	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+ShoeboxStaticShell	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+SlaveSolverSlots	out-of-class	0	solver 2: count not in any result file
+SlaveSolverSlotsScan	bitwise	1	solver 1: count not in any result file
+SolverSpecificMeshes	bitwise	1	
+StatCurr_adaptivity	out-of-class	0	custom runtest (replay)
+StatCurrentVec	bitwise	1	
+StatCurrentVec2	bitwise	2	
+StatCurrentVecAniso	bitwise	1	
+StatCurrentVecAxi	bitwise	1	
+StatCurrentVecFarfield	bitwise	1	
+StatCurrentVecResMatrix	out-of-class	0	solver 1: potential not in any result file; solver 2: no explicit Variable (legacy or default name)
+StatElecVecAxi	bitwise	1	
+Step_ns	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+Step_stokes	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+Step_stokes_block	out-of-class	0	solver 1: rotsol not in any result file
+Step_stokes_vec_blockprec	out-of-class	0	custom runtest (replay)
+StlOutput1	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+StokesPFEM	out-of-class	0	solver 1: stokes not in any result file
+StokesProj	out-of-class	0	solver 2: velocitytot not in any result file
+StokesStabilized	out-of-class	0	custom runtest (replay)
+StokesUnitElements	out-of-class	0	custom runtest (replay)
+StrainCalculation01	out-of-class	0	solver 1: multi-dof variable
+StressAnisotropic2D	out-of-class	0	2 RUN blocks
+StressConstraintModes	out-of-class	0	solver 1: displacement not in any result file
+StressConstraintModes2	out-of-class	0	solver 1: displacement not in any result file
+StressEigen	out-of-class	0	solver 3: norm option show norm index
+StressEigen2	out-of-class	0	solver 4: norm option show norm index
+StressEigen2_np4	out-of-class	0	MPI
+StressEigen2_np8	out-of-class	0	MPI
+StressMaxwellStressLoad	out-of-class	0	solver 1: multi-dof variable; solver 2: norm option show norm index
+StressStressLoad	out-of-class	0	solver 2: norm option show norm index
+SunAngle	bitwise	1	
+SunAngle_np3	out-of-class	0	MPI
+TankAst	out-of-class	0	solver 1: multi-dof variable
+ThermalBiMetal	out-of-class	0	solver 1: displacement not in any result file
+ThermalBiMetal2	out-of-class	0	solver 2: displacement not in any result file
+ThermalCompress	out-of-class	0	solver 2: no explicit Variable (legacy or default name)
+ThermalCompress_vec	out-of-class	0	solver 2: no explicit Variable (legacy or default name)
+ThermalPipe2D	bitwise	1	
+ThermoElectric	out-of-class	0	solver 1: vector variable
+ThermoElectricAnisoBC	out-of-class	0	solver 1: vector variable
+ThermoElectricBubble	out-of-class	0	solver 1: vector variable
+ThermoElectricBubbleTransient	out-of-class	0	solver 1: vector variable
+ThermoElectricStabilize	out-of-class	0	solver 1: vector variable
+TopoOptElast2DCompMin	out-of-class	0	solver 1: multi-dof variable; solver 2: no explicit Variable (legacy or default name)
+TopoOptElast2DCompMin2	out-of-class	0	solver 1: multi-dof variable; solver 2: no explicit Variable (legacy or default name)
+TopoOptForceInverter	out-of-class	0	solver 1: multi-dof variable; solver 2: no explicit Variable (legacy or default name)
+TopoOptHeat2DCompMin2	bitwise	2	
+UMAT_StVenant_2D	out-of-class	0	solver 1: displacement not in any result file
+UMAT_StVenant_axials	out-of-class	0	solver 1: multi-dof variable
+UMAT_linear_isotropic_2D	out-of-class	0	solver 1: displacement not in any result file
+VectorHelmholtzWaveguideNodal	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+WaveEqu	bitwise	1	
+WeightComputation	out-of-class	0	solver 3: norm option show norm
+a-posteriori-recovery-2D	out-of-class	0	solver 1: temperature in several result files
+adaptivity1	out-of-class	0	custom runtest (replay)
+adaptivity2	out-of-class	0	solver 1: temperature in several result files
+adaptivity3	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+adaptivity4	out-of-class	0	solver 1: displacement not in any result file
+adaptivity5	out-of-class	0	solver 1: displacement not in any result file
+adv_diff1	bitwise	1	
+adv_diff2	bitwise	1	
+amultg2	out-of-class	0	solver 1: multi-dof variable
+beam-springs	out-of-class	0	solver 1: multi-dof variable
+beam-springs-fixdisp	out-of-class	0	solver 1: multi-dof variable; solver 2: norm option show norm index
+beamer3d_box	bitwise	1	solver 2: no explicit Variable (legacy or default name); solver 3: norm option show norm index
+bentonite	out-of-class	0	solver 1: bentonite not in any result file
+bodydir	bitwise	1	
+bodyload	bitwise	1	
+buckling	out-of-class	0	solver 2: norm option show norm
+current	bitwise	1	
+current_heat_control	bitwise	1	
+el_adaptivity	out-of-class	0	custom runtest (replay)
+elasticity	out-of-class	0	solver 1: displacement not in any result file
+elasticity_with_springs	out-of-class	0	solver 1: displacement not in any result file
+elstat_source	bitwise	1	
+fluxsolver	out-of-class	0	solver 2: no explicit Variable (legacy or default name)
+fluxsolver-multimesh	bitwise	1	solver 2: no explicit Variable (legacy or default name)
+fluxsolver2	out-of-class	0	solver 2: no explicit Variable (legacy or default name)
+freesurf_int	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+geomstiff	out-of-class	0	solver 2: norm option show norm
+gmultg	bitwise	1	
+heateq	bitwise	1	
+heateq_bdf2	bitwise	1	
+heateq_bdf3	bitwise	1	
+heateq_newmark	bitwise	1	
+heateq_newmark_global	bitwise	1	
+heateq_resmode	bitwise	1	
+heateq_spline_table	bitwise	1	
+heateq_steady_start	bitwise	1	
+linearsolvers	out-of-class	0	14 RUN blocks
+linearsolvers_cmplx	out-of-class	0	11 RUN blocks
+marangoni	bitwise	1	
+mgdyn2D_pm	out-of-class	0	solver 3: norm option show norm index
+mgdyn_airgap	out-of-class	0	sif uses Include
+mgdyn_airgap_harmonic	out-of-class	0	sif uses Include
+mgdyn_dg_b_velocity	out-of-class	0	sif uses Include
+mgdyn_nodalforce2d	bitwise	1	solver 3: no explicit Variable (legacy or default name); solver 5: norm option show norm index
+mgdyn_steady_2ndorder	grader-gap-non-nodal	1	WARNING:: CompareToReferenceSolution: Solver 1 FAILED:  Norm = 1.30579458E-02  RefNorm = 6.21681304E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!
+mgdyn_steady_piolaversion	out-of-class	0	solver 1: p not in any result file
+mgdyn_thinsheet_harmonic	out-of-class	0	sif uses Include
+multimesh	out-of-class	0	solver 3: localt in several result files
+normals	out-of-class	0	solver 2: variable option -nooutput
+p-FEM_two_solvers	bitwise	1	solver 1: u not in any result file
+p-FEM_with_varying_p	out-of-class	0	solver 1: u not in any result file
+passive	bitwise	1	
+passive_np3	out-of-class	0	MPI
+passive_np8	out-of-class	0	MPI
+periodic1	bitwise	1	
+periodic2	bitwise	1	
+periodic3	bitwise	1	
+periodic_homogenize	out-of-class	0	2 RUN blocks
+periodic_nonconforming	bitwise	1	
+periodic_offset	bitwise	1	
+periodic_offset2	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+periodic_rot	out-of-class	0	solver 1: vector variable
+periodic_threaded	bitwise	1	
+piezo	bitwise	1	
+plates	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+platesEigen	out-of-class	0	solver 2: norm option show norm
+pointdir	bitwise	1	
+poisson_steady_conforming	bitwise	1	
+poisson_steady_conforming_anti	bitwise	1	
+poisson_transient_conforming_anti	bitwise	1	
+poisson_transient_conforming_anti_np4	out-of-class	0	MPI
+poisson_transient_conforming_anti_np8	out-of-class	0	MPI
+quadratic_prisms	bitwise	1	
+radiation	bitwise	1	
+radiation2	bitwise	1	
+radiation_bin	bitwise	1	
+radiation_dg	bitwise	1	
+radiation_np2	out-of-class	0	MPI
+radiation_np4	out-of-class	0	MPI
+radiation_vec	bitwise	1	
+radiator3d	bitwise	1	
+radiator3d_box	bitwise	1	solver 2: no explicit Variable (legacy or default name)
+radiator3d_symm	bitwise	1	
+reload	out-of-class	0	custom runtest (replay)
+reynolds2	bitwise	1	
+reynolds_flux	bitwise	1	solver 2: no explicit Variable (legacy or default name)
+reynolds_robin	bitwise	1	solver 2: no explicit Variable (legacy or default name)
+rotflow	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+savescalars	out-of-class	0	7 RUN blocks
+savescalars_boundary	out-of-class	0	4 RUN blocks
+savescalars_flux	out-of-class	0	solver 2: norm option show norm
+savescalars_many	bitwise	1	solver 2: norm option show norm; solver 3: norm option show norm
+savescalars_mask	bitwise	1	solver 2: norm option show norm
+streamlines	bitwise	1	
+stress	out-of-class	0	solver 2: true displacement not in any result file
+structmap	bitwise	1	
+structmap4	bitwise	2	
+structmap5	out-of-class	0	two Solver 3 sections (merged by Elmer)
+structmap6	bitwise	2	
+structmap7	bitwise	2	
+structmap8	bitwise	1	solver 2: norm option show norm index
+structmap_meshupdate	bitwise	1	
+structmap_p2	bitwise	1	solver 3: norm option show norm index
+tresca	out-of-class	0	solver 1: no explicit Variable (legacy or default name)
+wildcardsize	bitwise	1	
