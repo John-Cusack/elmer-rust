@@ -163,6 +163,7 @@ pub fn heat_nl(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
 impl Solver for HeatNl {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
         use elmer_core::Params;
+        ctx.default_start()?;
         let iters = ctx.params().integer("nonlinear system max iterations").unwrap_or(1);
         for _ in 0..iters {
             ctx.default_initialize()?;

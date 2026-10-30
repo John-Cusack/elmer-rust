@@ -152,6 +152,9 @@ pub struct SolverSlot {
     pub(crate) dofs: Option<Arc<dyn crate::SolverDofs>>,
     /// Boundaries (body forces past them) with a Robin projector so far.
     pub(crate) robin_projectors: std::collections::BTreeSet<usize>,
+    /// Whether this visit called `DefaultStart` / `DefaultFinish`.
+    pub(crate) started: bool,
+    pub(crate) finished: bool,
 }
 
 impl SolverSlot {
@@ -179,6 +182,8 @@ impl SolverSlot {
             own_constraints: None,
             dofs: None,
             robin_projectors: Default::default(),
+            started: false,
+            finished: false,
         })
     }
 
@@ -328,6 +333,10 @@ impl Simulation {
         let mut vars = VariableStore::new();
         for g in GLOBALS {
             vars.set_scalar(g, 0.0);
+        }
+        // ElmerSolver.F90:1766: `scan` when any solver has `Scanning Loops`.
+        if model.solvers.iter().any(|p| p.get("scanning loops").is_some()) {
+            vars.set_scalar("scan", 0.0);
         }
         Self {
             model,
@@ -653,6 +662,10 @@ impl Simulation {
 
         for g in ["time", "timestep", "timestep size", "timestep interval", "coupled iter", "nonlin iter"] {
             self.vars.set_scalar(g, 0.0);
+        }
+        // ElmerSolver.F90:1766: `scan` when any solver has `Scanning Loops`.
+        if self.slots.iter().any(|s| s.params.get("scanning loops").is_some()) {
+            self.vars.set_scalar("scan", 0.0);
         }
         self.prev_sizes.iter_mut().for_each(|s| *s = 0.0);
         self.publish_live();
@@ -1033,8 +1046,9 @@ impl Simulation {
         Ok(Some(report))
     }
 
-    /// `SolverActivate` + `SingleSolver`: exec conditions, `nonlin iter`
-    /// reset, then one call of the solver's procedure.
+    /// `SolverActivate` + `SingleSolver`: exec conditions, then per
+    /// `Scanning Loops` round (one without) the `nonlin iter` reset and one
+    /// call of the solver's procedure.
     pub fn solver_activate(
         &mut self,
         ix: usize,
@@ -1099,19 +1113,26 @@ impl Simulation {
                 };
             }
         }
-        if p.get("scanning loops").is_some() {
-            return Err(SolverError::Unsupported("Scanning Loops".into()));
-        }
-        if !auxiliary {
-            self.vars.set_scalar("nonlin iter", 1.0);
-        }
-        for k in ["pre solvers", "post solvers", "assembly solvers"] {
-            if p.get(k).is_some_and(|v| *v != Value::Logical(false)) {
-                return Err(SolverError::Unsupported(format!("Solver {}: {k}", self.slots[ix].id)));
+        // MainUtils.F90:5840: `Scanning Loops` runs the solver that many
+        // times with the global `scan` at 1, 2, ...
+        let loops = match p.get("scanning loops") {
+            None => None,
+            Some(_) => Some(p.integer("scanning loops").ok_or_else(|| {
+                SolverError::fatal("SolverActivate", "> Scanning Loops < should be an integer")
+            })?),
+        };
+        if loops.is_some() {
+            if p.logical("save scanning modes") == Some(true) {
+                return Err(SolverError::Unsupported("Save Scanning Modes".into()));
+            }
+            if self.vars.scalar("scan").is_none() {
+                return Err(SolverError::fatal("SolverActivate", "For scanning we should have scanning variable!"));
             }
         }
+        if p.get("assembly solvers").is_some_and(|v| *v != Value::Logical(false)) {
+            return Err(SolverError::Unsupported(format!("Solver {}: assembly solvers", self.slots[ix].id)));
+        }
         self.slots[ix].dt = dts * dt;
-        self.publish_live();
         // MainUtils.F90:1392, 1518: `Block Solver` runs BlockSolver around
         // the procedure; without one the blocks are assembled one by one.
         // Without one, the slot's instance is the block assembly
@@ -1124,35 +1145,60 @@ impl Simulation {
             .rfind(|k| p.logical(k) == Some(true));
         let block = with_procedure && mode == Some("block solver");
         let coupled = with_procedure && matches!(mode, Some("coupled solver") | Some("assembly solver"));
-        if let Some(mut inst) = self.slots[ix].instance.take() {
-            let r = if block {
-                crate::block_driver::block_solver(self, ix, &mut inst, dts * dt, time_derivative_active, mesh, log, comm)
-            } else if coupled {
-                crate::block_driver::coupled_with_procedure(
-                    self,
-                    ix,
-                    &mut inst,
-                    dts * dt,
-                    time_derivative_active,
-                    mesh,
-                    log,
-                    comm,
-                )
-            } else {
-                inst.solve(
-                    &mut SolverCtx::new(self, ix, mesh, log, comm),
-                    dts * dt,
-                    time_derivative_active,
-                )
-            };
-            self.slots[ix].instance = Some(inst);
-            r?;
+        for scan in 1..=loops.unwrap_or(1) {
+            if !auxiliary {
+                self.vars.set_scalar("nonlin iter", 1.0);
+            }
+            if loops.is_some() {
+                self.vars.set_scalar("scan", f64::from(scan));
+            }
+            self.publish_live();
+            let slot = &mut self.slots[ix];
+            (slot.started, slot.finished) = (false, false);
+            if let Some(mut inst) = self.slots[ix].instance.take() {
+                let r = if block {
+                    crate::block_driver::block_solver(self, ix, &mut inst, dts * dt, time_derivative_active, mesh, log, comm)
+                } else if coupled {
+                    crate::block_driver::coupled_with_procedure(
+                        self,
+                        ix,
+                        &mut inst,
+                        dts * dt,
+                        time_derivative_active,
+                        mesh,
+                        log,
+                        comm,
+                    )
+                } else {
+                    inst.solve(
+                        &mut SolverCtx::new(self, ix, mesh, log, comm),
+                        dts * dt,
+                        time_derivative_active,
+                    )
+                };
+                self.slots[ix].instance = Some(inst);
+                r?;
+            }
+            // `Pre Solvers` and `Post Solvers` run from DefaultStart and
+            // DefaultFinish; a procedure that calls neither would skip them.
+            let slot = &self.slots[ix];
+            for (key, ran, routine) in [
+                ("pre solvers", slot.started, "DefaultStart"),
+                ("post solvers", slot.finished, "DefaultFinish"),
+            ] {
+                if !ran && slot.params.get(key).is_some_and(|v| *v != Value::Logical(false)) {
+                    return Err(SolverError::Unsupported(format!(
+                        "Solver {}: {key} with a procedure that does not call {routine}",
+                        slot.id
+                    )));
+                }
+            }
+            // UpdateDependentObjects(Solver, .TRUE.) (MainUtils.F90:5625).
+            if self.slots[ix].params.logical("update exported variables") == Some(true) {
+                self.update_exported_variables(ix, mesh, log)?;
+            }
+            self.slots[ix].times_visited += 1;
         }
-        // UpdateDependentObjects(Solver, .TRUE.) (MainUtils.F90:5625).
-        if self.slots[ix].params.logical("update exported variables") == Some(true) {
-            self.update_exported_variables(ix, mesh, log)?;
-        }
-        self.slots[ix].times_visited += 1;
         Ok(())
     }
 

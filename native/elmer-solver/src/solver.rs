@@ -340,23 +340,55 @@ impl<'a> SolverCtx<'a> {
         self.log.warn(caller, msg);
     }
 
-    /// `DefaultInitialize`: run the `Slave Solvers` and `Nonlinear Pre
-    /// Solvers`, create the matrix on first use, then zero the matrix values
-    /// and the right-hand side.
+    /// `DefaultStart` (DefUtils.F90:3983), for a solver to call when its
+    /// visit begins: `Nonlinear System Reset Newton`, `Nonlinear System
+    /// Nullify Guess`, then the `Pre Solvers`. `CutFEM` and `Harmonic Mode`
+    /// are refused.
+    pub fn default_start(&mut self) -> Result<(), SolverError> {
+        for (key, what) in [("cutfem", "CutFEM"), ("harmonic mode", "Harmonic Mode")] {
+            if self.params().logical(key) == Some(true) {
+                return Err(SolverError::Unsupported(what.into()));
+            }
+        }
+        let eq = self.params().string("equation").unwrap_or_default().to_string();
+        self.info("DefaultStart", &format!("Starting solver: {eq}"), 10);
+        let slot = &mut self.sim.slots[self.slot];
+        if slot.state.newton_active && slot.params.logical("nonlinear system reset newton") == Some(true) {
+            slot.state.newton_active = false;
+        }
+        if slot.params.logical("nonlinear system nullify guess") == Some(true) {
+            if let Some(id) = slot.variable {
+                self.sim.vars.by_id_mut(id).values.fill(0.0);
+            }
+        }
+        self.sim.slots[self.slot].started = true;
+        let (mesh, log, comm) = (self.mesh, self.log, self.comm);
+        self.sim.run_slave_solvers(self.slot, "Pre Solvers", mesh, log, comm)?;
+        self.sim.publish_live();
+        Ok(())
+    }
+
     /// `DefaultFinish` (DefUtils.F90:4127), for a solver to call when its
-    /// visit is done: `Apply Explicit Control` updates `cpar` from the new
-    /// field. `Solve Adjoint Equation` is refused (`Post Solvers` already are
-    /// at activation).
+    /// visit is done: the `Post Solvers` run, then `Apply Explicit Control`
+    /// updates `cpar` from the new field. `Solve Adjoint Equation` is
+    /// refused.
     pub fn default_finish(&mut self) -> Result<(), SolverError> {
         if self.params().logical("solve adjoint equation") == Some(true) {
             return Err(SolverError::Unsupported("Solve Adjoint Equation".into()));
         }
+        self.sim.slots[self.slot].finished = true;
+        let (mesh, log, comm) = (self.mesh, self.log, self.comm);
+        self.sim.run_slave_solvers(self.slot, "Post Solvers", mesh, log, comm)?;
+        self.sim.publish_live();
         if self.params().logical("apply explicit control") == Some(true) {
             crate::control::apply_explicit_control(self)?;
         }
         Ok(())
     }
 
+    /// `DefaultInitialize`: run the `Slave Solvers` and `Nonlinear Pre
+    /// Solvers`, create the matrix on first use, then zero the matrix values
+    /// and the right-hand side.
     pub fn default_initialize(&mut self) -> Result<(), SolverError> {
         // DefUtils.F90:3897, before the slave solvers.
         if self.params().logical("apply explicit control") == Some(true) {
