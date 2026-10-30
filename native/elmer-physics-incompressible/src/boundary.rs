@@ -27,6 +27,9 @@ pub struct IncompressibleBoundaryInput<'a> {
     /// A point inside the parent element, orienting the normal outward.
     pub parent_center: Option<[f64; 3]>,
     pub np: Option<usize>,
+    /// `Coordinate System = Axi Symmetric`: the measure is r ds
+    /// ([`incompressible_boundary_local_with`] only).
+    pub axisymmetric: bool,
 }
 
 fn convert(e: FlowError) -> IncompressibleError {
@@ -45,6 +48,10 @@ pub fn incompressible_boundary_local(
     inp: &IncompressibleBoundaryInput<'_>,
     out: &mut LocalSystem,
 ) -> Result<(), IncompressibleError> {
+    if inp.axisymmetric {
+        let points = quad.gauss_points(inp.etype, inp.np);
+        return incompressible_boundary_local_with(basis, &points, inp.xyz.len(), inp, out);
+    }
     let zero = vec![0.0; inp.xyz.len()];
     let f = FlowBoundaryInput {
         etype: inp.etype,
@@ -109,8 +116,11 @@ pub fn incompressible_boundary_local_with(
         if be.basis.len() < nd {
             return Err(IncompressibleError::Unsupported(format!("{} basis functions for {nd} dofs", be.basis.len())));
         }
-        let s = be.det_j * qp.weight;
         let phi = &be.basis[..nd];
+        let mut s = be.det_j * qp.weight;
+        if inp.axisymmetric {
+            s *= (0..n).map(|k| phi[k] * inp.xyz[k][0]).sum::<f64>();
+        }
         let mut force = [0.0; 3];
         for (i, f) in force.iter_mut().enumerate().take(dim) {
             *f = (0..n).map(|k| inp.traction[k][i] * phi[k]).sum();

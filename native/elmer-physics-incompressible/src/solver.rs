@@ -886,9 +886,6 @@ impl Solver for IncompressibleNsSolver {
                 if !any(&ext) && !traction.iter().any(|t| any(t)) && !slip.iter().any(|s| any(s)) {
                     continue;
                 }
-                if axisymmetric {
-                    return Err(unsupported("boundary tractions, pressures and slip in Axi Symmetric coordinates"));
-                }
                 let parent_center = normal_parent(ctx, e)
                     .map(|pe| elmer_physics_flow::boundary::element_center(&node_xyz(ctx.mesh, ctx.mesh.element(pe).nodes)));
                 // A p boundary element lists its nodes in its parent's edge or
@@ -910,6 +907,7 @@ impl Solver for IncompressibleNsSolver {
                     slip: &slip,
                     parent_center,
                     np: None,
+                    axisymmetric,
                 };
                 match ctx.solver_dofs() {
                     Some(d) => {
