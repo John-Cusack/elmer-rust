@@ -1,0 +1,8 @@
+test	verdict	files	mismatches	detail
+1dtests	tier-a-pass	1	0	
+AngleMetisLayer_np2	tier-a-pass	2	0	
+CavityLid	tier-a-pass	1	0	
+ChannelFlowCoulomb	tier-a-pass	2	0	
+ElasticStabilized	tier-a-pass	5	0	
+PhaseChange2	tier-a-pass	1	0	
+ThermalPipe2D	tier-a-pass	1	0	

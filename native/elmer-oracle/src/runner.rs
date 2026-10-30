@@ -26,6 +26,9 @@ pub struct Arm {
     pub mesh2d: Option<PathBuf>,
     pub mpiexec: Option<PathBuf>,
     pub with_mpi: bool,
+    /// `elmersolver` is a candidate binary, not the arm's own: cmake
+    /// replays pass it as `ELMERSOLVER_BIN` instead of the recorded one.
+    pub solver_override: bool,
 }
 
 impl Arm {
@@ -862,6 +865,10 @@ pub fn run_replay(
             args.push(run_dir.join("runtest.cmake").display().to_string());
             continue;
         }
+        if arm.solver_override && a.starts_with("-DELMERSOLVER_BIN=") {
+            args.push(format!("-DELMERSOLVER_BIN={}", arm.elmersolver.display()));
+            continue;
+        }
         args.push(crate::registry::remap_arg(a, recorded, &arm.build_dir));
     }
     let passed_name = if reg.np > 1 {
@@ -1110,6 +1117,7 @@ mod tests {
             mesh2d: None,
             mpiexec: None,
             with_mpi: false,
+            solver_override: false,
         }
     }
 
