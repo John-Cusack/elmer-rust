@@ -1,16 +1,23 @@
 //! WIP, not wired: algebraic multigrid (`MG Method = algebraic`,
 //! `AMGSolve`, Multigrid.F90:1484-5019), ported routine by routine.
 //!
-//! Done: `AMGBonds` (the strong connections, Multigrid.F90:2223).
+//! Done: `AMGBonds` (the strong connections, Multigrid.F90:2223),
+//! `AMGCoarse` with the default `MG Coarsening Mode = 3` (the C/F
+//! splitting, Multigrid.F90:2935) and `ChooseCoarseNodes` up to the coarse
+//! numbering (Multigrid.F90:2094; scalar and `MG Determining Component`
+//! candidates, no complex, pseudo-geometric or compatible-relaxation
+//! variants).
 //! Still to port before `Linear System Preconditioning = multigrid` /
 //! `Linear System Solver = Multigrid` with `MG Method = algebraic` can use
-//! it: `AMGCoarse` (the C/F splitting), `InterpolateF2C` (the projector),
+//! it: `InterpolateF2C` (the projector),
 //! `CRS_ProjectMatrixCreate` (the coarse matrix), `AMGSolve`/`AMGSweep` (the
 //! cycle, which can reuse `multigrid::Hierarchy`) and the multigrid
 //! preconditioner entry (`MultiGridPrec`).
 #![allow(dead_code)]
 
 use elmer_core::{CsrMatrix, ParamMap, Params};
+
+use crate::error::SolverError;
 
 /// The `MG*` keywords `AMGBonds` reads.
 #[derive(Clone, Debug)]
@@ -178,6 +185,238 @@ pub(crate) fn bonds(a: &CsrMatrix<f64>, cands: &mut [i32], fixed: &mut [bool], c
     bonds
 }
 
+/// `AMGCoarse` with `MG Coarsening Mode = 3` (the default): coarse nodes
+/// taken in order of their count of strongly connected candidates, kept in
+/// buckets (`GatLims`, `ConInd`, `RevConInd`); each pick turns its
+/// undecided strong neighbours fine and raises the counts of their
+/// candidate neighbours. `cf` is `> 0` for coarse nodes (in pick order) and
+/// `< 0` for fine ones. Index arithmetic follows the Fortran 1-based
+/// arrays.
+// The 1-based index loops mirror the Fortran's arrays line for line.
+#[allow(clippy::needless_range_loop)]
+pub(crate) fn coarse(a: &CsrMatrix<f64>, cands: &mut [i32], bonds: &[bool], cf: &mut [i32], follow_bounds: i32) {
+    let nods = a.nrows;
+    // 1-based views: row r (1..=nods) spans k in rows[r]..rows[r+1].
+    let rows = |r: usize| a.row_ptr[r - 1]..a.row_ptr[r];
+    let col = |k: usize| a.col_idx[k] as usize + 1;
+    let mut con = vec![0i64; nods + 1];
+    let (mut cind, mut find) = (0i32, 0i32);
+    let cf1 = |cf: &[i32], i: usize| cf[i - 1];
+    let cand = |cands: &[i32], i: usize| cands[i - 1];
+    for ind in 1..=nods {
+        if cf1(cf, ind) == 0 {
+            continue;
+        }
+        if cf1(cf, ind) < 0 {
+            find += 1;
+            cf[ind - 1] = -find;
+            continue;
+        }
+        cind += 1;
+        cf[ind - 1] = cind;
+        if cand(cands, ind) == 0 {
+            continue;
+        }
+        for k in rows(ind) {
+            if !bonds[k] {
+                continue;
+            }
+            let ci = col(k);
+            if cand(cands, ci) == 0 {
+                continue;
+            }
+            if cf1(cf, ci) == 0 {
+                find += 1;
+                cf[ci - 1] = -find;
+            }
+        }
+    }
+    for ind in 1..=nods {
+        if cf1(cf, ind) > 0 || cand(cands, ind) <= 0 {
+            continue;
+        }
+        for k in rows(ind) {
+            if !bonds[k] {
+                continue;
+            }
+            let ci = col(k);
+            if cand(cands, ci) > 0 && cf1(cf, ci) == 0 {
+                if cf1(cf, ind) == 0 {
+                    con[ci] += 1;
+                }
+                if cf1(cf, ind) < 0 {
+                    con[ci] += 2;
+                }
+            }
+        }
+    }
+    if follow_bounds != 0 {
+        for ind in 1..=nods {
+            if cand(cands, ind) <= 0 {
+                continue;
+            }
+            for k in rows(ind) {
+                if bonds[k] && cand(cands, col(k)) == -1 {
+                    con[ind] += i64::from(follow_bounds);
+                }
+            }
+        }
+        if follow_bounds < 0 {
+            let m = con[1..].iter().copied().min().unwrap_or(0);
+            con[1..].iter_mut().for_each(|c| *c -= m);
+        }
+    }
+    cands.iter_mut().for_each(|c| *c = (*c).max(0));
+
+    let mut maxcon = con[1..].iter().copied().max().unwrap_or(0);
+    let gatmax = (2 * maxcon + 1).max(1) as usize;
+    let mut gatlims = vec![0usize; gatmax + 1];
+    let mut gatnos = vec![0usize; gatmax + 1];
+    for ind in 1..=nods {
+        if con[ind] != 0 {
+            gatnos[con[ind] as usize] += 1;
+        }
+    }
+    let mut anods: usize = gatnos.iter().sum();
+    for i in 2..=maxcon.max(1) as usize {
+        gatlims[i] = gatlims[i - 1] + gatnos[i - 1];
+    }
+    let mut conind = vec![0usize; nods + 1];
+    let mut revconind = vec![0usize; anods + 1];
+    gatnos.iter_mut().for_each(|g| *g = 0);
+    for ind in 1..=nods {
+        if con[ind] == 0 {
+            continue;
+        }
+        let c = con[ind] as usize;
+        gatnos[c] += 1;
+        conind[ind] = gatnos[c] + gatlims[c];
+    }
+    for ind in 1..=nods {
+        if con[ind] != 0 {
+            revconind[conind[ind]] = ind;
+        }
+    }
+    while maxcon > 0 {
+        let ind = revconind[anods];
+        cind += 1;
+        cf[ind - 1] = cind;
+        for j in rows(ind) {
+            if !bonds[j] {
+                continue;
+            }
+            let cj = col(j);
+            if cf1(cf, cj) != 0 {
+                continue;
+            }
+            find += 1;
+            cf[cj - 1] = -find;
+            if cand(cands, cj) == 0 {
+                continue;
+            }
+            for i in rows(cj) {
+                if !bonds[i] {
+                    continue;
+                }
+                let ci = col(i);
+                if cand(cands, ci) > 0 && cf1(cf, ci) == 0 {
+                    let points = (con[ci] + 1) as usize;
+                    if points >= gatlims.len() {
+                        gatlims.resize(points + 1, 0);
+                    }
+                    let oldorder = conind[ci];
+                    if gatlims[points] == 0 {
+                        gatlims[points] = anods;
+                    }
+                    let neworder = gatlims[points];
+                    con[ci] = points as i64;
+                    gatlims[points] -= 1;
+                    if neworder != oldorder {
+                        let k = revconind[neworder];
+                        conind[ci] = neworder;
+                        conind[k] = oldorder;
+                        revconind[neworder] = ci;
+                        revconind[oldorder] = k;
+                    }
+                }
+            }
+        }
+        let mut refcon = 0i64;
+        while anods > 0 {
+            if cf1(cf, revconind[anods]) == 0 {
+                break;
+            }
+            maxcon = con[revconind[anods]];
+            refcon = refcon.max(maxcon);
+            anods -= 1;
+        }
+        if anods > 0 {
+            maxcon = con[revconind[anods]];
+            refcon = refcon.max(maxcon);
+            let (lo, hi) = (maxcon as usize + 1, refcon as usize + 1);
+            if hi >= gatlims.len() {
+                gatlims.resize(hi + 1, 0);
+            }
+            for g in &mut gatlims[lo..=hi] {
+                *g = 0;
+            }
+        } else {
+            maxcon = 0;
+        }
+    }
+    for ind in 1..=nods {
+        if cand(cands, ind) > 0 && cf1(cf, ind) == 0 {
+            cind += 1;
+            cf[ind - 1] = cind;
+        }
+    }
+}
+
+/// `ChooseCoarseNodes` up to the coarse numbering: candidates (every row,
+/// or every `components`-th from `MG Determining Component`), strong
+/// connections, the C/F split, then `cf[i]` the 1-based coarse index of a
+/// coarse row and 0 for a fine one. Returns `cf` and the coarse count.
+pub(crate) fn choose_coarse_nodes(
+    a: &CsrMatrix<f64>,
+    p: &ParamMap,
+    components: usize,
+    finest: bool,
+) -> Result<(Vec<i32>, usize), SolverError> {
+    for k in ["mg complex matrix", "mg pseudo geometric", "mg compatible relax init", "mg compatible relax merit", "mg positive connection eliminate"] {
+        if p.logical(k) == Some(true) {
+            return Err(SolverError::Unsupported(format!("algebraic multigrid with {k}")));
+        }
+    }
+    let mode = p.integer("mg coarsening mode").unwrap_or(3);
+    if mode != 3 {
+        return Err(SolverError::Unsupported(format!("MG Coarsening Mode = {mode}")));
+    }
+    let nods = a.nrows;
+    let first = if components > 1 {
+        p.integer("mg determining component").map_or(1, |c| c.clamp(1, components as i32) as usize)
+    } else {
+        1
+    };
+    let mut cands = vec![0i32; nods];
+    for i in (first - 1..nods).step_by(components.max(1)) {
+        cands[i] = 1;
+    }
+    let mut fixed = vec![false; nods];
+    let b = bonds(a, &mut cands, &mut fixed, components, &BondOptions::from_params(p, finest));
+    let mut cf = vec![0i32; nods];
+    coarse(a, &mut cands, &b, &mut cf, p.integer("mg boundary priority").unwrap_or(1));
+    let mut cnods = 0;
+    for c in cf.iter_mut() {
+        if *c < 0 {
+            *c = 0;
+        } else if *c > 0 {
+            cnods += 1;
+            *c = cnods;
+        }
+    }
+    Ok((cf, cnods as usize))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,6 +498,35 @@ mod tests {
         for i in 0..16 {
             let n = (a.row_ptr[i]..a.row_ptr[i + 1]).filter(|&k| b[k]).count();
             assert!(n <= 2, "row {i}: {n}");
+        }
+    }
+
+    #[test]
+    fn coarsening_splits_the_isotropic_grid() {
+        let a = grid(5, 1.0);
+        let (cf, nc) = choose_coarse_nodes(&a, &ParamMap::new(), 1, true).unwrap();
+        // Every fine node has a strongly connected coarse neighbour and the
+        // coarse nodes are numbered 1..=nc.
+        assert!(nc > 0 && nc < 25, "{nc}");
+        let mut seen: Vec<i32> = cf.iter().copied().filter(|&c| c > 0).collect();
+        seen.sort_unstable();
+        assert_eq!(seen, (1..=nc as i32).collect::<Vec<_>>());
+        for i in 0..25 {
+            if cf[i] == 0 {
+                let has = (a.row_ptr[i]..a.row_ptr[i + 1]).any(|k| cf[a.col_idx[k] as usize] > 0);
+                assert!(has, "fine node {i} without a coarse neighbour");
+            }
+        }
+    }
+
+    #[test]
+    fn anisotropic_grid_coarsens_along_the_strong_direction() {
+        // Strong y couplings only: each column is coarsened on its own, so
+        // no two vertically adjacent nodes are both coarse.
+        let a = grid(6, 0.01);
+        let (cf, _) = choose_coarse_nodes(&a, &ParamMap::new(), 1, true).unwrap();
+        for i in 0..30 {
+            assert!(!(cf[i] > 0 && cf[i + 6] > 0), "nodes {i} and {} both coarse", i + 6);
         }
     }
 }
