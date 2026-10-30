@@ -407,7 +407,9 @@ impl SaveScalars {
                     }
                     // `Save Flux Range` (default true): the point flux range
                     // follows the per-BC values (SaveScalars.F90:888).
-                    if op.oper == "diffusive flux" && plan.section.logical("save flux range").unwrap_or(true) {
+                    if (op.oper == "diffusive flux" || op.oper == "convective flux")
+                        && plan.section.logical("save flux range").unwrap_or(true)
+                    {
                         let var = list.variable_name.clone();
                         list.add(&plan, ctx, &format!("min {}: {var}", op.oper), totals.range.0, false)?;
                         list.add(&plan, ctx, &format!("max {}: {var}", op.oper), totals.range.1, false)?;
