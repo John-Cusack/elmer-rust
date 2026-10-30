@@ -3,8 +3,10 @@
 //! `Apply Integral BCs` (`GenerateProjectors` -> `IntegralProjector`,
 //! MeshBasics.F90:3353, then `GenerateConstraintMatrix`,
 //! ProjectorUtils.F90:440) turns every boundary condition or body force with
-//! `Integral BC` and an `Integral BC <var>` value into one row: the integral
-//! of each basis function over its elements, equal to the value. One with
+//! `Integral BC` and an `Integral BC <var>` value (`Integral BC
+//! <component>` per component of a vector field) into one row per such
+//! value: the integral of each basis function over its elements, equal to
+//! the value. One with
 //! `Flux Integral BC` gets `RobinProjector`'s row, the flux of its Robin
 //! terms, and the multiplier is exported (`Lagrange Multiplier <equation>`). A solver
 //! may instead hand over its own rows ([`SolverCtx::set_constraint_matrix`],
@@ -298,8 +300,17 @@ pub(crate) fn generate(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         ctx.info(CALLER, "Nothing to do since there are no constrained dofs!", 12);
         return Ok(());
     }
-    if dofs != 1 {
-        return Err(SolverError::Unsupported(format!("Integral BCs for a field of {dofs} components")));
+    // ProjectorUtils.F90:638-650 (Apply Contact BCs is refused above).
+    let dim = ctx.mesh.dim();
+    if !(dofs == 1 || dofs == dim || dofs == dim + 1) {
+        return Err(SolverError::fatal(CALLER, format!("Invalid number of dofs for field: {}", i2s(dofs as i64))));
+    }
+    if dofs != 1 && projectors.iter().flatten().any(|p| matches!(p, Proj::Robin(_))) {
+        return Err(SolverError::Unsupported(format!("Flux Integral BC for a field of {dofs} components")));
+    }
+    let components: Vec<String> = if dofs == 1 { vec![name.clone()] } else { ctx.sim.vars.component_names(id) };
+    if components.len() != dofs {
+        return Err(SolverError::fatal(CALLER, format!("{name} has no names for its {dofs} components")));
     }
     let n = ctx.sim.vars.by_id(id).values.len();
     ctx.info(CALLER, &format!("There are {} initial rows in constraint matrices", i2s(nrows as i64)), 10);
@@ -353,34 +364,50 @@ pub(crate) fn generate(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         } else {
             &ctx.sim.model.boundary_conditions[bc - 1]
         };
-        // ListGetCReal(BC, 'Integral BC '//name): without a value the
-        // component is not constrained.
-        let Some(value) = ctx.creal(s, &format!("integral bc {name}"))? else {
+        // ListGetCReal(BC, 'Integral BC '//component): a component
+        // without a value is not constrained (ActiveComponents; SetDefined
+        // takes the stale Found of 'Integral BC', so none is "unspecified").
+        let mut values = Vec::with_capacity(dofs);
+        for comp in &components {
+            values.push(ctx.creal(s, &format!("integral bc {comp}"))?);
+        }
+        if dofs == 1 && values[0].is_none() {
             ctx.info(CALLER, &format!("Skipping component: {}", i2s(1)), 12);
             continue;
-        };
+        }
         ctx.info(CALLER, &format!("Adding integral constraint for BC: {}", i2s(bc as i64)), 8);
         ctx.info(CALLER, &format!("Adding projector rows: {}", i2s(1)), 12);
         let kk = perm.get(proj.node as usize).copied().unwrap_or(NO_DOF);
-        if kk == NO_DOF || (skip_constrained && constrained.contains(&kk)) {
+        if kk == NO_DOF {
             continue;
         }
         let valsum = proj.entries.values().fold(0.0, |s, v: &f64| s + v.abs());
-        for (&node, &v) in &proj.entries {
-            if v.abs() < eps * valsum {
+        // AddScalarConstraint, or AddVectorConstraint's row per component.
+        for (j, value) in values.iter().enumerate() {
+            let Some(value) = *value else {
+                ctx.info(CALLER, &format!("Skipping component: {}", i2s(j as i64 + 1)), 12);
+                continue;
+            };
+            let row_dof = kk * dofs as u32 + j as u32;
+            if skip_constrained && constrained.contains(&row_dof) {
                 continue;
             }
-            let col = perm.get(node as usize).copied().unwrap_or(NO_DOF);
-            if col == NO_DOF {
-                continue;
+            for (&node, &v) in &proj.entries {
+                if v.abs() < eps * valsum {
+                    continue;
+                }
+                let col = perm.get(node as usize).copied().unwrap_or(NO_DOF);
+                if col == NO_DOF {
+                    continue;
+                }
+                c.matrix.col_idx.push(col * dofs as u32 + j as u32);
+                c.matrix.values.push(v);
             }
-            c.matrix.col_idx.push(col);
-            c.matrix.values.push(v);
+            c.matrix.row_ptr.push(c.matrix.values.len());
+            c.matrix.nrows += 1;
+            c.rhs.push(value);
+            c.inv_perm.push(row_dof);
         }
-        c.matrix.row_ptr.push(c.matrix.values.len());
-        c.matrix.nrows += 1;
-        c.rhs.push(value);
-        c.inv_perm.push(kk);
     }
     let nnz = c.matrix.values.len();
     if nnz == 0 {
