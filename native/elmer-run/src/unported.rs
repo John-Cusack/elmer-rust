@@ -28,9 +28,7 @@ const fn flag(key: &'static str, reason: &'static str) -> Rule {
     Rule { key, test: Test::True, reason }
 }
 
-const SIMULATION: &[Rule] = &[
-    flag("Set Dirichlet BCs by BC Numbering", "Dirichlet conditions in BC numbering order are not implemented"),
-];
+const SIMULATION: &[Rule] = &[];
 
 /// Read by the solver's own procedure; skipped for `Exec Solver = Never`.
 const SOLVER: &[Rule] = &[
@@ -211,10 +209,8 @@ mod tests {
             simulation: pm(&[("set dirichlet bcs by bc numbering", Value::Logical(true))]),
             ..Model::default()
         };
-        assert_eq!(
-            refusal(&model),
-            "Simulation 1: Set Dirichlet BCs by BC Numbering: Dirichlet conditions in BC numbering order are not implemented"
-        );
+        // Dirichlet conditions in BC numbering order are elmer-solver's.
+        assert!(check(&model).is_ok());
 
         let model = Model {
             solvers: vec![heat(&[]), heat(&[("exec solver", st("never")), ("mesh", st("local"))])],
