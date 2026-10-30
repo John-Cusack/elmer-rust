@@ -238,7 +238,10 @@ impl PSetup {
         let defs = all_defs.swap_remove(me);
         let bubbles = solver.logical("bubbles").unwrap_or(false);
         let opts = PermOptions {
-            optimize_bandwidth: solver.logical("optimize bandwidth").unwrap_or(true),
+            // `No Matrix`: `CreateMatrix` returns before `OptimizeBandwidth`
+            // (ElementUtils.F90:2229).
+            optimize_bandwidth: solver.logical("optimize bandwidth").unwrap_or(true)
+                && solver.logical("no matrix") != Some(true),
             use_optimized_always: solver
                 .logical("optimize bandwidth use always")
                 .unwrap_or(false),
