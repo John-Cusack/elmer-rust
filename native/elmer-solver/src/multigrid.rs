@@ -53,8 +53,21 @@ pub(crate) struct MgOptions {
 /// The coarsest-level solve (`MG Lowest Linear Solver = direct`).
 pub(crate) type CoarseSolve<'a> = dyn Fn(&CsrMatrix<f64>, &[f64], &mut [f64]) -> Result<(), SolverError> + 'a;
 
+/// Which multigrid's cycle: `GMGSolve` normalises by the right-hand side,
+/// tests the top level against the relative residual and prolongs onto the
+/// residual (`CRS_ApplyProjector`); `AMGSolve` does none of these
+/// (`CRS_ProjectVector` zeroes its output).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Kind {
+    Geometric,
+    Algebraic,
+}
+
 pub(crate) struct Hierarchy {
     pub levels: Vec<Level>,
+    pub kind: Kind,
+    /// Components per node, for the `bsgs` smoother.
+    pub dofs: usize,
 }
 
 /// `B = I^T A I`: the coarse operator of `ProjectMatrix` as a Galerkin
@@ -135,7 +148,7 @@ impl Hierarchy {
             };
             out.push(Level { a, interp, ilu });
         }
-        Ok(Self { levels: out })
+        Ok(Self { levels: out, kind: Kind::Geometric, dofs: 1 })
     }
 
     fn total(&self) -> usize {
@@ -154,13 +167,18 @@ impl Hierarchy {
     ) -> Result<(), SolverError> {
         let lv = &self.levels[level - 1];
         let n = lv.a.nrows;
+        let geometric = self.kind == Kind::Geometric;
         let mut rhs_norm = norm(&b[..n]);
         if rhs_norm < f64::MIN_POSITIVE.sqrt() {
-            log.info(CALLER, "Right-hand side is almost zero, not normalizing by it", 8);
+            if geometric {
+                log.info(CALLER, "Right-hand side is almost zero, not normalizing by it", 8);
+            }
             rhs_norm = 1.0;
         }
-        x[..n].iter_mut().for_each(|v| *v /= rhs_norm);
-        b[..n].iter_mut().for_each(|v| *v /= rhs_norm);
+        // AMGSolve leaves the system as it is; GMGSolve normalises it.
+        let scale = if geometric { rhs_norm } else { 1.0 };
+        x[..n].iter_mut().for_each(|v| *v /= scale);
+        b[..n].iter_mut().for_each(|v| *v /= scale);
         if level <= 1 {
             log.info(CALLER, "Starting lowest linear solver using: direct", 10);
             coarse(&lv.a, &b[..n], &mut x[..n])?;
@@ -174,26 +192,44 @@ impl Hierarchy {
             residual(&lv.a, x, b, &mut r);
             for iter in 1..=max_iter {
                 let rnorm = self.sweep(level, x, b, &mut r, opts, coarse, log)?;
-                log.info(
-                    CALLER,
-                    &format!(
-                        "MG Residual at level: {level} iter: {iter} is:{}{}",
-                        e_fmt(rnorm / rhs_norm, 20, 12, 3),
-                        e_fmt(rnorm, 20, 12, 3)
-                    ),
-                    5,
-                );
-                if rnorm.is_nan() || rnorm > 1.0e50 {
-                    return Err(SolverError::fatal(CALLER, "We seem to have diverged"));
-                }
-                let done = if level == self.total() { rnorm / rhs_norm < tol } else { rnorm < tol };
+                let done = if geometric {
+                    log.info(
+                        CALLER,
+                        &format!(
+                            "MG Residual at level: {level} iter: {iter} is:{}{}",
+                            e_fmt(rnorm / rhs_norm, 20, 12, 3),
+                            e_fmt(rnorm, 20, 12, 3)
+                        ),
+                        5,
+                    );
+                    if rnorm.is_nan() || rnorm > 1.0e50 {
+                        return Err(SolverError::fatal(CALLER, "We seem to have diverged"));
+                    }
+                    if level == self.total() {
+                        rnorm / rhs_norm < tol
+                    } else {
+                        rnorm < tol
+                    }
+                } else {
+                    // AMGSolve: the relative residual at every level.
+                    let rel = rnorm / rhs_norm;
+                    log.info(
+                        "AMGSolve",
+                        &format!("MG Residual at level: {level} iter: {iter} is:{}", e_fmt(rel, 20, 12, 3)),
+                        5,
+                    );
+                    if rel.is_nan() || rel > 1.0e50 {
+                        return Err(SolverError::fatal("AMGSolve", "We seem to have diverged"));
+                    }
+                    rel < tol
+                };
                 if done {
                     break;
                 }
             }
         }
-        x[..n].iter_mut().for_each(|v| *v *= rhs_norm);
-        b[..n].iter_mut().for_each(|v| *v *= rhs_norm);
+        x[..n].iter_mut().for_each(|v| *v *= scale);
+        b[..n].iter_mut().for_each(|v| *v *= scale);
         Ok(())
     }
 
@@ -231,8 +267,9 @@ impl Hierarchy {
         // GMGSweep adds all of it: x += r + I x2.
         let mut e = vec![0.0; r.len()];
         interp.apply(&x2, &mut e);
+        let adds_residual = self.kind == Kind::Geometric;
         for ((xi, ri), ei) in x.iter_mut().zip(r.iter_mut()).zip(&e) {
-            *ri += ei;
+            *ri = if adds_residual { *ri + ei } else { *ei };
             *xi += *ri;
         }
         self.smooth(level, x, b, r, opts, false)
@@ -278,6 +315,21 @@ impl Hierarchy {
                     for i in (0..n).rev() {
                         r[i] = (b[i] - row(x, i)) * inv_diag[i];
                         x[i] += r[i];
+                    }
+                }
+            }
+            "bsgs" => {
+                // BSGS (Smoothers.F90:1054): a node's components together.
+                let d = self.dofs.max(1);
+                let rowsum = |x: &[f64], i: usize| (a.row_ptr[i]..a.row_ptr[i + 1]).map(|k| x[a.col_idx[k] as usize] * a.values[k]).sum::<f64>();
+                for _ in 0..rounds {
+                    for node in (0..n / d).chain((0..n / d).rev()) {
+                        let s: Vec<f64> = (0..d).map(|c| rowsum(x, node * d + c)).collect();
+                        for (c, sc) in s.iter().enumerate() {
+                            let id = node * d + c;
+                            r[id] = (b[id] - sc) * inv_diag[id];
+                            x[id] += r[id];
+                        }
                     }
                 }
             }

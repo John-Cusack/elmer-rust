@@ -1394,6 +1394,23 @@ pub(crate) fn solve_linear(
                 .map(|_| true)
                 .map_err(block_error)
         } else {
+            // `Linear System Preconditioning = multigrid` with `MG Method =
+            // algebraic`: the Krylov method with the AMG cycle as its
+            // preconditioner (`MultigridPrec`), built here as the registry's
+            // factories do not know the dofs.
+            let amg_prec = crate::amg::wants_preconditioner(p)?;
+            if amg_prec && comm.size() > 1 {
+                return Err(SolverError::fatal("AMGSolve", "This algebraic multigrid is not parallel"));
+            }
+            let p_sel;
+            let p = if amg_prec {
+                let mut q = p.clone();
+                q.insert("Linear System Preconditioning", elmer_core::Value::Str("none".into()));
+                p_sel = q;
+                &p_sel
+            } else {
+                p
+            };
             match linear.select_for(p, matrix, log) {
             Err(e) => Err(e),
             Ok(LinearSolverChoice::Direct(mut d)) => d
@@ -1406,6 +1423,7 @@ pub(crate) fn solve_linear(
                 .map_err(SolverError::from),
             Ok(LinearSolverChoice::Iterative { mut solver, precond }) => {
                 let m: Result<Box<dyn elmer_core::Preconditioner<f64> + Send>, SolverError> = match precond {
+                    _ if amg_prec => crate::amg::preconditioner(p, matrix, block.dofs),
                     Some(f) => f(p, matrix),
                     None => Ok(Box::new(elmer_core::IdentityPrecond)),
                 };
