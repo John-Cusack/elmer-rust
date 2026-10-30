@@ -11,9 +11,9 @@
 //! `Div-Curl` forms, element-constant density, nodal viscosity and body
 //! forces, the three `Pressure Stabilization Element Size` measures, and p
 //! elements: Taylor-Hood (the edge and face pressure dofs pinned,
-//! [`pin_pressure`]) and the MINI element (velocity bubbles condensed in a
-//! steady run, [`lcondensate`]). Not ported (the solver refuses them):
-//! transient bubble condensation, compressibility models, non-newtonian and turbulent viscosity,
+//! [`pin_pressure`]) and the MINI element (velocity bubbles condensed,
+//! [`lcondensate`], [`lcondensate_bdf1`]). Not ported (the solver refuses
+//! them): compressibility models, non-newtonian and turbulent viscosity,
 //! axisymmetric coordinates.
 
 // A structural transliteration of Fortran loops over `1:dim` that index several
@@ -527,12 +527,47 @@ pub fn lcondensate(local: &mut LocalSystem, nd: usize, nb: usize, dim: usize) ->
     if m != (nd + nb) * dofs {
         return Err(IncompressibleError::Unsupported(format!("{m} local rows for {nd} + {nb} functions")));
     }
-    let c: Vec<usize> = (0..nd * dofs).collect();
-    let b: Vec<usize> = (0..nb).flat_map(|p| (0..dim).map(move |i| (nd + p) * dofs + i)).collect();
+    let (c, b) = condensed_rows(nd, nb, dim);
     let (nc, nbb) = (c.len(), b.len());
     let k = |i: usize, j: usize| local.stiff[i * m + j];
-    // Kbb^-1 by Gauss-Jordan with partial pivoting (InvertMatrix).
-    let mut a: Vec<f64> = (0..nbb * nbb).map(|x| k(b[x / nbb], b[x % nbb])).collect();
+    let inv = invert((0..nbb * nbb).map(|x| k(b[x / nbb], b[x % nbb])).collect(), nbb)?;
+    // Klb Kbb^-1, then the Schur complement on the retained rows.
+    let mut klb_inv = vec![0.0; nc * nbb];
+    for (r, &ci) in c.iter().enumerate() {
+        for q in 0..nbb {
+            klb_inv[r * nbb + q] = (0..nbb).map(|p| k(ci, b[p]) * inv[p * nbb + q]).sum();
+        }
+    }
+    let fb: Vec<f64> = b.iter().map(|&i| local.force[i]).collect();
+    let mut stiff = vec![0.0; nc * nc];
+    let mut force = vec![0.0; nc];
+    for (r, &ci) in c.iter().enumerate() {
+        let row = &klb_inv[r * nbb..(r + 1) * nbb];
+        force[r] = local.force[ci] - row.iter().zip(&fb).map(|(x, f)| x * f).sum::<f64>();
+        for (s, &cj) in c.iter().enumerate() {
+            let kbl: f64 = row.iter().zip(&b).map(|(x, &bi)| x * k(bi, cj)).sum();
+            stiff[r * nc + s] = k(ci, cj) - kbl;
+        }
+    }
+    local.n = nc;
+    local.stiff = stiff;
+    local.force = force;
+    local.mass = None;
+    local.damp = None;
+    Ok(())
+}
+
+/// LCondensate's retained (`Cdofs`) and bubble velocity (`Bdofs`) rows.
+fn condensed_rows(nd: usize, nb: usize, dim: usize) -> (Vec<usize>, Vec<usize>) {
+    let dofs = dim + 1;
+    let c = (0..nd * dofs).collect();
+    let b = (0..nb).flat_map(|p| (0..dim).map(move |i| (nd + p) * dofs + i)).collect();
+    (c, b)
+}
+
+/// `a^-1` (`n x n`, row-major) by Gauss-Jordan with partial pivoting
+/// (`InvertMatrix`).
+fn invert(mut a: Vec<f64>, nbb: usize) -> Result<Vec<f64>, IncompressibleError> {
     let mut inv = vec![0.0; nbb * nbb];
     for i in 0..nbb {
         inv[i * nbb + i] = 1.0;
@@ -565,28 +600,57 @@ pub fn lcondensate(local: &mut LocalSystem, nd: usize, nb: usize, dim: usize) ->
             }
         }
     }
-    // Klb Kbb^-1, then the Schur complement on the retained rows.
-    let mut klb_inv = vec![0.0; nc * nbb];
-    for (r, &ci) in c.iter().enumerate() {
-        for q in 0..nbb {
-            klb_inv[r * nbb + q] = (0..nbb).map(|p| k(ci, b[p]) * inv[p * nbb + q]).sum();
+    Ok(inv)
+}
+
+/// LCondensate of a transient run (`xprev`, `x` and the element's bubble
+/// history given; "only works for the BDF(1) method"): `K += M / dt` and
+/// `F += M xlprev / dt` over the whole local system, `xlprev` being `xprev`
+/// (the previous timestep at the `nd` retained functions, node-major) with
+/// `bubble_prev` (`dim` velocity components per bubble) at the bubble
+/// velocity rows; then [`lcondensate`]. Returns the current bubble values
+/// `Kbb^-1 (Fb - Kbl xl)` for the history, `xl` being the current iterate
+/// at the retained rows.
+#[allow(clippy::too_many_arguments)]
+pub fn lcondensate_bdf1(
+    local: &mut LocalSystem,
+    nd: usize,
+    nb: usize,
+    dim: usize,
+    dt: f64,
+    xprev: &[f64],
+    bubble_prev: &[f64],
+    xl: &[f64],
+) -> Result<Vec<f64>, IncompressibleError> {
+    let m = local.n;
+    let (c, b) = condensed_rows(nd, nb, dim);
+    if m != (nd + nb) * (dim + 1) || xprev.len() != c.len() || xl.len() != c.len() || bubble_prev.len() != b.len() {
+        return Err(IncompressibleError::Unsupported("LCondensate: inconsistent local sizes".into()));
+    }
+    let Some(mass) = local.mass.as_ref() else {
+        return Err(IncompressibleError::Unsupported("LCondensate: a transient run without a mass matrix".into()));
+    };
+    let mut xlprev = vec![0.0; m];
+    for (&i, &x) in c.iter().zip(xprev) {
+        xlprev[i] = x;
+    }
+    for (&i, &x) in b.iter().zip(bubble_prev) {
+        xlprev[i] = x;
+    }
+    for i in 0..m {
+        let mx: f64 = (0..m).map(|j| mass[i * m + j] * xlprev[j]).sum();
+        local.force[i] += mx / dt;
+        for j in 0..m {
+            local.stiff[i * m + j] += mass[i * m + j] / dt;
         }
     }
-    let fb: Vec<f64> = b.iter().map(|&i| local.force[i]).collect();
-    let mut stiff = vec![0.0; nc * nc];
-    let mut force = vec![0.0; nc];
-    for (r, &ci) in c.iter().enumerate() {
-        let row = &klb_inv[r * nbb..(r + 1) * nbb];
-        force[r] = local.force[ci] - row.iter().zip(&fb).map(|(x, f)| x * f).sum::<f64>();
-        for (s, &cj) in c.iter().enumerate() {
-            let kbl: f64 = row.iter().zip(&b).map(|(x, &bi)| x * k(bi, cj)).sum();
-            stiff[r * nc + s] = k(ci, cj) - kbl;
-        }
-    }
-    local.n = nc;
-    local.stiff = stiff;
-    local.force = force;
-    local.mass = None;
-    local.damp = None;
-    Ok(())
+    let nbb = b.len();
+    let inv = invert((0..nbb * nbb).map(|x| local.stiff[b[x / nbb] * m + b[x % nbb]]).collect(), nbb)?;
+    let r: Vec<f64> = b
+        .iter()
+        .map(|&bi| local.force[bi] - c.iter().zip(xl).map(|(&cj, x)| local.stiff[bi * m + cj] * x).sum::<f64>())
+        .collect();
+    let cur = (0..nbb).map(|p| (0..nbb).map(|q| inv[p * nbb + q] * r[q]).sum()).collect();
+    lcondensate(local, nd, nb, dim)?;
+    Ok(cur)
 }

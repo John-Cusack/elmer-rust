@@ -11,7 +11,7 @@ use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
 use crate::boundary::{incompressible_boundary_local, IncompressibleBoundaryInput};
 use crate::bulk::{
-    incompressible_bulk_local, incompressible_bulk_local_with, lcondensate, pin_pressure, HMode,
+    incompressible_bulk_local, incompressible_bulk_local_with, lcondensate, lcondensate_bdf1, pin_pressure, HMode,
     IncompressibleBulkInput, PressureStab,
 };
 use crate::error::IncompressibleError;
@@ -137,7 +137,13 @@ pub fn solver_defaults_with(p: &mut ParamMap, dim: usize, transient: bool, seren
             add_new(p, "Stokes Flow", Value::Logical(true));
         }
     }
-    let _ = transient;
+    // _Init: a transient Navier-Stokes run with condensed bubbles takes at
+    // least two nonlinear iterations.
+    let bubbles = p.string("element").is_some_and(|e| e.contains("b:"));
+    if bubbles && transient && !flag(p, "stokes flow") && !flag(p, "bubbles in global system") {
+        add_new(p, "Nonlinear System Min Iterations", Value::Integer(vec![2]));
+        add_new(p, "Nonlinear System Max Iterations", Value::Integer(vec![2]));
+    }
 }
 
 /// The incompressible stabilized equal-order solver.
@@ -145,6 +151,12 @@ pub struct IncompressibleNsSolver {
     basis: Option<Box<dyn ElementBasis + Send>>,
     quad: Option<Box<dyn Quadrature + Send>>,
     local: LocalSystem,
+    /// The condensed bubble velocities per element (`BubbleHistorySetCur`),
+    /// `dim` per bubble, and those of the previous timestep.
+    bubbles: std::collections::BTreeMap<u32, Vec<f64>>,
+    bubbles_prev: std::collections::BTreeMap<u32, Vec<f64>>,
+    /// The timestep `bubbles_prev` belongs to.
+    bubble_step: Option<i64>,
 }
 
 impl Default for IncompressibleNsSolver {
@@ -154,6 +166,9 @@ impl Default for IncompressibleNsSolver {
             basis: None,
             quad: None,
             local: LocalSystem::zeros(0),
+            bubbles: Default::default(),
+            bubbles_prev: Default::default(),
+            bubble_step: None,
         }
     }
 }
@@ -606,9 +621,6 @@ impl Solver for IncompressibleNsSolver {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
         let pdofs = ctx.solver_dofs().is_some();
         check_solver_params(ctx.params(), pdofs)?;
-        if pdofs && transient {
-            return Err(unsupported("transient runs on p elements"));
-        }
         let p = ctx.params().clone();
         let pstab = pressure_stabilization(&p);
         let dim = ctx.mesh.dim();
@@ -651,6 +663,13 @@ impl Solver for IncompressibleNsSolver {
             return Err(SolverError::fatal(CALLER, "solve before init"));
         };
 
+        if transient {
+            let step = ctx.scalar("timestep").map_or(-1, |t| t.round() as i64);
+            if self.bubble_step != Some(step) {
+                self.bubbles_prev = self.bubbles.clone();
+                self.bubble_step = Some(step);
+            }
+        }
         for iter in 1..=max_iter {
             ctx.info(CALLER, "--------------------------------------------------------", 4);
             ctx.info(CALLER, &format!("Nonlinear iteration: {iter:>4}"), 4);
@@ -666,8 +685,8 @@ impl Solver for IncompressibleNsSolver {
                     None => None,
                 };
                 let nf = pe.as_ref().map_or(n, |p| p.nd + p.nb);
-                if transient && pe.as_ref().is_some_and(|p| p.nb > 0) {
-                    return Err(unsupported("transient runs with condensed bubbles (LCondensate's bubble history)"));
+                if transient && pe.as_ref().is_some_and(|p| p.nb == 0) {
+                    return Err(unsupported("transient runs on p elements without bubbles (Taylor-Hood)"));
                 }
                 // A p element's basis takes its nodes in the order of its dofs
                 // (p tetrahedra are reordered); the nodal data follows them.
@@ -739,12 +758,27 @@ impl Solver for IncompressibleNsSolver {
                         if !(stokes && p.nb > 0) && !pstab {
                             pin_pressure(&mut self.local, n, nsdofs);
                         }
-                        if p.nb > 0 {
+                        if p.nb > 0 && transient && !stokes {
+                            // LCondensate with the bubble history (BDF1, whatever
+                            // the timestepping method): in place of
+                            // Default1stOrderTime.
+                            let prev = &ctx.sim.vars.get(&var_name).expect("the primary variable").prev_values;
+                            let Some(prev) = prev.first() else {
+                                return Err(SolverError::fatal(CALLER, "transient run without a previous timestep"));
+                            };
+                            let retained = &dofs[..p.nd * nsdofs];
+                            let xprev: Vec<f64> = retained.iter().map(|&d| prev[d as usize]).collect();
+                            let xl: Vec<f64> = retained.iter().map(|&d| values[d as usize]).collect();
+                            let zero = vec![0.0; dim * p.nb];
+                            let bprev = self.bubbles_prev.get(&e.0).unwrap_or(&zero);
+                            let cur = lcondensate_bdf1(&mut self.local, p.nd, p.nb, dim, dt, &xprev, bprev, &xl)?;
+                            self.bubbles.insert(e.0, cur);
+                        } else if p.nb > 0 {
                             lcondensate(&mut self.local, p.nd, p.nb, dim)?;
                         }
                     }
                 }
-                if transient && !stokes {
+                if transient && !stokes && pe.as_ref().is_none_or(|p| p.nb == 0) {
                     ctx.default_first_order_time(&mut self.local, e, dt)?;
                 }
                 ctx.default_update(&self.local, e)?;
