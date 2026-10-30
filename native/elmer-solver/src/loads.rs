@@ -30,7 +30,7 @@ pub(crate) struct AssemblyState {
 /// Use Loads` (DefUtils.F90:7797-7808). The other triggers (`Constant Bulk
 /// System`, ...) are refused where they are read.
 pub(crate) fn keeps_bulk(p: &ParamMap) -> Result<bool, SolverError> {
-    if p.logical("control use loads") == Some(true) {
+    if p.logical("control use loads") == Some(true) || p.logical("constraint modes analysis") == Some(true) {
         return Ok(true);
     }
     if p.logical("calculate loads") != Some(true) {
