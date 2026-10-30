@@ -8,7 +8,8 @@ use std::sync::{Arc, Mutex};
 use elmer_core::{normalize_key, Communicator, Logger, MeshView, ParamMap, Params, SerialComm, Value};
 use elmer_fe::{CoordinateKind, CoordinateSystem};
 use elmer_solver::{
-    coupled::solver_for_mode, finalize_reference, solver::procedure_of, Model, RunReport, Simulation, SolverError, SolverRegistry,
+    coupled::solver_for_mode, finalize_reference, solver::procedure_of, Model, RunReport, Simulation, Solver, SolverCtx,
+    SolverError, SolverRegistry,
 };
 
 use crate::compose::{coordinate_system, fe_backend, install_fe, solver_registry_for};
@@ -215,16 +216,13 @@ fn merged_with(model: &Model, block: &Model) -> Model {
 }
 
 /// Refuses, before anything runs, what a later `RUN` block would make
-/// unsupported. Fortran solvers read their keywords on every visit, while
-/// several native solvers read their section once when built; until the
-/// slots are rebuilt on reload, a block may only change `Reference Norm` /
-/// `Reference Norm Tolerance` of existing solvers, plus the keywords a
-/// solver is known to re-read on every solve (`LIVE`).
+/// unsupported. Fortran solvers read their keywords on every visit; native
+/// solvers are rebuilt after the reload ([`rebuild_changed`]). Not
+/// composed: Simulation and Constants changes, a new solver, and changes to
+/// the VTU output and mortar sections `run_case` installed its own
+/// instances for.
 fn check_reloads(model: &Model, reloads: &[Model], registry: &SolverRegistry) -> Result<(), SolverError> {
     const ALLOWED: [&str; 2] = ["reference norm", "reference norm tolerance"];
-    // Keywords a solver reads from its section on every solve, so a later
-    // block's value takes effect (QuadraturesBrick).
-    const LIVE: [(&str, &str, &[&str]); 1] = [("modelpde", "advdiffsolver", &["number of integration points"])];
     let mut merged = model.clone();
     for (k, block) in reloads.iter().enumerate() {
         let run = k + 2;
@@ -233,34 +231,25 @@ fn check_reloads(model: &Model, reloads: &[Model], registry: &SolverRegistry) ->
                 "RUN block {run} changes {what} (re-reading changed keywords after a reload is not composed)"
             )))
         };
+        // HelmholtzFEM's second block (`Simulation :: Angular Frequency`)
+        // runs at the new frequency but misses its reference (1.28e-2 vs
+        // 9.90e-3); Simulation and Constants changes stay refused.
         if let Some(key) = block.simulation.0.keys().find(|k| *k != "solver input file") {
             return refuse(format!("Simulation {key}"));
         }
-        let others = [
-            ("Constants", std::slice::from_ref(&block.constants)),
-            ("Equation", &block.equations[..]),
-            ("Body", &block.bodies[..]),
-            ("Material", &block.materials[..]),
-            ("Body Force", &block.body_forces[..]),
-            ("Initial Condition", &block.initial_conditions[..]),
-            ("Boundary Condition", &block.boundary_conditions[..]),
-        ];
-        for (name, sections) in others {
-            if let Some((i, p)) = sections.iter().enumerate().find(|(_, p)| !p.0.is_empty()) {
-                let key = p.0.keys().next().cloned().unwrap_or_default();
-                return refuse(format!("{name} {} {key}", i + 1));
-            }
+        if let Some(key) = block.constants.0.keys().next() {
+            return refuse(format!("Constants {key}"));
         }
         for (i, params) in block.solvers.iter().enumerate() {
-            if i >= model.solvers.len() && !params.0.is_empty() {
+            if params.0.keys().all(|k| ALLOWED.contains(&k.as_str())) {
+                continue;
+            }
+            if i >= model.solvers.len() {
                 return refuse(format!("Solver {} (a new solver)", i + 1));
             }
-            let live = procedure_of(&merged.solvers[i])
-                .and_then(|(lib, entry)| {
-                    LIVE.iter().find(|(l, e, _)| lib.eq_ignore_ascii_case(l) && entry.eq_ignore_ascii_case(e))
-                })
-                .map_or(&[][..], |(_, _, keys)| *keys);
-            if let Some(key) = params.0.keys().find(|k| !ALLOWED.contains(&k.as_str()) && !live.contains(&k.as_str())) {
+            let own = &merged.solvers[i];
+            if is_result_output(own) || crate::mortar::applies(own) {
+                let key = params.0.keys().find(|k| !ALLOWED.contains(&k.as_str())).cloned().unwrap_or_default();
                 return refuse(format!("Solver {} {key}", i + 1));
             }
         }
@@ -268,6 +257,53 @@ fn check_reloads(model: &Model, reloads: &[Model], registry: &SolverRegistry) ->
         preflight(&merged, registry)?;
     }
     Ok(())
+}
+
+/// After `Simulation::reload(block)`: a solver whose own section `block`
+/// changes, or every solver when `block` changes any other section, gets a
+/// new instance from the registry, so a solver that reads its sections when
+/// built (SaveScalars, HelmholtzSolve's frequency, ...) sees the new
+/// keywords as the Fortran does on every visit. Its `init` runs on the first
+/// solve. The VTU output and mortar instances `run_case` installed stay.
+fn rebuild_changed(sim: &mut Simulation, block: &Model, registry: &SolverRegistry) -> Result<(), SolverError> {
+    const ALLOWED: [&str; 2] = ["reference norm", "reference norm tolerance"];
+    let others = [&block.simulation, &block.constants]
+        .into_iter()
+        .chain(&block.equations)
+        .chain(&block.bodies)
+        .chain(&block.materials)
+        .chain(&block.body_forces)
+        .chain(&block.initial_conditions)
+        .chain(&block.boundary_conditions)
+        .any(|p| p.0.keys().any(|k| k != "solver input file"));
+    for slot in &mut sim.slots {
+        let own = block.solvers.get(slot.id - 1).is_some_and(|p| p.0.keys().any(|k| !ALLOWED.contains(&k.as_str())));
+        let params = &sim.model.solvers[slot.id - 1];
+        if !(own || others) || is_result_output(params) || crate::mortar::applies(params) {
+            continue;
+        }
+        let Some(factory) = procedure_of(params).and_then(|(lib, entry)| registry.get(&lib, &entry)) else {
+            continue; // Built-in coupled / assembly solvers read their section live.
+        };
+        slot.set_instance(Box::new(Reinit { inner: factory(params)?, ready: false }));
+    }
+    Ok(())
+}
+
+/// A solver built after setup: `init` on its first visit.
+struct Reinit {
+    inner: Box<dyn Solver>,
+    ready: bool,
+}
+
+impl Solver for Reinit {
+    fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
+        if !self.ready {
+            self.inner.init(ctx)?;
+            self.ready = true;
+        }
+        self.inner.solve(ctx, dt, transient)
+    }
 }
 
 /// Inputs no provider applies yet: restart files, mesh-load transforms
@@ -607,6 +643,7 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     let mut report = sim.run(mesh, log, comm)?;
     for block in &reloads {
         sim.reload(block, mesh, &registry, log, comm)?;
+        rebuild_changed(&mut sim, block, &registry)?;
         report = sim.run(mesh, log, comm)?;
     }
     let written = std::mem::take(&mut *written.lock().unwrap());
