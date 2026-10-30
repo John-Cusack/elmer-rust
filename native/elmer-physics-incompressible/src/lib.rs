@@ -5,7 +5,7 @@
 //! the solver's `SolverDofs`: the Taylor-Hood pair (`Element = "p:2"`) and,
 //! the default MINI element of `_Init0` (`p:1 b:N`, the velocity bubbles
 //! condensed by `LCondensate`, with their history in a transient run). The
-//! steady `Compressibility Model = Thermal` and `Perfect Gas` read the
+//! `Compressibility Model = Thermal` and `Perfect Gas` read the
 //! `Temperature` field.
 //!
 //! [`incompressible_bulk_local`] and [`incompressible_boundary_local`] are
@@ -16,7 +16,7 @@
 //! trait; [`register`] binds it to `Procedure = "IncompressibleNS"
 //! "IncompressibleNSSolver"` and `"IncompressibleNSVec" ...`.
 //!
-//! Transient compressibility models, non-newtonian and
+//! Non-newtonian and
 //! turbulent viscosity, cylindric coordinates,
 //! friction and wall-law boundaries and the block preconditioner are
 //! refused, not approximated.

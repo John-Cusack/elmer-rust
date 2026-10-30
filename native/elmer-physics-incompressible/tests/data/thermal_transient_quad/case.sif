@@ -1,0 +1,89 @@
+! A transient ThermalCompress_vec: ModelPDE (a diffusion equation for the
+! variable Temperature, standing in for HeatSolve, whose compressible form is
+! not what is tested here) heats the cavity from the walls each step and IncompressibleNS follows with "Compressibility
+! Model = Thermal", so rho changes in time (the d(rho)/dt load of the
+! continuity equation). The default MINI element, BDF1.
+Header
+  Mesh DB "." "ThermalCompress_vec"
+End
+Simulation
+  Max Output Level = 5
+  Coordinate System = Cartesian 2D
+  Simulation Type = Transient
+  Timestepping Method = BDF
+  BDF Order = 1
+  Timestep Sizes = 0.1
+  Timestep Intervals = 3
+  Steady State Max Iterations = 1
+  Output File = "case.result"
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+  Initial Condition = 1
+End
+Initial Condition 1
+  Temperature = 293
+End
+Body Force 1
+  Flow BodyForce 2 = -10
+End
+Solver 1
+  Equation = "Temperature"
+  Procedure = "ModelPDE" "AdvDiffSolver"
+  Variable = Temperature
+  Nonlinear System Max Iterations = 1
+  Linear System Solver = Direct
+  Linear System Direct Method = UMFPack
+End
+Solver 2
+  Equation = Navier-Stokes
+  Procedure = "IncompressibleNS" "IncompressibleNSSolver"
+  Nonlinear System Max Iterations = 10
+  Nonlinear System Convergence Tolerance = 1.0e-10
+  Nonlinear System Newton After Iterations = 20
+  Nonlinear System Newton After Tolerance = 1.0e-3
+  Linear System Solver = Direct
+  Linear System Direct Method = UMFPack
+End
+Equation 1
+  Active Solvers(2) = 1 2
+End
+Material 1
+  Density = 1
+  Viscosity = 1
+  Diffusion Coefficient = 1
+  Time Derivative Coefficient = 1
+  Reference Temperature = 293
+  Compressibility Model = Thermal
+  Heat Expansion Coefficient = 0.25
+End
+Boundary Condition 1
+  Target Boundaries = 1
+  Pressure = 0
+  Velocity 1 = 0
+  Velocity 2 = 0
+End
+Boundary Condition 2
+  Target Boundaries = 2
+  Velocity 1 = 0
+  Velocity 2 = 0
+  Temperature = 293.5
+End
+Boundary Condition 3
+  Target Boundaries = 3
+  Velocity 1 = 0
+  Velocity 2 = 0
+  Temperature = Variable Coordinate 1
+    Real
+      0.0 293.5
+      1.0 292.5
+    End
+End
+Boundary Condition 4
+  Target Boundaries = 4
+  Velocity 1 = 0
+  Velocity 2 = 0
+  Temperature = 292.5
+End
