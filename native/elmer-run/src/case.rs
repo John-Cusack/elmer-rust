@@ -454,7 +454,7 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
 /// in the global system and its solution norm, the `Reference Norm`); and
 /// any definition for the solvers that read their DOFs from `elmer-pdofs`
 /// (`ctx.solver_dofs()`) and refuse what they do not port: StressSolve
-/// (#206), ModelPDE's AdvDiffSolver and the test-local `Poisson` / `PoissonML`
+/// (#206), StatElecSolve (#208), ModelPDE's AdvDiffSolver and the test-local `Poisson` / `PoissonML`
 /// `PoissonSolver`, `ModelPDEsplitted`, `SingleElements`, `BenchmarkShell`
 /// and `Stokes1` ports.
 pub fn native_element(params: &ParamMap) -> bool {
@@ -464,8 +464,10 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 8] = [
+    const P_DOFS: [(&str, &str); 10] = [
         ("benchmarkshell", "shellsolver"),
+        ("statelecsolve", "statelecsolver"),
+        ("statelecsolvevec", "statelecsolver"),
         ("stresssolve", "stresssolver"),
         ("stokes1", "stokessolver"),
         ("poisson", "poissonsolver"),
