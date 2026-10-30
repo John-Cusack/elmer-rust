@@ -9,7 +9,9 @@ use elmer_core::{ElemId, ElementBasis, LocalSystem, ParamMap, Params, Quadrature
 use elmer_solver::sim::parse_variable_spec;
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
-use crate::boundary::{incompressible_boundary_local, incompressible_boundary_local_with, IncompressibleBoundaryInput};
+use crate::boundary::{
+    incompressible_boundary_local, incompressible_boundary_local_sums, IncompressibleBoundaryInput, SlipSums,
+};
 use crate::bulk::{
     incompressible_bulk_local_sums, lcondensate, lcondensate_bdf1, pin_pressure, HMode, ViscositySums,
     Compressibility, CompressModel, GlenFields, GlenParams, IncompressibleBulkInput, PressureStab, ViscosityModel,
@@ -95,6 +97,10 @@ fn add_exported(p: &mut ParamMap, spec: &str) {
 /// Weight`): zeroed before each assembly, accumulated element by element.
 const SAVED_VISCOSITY: [&str; 3] = ["viscosity", "shearrate", "viscosity weight"];
 
+/// `Save Slip`'s nodal fields (`Slip Coefficient`, `Slip Speed`, `Slip
+/// Weight`), the same way on the boundary.
+const SAVED_SLIP: [&str; 3] = ["slip coefficient", "slip speed", "slip weight"];
+
 fn add_new(p: &mut ParamMap, key: &str, v: Value) {
     if p.get(key).is_none() {
         p.insert(key, v);
@@ -166,6 +172,11 @@ pub fn solver_defaults_with(p: &mut ParamMap, dim: usize, transient: bool, seren
     // weight that normalizes the former.
     if flag(p, "save viscosity") {
         for name in ["Viscosity", "Shearrate", "-nooutput Viscosity Weight"] {
+            add_exported(p, name);
+        }
+    }
+    if flag(p, "save slip") {
+        for name in ["Slip Coefficient", "Slip Speed", "-nooutput Slip Weight"] {
             add_exported(p, name);
         }
     }
@@ -245,7 +256,6 @@ fn check_solver_params(p: &ParamMap, pdofs: bool) -> Result<(), SolverError> {
         ("constant-viscosity start", "Constant-Viscosity Start"),
         ("block preconditioner", "the block preconditioner"),
         ("nonlinear system linesearch", "nonlinear line search"),
-        ("save slip", "Save Slip"),
         ("bubbles in global system", "bubbles in the global system"),
         ("create schur matrix approximation", "Schur matrix approximation"),
     ] {
@@ -775,6 +785,7 @@ impl Solver for IncompressibleNsSolver {
         };
         let long_edge = flag(ctx.simulation_params(), "stabilization use longest element edge");
         let save_viscosity = flag(&p, "save viscosity");
+        let save_slip = flag(&p, "save slip");
         let axisymmetric = ctx
             .simulation_params()
             .string("coordinate system")
@@ -808,11 +819,10 @@ impl Solver for IncompressibleNsSolver {
             ctx.info(CALLER, &format!("Nonlinear iteration: {iter:>4}"), 4);
             ctx.info(CALLER, "--------------------------------------------------------", 4);
             ctx.default_initialize()?;
-            if save_viscosity {
-                for name in SAVED_VISCOSITY {
-                    if let Some(v) = ctx.variable_mut(name) {
-                        v.values.iter_mut().for_each(|x| *x = 0.0);
-                    }
+            let saved = [(save_viscosity, SAVED_VISCOSITY), (save_slip, SAVED_SLIP)];
+            for name in saved.into_iter().filter(|(on, _)| *on).flat_map(|(_, names)| names) {
+                if let Some(v) = ctx.variable_mut(name) {
+                    v.values.iter_mut().for_each(|x| *x = 0.0);
                 }
             }
             let newton = newton_active(ctx);
@@ -1063,7 +1073,17 @@ impl Solver for IncompressibleNsSolver {
                     }
                 }
                 let any = |v: &[f64]| v.iter().any(|&x| x != 0.0);
-                if !any(&ext) && !traction.iter().any(|t| any(t)) && !slip.iter().any(|s| any(s)) {
+                // LocalBoundaryMatrix returns before its Save Slip sums only when
+                // none of the keywords is given at all.
+                let given = |prefix: &str| bc.is_some_and(|b| has_prefix(b, prefix));
+                let keyed = ["surface traction", "external pressure", "normal surface traction", "slip coefficient"]
+                    .into_iter()
+                    .any(given);
+                if !(save_slip && keyed)
+                    && !any(&ext)
+                    && !traction.iter().any(|t| any(t))
+                    && !slip.iter().any(|s| any(s))
+                {
                     continue;
                 }
                 let parent_center = normal_parent(ctx, e)
@@ -1089,14 +1109,31 @@ impl Solver for IncompressibleNsSolver {
                     np: None,
                     axisymmetric,
                 };
+                let mut sums = SlipSums::default();
                 match ctx.solver_dofs() {
                     Some(d) => {
                         let pb = d.element_basis(e).map_err(|m| SolverError::fatal("ElementInfo", m))?;
                         let rule = d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?;
                         let nd = dofs.len() / nsdofs;
-                        incompressible_boundary_local_with(&*pb, &rule, nd, &inp, &mut self.local)?;
+                        let want = save_slip.then_some(&mut sums);
+                        incompressible_boundary_local_sums(&*pb, &rule, nd, &inp, &mut self.local, want)?;
+                    }
+                    None if save_slip => {
+                        let points = quad.gauss_points(el.etype, None);
+                        incompressible_boundary_local_sums(basis, &points, n, &inp, &mut self.local, Some(&mut sums))?;
                     }
                     None => incompressible_boundary_local(basis, quad, &inp, &mut self.local)?,
+                }
+                if save_slip {
+                    for (name, vals) in [("slip coefficient", &sums.slip), ("slip weight", &sums.weight)] {
+                        let Some(v) = ctx.variable_mut(name) else { continue };
+                        for (&node, x) in nodes.iter().zip(vals.iter()) {
+                            let k = v.perm.map_or(node, |p| p[node as usize]);
+                            if k != NO_DOF {
+                                v.values[k as usize] += x;
+                            }
+                        }
+                    }
                 }
                 ctx.default_update(&self.local, e)?;
             }
@@ -1113,9 +1150,15 @@ impl Solver for IncompressibleNsSolver {
         // The saved viscosity as a weighted average where the weight exceeds
         // 1e-20 (the Shearrate is left as summed: the Fortran normalizes a
         // "Strainrate").
-        if save_viscosity {
-            let weight = ctx.variable("viscosity weight").map(|w| w.values.to_vec());
-            if let (Some(w), Some(v)) = (weight, ctx.variable_mut("viscosity")) {
+        let normalized =
+            [("slip weight", "slip coefficient"), ("slip weight", "slip speed"), ("viscosity weight", "viscosity")];
+        for (wname, name) in normalized {
+            let on = if wname == "slip weight" { save_slip } else { save_viscosity };
+            if !on {
+                continue;
+            }
+            let weight = ctx.variable(wname).map(|w| w.values.to_vec());
+            if let (Some(w), Some(v)) = (weight, ctx.variable_mut(name)) {
                 for (x, &wi) in v.values.iter_mut().zip(&w) {
                     if wi > 1.0e-20 {
                         *x /= wi;
