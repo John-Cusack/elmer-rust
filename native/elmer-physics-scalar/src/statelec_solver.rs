@@ -319,7 +319,12 @@ impl Solver for StatElecSolver {
                 match ctx.solver_dofs() {
                     Some(d) => {
                         // LocalMatrix(Element, n, nd+nb, nb), then CondensateP(nd, nb).
+                        // The basis takes the nodes in the order of the dofs (p
+                        // tetrahedra are reordered); the values follow them.
                         let p = p_element(d, e)?;
+                        let xyz: Vec<[f64; 3]> =
+                            p.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
+                        let mat = mat.reordered(el.nodes, &p.nodes);
                         stat_elec_bulk_local_with(
                             &*p.basis,
                             &p.rule,

@@ -76,11 +76,12 @@ fn present_prefix(p: &ParamMap, prefix: &str) -> bool {
 }
 
 /// Model-wide refusals, from the solver section.
-/// The basis, rule and dof count of element `e` from the solver's p dofs
-/// (`ElementInfo`, `GaussPoints`, `GetElementNOFDOFs`).
+/// The basis, rule, node order and dof count of element `e` from the
+/// solver's p dofs (`ElementInfo`, `GaussPoints`, `GetElementNOFDOFs`).
 struct PElement {
     basis: Box<dyn ElementBasis + Send + Sync>,
     rule: Vec<elmer_core::QuadPoint>,
+    nodes: Vec<u32>,
     nd: usize,
 }
 
@@ -90,6 +91,7 @@ fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId) -> Result<PElement, So
     Ok(PElement {
         basis: d.element_basis(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
         rule: d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?,
+        nodes: d.element_nodes(e),
         nd: slots.len(),
     })
 }
@@ -197,6 +199,37 @@ struct ElementData {
     temperature: Option<Vec<f64>>,
     heat_expansion: Option<Vec<[f64; 3]>>,
     ip: Option<IpProps>,
+}
+
+impl ElementData {
+    /// The nodal values at `nodes`, given at `mesh_nodes` (the same set in
+    /// another order). Values at integration points are not reordered.
+    fn reordered(self, mesh_nodes: &[u32], nodes: &[u32]) -> Self {
+        if mesh_nodes == nodes {
+            return self;
+        }
+        let map: Vec<usize> =
+            nodes.iter().map(|n| mesh_nodes.iter().position(|m| m == n).expect("same node set")).collect();
+        fn take<T: Copy>(map: &[usize], v: &[T]) -> Vec<T> {
+            map.iter().map(|&i| v[i]).collect()
+        }
+        let law = match self.law {
+            ElasticLaw::Isotropic { young, poisson } => {
+                ElasticLaw::Isotropic { young: take(&map, &young), poisson: take(&map, &poisson) }
+            }
+            ElasticLaw::Anisotropic { c, rotation } => ElasticLaw::Anisotropic { c: take(&map, &c), rotation },
+        };
+        Self {
+            law,
+            density: take(&map, &self.density),
+            damping: self.damping.map(|v| take(&map, &v)),
+            load: take(&map, &self.load),
+            pressure: self.pressure.map(|v| take(&map, &v)),
+            temperature: self.temperature.map(|v| take(&map, &v)),
+            heat_expansion: self.heat_expansion.map(|v| take(&map, &v)),
+            ..self
+        }
+    }
 }
 
 fn nodal_temperature(temp: &Option<FieldRef<'_>>, nodes: &[u32], reference: &[f64]) -> Option<Vec<f64>> {
@@ -660,12 +693,18 @@ impl Solver for StressSolver {
         let elems: Vec<ElemId> = ctx.active_elements().collect();
         for e in elems {
             let el = ctx.mesh.element(e);
-            let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
             let pe = match ctx.solver_dofs() {
                 Some(d) => Some(p_element(d, e)?),
                 None => None,
             };
-            let d = self.element_data(ctx, e, cdim, axi, &temp_ref)?;
+            // A p element's basis takes its nodes in the order of its dofs (p
+            // tetrahedra are reordered); the nodal data follows them.
+            let nodes = pe.as_ref().map_or(el.nodes, |p| &p.nodes[..]);
+            let xyz: Vec<[f64; 3]> = nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
+            let d = self.element_data(ctx, e, cdim, axi, &temp_ref)?.reordered(el.nodes, nodes);
+            if pe.is_some() && d.ip.is_some() {
+                return Err(unsupported("material or body force values at integration points on p elements"));
+            }
             let plane_stress = flag(ctx.body_params(e).and_then(|b| b.equation), "plane stress");
             let inp = StressBulkInput {
                 etype: el.etype,

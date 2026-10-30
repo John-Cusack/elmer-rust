@@ -1,0 +1,59 @@
+! StressSolve on p:2 tetrahedra (the StokesStabilized tet mesh, unit cube):
+! a lane-made case for the p tetrahedron node order (ConvertToACTetra). A
+! Youngs modulus varying with x, a body force, the face 5 clamped and a
+! force on face 6.
+Header
+  CHECK KEYWORDS Warn
+  Mesh DB "." "tetmesh"
+  Include Path ""
+  Results Directory ""
+End
+Simulation
+  Max Output Level = 5
+  Coordinate System = Cartesian
+  Simulation Type = Steady state
+  Steady State Max Iterations = 1
+  Output File = "case.result"
+  Output Intervals = 1
+End
+Body 1
+  Target Bodies(1) = 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body Force 1
+  Stress Bodyforce 3 = -1.0e4
+End
+Solver 1
+  Equation = Linear elasticity
+  Procedure = "StressSolve" "StressSolver"
+  Variable = -dofs 3 Displacement
+  Nonlinear System Max Iterations = 1
+  Linear System Solver = Direct
+  Linear System Direct Method = umfpack
+  Element = p:2
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Density = 1.0e3
+  Poisson ratio = 0.3
+  Youngs modulus = Variable Coordinate 1
+    Real
+      0.0 1.0e9
+      1.0 2.0e9
+    End
+End
+Boundary Condition 1
+  Target Boundaries(1) = 5
+  Displacement 1 = 0
+  Displacement 2 = 0
+  Displacement 3 = 0
+End
+Boundary Condition 2
+  Target Boundaries(1) = 6
+  Force 1 = 1.0e6
+  Force 3 = 5.0e5
+End
