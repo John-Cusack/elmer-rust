@@ -336,3 +336,72 @@ fn thermal_compressibility_matches_elmer() {
         assert!(err[c] <= 1e-10 * scale[c], "component {c} max error {} (scale {})", err[c], scale[c]);
     }
 }
+
+/// `fem/tests/IncompressibleNSAxi` (`tests/data/axi_pipe`): axisymmetric
+/// Stokes with Pressure Stabilization on `Element = "p:1"`, `Specific Load`
+/// `Flow Bodyforce 2 = -1/r`. Its MATC conditions are linear along each
+/// boundary (two-point tables, exact there) and the load a table through
+/// the nodal radii (the values it is interpolated from).
+#[test]
+fn axisymmetric_stokes_matches_elmer() {
+    let dir = data("axi_pipe");
+    let mesh = TestMesh::read(&dir, 2);
+    let mut solver = ns_solver(&[
+        ("Equation", st("Navier-Stokes")),
+        ("Stokes Flow", Value::Logical(true)),
+        ("Specific Load", Value::Logical(true)),
+        ("Element", st("p:1")),
+        ("Pressure Stabilization", Value::Logical(true)),
+        ("Nonlinear System Max Iterations", ints(&[1])),
+    ]);
+    solver_defaults(&mut solver, 2, false);
+    let material = sec(&[("Density", real(1.0)), ("Viscosity", real(1.0))]);
+    let v1 = || table(1, &[(0.5, 0.5), (1.5, 1.5)]);
+    let bcs = vec![
+        bc(&[1], &[("Velocity 1", v1()), ("Velocity 2", table(1, &[(0.5, 0.5), (1.5, 1.5)]))]),
+        bc(&[2], &[("Velocity 1", v1()), ("Velocity 2", table(2, &[(0.0, 1.5), (2.0, -2.5)]))]),
+        bc(
+            &[3],
+            &[("Velocity 1", v1()), ("Velocity 2", table(1, &[(0.5, -3.5), (1.5, -2.5)])), ("Pressure", real(0.0))],
+        ),
+        bc(&[4], &[("Velocity 1", v1()), ("Velocity 2", table(2, &[(0.0, 0.5), (2.0, -3.5)]))]),
+    ];
+    let mut radii: Vec<f64> = mesh.coords.iter().map(|c| c[0]).collect();
+    radii.sort_by(f64::total_cmp);
+    radii.dedup();
+    let load = table(1, &radii.iter().map(|&r| (r, -1.0 / r)).collect::<Vec<_>>());
+    let body_force = sec(&[("Flow Bodyforce 1", real(0.0)), ("Flow Bodyforce 2", load)]);
+    let m = model(steady("Axi Symmetric"), solver, material, Some(body_force), bcs);
+    let mut reg = SolverRegistry::new();
+    register(&mut reg);
+    let mut sim = Simulation::new(m);
+    sim.backends.dofs = Some(Box::new(PDofsBackend::new()));
+    sim.setup(&mesh, &reg, &NullLogger, &SerialComm).unwrap();
+    sim.run(&mesh, &NullLogger, &SerialComm).unwrap();
+
+    let u = sim.vars.get("flow solution").unwrap();
+    let perm = u.perm.as_deref().unwrap();
+    let rows = lines(&dir.join("perm.dat"));
+    assert_eq!(rows.len(), 187);
+    let want: Vec<Vec<f64>> = lines(&dir.join("solution.dat"))
+        .iter()
+        .map(|l| l[1..].iter().map(|x| x.parse().unwrap()).collect())
+        .collect();
+    let mut scale = [0.0f64; 3];
+    let mut err = [0.0f64; 3];
+    for (l, w) in rows.iter().zip(&want) {
+        let (slot, row): (usize, u32) = (l[0].parse().unwrap(), l[1].parse().unwrap());
+        assert_eq!(perm[slot - 1] + 1, row, "Perm({slot})");
+        let s = perm[slot - 1] as usize * 3;
+        for c in 0..3 {
+            scale[c] = scale[c].max(w[c].abs());
+            err[c] = err[c].max((u.values[s + c] - w[c]).abs());
+        }
+    }
+    let norm = u.conv.norm;
+    eprintln!("axi_pipe: norm {norm:.17e}, max error / scale {:?}", [0, 1, 2].map(|c| err[c] / scale[c]));
+    assert!((norm - 1.3600542597525465).abs() / 1.3600542597525465 < 1e-10, "norm {norm:e}");
+    for c in 0..3 {
+        assert!(err[c] <= 1e-10 * scale[c], "component {c} max error {} (scale {})", err[c], scale[c]);
+    }
+}

@@ -10,12 +10,13 @@
 //! Picard and Newton linearization of the convection, the `GradP` and
 //! `Div-Curl` forms, element-constant density, nodal viscosity and body
 //! forces, the three `Pressure Stabilization Element Size` measures, the
-//! steady `Thermal` compressibility model ([`ThermalCompress`]), and p
+//! steady `Thermal` compressibility model ([`ThermalCompress`]),
+//! axisymmetric coordinates without swirl, and p
 //! elements: Taylor-Hood (the edge and face pressure dofs pinned,
 //! [`pin_pressure`]) and the MINI element (velocity bubbles condensed,
 //! [`lcondensate`], [`lcondensate_bdf1`]). Not ported (the solver refuses
-//! them): the perfect gas and transient compressibility models, non-newtonian and turbulent viscosity,
-//! axisymmetric coordinates.
+//! them): the perfect gas and transient compressibility models,
+//! non-newtonian and turbulent viscosity.
 
 // A structural transliteration of Fortran loops over `1:dim` that index several
 // arrays by the same component number.
@@ -78,6 +79,8 @@ pub struct IncompressibleBulkInput<'a> {
     pub np: Option<usize>,
     /// `Compressibility Model = Thermal`, steady.
     pub thermal: Option<ThermalCompress<'a>>,
+    /// `Coordinate System = Axi Symmetric` (no swirl): `xyz` are `(r, z)`.
+    pub axisymmetric: bool,
 }
 
 /// `Compressibility Model = Thermal`: `rho = rho0 (1 - beta (T - Tref))`
@@ -268,6 +271,22 @@ pub fn incompressible_bulk_local_with(
         }
     }
 
+    // Axisymmetric: the measure is r dr dz; `plain` keeps dr dz for the hoop
+    // terms, which carry one power of r less.
+    if inp.axisymmetric && (inp.gradp || inp.div_curl) {
+        return Err(IncompressibleError::Unsupported(
+            "Axi Symmetric with GradP or Div-Curl Discretization".into(),
+        ));
+    }
+    let plain = detj.clone();
+    let mut radius = vec![0.0; ngp];
+    if inp.axisymmetric {
+        for t in 0..ngp {
+            radius[t] = (0..n).map(|k| bas[t * nf + k] * inp.xyz[k][0]).sum();
+            detj[t] *= radius[t];
+        }
+    }
+
     // Velocity and pressure of the previous iterate at the points: the DGEMM
     // of LocalBulkMatrix runs over the `n` nodal functions only (the
     // velocity gradient below takes all `nf`).
@@ -356,6 +375,11 @@ pub fn incompressible_bulk_local_with(
                 udotv(so.at(i, j), nf, ngp, &dbs[j], &dbs[i], &weight_a, None);
             }
         }
+        // The hoop stress 2 mu u_r v_r / r of the radial component.
+        if inp.axisymmetric {
+            let hoop: Vec<f64> = (0..ngp).map(|t| 2.0 * mu[t] * plain[t] / radius[t]).collect();
+            udotv(so.at(0, 0), nf, ngp, &bas, &bas, &hoop, None);
+        }
     }
 
     // Pressure gradient and continuity.
@@ -366,6 +390,11 @@ pub fn incompressible_bulk_local_with(
             so.at(i, dim).to_vec()
         } else {
             udotv(so.at(i, dim), nf, ngp, &dbs[i], &bas, &neg_detj, None);
+            // div(v) r = r dv_r/dr + v_r + r dv_z/dz: the -p v_r term.
+            if inp.axisymmetric && i == 0 {
+                let neg_plain: Vec<f64> = plain.iter().map(|d| -d).collect();
+                udotv(so.at(i, dim), nf, ngp, &bas, &bas, &neg_plain, None);
+            }
             so.at(i, dim).to_vec()
         };
         let tr = so.at(dim, i);

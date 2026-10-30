@@ -16,7 +16,7 @@
 //! "IncompressibleNSSolver"` and `"IncompressibleNSVec" ...`.
 //!
 //! The perfect gas and transient compressibility models, non-newtonian and
-//! turbulent viscosity, axisymmetric coordinates,
+//! turbulent viscosity, cylindric coordinates,
 //! friction and wall-law boundaries and the block preconditioner are
 //! refused, not approximated.
 #![forbid(unsafe_code)]
