@@ -26,9 +26,10 @@ use crate::solver::SolverCtx;
 /// Rows of linear constraints over a solver's dofs (Elmer's
 /// `ConstraintMatrix`): `matrix` has one row per constraint, its columns are
 /// equation indices (`perm[node] * dofs + k`), `rhs` the constrained values.
-/// `inv_perm[i]` is the dof row `i` stands for, or [`NO_DOF`]: when that dof
-/// has a Dirichlet condition the constraint is dropped and its multiplier
-/// set to zero.
+/// `inv_perm[i]` is the dof row `i` stands for (possibly plus a multiple of
+/// the matrix size, the projector's row offset, as Elmer's `InvPerm`), or
+/// [`NO_DOF`]: when that dof has a Dirichlet condition the constraint is
+/// dropped and its multiplier set to zero.
 #[derive(Clone, Debug)]
 pub struct ConstraintMatrix {
     pub matrix: CsrMatrix<f64>,
@@ -504,7 +505,10 @@ pub(crate) fn collection(
                 }
             }
         }
+        // SolveCore.F90:5864-5867: InvPerm carries the projector's row
+        // offset (a multiple of the matrix size); the dof is it modulo n.
         let rep = c.inv_perm.get(i).copied().unwrap_or(NO_DOF);
+        let rep = if rep == NO_DOF || n == 0 { NO_DOF } else { (rep as usize % n) as u32 };
         if enforce && rep != NO_DOF && dval.get(rep as usize).copied().flatten().is_some() {
             rows[k].values_mut().for_each(|v| *v = 0.0);
             rows[k].insert(k as u32, 1.0);
@@ -562,4 +566,50 @@ pub(crate) fn collection(
         8,
     );
     (out, rhs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn csr(rows: &[&[(u32, f64)]], ncols: usize) -> CsrMatrix<f64> {
+        let mut m = CsrMatrix { nrows: rows.len(), ncols, row_ptr: vec![0], col_idx: Vec::new(), values: Vec::new(), diag: None };
+        for r in rows {
+            for &(c, v) in *r {
+                m.col_idx.push(c);
+                m.values.push(v);
+            }
+            m.row_ptr.push(m.values.len());
+        }
+        m
+    }
+
+    /// A row whose `InvPerm` is a Dirichlet dof plus the matrix size (the
+    /// second projector's offset) becomes `lambda = 0`, as with the plain
+    /// dof (SolveCore.F90:5864-5876).
+    #[test]
+    fn inv_perm_wraps_by_the_matrix_size() {
+        let a = csr(&[&[(0, 1.0)], &[(1, 2.0), (2, -1.0)], &[(1, -1.0), (2, 2.0)]], 3);
+        let b = [0.5, 1.0, 1.0];
+        let fixed = [(0u32, 0.5)];
+        let row = |inv: u32| ConstraintMatrix {
+            matrix: csr(&[&[(0, 1.0), (1, -1.0)]], 4),
+            rhs: vec![0.25],
+            inv_perm: vec![inv],
+        };
+        let log = elmer_core::NullLogger;
+        let p = ParamMap::new();
+        for inv in [0, 3, 6] {
+            let (m, rhs) = collection(&a, &b, &row(inv), &fixed, &p, &log);
+            let k = 3;
+            let entries: Vec<(u32, f64)> = (m.row_ptr[k]..m.row_ptr[k + 1]).map(|j| (m.col_idx[j], m.values[j])).collect();
+            assert!(entries.iter().all(|&(c, v)| if c == 3 { v == 1.0 } else { v == 0.0 }), "inv {inv}: {entries:?}");
+            assert_eq!(rhs[k], 0.0, "inv {inv}");
+        }
+        // A free representative keeps the row.
+        let (m, rhs) = collection(&a, &b, &row(4), &fixed, &p, &log);
+        let k = 3;
+        assert!((m.row_ptr[k]..m.row_ptr[k + 1]).any(|j| m.col_idx[j] == 1 && m.values[j] == -1.0));
+        assert_eq!(rhs[k], 0.25 - 0.5);
+    }
 }
