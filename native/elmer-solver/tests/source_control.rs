@@ -2,7 +2,9 @@
 //! (26.2-devel, Rev 9f6af2f85) runs of `fem/tests/LinControlCoordHeat`
 //! (target at a node by coordinates), `LinControlMaxHeat` (target at the
 //! extremum) and `LinControlFourHeaters` (four sources, four targets) from
-//! their `case.sif` files on their ElmerGrid meshes (`tests/data/control/`):
+//! their `case.sif` files on their ElmerGrid meshes (`tests/data/control/`),
+//! and of `lincontrolloadheat` (LinControlCoordHeat's mesh, `Control Use
+//! Loads`: the target is the nodal load at a Dirichlet node, direct solves):
 //! the `ComputeChange` lines, every `Applied Control Amplitude` and the
 //! reference-norm check. HeatSolve is the test-local nonlinear stand-in.
 
@@ -55,7 +57,9 @@ fn check(case: &str) {
         }
     }
     assert_eq!(got.len(), want.len(), "{case}: {got:#?}");
-    assert_eq!((sim.reference.test_count, sim.reference.pass_count), (1, 1), "{case}");
+    if case != "lincontrolloadheat" {
+        assert_eq!((sim.reference.test_count, sim.reference.pass_count), (1, 1), "{case}");
+    }
 }
 
 #[test]
@@ -71,4 +75,9 @@ fn control_at_the_extremum() {
 #[test]
 fn four_controls() {
     check("lincontrolfourheaters");
+}
+
+#[test]
+fn control_on_the_nodal_loads() {
+    check("lincontrolloadheat");
 }

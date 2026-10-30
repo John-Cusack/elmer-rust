@@ -1,0 +1,7 @@
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.37817080E-01  2.0000000     ) :: heatsolver
+ControlLinearSystem: Applied Control Amplitude:   -4.775085E-01
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.19759102E-01 0.62727247     ) :: heatsolver
+ControlLinearSystem: Applied Control Amplitude:   -4.775085E-01
+ComputeChange: NS (ITER=3) (NRM,RELC): ( 0.19759102E-01 0.87793637E-15 ) :: heatsolver
+ControlLinearSystem: Applied Control Amplitude:   -4.775085E-01
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.19759102E-01  2.0000000     ) :: heatsolver

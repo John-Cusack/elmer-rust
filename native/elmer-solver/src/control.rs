@@ -208,8 +208,12 @@ pub(crate) fn solve_controlled(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverErr
         return Err(SolverError::fatal(CALLER, "Controlling of source terms implemented only in serial!"));
     }
     let p = ctx.params().clone();
-    if p.logical("control use loads") == Some(true) {
-        return Err(SolverError::Unsupported("Apply Source Control with Control Use Loads".into()));
+    // `Control Use Loads`: the target and the sensitivities are the nodal
+    // loads of the bulk system (CalculateLoads with NodalValues) rather
+    // than the solution; the amplitude still moves the solution.
+    let use_loads = p.logical("control use loads") == Some(true);
+    if use_loads && p.logical("calculate boundary fluxes") == Some(true) {
+        return Err(SolverError::Unsupported("Control Use Loads with Calculate Boundary Fluxes".into()));
     }
     let id = ctx.sim.slots[ctx.slot]
         .variable
@@ -280,6 +284,7 @@ pub(crate) fn solve_controlled(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverErr
     let mut sens = vec![0.0; nc * nc];
     let mut cval = vec![0.0; nc];
     let mut dx = Vec::new();
+    let mut r0 = Vec::new();
     let schur = crate::solver::schur_matrix(ctx.sim, ctx.params());
     for i in 0..nc {
         let (log, comm) = (ctx.log, ctx.comm);
@@ -298,18 +303,37 @@ pub(crate) fn solve_controlled(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverErr
             };
             solve_linear(&sim.backends.linear, &env, &slot.params, &mut sys.matrix, &mut b, &mut dx, bnorm, false, log, comm)?;
         }
-        let y0 = &sim.vars.by_id(id).values;
+        let x0 = &sim.vars.by_id(id).values;
+        let dr;
+        let (y0, dy): (&[f64], &[f64]) = if use_loads {
+            let n = sys.matrix.nrows;
+            let (values, rhs) = slot
+                .asm
+                .bulk
+                .as_ref()
+                .ok_or_else(|| SolverError::fatal("CalculateLoads", "\"BulkValues\" are not associated!"))?;
+            if i == 0 {
+                r0 = crate::loads::residual(&sys.matrix, values, &x0[..n], &rhs[..n]);
+            }
+            // The control source stands in for BulkRhs.
+            let mut fi = f[i].clone();
+            fi.resize(n, 0.0);
+            dr = crate::loads::residual(&sys.matrix, values, &dx, &fi);
+            (&r0, &dr)
+        } else {
+            (x0, &dx)
+        };
         if extremum {
             let val = target[0];
             let mut mincand = f64::MAX;
-            for j in 0..dx.len() {
-                if dx[j].abs() < f64::MIN_POSITIVE {
+            for j in 0..dy.len() {
+                if dy[j].abs() < f64::MIN_POSITIVE {
                     continue;
                 }
-                let cand = (val - y0[j]) / dx[j];
+                let cand = (val - y0[j]) / dy[j];
                 if cand.abs() < mincand.abs() {
                     mincand = cand;
-                    sens[0] = dx[j];
+                    sens[0] = dy[j];
                     cval[i] = y0[j];
                 }
             }
@@ -319,7 +343,7 @@ pub(crate) fn solve_controlled(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverErr
                 if diag && j != i {
                     continue;
                 }
-                sens[j * nc + i] = dx[c.expect("not extremum")];
+                sens[j * nc + i] = dy[c.expect("not extremum")];
             }
             cval[i] = y0[cdof[i].expect("not extremum")];
         }
