@@ -117,6 +117,14 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if heat && params.get("variable").is_none() {
             params.insert("Variable", Value::Str("Temperature".into()));
         }
+        // `IncompressibleNSSolver_Init` (IncompressibleNS.F90:2390).
+        let ns = procedure_of(params).is_some_and(|(lib, entry)| {
+            lib.eq_ignore_ascii_case("incompressiblens") && entry.eq_ignore_ascii_case("incompressiblenssolver")
+        });
+        if ns && params.get("variable").is_none() {
+            let v = if cdim == 2 { "Flow Solution[Velocity:2 Pressure:1]" } else { "Flow Solution[Velocity:3 Pressure:1]" };
+            params.insert("Variable", Value::Str(v.into()));
+        }
         if params.get("procedure").is_some() {
             continue;
         }
