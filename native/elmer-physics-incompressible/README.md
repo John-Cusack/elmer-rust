@@ -1,55 +1,74 @@
 # elmer-physics-incompressible
 
-`IncompressibleNSSolver` for the Rust-native Elmer: incompressible
-Navier-Stokes with equal-order nodal velocity and pressure held stable by
-`Pressure Stabilization` (a Brezzi-Pitkaranta pressure block, with SUPG/PSPG
-terms for convection and the time derivative). Registered as `Procedure =
+`IncompressibleNSSolver` for the Rust-native Elmer: incompressible (and
+thermally or perfect-gas compressible) Navier-Stokes on equal-order nodal
+elements held stable by `Pressure Stabilization` (a Brezzi-Pitkaranta
+pressure block, with SUPG/PSPG terms for convection and the time
+derivative), on the MINI element (velocity bubbles condensed by
+`LCondensate`) and on Taylor-Hood p elements. Registered as `Procedure =
 "IncompressibleNS" "IncompressibleNSSolver"` and the front `"IncompressibleNSVec"
 "IncompressibleNSSolver"`.
 
 Ported from `fem/src/modules/IncompressibleNS.F90` (`LocalBulkMatrix`,
-`LocalBoundaryMatrix`, `IncompressibleNSSolver`, `_Init0`, `_init`);
-`IncompressibleNSVec.F90` only delegates to it. `hK` comes from `elmer-fe`'s
-`stab_param`, and so do the default basis and Gauss rules. The boundary
-integrals are `elmer-physics-flow`'s `flow_boundary_local` (the same
-`NavierStokesBoundary` element integrals) with no mass flux.
+`LCondensate`, `LocalBoundaryMatrix`, `IncompressibleNSSolver`, `_Init0`,
+`_init`); `IncompressibleNSVec.F90` only delegates to it. `hK` comes from
+`elmer-fe`'s `stab_param`, and so do the default basis and Gauss rules on
+nodal elements; p elements take their dofs, basis, rule and node order from
+the solver's `SolverDofs` (`elmer-pdofs`). The nodal boundary integrals are
+`elmer-physics-flow`'s `flow_boundary_local` (the same `NavierStokesBoundary`
+element integrals) with no mass flux.
 
 ## Supported
 
 - `Pressure Stabilization = True` (or `Stabilize = True` / `Stabilization
   Method = Stabilized`, its synonyms), which makes the element `Element =
-  "n:1"`; `Pressure Stabilization Coefficient` and `Pressure Stabilization
-  Element Size = shortest edge | longest edge | volume`; the per-family
-  constants of the Fortran.
+  "n:1"` (`"p:1"` too on `SolverDofs`); `Pressure Stabilization Coefficient`
+  and `Pressure Stabilization Element Size = shortest edge | longest edge |
+  volume`; the per-family constants of the Fortran.
+- Without it, p elements from `SolverDofs`: `_Init0`'s MINI element (`p:1
+  -tri b:1 -quad b:3 ...`, its velocity bubbles condensed, with their history
+  in a transient run: `LCondensate`'s BDF1) and Taylor-Hood (`p:2`, the edge
+  and face pressures pinned to the nodal one; full elements' bubbles
+  condensed). `Element Integration Points` and `Number of Integration
+  Points` pick the bulk rule.
 - `Stokes Flow` (also `Flow Model = Stokes`), steady and transient Navier-Stokes
   with Picard or Newton linearization (`ComputeChange` decides, through
   `Nonlinear System Newton After Iterations / Tolerance`), `Linear Equation`,
   `GradP Discretization`, `Div-Curl Discretization`, `Specific Load`,
   `Nonlinear System Min/Max Iterations`.
-- 2D and 3D Cartesian, element-constant `Density`, `Viscosity` and `Flow
-  Bodyforce i` at the nodes (expressions through `elmer-expr`), `Noslip Wall
-  BC`, Dirichlet on `Velocity i` / `Pressure`.
-- Boundaries: `Surface Traction i`, `Normal Surface Traction` / `External
-  Pressure` along the outward normal, `Slip Coefficient i`.
+- 2D and 3D Cartesian and `Axi Symmetric` (no swirl: the r measure, the hoop
+  stress and the `-p v_r` pressure term), element-constant `Density`,
+  `Viscosity` and `Flow Bodyforce i` at the nodes (expressions through
+  `elmer-expr`), `Noslip Wall BC`, Dirichlet on `Velocity i` / `Pressure`
+  (zero on the edge and face dofs of p elements).
+- `Compressibility Model = Thermal` and `Perfect Gas`, steady and transient,
+  from the `Temperature` field: rho(T) or rho(p, T) at the integration
+  points, the `u.grad(rho)` continuity term and, transient, the d(rho)/dt
+  load (and a perfect gas's pressure mass).
+- Boundaries, nodal and p, Cartesian and axisymmetric: `Surface Traction i`,
+  `Normal Surface Traction` / `External Pressure` along the outward normal,
+  `Slip Coefficient i`.
 - Transient runs: the mass matrix (Galerkin plus the PSPG/SUPG time terms)
   goes through `Default1stOrderTime`; `Stokes Flow` has none, as in Fortran.
 - Elmer's 1e-6 start value for an `Equation = Navier-Stokes` variable.
 
-Refused (`SolverError::Unsupported`), not approximated: the default MINI
-element (`p:1` with condensed velocity bubbles, `Element = "p:1 b:..."`) and any
-`Element` but `n:1`, Taylor-Hood, `Bubbles in Global System`, `Compressibility
-Model` (thermal, perfect gas), `Viscosity Model` and turbulence viscosity,
-`Boussinesq`, axisymmetric and other non-Cartesian coordinates, `Normal Slip
-Coefficient`, friction / `Wall Law` / FSSA / normal-tangential boundaries,
-`Pressure 1..3` (the Fortran itself asks for `Surface Traction`), `Save
-Viscosity`, `Save Slip`, `Implicit Friction Coefficient`, the block
-preconditioner and Schur operators, `Nonlinear System Linesearch`, density that
-varies within an element.
+Refused (`SolverError::Unsupported`), not approximated: `Bubbles in Global
+System`, `Viscosity Model` and turbulence viscosity, `Boussinesq`,
+compressibility with `Pressure Stabilization` or in a transient Stokes run,
+cylindric coordinates, `Normal Slip Coefficient`, friction / `Wall Law` /
+FSSA / normal-tangential boundaries, `Pressure 1..3` (the Fortran itself asks
+for `Surface Traction`), `Save Viscosity`, `Save Slip`, `Implicit Friction
+Coefficient`, the block preconditioner and Schur operators, `Nonlinear System
+Linesearch`, relative and adaptive integration orders, density that varies
+within an element.
 
 ## Wiring (for the integrator)
 
-- `solver_defaults(&mut ParamMap, dim, transient)` applies the keywords of
-  `_Init0` and `_init` (`ListAddNew` semantics): the `Element = "n:1"` string,
+- `solver_defaults_with(&mut ParamMap, dim, transient, serendipity)` (or
+  `solver_defaults`, serendipity elements) applies the keywords of `_Init0`
+  and `_init` (`ListAddNew` semantics): the `Element = "n:1"` string with
+  stabilization, else the MINI element string and its `Element Integration
+  Points`,
   `Variable = "Flow Solution[Velocity:dim Pressure:1]"`, `Nonlinear System Norm
   DOFs = dim`, `Relative Pressure Relaxation`, `Stokes Flow` from `Flow Model`.
   `Variable` and `Element` have to be in the section before the mesh and the
@@ -68,10 +87,17 @@ varies within an element.
 
 ## Tests
 
-- `tests/fortran_reference.rs`: six cases against the pristine ElmerSolver (see
-  `tests/data/README.md`), three of them the `StokesStabilized` quick test
-  (tri, quad, tet). Every nodal value agrees to 1e-11 or better (the test
-  bound is 1e-9, 1e-8 for the transient case).
+- `tests/fortran_reference.rs`: six nodal cases against the pristine
+  ElmerSolver (see `tests/data/README.md`), three of them the
+  `StokesStabilized` quick test (tri, quad, tet). Every nodal value agrees to
+  1e-11 or better (the test bound is 1e-9, 1e-8 for the transient case).
+- `tests/taylorhood.rs`: the p element, axisymmetric and compressible cases
+  (Taylor-Hood on quads, triangles and tetrahedra, full elements, transient,
+  with boundary loads; MINI Stokes, Navier-Stokes and transient;
+  `IncompressibleNSAxi`; the thermal and perfect gas cavities), every slot
+  against the pristine `case.result` to 1e-10.
+- `tests/compressible_transient.rs`: the transient compressible cavities, the
+  temperature solved by ModelPDE (`elmer-physics-advdiff`).
 - `tests/solver_options.rs`: refusals and the keyword defaults.
 
 `tests/support/` stands in for `elmer-mesh` (mesh files with boundary parents)
@@ -79,8 +105,7 @@ and `elmer-sif` (hand-built sections).
 
 ## Not done
 
-The default MINI element (`Element = "p:1 -tri b:1 ..."`) with `LCondensate`,
-which most of the 58 sif files naming this solver use, needs the p-hierarchic
-bubble basis and bubble history; Taylor-Hood needs P2 elements. Non-newtonian
-viscosity (`EffectiveViscosityVec`), compressibility, axisymmetry, friction and
-wall-law boundaries, and the block preconditioner are ported nowhere yet.
+Non-newtonian viscosity (`EffectiveViscosityVec`), turbulence models,
+friction and wall-law boundaries, normal-tangential conditions, and the block
+preconditioner (its Schur matrix needs a child solver `elmer-solver` cannot
+create yet).
