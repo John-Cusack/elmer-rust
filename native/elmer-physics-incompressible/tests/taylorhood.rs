@@ -378,7 +378,19 @@ fn compressible_cavity(case: &str, material: ParamMap, ref_norm: f64) {
 /// the nodal radii (the values it is interpolated from).
 #[test]
 fn axisymmetric_stokes_matches_elmer() {
-    let dir = data("axi_pipe");
+    axi_pipe("axi_pipe", false, 1.3600542597525465);
+}
+
+/// `tests/data/axi_pipe_loads`: the outer wall (boundary 2, r = 1.5)
+/// loaded instead of held: `External Pressure` 1 to 3 along z, `Surface
+/// Traction 2 = 0.5`, `Slip Coefficient 2 = 4`, integrated over r ds.
+#[test]
+fn axisymmetric_boundary_loads_match_elmer() {
+    axi_pipe("axi_pipe_loads", true, 1.3245395366921995);
+}
+
+fn axi_pipe(case: &str, loads: bool, ref_norm: f64) {
+    let dir = data(case);
     let mesh = TestMesh::read(&dir, 2);
     let mut solver = ns_solver(&[
         ("Equation", st("Navier-Stokes")),
@@ -393,7 +405,18 @@ fn axisymmetric_stokes_matches_elmer() {
     let v1 = || table(1, &[(0.5, 0.5), (1.5, 1.5)]);
     let bcs = vec![
         bc(&[1], &[("Velocity 1", v1()), ("Velocity 2", table(1, &[(0.5, 0.5), (1.5, 1.5)]))]),
-        bc(&[2], &[("Velocity 1", v1()), ("Velocity 2", table(2, &[(0.0, 1.5), (2.0, -2.5)]))]),
+        if loads {
+            bc(
+                &[2],
+                &[
+                    ("External Pressure", table(2, &[(0.0, 1.0), (2.0, 3.0)])),
+                    ("Surface Traction 2", real(0.5)),
+                    ("Slip Coefficient 2", real(4.0)),
+                ],
+            )
+        } else {
+            bc(&[2], &[("Velocity 1", v1()), ("Velocity 2", table(2, &[(0.0, 1.5), (2.0, -2.5)]))])
+        },
         bc(
             &[3],
             &[("Velocity 1", v1()), ("Velocity 2", table(1, &[(0.5, -3.5), (1.5, -2.5)])), ("Pressure", real(0.0))],
@@ -433,8 +456,8 @@ fn axisymmetric_stokes_matches_elmer() {
         }
     }
     let norm = u.conv.norm;
-    eprintln!("axi_pipe: norm {norm:.17e}, max error / scale {:?}", [0, 1, 2].map(|c| err[c] / scale[c]));
-    assert!((norm - 1.3600542597525465).abs() / 1.3600542597525465 < 1e-10, "norm {norm:e}");
+    eprintln!("{case}: norm {norm:.17e}, max error / scale {:?}", [0, 1, 2].map(|c| err[c] / scale[c]));
+    assert!((norm - ref_norm).abs() / ref_norm < 1e-10, "{case}: norm {norm:e}");
     for c in 0..3 {
         assert!(err[c] <= 1e-10 * scale[c], "component {c} max error {} (scale {})", err[c], scale[c]);
     }
