@@ -1182,6 +1182,80 @@ impl Simulation {
                 };
             }
         }
+        // MainUtils.F90:5816: `Namespace` is pushed for the activation
+        // (`ListPushNamespace`), so `<namespace> <key>` stands for `<key>` in
+        // every list until it is popped.
+        let namespace = if auxiliary { None } else { p.string("namespace").map(str::to_string) };
+        let overlay = namespace.as_deref().map(|ns| self.push_namespace(ns, log));
+        let r = self.activate_rounds(ix, dt, dts, time_derivative_active, auxiliary, mesh, log, comm);
+        if let Some(o) = overlay {
+            self.pop_namespace(o);
+        }
+        r
+    }
+
+    /// `ListPushNamespace(ns)` over the model's sections and the solvers'
+    /// lists: each `<ns> <key>` entry (lower-cased, as `ListFind` builds it)
+    /// takes the place of `<key>`. Returns what it replaced.
+    fn push_namespace(&mut self, ns: &str, log: &dyn Logger) -> Vec<(usize, String, Option<Value>)> {
+        let ns = ns.trim().to_lowercase();
+        log.info("ListPushNameSpace", &format!("Adding name space: {ns}"), 12);
+        let mut saved = Vec::new();
+        for (i, sec) in self.namespace_lists().into_iter().enumerate() {
+            let scoped: Vec<(String, Value)> = sec
+                .0
+                .iter()
+                .filter_map(|(k, v)| Some((k.strip_prefix(&ns)?.trim_start().to_string(), v.clone())))
+                .filter(|(k, _)| !k.is_empty())
+                .collect();
+            for (k, v) in scoped {
+                let old = sec.0.insert(k.clone(), v);
+                saved.push((i, k, old));
+            }
+        }
+        saved
+    }
+
+    /// `ListPopNamespace`: puts back what [`push_namespace`](Self::push_namespace) replaced.
+    fn pop_namespace(&mut self, saved: Vec<(usize, String, Option<Value>)>) {
+        let mut lists = self.namespace_lists();
+        for (i, k, old) in saved.into_iter().rev() {
+            match old {
+                Some(v) => lists[i].0.insert(k, v),
+                None => lists[i].0.remove(&k),
+            };
+        }
+    }
+
+    /// Every keyword list a namespace applies to, in a fixed order.
+    fn namespace_lists(&mut self) -> Vec<&mut ParamMap> {
+        let m = &mut self.model;
+        let mut v: Vec<&mut ParamMap> = vec![&mut m.header, &mut m.simulation, &mut m.constants];
+        v.extend(m.solvers.iter_mut());
+        v.extend(m.equations.iter_mut());
+        v.extend(m.bodies.iter_mut());
+        v.extend(m.materials.iter_mut());
+        v.extend(m.body_forces.iter_mut());
+        v.extend(m.initial_conditions.iter_mut());
+        v.extend(m.boundary_conditions.iter_mut());
+        v.extend(self.slots.iter_mut().map(|s| &mut s.params));
+        v
+    }
+
+    /// The solver calls of one activation: one per `Scanning Loops` round.
+    #[allow(clippy::too_many_arguments)]
+    fn activate_rounds(
+        &mut self,
+        ix: usize,
+        dt: f64,
+        dts: f64,
+        time_derivative_active: bool,
+        auxiliary: bool,
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+        comm: &dyn Communicator,
+    ) -> Result<(), SolverError> {
+        let p = &self.slots[ix].params;
         // MainUtils.F90:5840: `Scanning Loops` runs the solver that many
         // times with the global `scan` at 1, 2, ...
         let loops = match p.get("scanning loops") {
