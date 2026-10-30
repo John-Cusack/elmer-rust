@@ -37,7 +37,6 @@ fn with_oper(op: &str) -> ParamMap {
 #[test]
 fn operators_that_are_not_implemented_are_refused_by_name() {
     for (op, why) in [
-        ("convective flux", "flux reconstruction"),
         ("convective energy", "convective energy"),
         ("cpu time", "cpu time"),
         ("wall time", "wall time"),

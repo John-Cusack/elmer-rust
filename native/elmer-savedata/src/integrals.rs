@@ -396,9 +396,61 @@ fn diffusive_flux(ctx: &SolverCtx<'_>, fe: &Fe, e: ElemId, parent: ElemId, v: &V
     Ok((0..dim).map(|d| nrm[d] * grad[d]).sum())
 }
 
-/// `BoundaryIntegrals` for `boundary int`, `boundary int mean`, `area` and
-/// `diffusive flux`; per boundary condition, 0-based. `convective flux` is
-/// refused earlier.
+/// `convective flux` at one integration point of boundary element `e`
+/// (SaveScalars.F90:2788): the normal component of `u * velocity` with the
+/// velocity of `Flow Solution` for a scalar field, of the field itself for
+/// a vector field, interpolated on the boundary element. Without
+/// `Coefficient` the coefficient is one.
+fn convective_flux(
+    ctx: &SolverCtx<'_>,
+    e: ElemId,
+    parent: ElemId,
+    v: &VarView<'_>,
+    velo: Option<&VarView<'_>>,
+    basis: &[f64],
+) -> Result<f64, SolverError> {
+    let el = ctx.mesh.element(e);
+    let dim = ctx.mesh.dim();
+    let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
+    let interp = |view: &VarView<'_>, k: usize| -> f64 {
+        el.nodes.iter().zip(basis).map(|(&n, b)| b * view.slot(n as usize).map_or(0.0, |s| view.at(s, k))).sum()
+    };
+    let mut flow = [0.0; 3];
+    match velo {
+        Some(w) => {
+            for (j, f) in flow.iter_mut().enumerate().take(dim) {
+                // SUM(LocalVectorSolution(1,:) * LocalVeloSolution(j,:) * Basis)
+                *f = el
+                    .nodes
+                    .iter()
+                    .zip(basis)
+                    .map(|(&n, b)| {
+                        let u = v.slot(n as usize).map_or(0.0, |s| v.at(s, 0));
+                        let vel = w.slot(n as usize).map_or(0.0, |s| w.at(s, j));
+                        b * u * vel
+                    })
+                    .sum();
+            }
+        }
+        None => {
+            for (j, f) in flow.iter_mut().enumerate().take(dim) {
+                *f = interp(v, j);
+            }
+        }
+    }
+    let mut x = [0.0; 3];
+    for (b, p) in basis.iter().zip(&xyz) {
+        for k in 0..3 {
+            x[k] += b * p[k];
+        }
+    }
+    let pxyz: Vec<[f64; 3]> = ctx.mesh.element(parent).nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
+    let nrm = outward_normal(&xyz, el.etype, &pxyz, x)?;
+    Ok((0..dim).map(|d| nrm[d] * flow[d]).sum())
+}
+
+/// `BoundaryIntegrals` for `boundary int`, `boundary int mean`, `area`,
+/// `diffusive flux` and `convective flux`; per boundary condition, 0-based.
 pub(crate) fn boundary_integrals(
     ctx: &SolverCtx<'_>,
     fe: &Fe,
@@ -415,6 +467,23 @@ pub(crate) fn boundary_integrals(
         range: (f64::MAX, -f64::MAX),
     };
     let area_only = oper == "area";
+    let dim = ctx.mesh.dim();
+    // `convective flux` of a scalar takes the velocity of `Flow Solution`.
+    let velo = match (oper, view) {
+        ("convective flux", Some(v)) if v.ncomp == 1 => match crate::view::resolve(&ctx.sim.vars, "flow solution")? {
+            Some(crate::view::Resolved::Field(w)) if w.ncomp >= dim => Some(w),
+            _ => {
+                return Err(SolverError::fatal(
+                    "SaveScalars",
+                    "For convective flux of a scalar we need the convective field!",
+                ))
+            }
+        },
+        ("convective flux", Some(v)) if v.ncomp < dim => {
+            return Err(SolverError::Unsupported(format!("SaveScalars: convective flux & NoDofs {} < DIM", v.ncomp)))
+        }
+        _ => None,
+    };
     let nb = ctx.mesh.n_bulk() as u32;
     for t in nb..nb + ctx.mesh.n_boundary() as u32 {
         let e = ElemId(t);
@@ -440,13 +509,18 @@ pub(crate) fn boundary_integrals(
                 }
                 Some(flux_parent(ctx, e, bc, v)?)
             }
+            ("convective flux", Some(v)) => Some(flux_parent(ctx, e, bc, v)?),
             _ => None,
         };
         for ip in element_points(ctx, fe, e, passive, axisym)? {
             let flux = match field {
                 None => ip.s,
                 Some(v) if parent.is_some() => {
-                    let flux = diffusive_flux(ctx, fe, e, parent.unwrap(), v, &ip.basis)?;
+                    let flux = if oper == "convective flux" {
+                        convective_flux(ctx, e, parent.unwrap(), v, velo.as_ref(), &ip.basis)?
+                    } else {
+                        diffusive_flux(ctx, fe, e, parent.unwrap(), v, &ip.basis)?
+                    };
                     totals.range = (totals.range.0.min(flux), totals.range.1.max(flux));
                     ip.s * flux
                 }
