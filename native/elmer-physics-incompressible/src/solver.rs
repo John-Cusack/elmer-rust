@@ -685,9 +685,6 @@ impl Solver for IncompressibleNsSolver {
                     None => None,
                 };
                 let nf = pe.as_ref().map_or(n, |p| p.nd + p.nb);
-                if transient && pe.as_ref().is_some_and(|p| p.nb == 0) {
-                    return Err(unsupported("transient runs on p elements without bubbles (Taylor-Hood)"));
-                }
                 // A p element's basis takes its nodes in the order of its dofs
                 // (p tetrahedra are reordered); the nodal data follows them.
                 let nodes = pe.as_ref().map_or(el.nodes, |p| &p.nodes[..]);

@@ -28,6 +28,7 @@ the resulting reference:
 | `mini_tri` | `StokesStabilized/tri.sif` without `Pressure Stabilization` | the same, `-tri b:1` |
 | `mini_ns_tri` | `ns_tri` without `Pressure Stabilization` | Navier-Stokes on the MINI element, Picard then Newton after 3, bubbles condensed every iteration; norm 7.5920118E-02 |
 | `mini_transient_tri` | `transient_tri` without `Pressure Stabilization` | the MINI element over 4 steps of 0.1, Newton after 2; `LCondensate`'s BDF1 time derivative with each element's bubble history (the run asks for BDF2); norm 7.4404965E-02 |
+| `taylorhood_transient_tri` | `transient_tri` with `Element = p:2`, no `Pressure Stabilization` | Taylor-Hood Navier-Stokes over 4 BDF2 steps (`Default1stOrderTime`, the pinned pressures' mass rows zero); norm 3.7828652E-02 |
 
 The `taylorhood_*` and `mini_*` cases have p dofs, so their references are by dof
 slot instead of node: `perm.dat` holds the `Perm` of the `.result` as `slot
