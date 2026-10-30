@@ -47,6 +47,11 @@ fn step(mesh: &TestMesh) -> (Vec<ParamMap>, f64) {
     (bcs, 1.0e3)
 }
 
+/// The step of `tests/data/ns_tri` (Navier-Stokes): viscosity 0.1.
+fn ns_step(mesh: &TestMesh) -> (Vec<ParamMap>, f64) {
+    (step(mesh).0, 0.1)
+}
+
 /// The driven cavity of `tet_taylorhood.sif`.
 fn cavity(mesh: &TestMesh) -> (Vec<ParamMap>, f64) {
     let bcs = vec![
@@ -201,4 +206,20 @@ fn mini_quad_matches_elmer() {
 #[test]
 fn mini_tri_matches_elmer() {
     run_case("mini_tri", 2, step, &[], 595, 0.07587897980190471);
+}
+
+/// `tests/data/ns_tri` without `Pressure Stabilization`: Navier-Stokes on
+/// the MINI element, Picard then Newton after 3 iterations, the bubbles
+/// condensed in every iteration (the convection taken from the nodal
+/// velocity, the gradient from all functions with the bubbles at zero).
+#[test]
+fn mini_navier_stokes_tri_matches_elmer() {
+    let extra = [
+        ("Stokes Flow", Value::Logical(false)),
+        ("Nonlinear System Max Iterations", ints(&[30])),
+        ("Nonlinear System Convergence Tolerance", real(1.0e-10)),
+        ("Nonlinear System Newton After Iterations", ints(&[3])),
+        ("Nonlinear System Newton After Tolerance", real(1.0e-3)),
+    ];
+    run_case("mini_ns_tri", 2, ns_step, &extra, 595, 0.07592011845809431);
 }

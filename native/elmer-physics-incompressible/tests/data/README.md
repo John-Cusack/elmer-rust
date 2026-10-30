@@ -26,6 +26,7 @@ the resulting reference:
 | `taylorhood_quad_full` | `quad_taylorhood.sif` with `Serendipity P Elements = False` | full p:2 quads, one bubble each condensed (`LCondensate`, no pressure pinning in a Stokes run); velocity only (the unpinned pressure has spurious modes) |
 | `mini_quad` | `StokesStabilized/quad.sif` without `Pressure Stabilization` | `_Init0`'s MINI element `p:1 -quad b:3`, velocity bubbles condensed; norm 7.5549150E-02 |
 | `mini_tri` | `StokesStabilized/tri.sif` without `Pressure Stabilization` | the same, `-tri b:1` |
+| `mini_ns_tri` | `ns_tri` without `Pressure Stabilization` | Navier-Stokes on the MINI element, Picard then Newton after 3, bubbles condensed every iteration; norm 7.5920118E-02 |
 
 The `taylorhood_*` and `mini_*` cases have p dofs, so their references are by dof
 slot instead of node: `perm.dat` holds the `Perm` of the `.result` as `slot
