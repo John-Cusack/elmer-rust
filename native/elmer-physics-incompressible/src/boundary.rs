@@ -79,7 +79,32 @@ pub fn incompressible_boundary_local_with(
     inp: &IncompressibleBoundaryInput<'_>,
     out: &mut LocalSystem,
 ) -> Result<(), IncompressibleError> {
+    incompressible_boundary_local_sums(basis, points, nd, inp, out, None)
+}
+
+/// `Save Slip`'s sums of one boundary element at its `n` nodes: the largest
+/// slip coefficient of the components and the weight, each against the
+/// nodal functions and the rule's weights (no `detJ`, as in the Fortran).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SlipSums {
+    pub slip: Vec<f64>,
+    pub weight: Vec<f64>,
+}
+
+/// [`incompressible_boundary_local_with`], also filling `sums` when given.
+pub fn incompressible_boundary_local_sums(
+    basis: &dyn ElementBasis,
+    points: &[QuadPoint],
+    nd: usize,
+    inp: &IncompressibleBoundaryInput<'_>,
+    out: &mut LocalSystem,
+    mut sums: Option<&mut SlipSums>,
+) -> Result<(), IncompressibleError> {
     let n = inp.xyz.len();
+    if let Some(sm) = sums.as_deref_mut() {
+        sm.slip = vec![0.0; n];
+        sm.weight = vec![0.0; n];
+    }
     let dim = inp.dim;
     let c = dim + 1;
     for (what, got) in [
@@ -140,6 +165,15 @@ pub fn incompressible_boundary_local_with(
                         out.stiff[(p * c + i) * m + q * c + i] += s * slip * phi[q] * phi[p];
                     }
                 }
+            }
+        }
+        if let Some(sm) = sums.as_deref_mut() {
+            let max = (0..dim)
+                .map(|i| (0..n).map(|k| inp.slip[k][i] * phi[k]).sum::<f64>())
+                .fold(f64::MIN, f64::max);
+            for k in 0..n {
+                sm.slip[k] += phi[k] * qp.weight * max;
+                sm.weight[k] += phi[k] * qp.weight;
             }
         }
         for q in 0..nd {

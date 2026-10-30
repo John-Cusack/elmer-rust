@@ -60,13 +60,16 @@ element integrals) with no mass flux.
   hidden `Viscosity Weight`) and `Shearrate` (the nodal integral of the
   squared shear rate, which the Fortran leaves unnormalized) of the last
   assembly.
+- `Save Slip`: the exported `Slip Coefficient` (the largest component's,
+  averaged with the hidden `Slip Weight`) and `Slip Speed` (zero: friction
+  is not ported) on the slip boundaries.
 
 Refused (`SolverError::Unsupported`), not approximated: `Bubbles in Global
 System`, `Boussinesq`,
 compressibility with `Pressure Stabilization` or in a transient Stokes run,
 cylindric coordinates, `Normal Slip Coefficient`, friction / `Wall Law` /
 FSSA / normal-tangential boundaries, `Pressure 1..3` (the Fortran itself asks
-for `Surface Traction`), `Save Slip`, `Implicit Friction
+for `Surface Traction`), `Implicit Friction
 Coefficient`, the block preconditioner and Schur operators, `Nonlinear System
 Linesearch`, relative and adaptive integration orders, density that varies
 within an element, the `power law too` and turbulence viscosity models.

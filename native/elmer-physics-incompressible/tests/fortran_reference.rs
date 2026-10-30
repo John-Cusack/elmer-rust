@@ -91,6 +91,43 @@ fn stokes_step(case: &str, ref_norm: f64) {
     compare(case, &sim, &mesh, ref_norm, 1e-7, 1e-9);
 }
 
+/// `StokesStabilized/quad.sif` with `Slip Coefficient 1 = 200` on the
+/// outflow and `Save Slip` (`tests/data/stokes_quad_saveslip`): the solution,
+/// and the exported `Slip Coefficient` (normalized by the hidden `Slip
+/// Weight`) and `Slip Speed` (zero without friction) at every node.
+#[test]
+fn save_slip_quad_matches_elmer() {
+    let case = "stokes_quad_saveslip";
+    let mesh = TestMesh::read(&data(case), 2);
+    let solver = ns_solver(&[
+        ("Pressure Stabilization", logical(true)),
+        ("Save Slip", logical(true)),
+        ("Stokes Flow", logical(true)),
+        ("Nonlinear System Max Iterations", ints(&[1])),
+        ("Nonlinear System Convergence Tolerance", real(1.0e-3)),
+    ]);
+    let mut bcs = step_bcs(&mesh);
+    bcs[1].insert("Slip Coefficient 1", real(200.0));
+    let sim = run(model(steady("Cartesian 2D"), solver, material(1.0, 1.0e3), None, bcs), &mesh).unwrap();
+    compare(case, &sim, &mesh, 0.07553691751285312, 1e-10, 1e-10);
+    let rows: Vec<Vec<f64>> = std::fs::read_to_string(data(case).join("fields.dat"))
+        .unwrap()
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .map(|l| l.split_whitespace().map(|x| x.parse().unwrap()).collect())
+        .collect();
+    assert_eq!(rows.len(), mesh.coords.len());
+    for (c, name) in ["slip coefficient", "slip speed"].into_iter().enumerate() {
+        let v = sim.vars.get(name).unwrap_or_else(|| panic!("no {name}"));
+        for r in &rows {
+            let node = r[0] as u32 - 1;
+            let ours = v.values[v.slot(node).unwrap()];
+            assert!((ours - r[1 + c]).abs() <= 1e-10 * 200.0, "{name} at node {}: {ours} vs {}", node + 1, r[1 + c]);
+        }
+    }
+    assert!(sim.vars.get("slip weight").is_some_and(|w| !w.output), "-nooutput Slip Weight");
+}
+
 /// `StokesStabilized/tri.sif`: Stokes on the 1062 triangles of the backward
 /// facing step, the Brezzi-Pitkaranta pressure block alone holding the
 /// pressure mode.
