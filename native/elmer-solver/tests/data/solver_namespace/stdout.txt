@@ -1,0 +1,5 @@
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.38400825E-01  2.0000000     ) :: he1
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.38400825E-01  2.0000000     ) :: he1
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.76801649E-01  2.0000000     ) :: he2
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.76801649E-01  2.0000000     ) :: he2
+CompareToReferenceSolution: Solver 2 PASSED:  Norm = 7.68016493E-02  RefNorm = 7.68016493E-02
