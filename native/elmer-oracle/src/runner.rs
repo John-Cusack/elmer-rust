@@ -410,6 +410,16 @@ pub fn parse_cmakelists(name: &str, text: &str) -> TestSpec {
     spec
 }
 
+/// A test's `runtest.cmake` (`runTest.cmake` in the ElmerIce suite).
+pub fn read_runtest(dir: &Path) -> Result<String> {
+    let path = ["runtest.cmake", "runTest.cmake"]
+        .iter()
+        .map(|n| dir.join(n))
+        .find(|p| p.exists())
+        .unwrap_or_else(|| dir.join("runtest.cmake"));
+    std::fs::read_to_string(&path).map_err(|e| io_with(&path, e))
+}
+
 /// Read the sif name from an `ELMERSOLVER_STARTINFO` file (first token).
 pub fn read_startinfo(dir: &Path) -> Result<Option<String>> {
     let path = dir.join("ELMERSOLVER_STARTINFO");
@@ -765,7 +775,19 @@ pub struct Staging {
 fn stage_test(arm: &Arm, source_dir: &Path, run_dir: &Path, staging: &Staging) -> Result<()> {
     stage_tree(source_dir, run_dir)?;
     if let Some(dir) = source_dir.file_name() {
-        stage_arm_modules(&arm.build_dir.join("fem").join("tests").join(dir), run_dir)?;
+        // ElmerIce tests live in `elmerice/Tests`, the rest in `fem/tests`.
+        let suite = match source_dir.parent().and_then(|p| p.file_name()) {
+            Some(p) if p == "Tests" => arm.build_dir.join("elmerice").join("Tests"),
+            _ => arm.build_dir.join("fem").join("tests"),
+        };
+        stage_arm_modules(&suite.join(dir), run_dir)?;
+    }
+    // Configure-time `FILE(MAKE_DIRECTORY ...)` dirs: git keeps no empty
+    // directories, so the source tree cannot carry them.
+    let cmake = std::fs::read_to_string(source_dir.join("CMakeLists.txt")).unwrap_or_default();
+    for d in make_directories(&cmake) {
+        let path = run_dir.join(d);
+        std::fs::create_dir_all(&path).map_err(|e| io_with(&path, e))?;
     }
     if let Some(inj) = &staging.inject {
         inject_sif(run_dir, inj)?;
@@ -820,6 +842,31 @@ pub fn missing_output_dirs(run_dir: &Path) -> Vec<String> {
     dirs
 }
 
+/// Relative directories a test's `CMakeLists.txt` creates with
+/// `FILE(MAKE_DIRECTORY ...)` in its binary dir.
+pub fn make_directories(cmake: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in logical_lines(cmake) {
+        let tokens = tokenize(&line);
+        if !tokens.first().is_some_and(|t| t.eq_ignore_ascii_case("file")) {
+            continue;
+        }
+        if !tokens.get(1).is_some_and(|t| t == "MAKE_DIRECTORY") {
+            continue;
+        }
+        for t in &tokens[2..] {
+            let rel = t
+                .strip_prefix("${CMAKE_CURRENT_BINARY_DIR}/")
+                .unwrap_or(t)
+                .trim_end_matches('/');
+            if !rel.is_empty() && !rel.contains("${") && !rel.starts_with('/') && !rel.contains("..") {
+                out.push(rel.to_string());
+            }
+        }
+    }
+    out
+}
+
 /// `ADD_ELMERTEST_MODULE` builds test-local plugins into the arm's binary
 /// test directory, never the source tree; each arm uses its own build of
 /// them (the FMA arm's plugin carries the FMA flags too).
@@ -859,10 +906,15 @@ pub fn run_replay(
     let mut iter = reg.command.iter().skip(1);
     while let Some(a) = iter.next() {
         if a == "-P" {
-            // Run the staged copy, never the source tree's.
-            iter.next();
+            // Run the staged copy, never the source tree's (ElmerIce
+            // spells it `runTest.cmake`).
+            let script = iter
+                .next()
+                .and_then(|p| p.rsplit('/').next())
+                .unwrap_or("runtest.cmake")
+                .to_string();
             args.push(a.clone());
-            args.push(run_dir.join("runtest.cmake").display().to_string());
+            args.push(run_dir.join(script).display().to_string());
             continue;
         }
         if arm.solver_override && a.starts_with("-DELMERSOLVER_BIN=") {
@@ -924,6 +976,8 @@ fn arm_lib_dirs(build: &str) -> String {
         format!("{build}/fhutiter/src"),
         format!("{build}/mathlibs/src/arpack"),
         format!("{build}/mathlibs/src/parpack"),
+        // ElmerIce solver and USF libraries link ElmerIceUtils.
+        format!("{build}/elmerice/Utils"),
     ];
     if existing.is_empty() {
         dirs.join(":")
@@ -1244,6 +1298,21 @@ mod tests {
         // The commented-out Solver 9 inside /* */ gains nothing.
         assert!(!out.contains("Linear System Save"), "{out}");
         assert!(out.ends_with("Solver 1 :: Reference Norm = 1.0\nRUN\n"));
+    }
+
+    #[test]
+    fn elmerice_runtest_spelling_is_found() {
+        let dir = std::env::temp_dir().join(format!("elmer-oracle-rt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("runTest.cmake"), "RUN_ELMERICE_TEST()\n").unwrap();
+        assert_eq!(read_runtest(&dir).unwrap(), "RUN_ELMERICE_TEST()\n");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn make_directory_targets_are_relative_dirs() {
+        let cmake = "IF(HAVE_UMFPACK)\n  FILE(MAKE_DIRECTORY results)\n  file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/kulma)\n  FILE(COPY a DESTINATION \"${CMAKE_CURRENT_BINARY_DIR}/\")\nENDIF()\n";
+        assert_eq!(make_directories(cmake), vec!["results", "kulma"]);
     }
 
     #[test]

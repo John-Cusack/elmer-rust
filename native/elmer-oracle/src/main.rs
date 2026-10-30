@@ -1,9 +1,9 @@
 //! `elmer-oracle` command line: plan, run, manifest, and grade.
 
 use elmer_oracle::manifest::{hash_tree, Manifest};
-use elmer_oracle::registry::{read_registry, read_registry_under};
+use elmer_oracle::registry::read_registry_under;
 use elmer_oracle::runner::{
-    discover_tests, known_bins, missing_output_dirs, parse_cmakelists, plan_test, read_startinfo,
+    discover_tests, known_bins, missing_output_dirs, parse_cmakelists, plan_test, read_runtest, read_startinfo,
     run_plan, run_replay, Arm, SifInject, Staging,
 };
 use std::path::{Path, PathBuf};
@@ -13,7 +13,7 @@ fn usage() -> ! {
     eprintln!("  elmer-oracle plan <tests-dir> <test> [--np N]");
     eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE]");
     eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE]");
-    eprintln!("  elmer-oracle registry <build-dir> [--label L] [--suite fem/tests|elmerice]");
+    eprintln!("  elmer-oracle registry <build-dir> [--label L|'!L'] [--suite fem/tests|elmerice]");
     eprintln!("  elmer-oracle grade-tree <tests-dir> <golden-root> <candidate-root> <tolerances.json> [--fallback X]");
     eprintln!("  elmer-oracle mutation-suite <tests-dir> <golden-root> <tolerances.json> [--fallback X]");
     eprintln!("  elmer-oracle sigma-table <tests-dir> <out.json> <golden-root> <arm=root>...");
@@ -92,9 +92,10 @@ fn execute(args: &[String]) -> Executed {
         }
         i += 1;
     }
-    let registered = read_registry(&build_dir)
-        .ok()
-        .and_then(|reg| reg.into_iter().find(|t| t.name == test));
+    let registered = [build_dir.join("fem").join("tests"), build_dir.join("elmerice")]
+        .iter()
+        .filter_map(|root| read_registry_under(root).ok())
+        .find_map(|reg| reg.into_iter().find(|t| t.name == test));
     let dir_name = match &registered {
         Some(r) if !tests_dir.join(&test).is_dir() => r.dir.clone(),
         _ => test.clone(),
@@ -104,7 +105,7 @@ fn execute(args: &[String]) -> Executed {
     let cmake = std::fs::read_to_string(dir.join("CMakeLists.txt")).unwrap_or_else(|_| usage());
     let mut spec = parse_cmakelists(&dir_name, &cmake);
     spec.startinfo_sif = read_startinfo(&dir).unwrap_or_else(|_| usage());
-    let runtest = std::fs::read_to_string(dir.join("runtest.cmake")).unwrap_or_else(|_| usage());
+    let runtest = read_runtest(&dir).unwrap_or_else(|_| usage());
     let mut arm = arm_from_build(build_dir, "cli");
     if let Some(candidate) = solver {
         // Grade a candidate: its ElmerSolver, everything else (ElmerGrid,
@@ -190,7 +191,7 @@ fn main() {
             let dir = tests_dir.join(&test);
             let cmake = std::fs::read_to_string(dir.join("CMakeLists.txt")).unwrap_or_else(|_| usage());
             let spec = parse_cmakelists(&test, &cmake);
-            let runtest = std::fs::read_to_string(dir.join("runtest.cmake")).unwrap_or_else(|_| usage());
+            let runtest = read_runtest(&dir).unwrap_or_else(|_| usage());
             let arm = arm_from_build(PathBuf::from("/build"), "display");
             let plan = plan_test(&spec, &runtest, np, &arm).unwrap_or_else(|e| {
                 eprintln!("error: {e}");
@@ -270,7 +271,15 @@ fn main() {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             });
-            for t in reg.iter().filter(|t| label.as_ref().is_none_or(|l| t.has_label(l))) {
+            // `--label L` keeps tests carrying L; `--label '!L'` drops them.
+            let keep = |t: &elmer_oracle::registry::RegisteredTest| match label.as_deref() {
+                None => true,
+                Some(l) => match l.strip_prefix('!') {
+                    Some(not) => !t.has_label(not),
+                    None => t.has_label(l),
+                },
+            };
+            for t in reg.iter().filter(|t| keep(t)) {
                 println!("{}\t{}\t{}\t{}", t.name, t.dir, t.np, t.labels.join(";"));
             }
         }

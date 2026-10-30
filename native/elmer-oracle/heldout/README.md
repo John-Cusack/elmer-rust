@@ -52,10 +52,18 @@ directories plus all 47 ice directories, above the minimum of 21 (a
   holds only as long as lanes are graded from, and pointed at, the lane
   tree, and do not browse upstream `fem/tests`. This is a process rule for
   firstmate, not something the oracle can enforce.
-- **Item 9's first bullet is half done.** The pass/fail half of the
-  non-quick baseline comes from the pristine ctest run. Pristine-vs-pristine
-  determinism, which needs two captured runs of all 618 non-quick tests
-  (about 70 min each at 8 jobs), has not been run yet.
+- **The pass/fail baseline behind the exclusions is the pristine ctest
+  run.** The oracle's own two-run baseline (`../determinism/`) agrees on
+  the ice failures and finds no nondeterministic non-quick test, with two
+  differences:
+  - **ctest timeouts.** The four timeouts excluded here as
+    `pristine-failing` (ContactBlunt3DLevelProj, ContactBlunt3DNormalProj,
+    EM_port_eigen_2ndorder, ParStokes_ISMIP_HOM_A010) pass when the host is
+    not oversubscribed, so they could have been in the pool. Leaving them out
+    is conservative; adding them means resealing, which needs an ADR.
+  - **EM_port_eigen_3D(_prisms)** crash with one OpenMP thread and pass
+    with ctest's thread count. They stay in the pool, graded at ctest's
+    thread count.
 
 ## Reproduce
 
