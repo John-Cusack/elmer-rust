@@ -657,6 +657,9 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     // The test-local plugins' `<Proc>_init` section edits (before Elmer
     // creates their variables).
     elmer_fixtures::registry::init_sections(&fixture_case, &mut model);
+    for p in model.solvers.iter_mut().filter(|p| elmer_physics_datatofield::is_section(p)) {
+        elmer_physics_datatofield::init_section(p);
+    }
     let mut sim = Simulation::new(model);
     sim.backends.fe = Some(fe_backend(coords.dim));
     // Solver sections with a non-nodal `Element`; `p:%f` degrees are
