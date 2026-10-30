@@ -7,9 +7,10 @@
 //! numbering (Multigrid.F90:2094; scalar and `MG Determining Component`
 //! candidates, no complex, pseudo-geometric or compatible-relaxation
 //! variants).
+//! `InterpolateF2C` (the projector, Multigrid.F90:3367) is ported too.
 //! Still to port before `Linear System Preconditioning = multigrid` /
 //! `Linear System Solver = Multigrid` with `MG Method = algebraic` can use
-//! it: `InterpolateF2C` (the projector),
+//! it:
 //! `CRS_ProjectMatrixCreate` (the coarse matrix), `AMGSolve`/`AMGSweep` (the
 //! cycle, which can reuse `multigrid::Hierarchy`) and the multigrid
 //! preconditioner entry (`MultiGridPrec`).
@@ -375,13 +376,14 @@ pub(crate) fn coarse(a: &CsrMatrix<f64>, cands: &mut [i32], bonds: &[bool], cf: 
 /// `ChooseCoarseNodes` up to the coarse numbering: candidates (every row,
 /// or every `components`-th from `MG Determining Component`), strong
 /// connections, the C/F split, then `cf[i]` the 1-based coarse index of a
-/// coarse row and 0 for a fine one. Returns `cf` and the coarse count.
+/// coarse row and 0 for a fine one. Returns `cf`, the coarse count and the
+/// rows fixed by Dirichlet elimination.
 pub(crate) fn choose_coarse_nodes(
     a: &CsrMatrix<f64>,
     p: &ParamMap,
     components: usize,
     finest: bool,
-) -> Result<(Vec<i32>, usize), SolverError> {
+) -> Result<(Vec<i32>, usize, Vec<bool>), SolverError> {
     for k in ["mg complex matrix", "mg pseudo geometric", "mg compatible relax init", "mg compatible relax merit", "mg positive connection eliminate"] {
         if p.logical(k) == Some(true) {
             return Err(SolverError::Unsupported(format!("algebraic multigrid with {k}")));
@@ -414,7 +416,288 @@ pub(crate) fn choose_coarse_nodes(
             *c = cnods;
         }
     }
-    Ok((cf, cnods as usize))
+    Ok((cf, cnods as usize, fixed))
+}
+
+/// The `MG*` keywords `InterpolateF2C` reads.
+#[derive(Clone, Debug)]
+pub(crate) struct InterpOptions {
+    /// `MG Projection Limit` (0.6).
+    pub proj_lim: f64,
+    /// `MG Projection Lumping`.
+    pub lumping: bool,
+    /// `MG Direct Interpolate` and `MG Direct Interpolate Limit`.
+    pub direct: bool,
+    pub direct_limit: usize,
+    /// `MG Negative Connection Favor Factor` (1).
+    pub favor_neg: f64,
+    /// `MG Determining Component` (1-based).
+    pub component1: usize,
+}
+
+impl InterpOptions {
+    pub(crate) fn from_params(p: &ParamMap, components: usize) -> Self {
+        let direct = p.logical("mg direct interpolate") == Some(true);
+        Self {
+            proj_lim: p.real("mg projection limit").unwrap_or(0.6),
+            lumping: p.logical("mg projection lumping") == Some(true),
+            direct,
+            direct_limit: p
+                .integer("mg direct interpolate limit")
+                .map_or(if direct { 0 } else { usize::MAX }, |k| k.max(0) as usize),
+            favor_neg: p.real("mg negative connection favor factor").unwrap_or(1.0),
+            component1: if components > 1 {
+                p.integer("mg determining component").map_or(1, |c| c.clamp(1, components as i32) as usize)
+            } else {
+                1
+            },
+        }
+    }
+}
+
+/// `InterpolateF2C`: the projector (fine nodes x coarse nodes, the
+/// determining component's rows) from the C/F split `cf` (1-based coarse
+/// indices, 0 for fine) and the rows `fixed` by Dirichlet elimination.
+/// A coarse row interpolates itself; a fine one from its coarse
+/// neighbours, through its fine neighbours too (unless directly), with the
+/// dominant sign's coefficients kept beyond `MG Projection Limit` of the
+/// largest and the other sign's while they still count.
+#[allow(clippy::needless_range_loop)]
+pub(crate) fn interpolate_f2c(a: &CsrMatrix<f64>, cf: &[i32], fixed: &[bool], components: usize, o: &InterpOptions) -> CsrMatrix<f64> {
+    let fdofs = a.nrows;
+    let comps = components.max(1);
+    let same = |x: usize, y: usize| (x + 1) % comps == (y + 1) % comps;
+    let val_at = |k: usize| a.values[k];
+    let diag_k = |i: usize| (a.row_ptr[i]..a.row_ptr[i + 1]).find(|&k| a.col_idx[k] as usize == i);
+    let ncoarse = cf.iter().filter(|&&c| c > 0).count();
+    let nrows = fdofs / comps;
+    let mut p = CsrMatrix { nrows, ncols: ncoarse, row_ptr: vec![0], col_idx: Vec::new(), values: Vec::new(), diag: None };
+    let mut coeffs_inds = vec![0usize; fdofs];
+    for ind in (o.component1 - 1..fdofs).step_by(comps) {
+        if cf[ind] > 0 {
+            p.col_idx.push(cf[ind] as u32 - 1);
+            p.values.push(1.0);
+            p.row_ptr.push(p.values.len());
+            continue;
+        }
+        let mut inds: Vec<usize> = Vec::new();
+        let mut coeffs: Vec<f64> = Vec::new();
+        let mut diag = 0usize;
+        let mut ncoarse_nb = 0usize;
+        if o.direct {
+            for k in a.row_ptr[ind]..a.row_ptr[ind + 1] {
+                let ci = a.col_idx[k] as usize;
+                if !same(ci, ind) || fixed[ci] {
+                    continue;
+                }
+                let v = val_at(k);
+                if v.abs() < 1.0e-50 {
+                    continue;
+                }
+                inds.push(ci);
+                coeffs.push(v);
+                if ci == ind {
+                    diag = inds.len();
+                } else if cf[ci] > 0 {
+                    ncoarse_nb += 1;
+                }
+            }
+        }
+        if ncoarse_nb < o.direct_limit {
+            inds.clear();
+            coeffs.clear();
+            diag = 0;
+            for k in a.row_ptr[ind]..a.row_ptr[ind + 1] {
+                let ci = a.col_idx[k] as usize;
+                if !same(ci, ind) || fixed[ci] {
+                    continue;
+                }
+                if cf[ci] > 0 || ci == ind {
+                    let v = val_at(k);
+                    if v.abs() < 1.0e-50 {
+                        continue;
+                    }
+                    inds.push(ci);
+                    coeffs.push(v);
+                    coeffs_inds[ci] = inds.len();
+                    if ci == ind {
+                        diag = inds.len();
+                    }
+                }
+            }
+            for k in a.row_ptr[ind]..a.row_ptr[ind + 1] {
+                let ci = a.col_idx[k] as usize;
+                if !same(ci, ind) || cf[ci] > 0 || ci == ind || fixed[ci] {
+                    continue;
+                }
+                let Some(dk) = diag_k(ci) else { continue };
+                for j in a.row_ptr[ci]..a.row_ptr[ci + 1] {
+                    let cj = a.col_idx[j] as usize;
+                    if cj == ci || !same(cj, ind) || fixed[cj] {
+                        continue;
+                    }
+                    let v = val_at(k) * val_at(j) / val_at(dk);
+                    if v.abs() < 1.0e-50 {
+                        continue;
+                    }
+                    let mut slot = coeffs_inds[cj];
+                    if slot == 0 {
+                        inds.push(cj);
+                        coeffs.push(0.0);
+                        slot = inds.len();
+                        coeffs_inds[cj] = slot;
+                    }
+                    coeffs[slot - 1] -= v;
+                }
+            }
+            for &i in &inds {
+                coeffs_inds[i] = 0;
+            }
+        }
+        let no = inds.len();
+        if no <= 1 || diag == 0 {
+            p.row_ptr.push(p.values.len());
+            continue;
+        }
+        let d = diag - 1;
+        if o.lumping {
+            let s: f64 = coeffs.iter().sum();
+            coeffs[d] -= s;
+        }
+        if coeffs[d] < 0.0 {
+            coeffs.iter_mut().for_each(|c| *c = -*c);
+        }
+        let (mut possum, mut negsum, mut posmax, mut negmax) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        let (mut posi, mut negi) = (0usize, 0usize);
+        let mut diagsum = 0.0;
+        for i in 0..no {
+            let v = coeffs[i];
+            if i == d {
+                diagsum = v;
+            } else if v > 0.0 {
+                possum += v;
+                if cf[inds[i]] > 0 {
+                    posmax = posmax.max(v);
+                    posi += 1;
+                }
+            } else {
+                negsum += v;
+                if cf[inds[i]] > 0 {
+                    negmax = negmax.min(v);
+                    negi += 1;
+                }
+            }
+        }
+        if posi == 0 && negi == 0 {
+            p.row_ptr.push(p.values.len());
+            continue;
+        }
+        let mut pos: Vec<(usize, f64)> = Vec::new();
+        let mut neg: Vec<(usize, f64)> = Vec::new();
+        let (mut poscsum, mut negcsum) = (0.0, 0.0);
+        if posi == 0 || possum.abs() <= negsum.abs() * o.favor_neg {
+            if negi == 0 {
+                p.row_ptr.push(p.values.len());
+                continue;
+            }
+            for i in 0..no {
+                let (v, ci) = (coeffs[i], inds[i]);
+                if cf[ci] == 0 {
+                    continue;
+                }
+                if v < o.proj_lim * negmax {
+                    neg.push((ci, v));
+                    negcsum += v;
+                } else if v > o.proj_lim * posmax {
+                    pos.push((ci, v));
+                }
+            }
+            negi = neg.len();
+            posi = 0;
+            let refbond = -o.proj_lim * negsum * negmax / (o.favor_neg * negcsum);
+            if possum > refbond {
+                bubble(&mut pos, |a, b| a < b);
+                poscsum = 0.0;
+                for i in 0..pos.len() {
+                    if i == 0 {
+                        if possum < refbond {
+                            break;
+                        }
+                    } else {
+                        let posbond = possum * pos[i].1 / (poscsum + pos[i].1);
+                        if posbond < refbond && pos[i].1 < 0.99 * pos[i - 1].1 {
+                            break;
+                        }
+                    }
+                    posi = i + 1;
+                    poscsum += pos[i].1;
+                }
+            }
+        } else {
+            for i in 0..no {
+                let (v, ci) = (coeffs[i], inds[i]);
+                if cf[ci] == 0 {
+                    continue;
+                }
+                if v > o.proj_lim * posmax {
+                    pos.push((ci, v));
+                    poscsum += v;
+                } else if v < o.proj_lim * negmax {
+                    neg.push((ci, v));
+                }
+            }
+            posi = pos.len();
+            negi = 0;
+            let refbond = o.proj_lim * possum * posmax / (poscsum * o.favor_neg);
+            if -negsum > refbond {
+                bubble(&mut neg, |a, b| a > b);
+                negcsum = 0.0;
+                for i in 0..neg.len() {
+                    if i == 0 {
+                        if -negsum < refbond {
+                            break;
+                        }
+                    } else {
+                        let negbond = negsum * neg[i].1 / (negcsum + neg[i].1);
+                        if -negbond < refbond && neg[i].1 > 0.99 * neg[i - 1].1 {
+                            break;
+                        }
+                    }
+                    negi = i + 1;
+                    negcsum += neg[i].1;
+                }
+            }
+        }
+        if posi == 0 {
+            diagsum += possum / o.favor_neg;
+        }
+        if negi == 0 {
+            diagsum = (diagsum + negsum) / o.favor_neg;
+        }
+        for &(ci, v) in &neg[..negi] {
+            p.col_idx.push(cf[ci] as u32 - 1);
+            p.values.push(-negsum * v / (negcsum * diagsum));
+        }
+        for &(ci, v) in &pos[..posi] {
+            p.col_idx.push(cf[ci] as u32 - 1);
+            p.values.push(-possum * v / (poscsum * diagsum * o.favor_neg));
+        }
+        p.row_ptr.push(p.values.len());
+    }
+    p
+}
+
+/// The Fortran's bubble passes: entries `i` and `i + 1` swap when
+/// `swap(v_i, v_i+1)`.
+fn bubble(v: &mut [(usize, f64)], swap: impl Fn(f64, f64) -> bool) {
+    let n = v.len();
+    for _ in 1..n {
+        for i in 0..n - 1 {
+            if swap(v[i].1, v[i + 1].1) {
+                v.swap(i, i + 1);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -504,7 +787,7 @@ mod tests {
     #[test]
     fn coarsening_splits_the_isotropic_grid() {
         let a = grid(5, 1.0);
-        let (cf, nc) = choose_coarse_nodes(&a, &ParamMap::new(), 1, true).unwrap();
+        let (cf, nc, _) = choose_coarse_nodes(&a, &ParamMap::new(), 1, true).unwrap();
         // Every fine node has a strongly connected coarse neighbour and the
         // coarse nodes are numbered 1..=nc.
         assert!(nc > 0 && nc < 25, "{nc}");
@@ -524,9 +807,42 @@ mod tests {
         // Strong y couplings only: each column is coarsened on its own, so
         // no two vertically adjacent nodes are both coarse.
         let a = grid(6, 0.01);
-        let (cf, _) = choose_coarse_nodes(&a, &ParamMap::new(), 1, true).unwrap();
+        let (cf, _, _) = choose_coarse_nodes(&a, &ParamMap::new(), 1, true).unwrap();
         for i in 0..30 {
             assert!(!(cf[i] > 0 && cf[i + 6] > 0), "nodes {i} and {} both coarse", i + 6);
+        }
+    }
+
+    #[test]
+    fn interpolation_reproduces_constants() {
+        // Rows summing to zero (no Dirichlet rows): a constant is
+        // interpolated exactly, so each fine row of the projector sums to
+        // one; a coarse row is the identity.
+        let m = 6;
+        let n = m * m;
+        let mut a = grid(m, 1.0);
+        for i in 0..n {
+            let s: f64 = (a.row_ptr[i]..a.row_ptr[i + 1])
+                .filter(|&k| a.col_idx[k] as usize != i)
+                .map(|k| a.values[k])
+                .sum();
+            for k in a.row_ptr[i]..a.row_ptr[i + 1] {
+                if a.col_idx[k] as usize == i {
+                    a.values[k] = -s;
+                }
+            }
+        }
+        let (cf, nc, fixed) = choose_coarse_nodes(&a, &ParamMap::new(), 1, true).unwrap();
+        let p = interpolate_f2c(&a, &cf, &fixed, 1, &InterpOptions::from_params(&ParamMap::new(), 1));
+        assert_eq!((p.nrows, p.ncols), (n, nc));
+        for i in 0..n {
+            let row = &p.values[p.row_ptr[i]..p.row_ptr[i + 1]];
+            if cf[i] > 0 {
+                assert_eq!(row, &[1.0]);
+            } else {
+                let s: f64 = row.iter().sum();
+                assert!((s - 1.0).abs() < 1e-12, "row {i}: {row:?}");
+            }
         }
     }
 }
