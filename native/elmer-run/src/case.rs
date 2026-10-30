@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use elmer_core::{normalize_key, Communicator, Logger, MeshView, ParamMap, Params, SerialComm, Value};
+use elmer_core::{normalize_key, Communicator, DependentKind, Logger, MeshView, ParamMap, Params, SerialComm, Value};
 use elmer_fe::{CoordinateKind, CoordinateSystem};
 use elmer_solver::{
     coupled::solver_for_mode, finalize_reference, solver::procedure_of, Model, RunReport, Simulation, Solver, SolverCtx,
@@ -434,6 +434,24 @@ pub fn native_element(params: &ParamMap) -> bool {
         && elmer_physics_thermoelectric::parse_element(e).is_ok_and(|nb| nb == 0)
 }
 
+/// `ListGetFun(Simulation, 'Extruded Mesh Density' | '1D Mesh Density', t)`:
+/// a table (linear, or cubic for `Real Cubic`) or MATC function of the
+/// position `t` on the unit segment.
+fn mesh_density(sim: &ParamMap, t: f64) -> Result<f64, String> {
+    let v = sim.get("extruded mesh density").or_else(|| sim.get("1d mesh density"));
+    let Some(Value::Dependent(d)) = v else {
+        return Err("Extruded Mesh Density is not a function".into());
+    };
+    match &d.kind {
+        DependentKind::Table { x, y, cubic } => {
+            let spline = cubic.then(|| elmer_expr::curve::cubic_spline(x, y, false));
+            Ok(elmer_expr::curve::interpolate_curve(x, y, t, spline.as_deref()))
+        }
+        DependentKind::Matc(expr) => SifMatc.eval(expr, &[t])?.first().copied().ok_or_else(|| format!("MATC {expr}: no value")),
+        _ => Err("Extruded Mesh Density: only tables and MATC functions are evaluated".into()),
+    }
+}
+
 /// Elmer's mesh-load transforms, in Elmer's order: `Mesh Levels` splits
 /// (`LoadModel`, ModelDescription.F90:3049), then `Extruded Mesh *`
 /// extrusion (`CreateExtrudedMesh`, ElmerSolver.F90:897). Extrusion works on
@@ -477,7 +495,8 @@ fn transform_mesh(model: &mut Model, mesh: &dyn MeshView) -> Result<Option<Level
         Some(m) => m,
         None => mesh,
     };
-    let Some(opts) = ExtrudeOptions::from_params(&model.simulation, current.dim(), None).map_err(err)? else {
+    let mut density = |t: f64| mesh_density(&model.simulation, t);
+    let Some(opts) = ExtrudeOptions::from_params(&model.simulation, current.dim(), Some(&mut density)).map_err(err)? else {
         if model.simulation.logical("increase element order") == Some(true) {
             return Ok(Some(increase_element_order(current).map_err(ops_err)?));
         }
