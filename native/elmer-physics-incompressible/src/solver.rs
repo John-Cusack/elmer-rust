@@ -12,7 +12,7 @@ use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 use crate::boundary::{incompressible_boundary_local, IncompressibleBoundaryInput};
 use crate::bulk::{
     incompressible_bulk_local, incompressible_bulk_local_with, lcondensate, lcondensate_bdf1, pin_pressure, HMode,
-    IncompressibleBulkInput, PressureStab,
+    IncompressibleBulkInput, PressureStab, ThermalCompress,
 };
 use crate::error::IncompressibleError;
 
@@ -300,7 +300,7 @@ fn check_body(mat: Option<&ParamMap>, bf: Option<&ParamMap>) -> Result<(), Solve
     if let Some(m) = mat {
         if let Some(c) = m.string("compressibility model") {
             let c = elmer_core::normalize_key(c);
-            if c != "incompressible" {
+            if c != "incompressible" && c != "thermal" {
                 return Err(unsupported(format!("Compressibility Model = {c}")));
             }
         }
@@ -317,6 +317,22 @@ fn check_body(mat: Option<&ParamMap>, bf: Option<&ParamMap>) -> Result<(), Solve
         }
     }
     Ok(())
+}
+
+/// `Compressibility Model = Thermal` in the material.
+fn thermal_model(mat: Option<&ParamMap>) -> bool {
+    mat.and_then(|m| m.string("compressibility model"))
+        .is_some_and(|c| elmer_core::normalize_key(c) == "thermal")
+}
+
+/// `ListGetElementReal` of a keyword constant over the element (zero when
+/// absent).
+fn element_constant(ctx: &SolverCtx<'_>, p: &ParamMap, key: &str, e: ElemId) -> Result<f64, SolverError> {
+    let v = ctx.real_at_nodes(p, key, e)?.unwrap_or_else(|| vec![0.0]);
+    if v.iter().any(|&x| x != v[0]) {
+        return Err(unsupported(format!("{key} varying within an element")));
+    }
+    Ok(v[0])
 }
 
 /// Boundary options this crate does not port.
@@ -715,6 +731,33 @@ impl Solver for IncompressibleNsSolver {
                     return Err(unsupported("Density varying within an element"));
                 }
                 let viscosity = reorder(nodal(ctx, mat, "viscosity", e, n)?, el.nodes, nodes);
+                let thermal_temp = match thermal_model(mat) {
+                    false => None,
+                    true => {
+                        if transient || pstab {
+                            return Err(unsupported(
+                                "Compressibility Model = Thermal in a transient run or with Pressure Stabilization",
+                            ));
+                        }
+                        let m = mat.expect("thermal_model needs a material");
+                        let beta = element_constant(ctx, m, "heat expansion coefficient", e)?;
+                        let t_ref = element_constant(ctx, m, "reference temperature", e)?;
+                        let Some(tv) = ctx.variable("temperature") else {
+                            return Err(SolverError::fatal(
+                                CALLER,
+                                "\"Compressibility Model = Thermal\" requires a solved \"Temperature\" field",
+                            ));
+                        };
+                        let temp: Vec<f64> = nodes
+                            .iter()
+                            .map(|&nn| match tv.perm.map_or(nn, |p| p[nn as usize]) {
+                                NO_DOF => t_ref,
+                                k => tv.values[k as usize * tv.dofs],
+                            })
+                            .collect();
+                        Some((temp, beta, t_ref))
+                    }
+                };
                 let mut load = vec![[0.0; 3]; n];
                 if let Some(b) = bf {
                     for i in 0..dim {
@@ -744,6 +787,9 @@ impl Solver for IncompressibleNsSolver {
                     specific_load,
                     pstab: PressureStab { coeff, hmode, hk },
                     np: rule_np.for_type(el.etype),
+                    thermal: thermal_temp
+                        .as_ref()
+                        .map(|(temperature, beta, t_ref)| ThermalCompress { temperature, beta: *beta, t_ref: *t_ref }),
                 };
                 match &pe {
                     None => incompressible_bulk_local(basis, quad, &inp, &mut self.local)?,
