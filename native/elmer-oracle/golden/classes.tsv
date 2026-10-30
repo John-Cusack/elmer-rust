@@ -16,7 +16,6 @@ CapacitanceMatrix3_np3	tier-a-unfit	O1+O4+O6	sigma_F 0.000388 > 0.1 x RefNorm to
 CapacitanceMatrix3_np3	mpi	per-rank	np=3; result files per partition
 CapacitanceMatrix4_np3	tier-a-unfit	O1+O4+O6	sigma_F 0.00319 > 0.1 x RefNorm tolerance 1e-05
 CapacitanceMatrix4_np3	mpi	per-rank	np=3; result files per partition
-ChannelFlowCoulomb	tier-a-unfit	O1+O4+O6	sigma_F 2.33e-05 > 0.1 x RefNorm tolerance 1e-05
 ChannelFlowCoulomb	replay	cmake-replay	runtest.cmake has custom logic; captured through cmake -P
 CoilSolver1_np2	mpi	per-rank	np=2; result files per partition
 CoilSolver1_np4	mpi	per-rank	np=4; result files per partition
@@ -42,7 +41,6 @@ CutFEMPoisson1Lib	tier-a-unfit	O1+O4+O6	sigma_F 1.74 > 0.1 x RefNorm tolerance 1
 CutFEMPoisson1LibLim	tier-a-unfit	O1+O4+O6	sigma_F 1.74 > 0.1 x RefNorm tolerance 1e-05
 CutFEMPoisson2	tier-a-unfit	O1+O4+O6	sigma_F 1.18 > 0.1 x RefNorm tolerance 1e-05
 CutFEMPoisson3	tier-a-unfit	O1+O4+O6	sigma_F 1.74 > 0.1 x RefNorm tolerance 1e-05
-EMWavePiola2D	tier-a-unfit	O1+O4+O6	sigma_F 2.27 > 0.1 x RefNorm tolerance 1e-05
 EM_port_eigen_unit_voltage	eigen	eigen-mode	Eigen Analysis: sort eigenvalues, normalise signs, compare clusters by principal angles
 ElasticBuckling	eigen	eigen-mode	Eigen Analysis: sort eigenvalues, normalise signs, compare clusters by principal angles
 ElasticGeomStiff	eigen	eigen-mode	Eigen Analysis: sort eigenvalues, normalise signs, compare clusters by principal angles
@@ -62,13 +60,6 @@ ExtrudedMesh	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin;
 ExtrudedMeshBaseline1	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 FaceElement2D_BCs	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 FaceElement3D_BCs	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
-FacetShell	tier-a-unfit	O1+O4+O6	sigma_F 0.00272 > 0.1 x RefNorm tolerance 0.0001
-FacetShell2	tier-a-unfit	O1+O4+O6	sigma_F 0.533 > 0.1 x RefNorm tolerance 0.0001
-FilmFlowPlane	tier-a-unfit	O1+O4+O6	sigma_F 0.133 > 0.1 x RefNorm tolerance 1e-05
-FilmFlowPlane2	tier-a-unfit	O1+O4+O6	sigma_F 0.99 > 0.1 x RefNorm tolerance 1e-05
-FilmFlowPlane3	tier-a-unfit	O1+O4+O6	sigma_F 0.118 > 0.1 x RefNorm tolerance 1e-05
-FilmFlowPlane4	tier-a-unfit	O1+O4+O6	sigma_F 0.151 > 0.1 x RefNorm tolerance 1e-05
-FilmFlowPlane5	tier-a-unfit	O1+O4+O6	sigma_F 0.0773 > 0.1 x RefNorm tolerance 1e-05
 FixTangentVelo	replay	cmake-replay	runtest.cmake has custom logic; captured through cmake -P
 HeatControlExplicit	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 HeatControlExplicit_np3	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
@@ -77,15 +68,13 @@ HeatSolveVecCondMatrix	eigen	eigen-mode	Eigen Analysis: sort eigenvalues, normal
 HeatSolveVecCondMatrix	lumped-matrix	matrix-file	golden is the lumped matrix .dat the solver writes; no field file
 HelmholtzEdge	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 HelmholtzFace	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
-HelmholtzStructure2	tier-a-unfit	O1+O4+O6	sigma_F 1.9e-06 > 0.1 x RefNorm tolerance 1e-05
+HelmholtzStructure2	tier-a-unfit	O1+O4+O6	sigma_F 1.17e-06 > 0.1 x RefNorm tolerance 1e-05
 L2ndDerivatives	no-field-output	O1+logs	no field variables in any result file; golden is its logs and SaveScalars output
 L2ndDerivatives	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
-LubricationTunedForce	tier-a-unfit	O1+O4+O6	sigma_F 0.00252 > 0.1 x RefNorm tolerance 1e-05
 MeshColour	no-field-output	O1+logs	no field variables in any result file; golden is its logs and SaveScalars output
 MeshColour	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 MixedPoisson2D	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 MixedPoisson3D	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
-MixedPoisson3D_Brick	tier-a-unfit	O1+O4+O6	sigma_F 1.1e-05 > 0.1 x RefNorm tolerance 1e-05
 MixedPoisson3D_Brick	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 ModelPDEhandle	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 ModelPDEsplitted	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
@@ -105,7 +94,6 @@ PredictorCorrector	tier-a-unfit	O1+O4+O6	sigma_F 1 > 0.1 x RefNorm tolerance 1e-
 Q1Q0	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 RaviartThomas2D	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 RaviartThomas3D	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
-RotatingFlow	tier-a-unfit	O1+O4+O6	sigma_F 7.16e-06 > 0.1 x RefNorm tolerance 1e-05
 SD_BlockLinElast1	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 SD_CapacitanceMatrix3_np3	tier-a-unfit	O1+O4+O6	sigma_F 3.95e-05 > 0.1 x RefNorm tolerance 1e-05
 SD_CapacitanceMatrix3_np3	mpi	per-rank	np=3; result files per partition
@@ -114,9 +102,6 @@ SD_CurvedBndryPFEM	test-local-plugin	D12-fixture	compiles a test-local Fortran p
 SD_CurvedBndryPFEM2	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 SD_ElementUnitTest_p1	no-field-output	O1+logs	no field variables in any result file; golden is its logs and SaveScalars output
 SD_ElementUnitTest_p1	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
-SD_FilmFlowPlane	tier-a-unfit	O1+O4+O6	sigma_F 0.137 > 0.1 x RefNorm tolerance 1e-05
-SD_FilmFlowPlane2	tier-a-unfit	O1+O4+O6	sigma_F 0.991 > 0.1 x RefNorm tolerance 1e-05
-SD_FilmFlowPlane3	tier-a-unfit	O1+O4+O6	sigma_F 0.118 > 0.1 x RefNorm tolerance 1e-05
 SD_ModelPDEsplitted	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 SD_NonnewtonianChannelFlow_vec	replay	cmake-replay	runtest.cmake has custom logic; captured through cmake -P
 SD_P2ndDerivatives	no-field-output	O1+logs	no field variables in any result file; golden is its logs and SaveScalars output
@@ -131,11 +116,6 @@ SaveDependenceSpline	no-field-output	O1+logs	no field variables in any result fi
 SecondOrderEdgeElement2D	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 SecondOrderEdgeElement3D	tier-a-unfit	O1+O4+O6	sigma_F 5.52e-07 > 0.1 x RefNorm tolerance 1e-06
 SecondOrderEdgeElement3D	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
-Shell_And_Solid	tier-a-unfit	O1+O4+O6	sigma_F 0.969 > 0.1 x RefNorm tolerance 1e-05
-Shell_And_Solid2	tier-a-unfit	O1+O4+O6	sigma_F 1.47 > 0.1 x RefNorm tolerance 1e-05
-Shell_Cantilever	tier-a-unfit	O1+O4+O6	sigma_F 4.87 > 0.1 x RefNorm tolerance 1e-05
-Shell_with_Beam_Sections	tier-a-unfit	O1+O4+O6	sigma_F 1.08 > 0.1 x RefNorm tolerance 1e-05
-ShoeboxStaticShell	structure-differs	O1+O4+O6	a field differs in structure between sensitivity arms
 SlaveSolverSlots	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 SlaveSolverSlotsScan	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 SolverSpecificMeshes	tier-a-unfit	O1+O4+O6	sigma_F 0.258 > 0.1 x RefNorm tolerance 1e-05
@@ -149,7 +129,6 @@ StlOutput1	no-field-output	O1+logs	no field variables in any result file; golden
 StokesPFEM	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 StokesProj	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 StokesStabilized	replay	cmake-replay	runtest.cmake has custom logic; captured through cmake -P
-StokesUnitElements	tier-a-unfit	O1+O4+O6	sigma_F 1.39 > 0.1 x RefNorm tolerance 1e-05
 StokesUnitElements	replay	cmake-replay	runtest.cmake has custom logic; captured through cmake -P
 StrainCalculation01	structure-differs	O1+O4+O6	a field differs in structure between sensitivity arms
 StressEigen	eigen	eigen-mode	Eigen Analysis: sort eigenvalues, normalise signs, compare clusters by principal angles
@@ -187,5 +166,4 @@ radiation_np2	mpi	per-rank	np=2; result files per partition
 radiation_np4	mpi	per-rank	np=4; result files per partition
 reload	replay	cmake-replay	runtest.cmake has custom logic; captured through cmake -P
 reynolds_flux	tier-a-unfit	O1+O4+O6	sigma_F 1 > 0.1 x RefNorm tolerance 1e-05
-reynolds_robin	tier-a-unfit	O1+O4+O6	sigma_F 0.000458 > 0.1 x RefNorm tolerance 1e-05
 tresca	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed

@@ -39,49 +39,69 @@ directories for `quick` is wrong: it also finds tests behind
 
 ## σ_F and the kill criterion
 
-σ_F is the largest relative-Linf distance (node space, via the Perm) of
-any sensitivity arm from Release, per field and saved step; the bar is
-`max(10·σ_F, 1e-10)`, with the cap only where every arm agrees bitwise.
-1,293 fields agree bitwise; 8 fields in 6 tests differ in structure between
-arms and have no Tier-A bar.
+**Metric.** The error of a field is its Linf difference in node space
+(via the Perm), divided by `max(‖g‖∞, scale of its variable)`.
+- The variable scale is the largest `‖·‖∞` over the components of the
+  solver variable the field belongs to, taken from the result file's
+  preamble (`flow solution[velocity:3 pressure:1]` groups `velocity 1..3`
+  and `pressure`).
+- A scalar variable is its own scale, so its metric is unchanged.
+- **Why the floor.** Without it, a component that is round-off around zero
+  is judged against its own noise. StokesUnitElements' `velocity 2/3` and
+  `pressure` are 5e-17 to 1.6e-15 next to `velocity 1` at 0.1, and failed
+  on 1e-16 differences. With it, each component is judged against its
+  whole variable, as Elmer's own norm and `Reference Norm` judge it.
 
-Kill/escalate check (§5.2), signed off through firstmate (D11):
+**Bars.** σ_F is the largest such distance of any sensitivity arm from
+Release, per field and saved step. The bar is `max(10·σ_F, 1e-10)`, with
+the cap only where every arm agrees bitwise. 1,293 fields agree bitwise; 5
+fields in 5 tests differ in structure between arms and have no Tier-A bar.
+Both sensitivity arms, graded as candidates, pass all 467 tests that have
+fields.
 
-- **Raw count: 51/482 (10.6%)** tests have σ_F > 0.1 × their RefNorm
-  tolerance when eigenvector fields are compared as raw nodal values.
-- **Graded count: 46/482 (9.5%)**, under the 10% re-plan bar, so there is no
-  S1/S2 re-plan. The 5 tests that make the difference (StressEigen2,
-  StressEigen2_np4, StressEigen2_np8, EM_port_eigen_unit_voltage,
-  PlatesEigenComplex) are eigen analyses. An eigenvector is defined only
-  up to sign (and, within a degenerate cluster, up to rotation), so a
-  legitimate reordering can flip or rotate it and give a raw distance of
-  O(1). §4.1 assigns the eigen class its own grading mode: sort eigenvalues,
-  normalise signs, compare clusters by principal angles. Raw σ_F on these
-  fields therefore measures the basis choice, not Fortran's sensitivity,
-  and they are excluded from the count.
-- The 46 are classed `tier-a-unfit` or `structure-differs` in `classes.tsv`
+**Kill/escalate check (§5.2), signed off through firstmate (D11).**
+- **With the floor: 24/482 (5.0%)** tests have σ_F > 0.1 × their RefNorm
+  tolerance once eigen tests are graded by eigen mode; the raw count is
+  29/482.
+- **Before the floor** (signed off with
+  https://github.com/John-Cusack/elmer-rust/pull/212), the count was 46/482
+  (9.5%), or 51/482 (10.6%) raw. The 5 eigen tests are excluded because an
+  eigenvector is defined only up to sign (and, within a degenerate cluster,
+  up to rotation): a legitimate reordering can flip it, which gives O(1)
+  raw distance. §4.1 grades them by eigen mode (sort eigenvalues, normalise
+  signs, compare clusters by principal angles).
+- The 24 are classed `tier-a-unfit` or `structure-differs` in `classes.tsv`
   and graded by O1+O4+O6, as §5.2 prescribes.
-
-Most of the excess comes from fields whose golden is numerical noise
-(‖u‖∞ near 1e-16, so any reordering is O(1) relative), contact and shell
-cases, and CutFEM level-set fields.
 
 ## Mutation suite
 
 Noise (1e-6·‖u‖∞), node permutation (swap the extreme values) and one
 changed value are applied per field and step; a dropped step and swapped
 variables per file. A mutation is detectable when its size in the grader's
-own metric exceeds the field's bar. **14,639/14,639 detectable mutations
-are caught, 0 escape.**
+own metric (with the floor) exceeds the field's bar. **14,630/14,630
+detectable mutations are caught, 0 escape.**
+
+**What the floor changed.** 15 mutations that were caught before are now
+below the floor; no detectable mutation escapes.
+- 9 are on StokesUnitElements' round-off components (`velocity 2/3` and
+  `pressure`, 1e-14 relative to their variable or less).
+- 6 are on Shell_And_Solid's `u loads 1/2/6`, which are identically zero
+  next to `u loads 3/4` of order 1e4.
+
+The second group means the floor drops the old "an exact zero must stay
+exactly zero" rule for a component: 1e-6 in a component whose variable is
+of order 1e4 now passes at Tier A, as it does under Elmer's own norm.
+Meanwhile 6 mutations on ShoeboxStaticShell, untestable before because the
+field differed in structure between arms, now have a bar and are caught.
 
 **Known coverage limit.** Two counts are kept visible, because the suite does
 not test them:
 
-- **2,173 below-floor mutations.** The field's own reorder noise (10·σ_F)
+- **2,188 below-floor mutations.** The field's own reorder noise (10·σ_F)
   is at least as large as the perturbation, so at Tier A no grader could
   tell that mutation from a legitimate reordering. These fields are
   covered only by O1/O4/O6.
-- **1,449 vacuous mutations.** The mutation cannot change the file: for
+- **1,443 vacuous mutations.** The mutation cannot change the file: for
   example, a permutation of a constant field, or a swap in a step with a
   single distinct field.
 

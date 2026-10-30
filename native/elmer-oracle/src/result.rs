@@ -32,9 +32,48 @@ pub struct VariableData {
 }
 
 /// A parsed binary `.result` file.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ResultFile {
     pub steps: Vec<TimeStep>,
+    /// Component fields of each multi-dof solver variable, from the
+    /// preamble (`flow solution[velocity:2 pressure:1]` gives
+    /// `velocity 1`, `velocity 2`, `pressure`). The grader's near-zero
+    /// floor judges a component against its whole variable.
+    pub groups: Vec<Vec<String>>,
+}
+
+/// Component groups from a preamble: bracketed vectors list their
+/// components (`a:n` gives `a 1..a n`, or `a` alone when `n` is 1); an
+/// unbracketed variable with `DOFs > 1` has components `<name> 1..`.
+fn preamble_groups(preamble: &[u8]) -> Vec<Vec<String>> {
+    let text = String::from_utf8_lossy(preamble);
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let mut parts = line.splitn(3, " : ");
+        let (Some(name), Some(nums)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        let name = name.trim();
+        let dofs: usize = nums.split_whitespace().nth(2).and_then(|d| d.parse().ok()).unwrap_or(1);
+        let mut fields = Vec::new();
+        if let (Some(open), Some(close)) = (name.find('['), name.rfind(']')) {
+            for comp in name[open + 1..close].split_whitespace() {
+                let Some((c, n)) = comp.rsplit_once(':') else { continue };
+                let n: usize = n.parse().unwrap_or(1);
+                if n == 1 {
+                    fields.push(c.to_string());
+                } else {
+                    fields.extend((1..=n).map(|k| format!("{c} {k}")));
+                }
+            }
+        } else if dofs > 1 {
+            fields.extend((1..=dofs).map(|k| format!("{name} {k}")));
+        }
+        if fields.len() > 1 {
+            out.push(fields);
+        }
+    }
+    out
 }
 
 struct Cursor<'a> {
@@ -139,6 +178,7 @@ pub fn parse_result_bytes(buf: &[u8], origin: &str) -> Result<ResultFile> {
         .position(|&b| b == 0)
         .ok_or_else(|| cur.fail("missing binary marker NUL"))?;
     let sizes = preamble_sizes(&buf[header_end..header_end + nul_at]);
+    let groups = preamble_groups(&buf[header_end..header_end + nul_at]);
     cur.pos = header_end + nul_at + 1;
 
     let mut steps = Vec::new();
@@ -236,7 +276,7 @@ pub fn parse_result_bytes(buf: &[u8], origin: &str) -> Result<ResultFile> {
     if steps.is_empty() {
         return Err(OracleError::Parse(format!("{origin}: no timesteps found")));
     }
-    Ok(ResultFile { steps })
+    Ok(ResultFile { steps, groups })
 }
 
 /// `SIZE(Var % Values)` per variable from the `Degrees of freedom:`
@@ -279,6 +319,7 @@ fn parse_ascii_result(buf: &[u8], origin: &str) -> Result<ResultFile> {
         lines.next();
     }
     let sizes = preamble_sizes(preamble.as_bytes());
+    let groups = preamble_groups(preamble.as_bytes());
     let mut steps = Vec::new();
     let mut prev_perm: Option<(Vec<(i32, i32)>, i32)> = None;
     while let Some(line) = lines.next() {
@@ -357,7 +398,7 @@ fn parse_ascii_result(buf: &[u8], origin: &str) -> Result<ResultFile> {
     if steps.is_empty() {
         return Err(fail("no timesteps found"));
     }
-    Ok(ResultFile { steps })
+    Ok(ResultFile { steps, groups })
 }
 
 /// `SIZE(Var % Values)` per variable name, from a result file's preamble

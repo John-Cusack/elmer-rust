@@ -7,7 +7,7 @@
 //! (missing variable or step, different length) has no finite σ_F: it is
 //! recorded as `structure-differs` and cannot be graded at Tier A.
 
-use crate::grade::{relative_linf, to_node_space};
+use crate::grade::{relative_linf_floor, to_node_space, variable_scale};
 use crate::result::{read_result_file, ResultFile};
 use crate::tolerance::ToleranceTable;
 use crate::Result;
@@ -101,6 +101,7 @@ pub fn measure_file(
                 worst_arm: String::new(),
             };
             let g_nodes = to_node_space(g_var).ok();
+            let floor = variable_scale(golden, step, &g_var.name);
             for (arm, arm_file) in arms {
                 let a_var = arm_file
                     .as_ref()
@@ -108,7 +109,7 @@ pub fn measure_file(
                     .and_then(|s| s.vars.iter().filter(|v| v.name == g_var.name).nth(occurrence));
                 let a_nodes = a_var.and_then(|v| to_node_space(v).ok());
                 let d = match (&g_nodes, &a_nodes) {
-                    (Some(g), Some(a)) => relative_linf(g, a),
+                    (Some(g), Some(a)) => relative_linf_floor(g, a, floor),
                     _ => None,
                 };
                 match d {
@@ -238,6 +239,7 @@ mod tests {
 
     fn file(values: Vec<f64>) -> ResultFile {
         ResultFile {
+            groups: Vec::new(),
             steps: vec![TimeStep {
                 saves_done: 1,
                 ntime: 1,

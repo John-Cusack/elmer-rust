@@ -16,7 +16,7 @@
 //! permutation of a constant field) is vacuous. File mutations (a dropped
 //! step, swapped variables) change structure and are always detectable.
 
-use crate::grade::{relative_linf, to_node_space};
+use crate::grade::{relative_linf_floor, to_node_space, variable_scale};
 use crate::result::{ResultFile, VariableData};
 use crate::tolerance::{grade_with_table, TierEntry, ToleranceTable};
 
@@ -165,7 +165,9 @@ pub fn run_suite(
                     (Some(nodes), Some(bar)) => match mutate_nodes(nodes, m) {
                         Err(why) => Outcome::Vacuous(why),
                         Ok(mutated_nodes) => {
-                            let size = relative_linf(nodes, &mutated_nodes).unwrap_or(f64::INFINITY);
+                            let floor = variable_scale(golden, si, &var.name);
+                            let size = relative_linf_floor(nodes, &mutated_nodes, floor)
+                                .unwrap_or(f64::INFINITY);
                             if size <= bar {
                                 Outcome::BelowFloor
                             } else {
@@ -195,9 +197,13 @@ pub fn run_suite(
             // further than its own bar (or the lengths differ).
             let (va, vb) = (&golden.steps[si].vars[a], &golden.steps[si].vars[b]);
             let size = match (to_node_space(va), to_node_space(vb)) {
-                (Ok(x), Ok(y)) => relative_linf(&x, &y)
-                    .unwrap_or(f64::INFINITY)
-                    .max(relative_linf(&y, &x).unwrap_or(f64::INFINITY)),
+                (Ok(x), Ok(y)) => {
+                    let fa = variable_scale(golden, si, &va.name);
+                    let fb = variable_scale(golden, si, &vb.name);
+                    relative_linf_floor(&x, &y, fa)
+                        .unwrap_or(f64::INFINITY)
+                        .max(relative_linf_floor(&y, &x, fb).unwrap_or(f64::INFINITY))
+                }
                 _ => f64::INFINITY,
             };
             let occ = |vi: usize| {
@@ -277,7 +283,7 @@ mod tests {
                 var("flux", vec![1.0, 2.0, 3.0]),
             ],
         };
-        ResultFile { steps: vec![step(0.0), step(1.0)] }
+        ResultFile { steps: vec![step(0.0), step(1.0)], ..Default::default() }
     }
 
     #[test]

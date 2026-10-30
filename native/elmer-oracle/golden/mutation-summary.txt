@@ -1,11 +1,11 @@
-files: 633 caught: 14639 escaped: 0 below-floor: 2173 vacuous: 1449
+files: 633 caught: 14630 escaped: 0 below-floor: 2188 vacuous: 1443
 
 by outcome and mutation:
    1173 vacuous	node-permutation
-    815 below-floor	noise-1e-6
-    791 below-floor	one-value
-    566 below-floor	node-permutation
+    821 below-floor	noise-1e-6
+    797 below-floor	one-value
+    569 below-floor	node-permutation
     236 vacuous	swapped-variable
-     32 vacuous	one-value
-      8 vacuous	noise-1e-6
+     29 vacuous	one-value
+      5 vacuous	noise-1e-6
       1 below-floor	swapped-variable

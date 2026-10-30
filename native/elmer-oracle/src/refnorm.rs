@@ -230,6 +230,7 @@ mod tests {
     fn golden_norm_rebuilds_values_in_dof_order() {
         // Nodes 1..3 stored with dofs 3,1,2: Values = [b, c, a].
         let file = ResultFile {
+            groups: Vec::new(),
             steps: vec![TimeStep {
                 saves_done: 1,
                 ntime: 1,
