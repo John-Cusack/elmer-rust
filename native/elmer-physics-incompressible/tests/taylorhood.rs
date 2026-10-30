@@ -231,6 +231,12 @@ fn mini_navier_stokes_tri_matches_elmer() {
 /// though the run asks for BDF2) with each element's bubble history.
 #[test]
 fn mini_transient_tri_matches_elmer() {
+    let extra = transient_ns();
+    run_case_with("mini_transient_tri", 2, ns_step, transient_bdf2(), &extra, 595, 0.07440496513539256, 3);
+}
+
+/// `transient_tri`'s time stepping: 4 BDF2 steps of 0.1.
+fn transient_bdf2() -> ParamMap {
     let mut simulation = steady("Cartesian 2D");
     for (k, v) in [
         ("Simulation Type", st("Transient")),
@@ -241,11 +247,25 @@ fn mini_transient_tri_matches_elmer() {
     ] {
         simulation.insert(k, v);
     }
-    let extra = [
+    simulation
+}
+
+/// `transient_tri`'s Navier-Stokes iteration: 3, Newton after 2.
+fn transient_ns() -> Vec<(&'static str, Value)> {
+    vec![
         ("Stokes Flow", Value::Logical(false)),
         ("Nonlinear System Max Iterations", ints(&[3])),
         ("Nonlinear System Convergence Tolerance", real(1.0e-10)),
         ("Nonlinear System Newton After Iterations", ints(&[2])),
-    ];
-    run_case_with("mini_transient_tri", 2, ns_step, simulation, &extra, 595, 0.07440496513539256, 3);
+    ]
+}
+
+/// `transient_tri` with `Element = p:2` and no stabilization: Taylor-Hood
+/// Navier-Stokes over 4 BDF2 steps, `Default1stOrderTime` on the mass
+/// matrix with the edge pressures pinned (595 nodes + 1656 edges).
+#[test]
+fn taylorhood_transient_tri_matches_elmer() {
+    let mut extra = transient_ns();
+    extra.push(("Element", st("p:2")));
+    run_case_with("taylorhood_transient_tri", 2, ns_step, transient_bdf2(), &extra, 2251, 0.037828652451776607, 3);
 }
