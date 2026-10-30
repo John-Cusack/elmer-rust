@@ -331,8 +331,8 @@ impl Compiled {
         }
 
         let nn = nodes.len();
-        let narg = self.narg();
         let gathered = self.gather(nodes, f);
+        let narg = gathered.len() / nn.max(1);
         let mut t = vec![0.0_f64; narg];
         for (i, cell) in out.chunks_exact_mut(nc).enumerate() {
             for (a, ta) in t.iter_mut().enumerate() {
@@ -391,8 +391,8 @@ impl Compiled {
             _ => {}
         }
 
-        let narg = self.narg();
         let gathered = self.gather(nodes, f);
+        let narg = gathered.len() / nn;
         let missing = gathered.contains(&MISSING);
         let mut t = vec![0.0_f64; narg];
         for (ip, cell) in out.chunks_exact_mut(nc).enumerate() {
@@ -423,8 +423,16 @@ impl Compiled {
     }
 
     /// Number of dependency values passed to the function.
-    fn narg(&self) -> usize {
-        self.effective_sources().iter().map(Source::width).sum()
+    /// Values each source passes: a multi-dof field passes all its
+    /// components (`f.dofs`).
+    fn widths(&self, f: &dyn FieldLookup) -> Vec<usize> {
+        self.effective_sources()
+            .iter()
+            .map(|s| match s {
+                Source::Field(name) => f.dofs(name).max(1),
+                s => s.width(),
+            })
+            .collect()
     }
 
     /// A constant MATC expression is evaluated with `Time` bound (`'st'`).
@@ -441,9 +449,10 @@ impl Compiled {
     fn gather(&self, nodes: &[u32], f: &dyn FieldLookup) -> Vec<f64> {
         let nn = nodes.len();
         let sources = self.effective_sources();
-        let mut g = vec![0.0_f64; self.narg() * nn];
+        let widths = self.widths(f);
+        let mut g = vec![0.0_f64; widths.iter().sum::<usize>() * nn];
         let mut a = 0;
-        for s in sources.iter() {
+        for (s, &w) in sources.iter().zip(&widths) {
             match s {
                 Source::Time => g[a * nn..(a + 1) * nn].fill(f.time()),
                 Source::Literal(v) => g[a * nn..(a + 1) * nn].fill(*v),
@@ -460,9 +469,14 @@ impl Compiled {
                         }
                     }
                 }
-                Source::Field(name) => f.values(name, nodes, &mut g[a * nn..(a + 1) * nn]),
+                Source::Field(name) if w == 1 => f.values(name, nodes, &mut g[a * nn..(a + 1) * nn]),
+                Source::Field(name) => {
+                    for k in 0..w {
+                        f.component_values(name, k, nodes, &mut g[(a + k) * nn..(a + k + 1) * nn]);
+                    }
+                }
             }
-            a += s.width();
+            a += w;
         }
         g
     }
