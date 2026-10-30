@@ -1,14 +1,14 @@
 //! Expression-valued properties, properties at integration points, damping and
-//! first-order transient against `SaveScalars` of pristine ElmerSolver
-//! (`tests/data/a2d/{expr,ipt,tdamp,tray}.sif` and their `*_scalars.dat`).
+//! first- and second-order transient against `SaveScalars` of pristine
+//! ElmerSolver (`tests/data/a2d/{expr,ipt,tdamp,tray,tbossak}.sif` and their
+//! `*_scalars.dat`).
 //! The mesh is `a2d`, plane strain triangles.
 
 mod support;
 
 use elmer_core::{Dependent, DependentKind, ParamMap, Value};
 use elmer_solver::{Model, Simulation};
-use elmer_solver::SolverError;
-use support::cases::{a2d, run, try_run};
+use support::cases::{a2d, run};
 
 fn table(var: &str, x: &[f64], y: &[f64]) -> Value {
     Value::Dependent(Dependent {
@@ -112,6 +112,10 @@ fn transient(model: &mut Model, steps: i32, mat: &[(&str, Value)]) {
     ]);
     model.simulation = sim;
     model.solvers[0].insert("Time Derivative Order", Value::Integer(vec![1]));
+    stress_fields_off(model, mat);
+}
+
+fn stress_fields_off(model: &mut Model, mat: &[(&str, Value)]) {
     model.solvers[0].insert("Calculate Stresses", Value::Logical(false));
     model.solvers[0].insert("Calculate Strains", Value::Logical(false));
     model.solvers[0].insert("Calculate Principal", Value::Logical(false));
@@ -119,10 +123,14 @@ fn transient(model: &mut Model, steps: i32, mat: &[(&str, Value)]) {
 }
 
 fn transient_matches(file: &str, mat: &[(&str, Value)]) {
+    transient_matches_with(file, mat, transient);
+}
+
+fn transient_matches_with(file: &str, mat: &[(&str, Value)], setup: fn(&mut Model, i32, &[(&str, Value)])) {
     let want = reference(file);
     for (k, row) in want.iter().enumerate() {
         let (mut m, mesh) = a2d();
-        transient(&mut m, k as i32 + 1, mat);
+        setup(&mut m, k as i32 + 1, mat);
         let sim = run(m, &mesh);
         assert_close(&format!("{file} step {}", k + 1), &columns(&sim, false), row, 1e-8);
     }
@@ -155,13 +163,31 @@ fn rayleigh_damping_matches_pristine() {
     );
 }
 
+/// Bossak with the order left to `ElasticSolver_Init` (two).
+fn second_order(model: &mut Model, steps: i32, mat: &[(&str, Value)]) {
+    model.simulation = support::sim::sec(&[
+        ("Coordinate System", Value::Str("Cartesian 2D".into())),
+        ("Simulation Type", Value::Str("Transient".into())),
+        ("Timestepping Method", Value::Str("Bossak".into())),
+        ("Timestep Intervals", Value::Integer(vec![steps])),
+        ("Timestep Sizes", Value::real(0.05)),
+        ("Output Intervals", Value::Integer(vec![1])),
+    ]);
+    stress_fields_off(model, mat);
+}
+
 #[test]
-fn second_order_transient_is_refused_with_the_missing_hook_named() {
-    let (mut m, mesh) = a2d();
-    transient(&mut m, 1, &[("Youngs Modulus", Value::real(70e9)), ("Poisson Ratio", Value::real(0.3))]);
-    m.solvers[0].0.remove("time derivative order");
-    match try_run(m, &mesh) {
-        Err(SolverError::NotWired(what)) => assert!(what.contains("Default2ndOrderTime"), "{what}"),
-        other => panic!("expected NotWired, got {:?}", other.err()),
-    }
+fn second_order_damping_matches_pristine() {
+    transient_matches_with(
+        "tbossak_scalars.dat",
+        &[
+            ("Density", Value::real(7800.0)),
+            ("Youngs Modulus", Value::real(70e9)),
+            ("Poisson Ratio", Value::real(0.3)),
+            ("Rayleigh Damping alpha", Value::real(2.0e5)),
+            ("Rayleigh Damping beta", Value::real(0.02)),
+            ("Damping", Value::real(1.0e4)),
+        ],
+        second_order,
+    );
 }

@@ -1,0 +1,67 @@
+Header
+  Mesh DB "." "."
+End
+Simulation
+  Max Output Level = 5
+  Coordinate System = Cartesian 2D
+  Simulation Type = Transient
+  Timestepping Method = Bossak
+  Timestep Intervals = 4
+  Timestep Sizes = 0.05
+  Output Intervals = 1
+  Optimize Bandwidth = Logical False
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body Force 1
+  Stress Bodyforce 1 = Real 1.0e3
+  Stress Bodyforce 2 = Real -2.0e3
+End
+Material 1
+  Density = 7800.0
+  Youngs Modulus = 70e9
+  Poisson Ratio = 0.3
+  Rayleigh Damping alpha = Real 2.0e5
+  Rayleigh Damping beta = Real 0.02
+  Damping = Real 1.0e4
+End
+Solver 1
+  Equation = Stress Solver
+  Variable = Displacement
+  Variable DOFs = 2
+  Procedure = "StressSolve" "StressSolver"
+  Linear System Solver = Direct
+  Linear System Direct Method = Umfpack
+  Nonlinear System Max Iterations = 1
+End
+Solver 2
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Exec Solver = After Timestep
+  Variable 1 = Displacement 1
+  Operator 1 = sum
+  Variable 2 = Displacement 1
+  Operator 2 = max abs
+  Variable 3 = Displacement 2
+  Operator 3 = sum
+  Variable 4 = Displacement 2
+  Operator 4 = max abs
+End
+Equation 1
+  Active Solvers(2) = 1 2
+  Plane Stress = False
+End
+Boundary Condition 1
+  Target Boundaries = 1
+  Displacement 1 = 0
+  Displacement 2 = 0
+End
+Boundary Condition 2
+  Target Boundaries = 2
+  Surface Traction 2 = Real -5.0e7
+  Normal Surface Traction = Real 1.0e6
+End

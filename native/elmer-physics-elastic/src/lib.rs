@@ -11,9 +11,9 @@
 //! procedures), at the element nodes or, with `Youngs Modulus at IP`,
 //! `Poisson Ratio at IP`, `Heat Expansion Coefficient IP` and
 //! `Stress Bodyforce at IP`, at the integration points. A transient run is
-//! first order in time (`Time Derivative Order = 1`) with `Damping` and
-//! `Rayleigh Damping alpha/beta`; second order needs a Newmark hook in
-//! `elmer-solver` and is refused. `Calculate Stresses/Strains/Principal` project
+//! second order in time (`Default2ndOrderTime`, Newmark/Bossak) unless the sif
+//! sets `Time Derivative Order = 1`, with `Damping` and `Rayleigh Damping
+//! alpha/beta` in either. `Calculate Stresses/Strains/Principal` project
 //! the elastic strain and stress onto the nodes ([`post`]).
 //!
 //! Large deflection, incompressible, Maxwell, UMAT, GPA, `Stress Load` /

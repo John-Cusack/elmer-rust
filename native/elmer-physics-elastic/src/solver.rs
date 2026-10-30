@@ -601,6 +601,10 @@ impl Solver for StressSolver {
                 format!("'Variable DOFs' must equal the coordinate dimension {dim}, got {dofs:?}"),
             ));
         }
+        // ElasticSolver_Init: the time derivative order is two unless the sif says otherwise.
+        if ctx.params().get("time derivative order").is_none() {
+            ctx.set_time_derivative_order(2)?;
+        }
         // The postprocessing fields share the displacement's permutation.
         let flags = post_flags(ctx);
         if flags.any() {
@@ -627,18 +631,7 @@ impl Solver for StressSolver {
 
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
         check_solver_params(ctx.params())?;
-        if transient {
-            // `ElasticSolver_Init` makes the order two unless the sif says otherwise.
-            let order = ctx.params().integer("time derivative order").unwrap_or(2);
-            if order != 1 {
-                return Err(SolverError::NotWired(
-                    "second-order time integration (Default2ndOrderTime): elmer-solver needs a \
-                     TimeBackend entry taking mass, damping and the displacement/velocity/acceleration \
-                     history; set 'Time Derivative Order = 1' for the first-order scheme"
-                        .into(),
-                ));
-            }
-        }
+        let second_order = ctx.params().integer("time derivative order") == Some(2);
         let cdim = ctx.mesh.dim();
         let coord_name = elmer_core::normalize_key(ctx.simulation_params().string("coordinate system").unwrap_or("cartesian"));
         let axi = match coord_name.as_str() {
@@ -704,8 +697,6 @@ impl Solver for StressSolver {
             }
             .map_err(|x| SolverError::fatal(CALLER, x.to_string()))?;
             if transient {
-                // First order in time: the damping matrix carries d/dt
-                // (`Default1stOrderTime( DAMP, STIFF, FORCE )`), Rayleigh terms included.
                 let nn = local.n * local.n;
                 let mass = local.mass.take().unwrap_or_else(|| vec![0.0; nn]);
                 let mut damp = local.damp.take().unwrap_or_else(|| vec![0.0; nn]);
@@ -715,8 +706,17 @@ impl Solver for StressSolver {
                 if let Some(b) = d.rayleigh_beta {
                     damp.iter_mut().zip(&local.stiff).for_each(|(c, k)| *c += b * k);
                 }
-                local.mass = Some(damp);
-                ctx.default_first_order_time(&mut local, e, dt)?;
+                if second_order {
+                    // `Default2ndOrderTime( MASS, DAMP, STIFF, FORCE )`, Rayleigh terms included.
+                    local.mass = Some(mass);
+                    local.damp = Some(damp);
+                    ctx.default_second_order_time(&mut local, e, dt)?;
+                } else {
+                    // First order in time: the damping matrix carries d/dt
+                    // (`Default1stOrderTime( DAMP, STIFF, FORCE )`), Rayleigh terms included.
+                    local.mass = Some(damp);
+                    ctx.default_first_order_time(&mut local, e, dt)?;
+                }
             }
             ctx.default_update(&local, e)?;
         }
@@ -837,7 +837,12 @@ impl Solver for StressSolver {
             .map_err(|x| SolverError::fatal(CALLER, x.to_string()))?;
             if transient {
                 local.mass = Some(vec![0.0; local.n * local.n]);
-                ctx.default_first_order_time(&mut local, e, dt)?;
+                if second_order {
+                    local.damp = Some(vec![0.0; local.n * local.n]);
+                    ctx.default_second_order_time(&mut local, e, dt)?;
+                } else {
+                    ctx.default_first_order_time(&mut local, e, dt)?;
+                }
             }
             ctx.default_update(&local, e)?;
         }
