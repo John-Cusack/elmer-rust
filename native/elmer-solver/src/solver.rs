@@ -878,6 +878,27 @@ impl<'a> SolverCtx<'a> {
         Ok(())
     }
 
+    /// `DefaultDirichletBCs` with the dof values a solver gathered itself:
+    /// applies `fixed` to the system and records them as the constrained
+    /// dofs (`A % ConstrainedDOF`), as [`default_dirichlet`](Self::default_dirichlet)
+    /// does, so that linear constraints, source control and loads see them.
+    pub fn apply_dirichlet_values(&mut self, fixed: &[(u32, f64)]) -> Result<(), SolverError> {
+        let sim = &mut *self.sim;
+        let backend = sim
+            .backends
+            .assembly
+            .as_ref()
+            .ok_or_else(|| SolverError::NotWired("assembly backend (elmer-assembly)".into()))?;
+        let slot = &mut sim.slots[self.slot];
+        let sys = slot
+            .system
+            .as_mut()
+            .ok_or_else(|| SolverError::fatal("DefaultDirichletBCs", "call default_initialize first"))?;
+        backend.try_apply_dirichlet(&mut sys.matrix, &mut sys.rhs, fixed, &slot.params)?;
+        slot.asm.constrained = fixed.to_vec();
+        Ok(())
+    }
+
     /// `DefaultSolve` (DefUtils.F90:4470): returns early when `Linear System
     /// Solver Disabled`; with `Monolithic Slave` the system is merged with
     /// the slave solver's first (`MergeSlaveSolvers`, ContactUtils.F90:2619),

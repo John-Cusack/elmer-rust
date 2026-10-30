@@ -369,25 +369,11 @@ fn navier_stokes_init_value(ctx: &mut SolverCtx<'_>, comps: &[String]) -> Result
     Ok(())
 }
 
-/// `DefaultDirichletBCs` with the component names of the flow variable.
+/// `DefaultDirichletBCs` with the component names of the flow variable;
+/// the dofs are recorded as constrained (`A % ConstrainedDOF`), which the
+/// linear constraints of `Apply Integral BCs` move to the right-hand side.
 fn apply_dirichlet(ctx: &mut SolverCtx<'_>, fixed: &[(u32, f64)]) -> Result<(), SolverError> {
-    let id = ctx.solver_id();
-    let sim = &mut *ctx.sim;
-    let backend = sim
-        .backends
-        .assembly
-        .as_ref()
-        .ok_or_else(|| SolverError::NotWired("assembly backend (elmer-assembly)".into()))?;
-    let slot = sim
-        .slots
-        .iter_mut()
-        .find(|s| s.id == id)
-        .expect("the running solver has a slot");
-    let sys = slot
-        .system
-        .as_mut()
-        .ok_or_else(|| SolverError::fatal("DefaultDirichletBCs", "call default_initialize first"))?;
-    backend.try_apply_dirichlet(&mut sys.matrix, &mut sys.rhs, fixed, &slot.params)
+    ctx.apply_dirichlet_values(fixed)
 }
 
 fn nodal(ctx: &SolverCtx<'_>, p: Option<&ParamMap>, key: &str, e: ElemId, n: usize) -> Result<Vec<f64>, SolverError> {

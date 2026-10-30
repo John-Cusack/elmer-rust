@@ -16,8 +16,12 @@ use elmer_solver::{FeBackend, Model, Simulation, Solver, SolverCtx, SolverError,
 use support::poisson::heat;
 use support::{sif_model, Capture};
 
-/// `-div(grad u_k) = 0` for each of the two components.
-struct VecLaplace;
+/// `-div(grad u_k) = 0` for each of the two components; with `own_bcs`
+/// the Dirichlet rows are gathered and applied by the solver itself
+/// (`apply_dirichlet_values`, as FlowSolve does).
+struct VecLaplace {
+    own_bcs: bool,
+}
 
 impl Solver for VecLaplace {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
@@ -46,14 +50,24 @@ impl Solver for VecLaplace {
             }
             ctx.default_update(&local, e)?;
         }
-        ctx.default_dirichlet()?;
+        if self.own_bcs {
+            ctx.default_finish_boundary_assembly()?;
+            let fixed = ctx.dirichlet_values()?;
+            ctx.apply_dirichlet_values(&fixed)?;
+        } else {
+            ctx.default_dirichlet()?;
+        }
         ctx.default_solve()?;
         Ok(())
     }
 }
 
 fn vec_laplace(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
-    Ok(Box::new(VecLaplace))
+    Ok(Box::new(VecLaplace { own_bcs: false }))
+}
+
+fn vec_laplace_own_bcs(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
+    Ok(Box::new(VecLaplace { own_bcs: true }))
 }
 
 fn solve(model: Model, entry: (&str, elmer_solver::SolverFactory)) -> Simulation {
@@ -133,4 +147,31 @@ fn a_component_without_a_value_is_not_constrained() {
     let [t1, t2] = components(&sim);
     assert_scaled(&t1, &scalar, 1.0, "T 1");
     assert_scaled(&t2, &scalar, 0.0, "T 2");
+}
+
+/// A solver applying its own Dirichlet rows records them as constrained,
+/// so the integral constraint moves their columns to the right-hand side
+/// (`Enforce Exact Dirichlet BCs`): the Dirichlet values hold exactly and
+/// the solution is the one `default_dirichlet` gives.
+#[test]
+fn own_dirichlet_rows_are_constrained_dofs() {
+    // Boundary 1 fixed too, so the integral boundary's end nodes are
+    // Dirichlet dofs inside the constraint row.
+    let model = || {
+        let mut m = vector_model(&[(1, 1.0), (2, 2.0)]);
+        m.boundary_conditions[0].insert("T 1", Value::real(0.0));
+        m.boundary_conditions[0].insert("T 2", Value::real(0.0));
+        m
+    };
+    let reference = solve(model(), ("VecLaplace", vec_laplace));
+    let own = solve(model(), ("VecLaplace", vec_laplace_own_bcs));
+    let (r, o) = (components(&reference), components(&own));
+    for k in 0..2 {
+        for (node, (x, y)) in r[k].iter().zip(&o[k]).enumerate() {
+            if x.is_nan() {
+                continue;
+            }
+            assert!((x - y).abs() <= 1e-12 * (1.0 + x.abs()), "T {} node {}: {x} vs {y}", k + 1, node + 1);
+        }
+    }
 }
