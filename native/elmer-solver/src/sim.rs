@@ -326,6 +326,7 @@ const CHANGE_CREALS: &[&str] = &[
     "nonlinear system exit condition",
     "nonlinear system newton after tolerance",
     "average solution value",
+    "derivative eps",
 ];
 
 /// The globals `ExecSimulation` keeps (ElmerSolver.F90:1091-1107).
@@ -497,10 +498,33 @@ impl Simulation {
             self.add_solver_variable(&mut slot, &spec, mesh, apply_ics)?;
             if let Some(id) = slot.variable {
                 self.add_load_variables(&mut slot.params, &spec, id)?;
+                if !self.is_transient() {
+                    self.add_derivative_variable(&slot.params, id)?;
+                }
             }
         }
         self.add_exported_variables(&slot, mesh, apply_ics)?;
         Ok(Some(slot))
+    }
+
+    /// `<var> Derivative` for `Calculate Derivative` (or `Nonlinear
+    /// Calculate Derivative`) outside a transient run (AddEquationBasics,
+    /// MainUtils.F90:2566-2577): the variable's dofs and permutation, zero.
+    fn add_derivative_variable(&mut self, params: &ParamMap, primary: VarId) -> Result<(), SolverError> {
+        let on = params
+            .logical("calculate derivative")
+            .or_else(|| params.logical("nonlinear calculate derivative"));
+        if on != Some(true) {
+            return Ok(());
+        }
+        let p = self.vars.by_id(primary);
+        let name = format!("{} Derivative", p.name);
+        if self.vars.id(&name).is_some() {
+            return Ok(());
+        }
+        let v = Variable::new(&name, p.kind, p.dofs, p.perm.clone(), vec![0.0; p.values.len()]);
+        self.vars.add(v)?;
+        Ok(())
     }
 
     /// `Exported Variable n` of a solver section (AddEquationBasics,
@@ -997,14 +1021,8 @@ impl Simulation {
             return Ok(None);
         };
         let p = &slot.params;
-        for k in [
-            "calculate derivative",
-            "nonlinear calculate derivative",
-            "nonlinear calculate velocity",
-        ] {
-            if p.logical(k) == Some(true) {
-                return Err(SolverError::Unsupported(format!("ComputeChange option {k}")));
-            }
+        if p.logical("nonlinear calculate velocity") == Some(true) {
+            return Err(SolverError::Unsupported("ComputeChange option nonlinear calculate velocity".into()));
         }
         if self.model.simulation.logical("convergence monitor") == Some(true) {
             return Err(SolverError::Unsupported("Convergence Monitor".into()));
@@ -1042,11 +1060,43 @@ impl Simulation {
         };
         let var = self.vars.by_id_mut(id);
         let report = compute_change(&env, var, &mut slot.state)?;
+        if let Some(dx) = &report.derivative {
+            let eps = params.real("derivative eps");
+            self.store_derivative(id, steady, eps, dx, log);
+        }
         // UpdateDependentObjects(Solver, .FALSE.) (SolverBasics.F90:4242).
         if !steady && self.slots[ix].params.logical("nonlinear update exported variables") == Some(true) {
             self.update_exported_variables(ix, mesh, log)?;
         }
         Ok(Some(report))
+    }
+
+    /// The sensitivity `<var> Derivative = (x - x0) / eps` (SolverBasics.F90:
+    /// 4198-4238): `eps` is 1 on the first coupled (steady) or nonlinear
+    /// iteration, then the global `derivative eps` or the section's
+    /// `Derivative Eps`, else 1.
+    fn store_derivative(&mut self, id: VarId, steady: bool, eps_keyword: Option<f64>, dx: &[f64], log: &dyn Logger) {
+        const CALLER: &str = "ComputeChange";
+        let iter = if steady { "coupled iter" } else { "nonlin iter" };
+        let iter_no = self.vars.scalar(iter).map_or(0, |v| v.round() as i64);
+        let mut eps = 1.0;
+        if iter_no > 1 {
+            match self.vars.scalar("derivative eps").or(eps_keyword) {
+                Some(e) => eps = e,
+                None => log.info(CALLER, "Derivative Eps not given, using one", 7),
+            }
+        }
+        let name = format!("{} Derivative", self.vars.by_id(id).name);
+        match self.vars.get_mut(&name) {
+            Some(v) => {
+                log.info(CALLER, &format!("Computing variable:{name}"), 7);
+                for (d, x) in v.values.iter_mut().zip(dx) {
+                    *d = x / eps;
+                }
+                v.values_changed = true;
+            }
+            None => log.warn(CALLER, "Derivative variable not present"),
+        }
     }
 
     /// `SolverActivate` + `SingleSolver`: exec conditions, then per

@@ -63,6 +63,9 @@ pub struct ChangeReport {
     pub message: String,
     /// The section asked to skip this level's change computation.
     pub skipped: bool,
+    /// `x - x0` when `Calculate Derivative` (steady) or `Nonlinear
+    /// Calculate Derivative` asks for the sensitivity (SolverBasics.F90:4198).
+    pub derivative: Option<Vec<f64>>,
 }
 
 /// Elmer `NumericalError`: fatal unless `Global Abort Not Converged = False`.
@@ -90,6 +93,7 @@ pub fn numerical_error(
 pub fn compute_change(env: &ChangeEnv<'_>, var: &mut Variable, st: &mut SolverState) -> Result<ChangeReport, SolverError> {
     let p = env.params;
     let skipped = || ChangeReport {
+        derivative: None,
         norm: 0.0,
         change: 0.0,
         message: String::new(),
@@ -481,11 +485,22 @@ pub fn compute_change(env: &ChangeEnv<'_>, var: &mut Variable, st: &mut SolverSt
         }
     }
 
+    let want_derivative = if env.steady {
+        p.logical("calculate derivative")
+    } else {
+        p.logical("nonlinear calculate derivative")
+    };
+    let derivative = (want_derivative == Some(true)).then(|| {
+        let x = &var.values;
+        (0..x.len()).map(|i| x[i] - x0.as_ref().and_then(|v| v.get(i)).map_or(x[i], |v| *v)).collect()
+    });
+
     Ok(ChangeReport {
         norm,
         change,
         message,
         skipped: false,
+        derivative,
     })
 }
 
