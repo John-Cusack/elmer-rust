@@ -188,9 +188,10 @@ impl IncompressibleNsSolver {
 fn check_solver_params(p: &ParamMap, pdofs: bool) -> Result<(), SolverError> {
     let element = p.string("element").map(|e| e.trim().to_ascii_lowercase());
     if pressure_stabilization(p) {
-        if element.as_deref().is_some_and(|e| e != "n:1") {
+        // `p:1` from SolverDofs is the nodal element as well.
+        if element.as_deref().is_some_and(|e| e != "n:1" && !(pdofs && e == "p:1")) {
             return Err(unsupported(format!(
-                "Element = \"{}\" with Pressure Stabilization (only the nodal \"n:1\" element)",
+                "Element = \"{}\" with Pressure Stabilization (only the nodal \"n:1\" or \"p:1\" element)",
                 element.unwrap_or_default()
             )));
         }
@@ -580,8 +581,8 @@ impl Solver for IncompressibleNsSolver {
             None => {}
             Some(s) => {
                 let s = elmer_core::normalize_key(s);
-                if !s.starts_with("cartesian") {
-                    return Err(unsupported(format!("Coordinate System = {s} (only Cartesian)")));
+                if !s.starts_with("cartesian") && s != "axi symmetric" {
+                    return Err(unsupported(format!("Coordinate System = {s} (only Cartesian and Axi Symmetric)")));
                 }
             }
         }
@@ -662,6 +663,10 @@ impl Solver for IncompressibleNsSolver {
             None => HMode::Default,
         };
         let long_edge = flag(ctx.simulation_params(), "stabilization use longest element edge");
+        let axisymmetric = ctx
+            .simulation_params()
+            .string("coordinate system")
+            .is_some_and(|s| elmer_core::normalize_key(s) == "axi symmetric");
         let rule_np = IntegrationPoints::from_params(&p)?;
 
         let max_iter = p.integer("nonlinear system max iterations").unwrap_or(1);
@@ -787,6 +792,7 @@ impl Solver for IncompressibleNsSolver {
                     specific_load,
                     pstab: PressureStab { coeff, hmode, hk },
                     np: rule_np.for_type(el.etype),
+                    axisymmetric,
                     thermal: thermal_temp
                         .as_ref()
                         .map(|(temperature, beta, t_ref)| ThermalCompress { temperature, beta: *beta, t_ref: *t_ref }),
@@ -862,6 +868,9 @@ impl Solver for IncompressibleNsSolver {
                 }
                 if pdofs {
                     return Err(unsupported("boundary tractions, pressures and slip on p elements"));
+                }
+                if axisymmetric {
+                    return Err(unsupported("boundary tractions, pressures and slip in Axi Symmetric coordinates"));
                 }
                 let parent_center = normal_parent(ctx, e)
                     .map(|pe| elmer_physics_flow::boundary::element_center(&node_xyz(ctx.mesh, ctx.mesh.element(pe).nodes)));
