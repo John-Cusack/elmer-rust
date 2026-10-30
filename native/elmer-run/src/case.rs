@@ -317,6 +317,14 @@ fn check_reloads(model: &Model, reloads: &[Model], registry: &SolverRegistry) ->
         if let Some(key) = block.constants.0.keys().next() {
             return refuse(format!("Constants {key}"));
         }
+        // The periodic projectors are built once, at setup
+        // (`periodic_assembly`): periodic_homogenize's second block changes
+        // `Periodic BC Offset` and would keep the old one.
+        for (i, bc) in block.boundary_conditions.iter().enumerate() {
+            if let Some(key) = bc.0.keys().find(|k| k.starts_with("periodic bc")) {
+                return refuse(format!("Boundary Condition {} {key}", i + 1));
+            }
+        }
         for (i, params) in block.solvers.iter().enumerate() {
             if params.0.keys().all(|k| ALLOWED.contains(&k.as_str())) {
                 continue;
