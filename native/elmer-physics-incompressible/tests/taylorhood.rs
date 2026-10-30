@@ -8,7 +8,7 @@
 
 mod support;
 
-use elmer_core::{NullLogger, ParamMap, SerialComm, Value};
+use elmer_core::{NullLogger, ParamMap, Params, SerialComm, Value};
 use elmer_pdofs::PDofsBackend;
 use elmer_physics_incompressible::{register, solver_defaults};
 use elmer_solver::{Simulation, SolverRegistry};
@@ -87,7 +87,8 @@ fn run(
     keys.extend(extra.iter().cloned());
     let mut solver = ns_solver(&keys);
     // _Init0 (the MINI element without an Element) before the dofs are made.
-    solver_defaults(&mut solver, dim, false);
+    let transient = simulation.string("simulation type").is_some_and(|t| t.eq_ignore_ascii_case("transient"));
+    solver_defaults(&mut solver, dim, transient);
     let (bcs, viscosity) = setup(&mesh);
     let material = sec(&[("Density", real(1.0)), ("Viscosity", real(viscosity))]);
     let mut reg = SolverRegistry::new();
@@ -222,4 +223,29 @@ fn mini_navier_stokes_tri_matches_elmer() {
         ("Nonlinear System Newton After Tolerance", real(1.0e-3)),
     ];
     run_case("mini_ns_tri", 2, ns_step, &extra, 595, 0.07592011845809431);
+}
+
+/// `tests/data/transient_tri` without `Pressure Stabilization`: the MINI
+/// element over 4 steps of 0.1, Newton after 2 iterations. `LCondensate`
+/// forms the time derivative of the bubble-augmented system itself (BDF1,
+/// though the run asks for BDF2) with each element's bubble history.
+#[test]
+fn mini_transient_tri_matches_elmer() {
+    let mut simulation = steady("Cartesian 2D");
+    for (k, v) in [
+        ("Simulation Type", st("Transient")),
+        ("Timestepping Method", st("BDF")),
+        ("BDF Order", ints(&[2])),
+        ("Timestep Sizes", real(0.1)),
+        ("Timestep Intervals", ints(&[4])),
+    ] {
+        simulation.insert(k, v);
+    }
+    let extra = [
+        ("Stokes Flow", Value::Logical(false)),
+        ("Nonlinear System Max Iterations", ints(&[3])),
+        ("Nonlinear System Convergence Tolerance", real(1.0e-10)),
+        ("Nonlinear System Newton After Iterations", ints(&[2])),
+    ];
+    run_case_with("mini_transient_tri", 2, ns_step, simulation, &extra, 595, 0.07440496513539256, 3);
 }
