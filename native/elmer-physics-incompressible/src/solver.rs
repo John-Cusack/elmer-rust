@@ -12,7 +12,7 @@ use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 use crate::boundary::{incompressible_boundary_local, IncompressibleBoundaryInput};
 use crate::bulk::{
     incompressible_bulk_local, incompressible_bulk_local_with, lcondensate, lcondensate_bdf1, pin_pressure, HMode,
-    IncompressibleBulkInput, PressureStab, ThermalCompress,
+    Compressibility, CompressModel, IncompressibleBulkInput, PressureStab,
 };
 use crate::error::IncompressibleError;
 
@@ -301,7 +301,7 @@ fn check_body(mat: Option<&ParamMap>, bf: Option<&ParamMap>) -> Result<(), Solve
     if let Some(m) = mat {
         if let Some(c) = m.string("compressibility model") {
             let c = elmer_core::normalize_key(c);
-            if c != "incompressible" && c != "thermal" {
+            if !["incompressible", "thermal", "perfect gas", "perfect gas equation 1"].contains(&c.as_str()) {
                 return Err(unsupported(format!("Compressibility Model = {c}")));
             }
         }
@@ -320,10 +320,14 @@ fn check_body(mat: Option<&ParamMap>, bf: Option<&ParamMap>) -> Result<(), Solve
     Ok(())
 }
 
-/// `Compressibility Model = Thermal` in the material.
-fn thermal_model(mat: Option<&ParamMap>) -> bool {
-    mat.and_then(|m| m.string("compressibility model"))
-        .is_some_and(|c| elmer_core::normalize_key(c) == "thermal")
+/// The material's `Compressibility Model`, `"thermal"` or `"perfect gas"`
+/// (also `Perfect Gas Equation 1`); `None` for an incompressible one.
+fn compress_model(mat: Option<&ParamMap>) -> Option<&'static str> {
+    match mat.and_then(|m| m.string("compressibility model")).map(elmer_core::normalize_key).as_deref() {
+        Some("thermal") => Some("thermal"),
+        Some("perfect gas" | "perfect gas equation 1") => Some("perfect gas"),
+        _ => None,
+    }
 }
 
 /// `ListGetElementReal` of a keyword constant over the element (zero when
@@ -736,21 +740,36 @@ impl Solver for IncompressibleNsSolver {
                     return Err(unsupported("Density varying within an element"));
                 }
                 let viscosity = reorder(nodal(ctx, mat, "viscosity", e, n)?, el.nodes, nodes);
-                let thermal_temp = match thermal_model(mat) {
-                    false => None,
-                    true => {
+                let compress = match (compress_model(mat), mat) {
+                    (Some(model), Some(m)) => {
                         if transient || pstab {
-                            return Err(unsupported(
-                                "Compressibility Model = Thermal in a transient run or with Pressure Stabilization",
-                            ));
+                            return Err(unsupported(format!(
+                                "Compressibility Model = {model} in a transient run or with Pressure Stabilization"
+                            )));
                         }
-                        let m = mat.expect("thermal_model needs a material");
-                        let beta = element_constant(ctx, m, "heat expansion coefficient", e)?;
                         let t_ref = element_constant(ctx, m, "reference temperature", e)?;
+                        let model = if model == "thermal" {
+                            let beta = element_constant(ctx, m, "heat expansion coefficient", e)?;
+                            CompressModel::Thermal { beta, t_ref }
+                        } else {
+                            if linear_assembly {
+                                return Err(unsupported(
+                                    "Compressibility Model = Perfect Gas with Linear Equation = True",
+                                ));
+                            }
+                            let gamma = match m.get("specific heat ratio") {
+                                Some(_) => element_constant(ctx, m, "specific heat ratio", e)?,
+                                None => 5.0 / 3.0,
+                            };
+                            let cp = element_constant(ctx, m, "heat capacity", e)?;
+                            let p_ref = element_constant(ctx, m, "reference pressure", e)?;
+                            CompressModel::PerfectGas { gas_constant: (gamma - 1.0) / gamma * cp, p_ref }
+                        };
                         let Some(tv) = ctx.variable("temperature") else {
                             return Err(SolverError::fatal(
                                 CALLER,
-                                "\"Compressibility Model = Thermal\" requires a solved \"Temperature\" field",
+                                "\"Compressibility Model = Thermal\"/\"Perfect Gas\" requires a solved \
+                                 \"Temperature\" field",
                             ));
                         };
                         let temp: Vec<f64> = nodes
@@ -760,8 +779,9 @@ impl Solver for IncompressibleNsSolver {
                                 k => tv.values[k as usize * tv.dofs],
                             })
                             .collect();
-                        Some((temp, beta, t_ref))
+                        Some((temp, model))
                     }
+                    _ => None,
                 };
                 let mut load = vec![[0.0; 3]; n];
                 if let Some(b) = bf {
@@ -793,9 +813,9 @@ impl Solver for IncompressibleNsSolver {
                     pstab: PressureStab { coeff, hmode, hk },
                     np: rule_np.for_type(el.etype),
                     axisymmetric,
-                    thermal: thermal_temp
+                    compress: compress
                         .as_ref()
-                        .map(|(temperature, beta, t_ref)| ThermalCompress { temperature, beta: *beta, t_ref: *t_ref }),
+                        .map(|(temperature, model)| Compressibility { temperature, model: *model }),
                 };
                 match &pe {
                     None => incompressible_bulk_local(basis, quad, &inp, &mut self.local)?,

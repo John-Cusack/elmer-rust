@@ -30,6 +30,7 @@ the resulting reference:
 | `mini_transient_tri` | `transient_tri` without `Pressure Stabilization` | the MINI element over 4 steps of 0.1, Newton after 2; `LCondensate`'s BDF1 time derivative with each element's bubble history (the run asks for BDF2); norm 7.4404965E-02 |
 | `taylorhood_transient_tri` | `transient_tri` with `Element = p:2`, no `Pressure Stabilization` | Taylor-Hood Navier-Stokes over 4 BDF2 steps (`Default1stOrderTime`, the pinned pressures' mass rows zero); norm 3.7828652E-02 |
 | `thermal_quad` | own (`ThermalCompress_vec` without its HeatSolve, `ElmerGrid 1 2 ThermalCompress_vec.grd`) | `Compressibility Model = Thermal` on the MINI element: the temperature an exported variable at its initial condition `293.5 - x`, gravity, pressure pinned on boundary 1; norm 4.4556902E-03 |
+| `perfect_gas_quad` | own (`PerfectGasCompress_vec` without its HeatSolve, the `thermal_quad` mesh) | `Compressibility Model = Perfect Gas` (`Heat Capacity` 1000, `Specific Heat Ratio` 5/3, `Reference Pressure` 1e5), the same fixed temperature; norm 5.1831983E-05 |
 | `axi_pipe` | `fem/tests/IncompressibleNSAxi` (`ElmerGrid 1 2 pipe.grd`) | axisymmetric Stokes, Pressure Stabilization on `p:1`, `Specific Load` `-1/r`; norm 1.3600543 |
 
 The `taylorhood_*` and `mini_*` cases have p dofs, so their references are by dof
