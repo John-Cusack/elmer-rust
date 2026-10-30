@@ -160,6 +160,8 @@ pub struct SolverSlot {
     /// The coarser meshes of geometric multigrid, coarsest first
     /// ([`Simulation::set_multigrid_meshes`]).
     pub(crate) mg_meshes: Option<Vec<Box<dyn MeshView>>>,
+    /// The constraint modes `DefaultDirichletBCs` set up.
+    pub(crate) cmodes: Option<crate::constraint_modes::Modes>,
 }
 
 impl SolverSlot {
@@ -191,6 +193,7 @@ impl SolverSlot {
             finished: false,
             lin_converged: true,
             mg_meshes: None,
+            cmodes: None,
         })
     }
 

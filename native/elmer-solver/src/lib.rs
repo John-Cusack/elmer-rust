@@ -24,6 +24,7 @@ pub mod backend;
 mod block_driver;
 mod block_system;
 pub mod change;
+mod constraint_modes;
 mod constraints;
 mod control;
 pub mod coupled;

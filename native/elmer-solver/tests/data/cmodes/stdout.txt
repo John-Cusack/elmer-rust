@@ -1,0 +1,83 @@
+SetConstraintModesBoundaries: Number of active constraint modes boundaries: 2
+SetConstraintModesBoundaries: Number of active constraint modes: 40
+ConstraintModesDriver: Setting up constrained mode: 1
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.91927329E-01  2.0000000     ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 2
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.94507700E-01 0.27681179E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 3
+ComputeChange: NS (ITER=3) (NRM,RELC): ( 0.98594627E-01 0.42329133E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 4
+ComputeChange: NS (ITER=4) (NRM,RELC): ( 0.10057323     0.19868657E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 5
+ComputeChange: NS (ITER=5) (NRM,RELC): ( 0.10154826     0.96480169E-02 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 6
+ComputeChange: NS (ITER=6) (NRM,RELC): ( 0.10184559     0.29236254E-02 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 7
+ComputeChange: NS (ITER=7) (NRM,RELC): ( 0.10154826     0.29236254E-02 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 8
+ComputeChange: NS (ITER=8) (NRM,RELC): ( 0.10057323     0.96480169E-02 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 9
+ComputeChange: NS (ITER=9) (NRM,RELC): ( 0.98594627E-01 0.19868657E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 10
+ComputeChange: NS (ITER=10) (NRM,RELC): ( 0.94507700E-01 0.42329133E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 11
+ComputeChange: NS (ITER=11) (NRM,RELC): ( 0.91927329E-01 0.27681179E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 12
+ComputeChange: NS (ITER=12) (NRM,RELC): ( 0.94507700E-01 0.27681179E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 13
+ComputeChange: NS (ITER=13) (NRM,RELC): ( 0.94507700E-01  0.0000000     ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 14
+ComputeChange: NS (ITER=14) (NRM,RELC): ( 0.98594627E-01 0.42329133E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 15
+ComputeChange: NS (ITER=15) (NRM,RELC): ( 0.98594627E-01  0.0000000     ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 16
+ComputeChange: NS (ITER=16) (NRM,RELC): ( 0.10057323     0.19868657E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 17
+ComputeChange: NS (ITER=17) (NRM,RELC): ( 0.10057323     0.13798690E-15 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 18
+ComputeChange: NS (ITER=18) (NRM,RELC): ( 0.10154826     0.96480169E-02 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 19
+ComputeChange: NS (ITER=19) (NRM,RELC): ( 0.10154826      0.0000000     ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 20
+ComputeChange: NS (ITER=20) (NRM,RELC): ( 0.10184559     0.29236254E-02 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 21
+ComputeChange: NS (ITER=21) (NRM,RELC): ( 0.10184559      0.0000000     ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 22
+ComputeChange: NS (ITER=22) (NRM,RELC): ( 0.10154826     0.29236254E-02 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 23
+ComputeChange: NS (ITER=23) (NRM,RELC): ( 0.10154826      0.0000000     ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 24
+ComputeChange: NS (ITER=24) (NRM,RELC): ( 0.10057323     0.96480169E-02 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 25
+ComputeChange: NS (ITER=25) (NRM,RELC): ( 0.10057323      0.0000000     ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 26
+ComputeChange: NS (ITER=26) (NRM,RELC): ( 0.98594627E-01 0.19868657E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 27
+ComputeChange: NS (ITER=27) (NRM,RELC): ( 0.98594627E-01  0.0000000     ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 28
+ComputeChange: NS (ITER=28) (NRM,RELC): ( 0.94507700E-01 0.42329133E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 29
+ComputeChange: NS (ITER=29) (NRM,RELC): ( 0.94507700E-01  0.0000000     ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 30
+ComputeChange: NS (ITER=30) (NRM,RELC): ( 0.91927329E-01 0.27681179E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 31
+ComputeChange: NS (ITER=31) (NRM,RELC): ( 0.94507700E-01 0.27681179E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 32
+ComputeChange: NS (ITER=32) (NRM,RELC): ( 0.98594627E-01 0.42329133E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 33
+ComputeChange: NS (ITER=33) (NRM,RELC): ( 0.10057323     0.19868657E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 34
+ComputeChange: NS (ITER=34) (NRM,RELC): ( 0.10154826     0.96480169E-02 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 35
+ComputeChange: NS (ITER=35) (NRM,RELC): ( 0.10184559     0.29236254E-02 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 36
+ComputeChange: NS (ITER=36) (NRM,RELC): ( 0.10154826     0.29236254E-02 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 37
+ComputeChange: NS (ITER=37) (NRM,RELC): ( 0.10057323     0.96480169E-02 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 38
+ComputeChange: NS (ITER=38) (NRM,RELC): ( 0.98594627E-01 0.19868657E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 39
+ComputeChange: NS (ITER=39) (NRM,RELC): ( 0.94507700E-01 0.42329133E-01 ) :: heatsolver
+ConstraintModesDriver: Setting up constrained mode: 40
+ComputeChange: NS (ITER=40) (NRM,RELC): ( 0.91927329E-01 0.27681179E-01 ) :: heatsolver
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.91927329E-01  2.0000000     ) :: heatsolver
