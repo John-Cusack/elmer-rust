@@ -49,7 +49,8 @@ pub(crate) enum OperKind {
     Bulk,
     /// `BoundaryStatistics`.
     BoundaryStatistic,
-    /// `BoundaryIntegrals` (`boundary int`, `boundary int mean`, `area`).
+    /// `BoundaryIntegrals` (`boundary int`, `boundary int mean`, `area`,
+    /// `diffusive flux`).
     BoundaryIntegral,
 }
 
@@ -117,7 +118,7 @@ const BOUNDARY_STATISTICS: [&str; 7] = [
 /// reason.
 fn refused_operator(oper: &str) -> Option<&'static str> {
     Some(match oper {
-        "diffusive flux" | "convective flux" => "flux reconstruction needs the parent element's gradient",
+        "convective flux" => "flux reconstruction needs the parent element's gradient",
         "convective energy" => "SaveScalars.F90:2358 evaluates it from a gradient it never computes",
         "cpu time" | "wall time" | "cpu memory" | "threads" => "run-dependent value, not reproducible",
         _ => return None,
@@ -153,7 +154,7 @@ pub(crate) fn parse_operator(text: &str) -> Result<ParsedOper, SolverError> {
         "norm" | "nonlin change" | "steady state change" | "nonlin iter" | "nonlin converged"
         | "steady converged" | "dofs" | "nans" => OperKind::Meta,
         "deviation" => OperKind::Deviation,
-        "area" | "boundary int" | "boundary int mean" => OperKind::BoundaryIntegral,
+        "area" | "boundary int" | "boundary int mean" | "diffusive flux" => OperKind::BoundaryIntegral,
         o if STATISTICS.contains(&o) => OperKind::Statistic,
         o if BULK.contains(&o) => OperKind::Bulk,
         o if BOUNDARY_STATISTICS.contains(&o) => OperKind::BoundaryStatistic,

@@ -12,6 +12,7 @@ elmer-solver = { path = "../elmer-solver" }
 elmer-saveio = { path = "../elmer-saveio" }
 elmer-expr = { path = "../elmer-expr" }
 elmer-assembly = { path = "../elmer-assembly" }
+elmer-interp = { path = "../elmer-interp" }
 
 [dev-dependencies]
 elmer-physics-heat = { path = "../elmer-physics-heat" }

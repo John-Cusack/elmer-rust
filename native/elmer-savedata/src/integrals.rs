@@ -307,6 +307,9 @@ pub(crate) fn bulk_integral(
 pub(crate) struct BoundaryTotals {
     pub fluxes: Vec<f64>,
     pub areas: Vec<f64>,
+    /// `Save Flux Range`: the smallest and largest point flux of a flux
+    /// operator.
+    pub range: (f64, f64),
 }
 
 /// Whether BC `bc` (a section) is one of the `ActiveBC` of SaveScalars.F90:641.
@@ -314,8 +317,88 @@ pub(crate) fn bc_is_active(bc: &elmer_core::ParamMap, mask_name: &str) -> bool {
     bc.logical("flux integrate") == Some(true) || bc.logical(mask_name) == Some(true)
 }
 
-/// `BoundaryIntegrals` for `boundary int`, `boundary int mean` and `area`;
-/// per boundary condition, 0-based. Flux operators are refused earlier.
+/// The parent `BoundaryIntegrals` takes the gradient from for `diffusive
+/// flux`: the one of `Flux Integrate Body`, else the left parent unless the
+/// field misses one of its nodes, then the right one.
+fn flux_parent(ctx: &SolverCtx<'_>, e: ElemId, bc: &elmer_core::ParamMap, v: &VarView<'_>) -> Result<ElemId, SolverError> {
+    const CALLER: &str = "SaveScalars";
+    let [left, right] = ctx.mesh.element(e).parents;
+    if let Some(body) = bc.integer("flux integrate body") {
+        let of = |p: Option<ElemId>| p.filter(|&p| ctx.body_params(p).is_some_and(|b| b.body_id as i32 == body));
+        return of(left).or_else(|| of(right)).ok_or_else(|| {
+            SolverError::fatal(CALLER, format!("No such flux integrate body on bc {}", ctx.bc_id(e).unwrap_or(0)))
+        });
+    }
+    let has_field = |p: ElemId| v.perm.is_none() || ctx.mesh.element(p).nodes.iter().all(|&n| v.slot(n as usize).is_some());
+    left.filter(|&p| has_field(p))
+        .or_else(|| right.filter(|&p| has_field(p)))
+        .ok_or_else(|| SolverError::fatal(CALLER, "No solution available for specified boundary"))
+}
+
+/// `NormalVector(Element, Nodes, u, v, Check=.TRUE.)` of a line (2D) or a
+/// triangle/quadrilateral (3D) boundary element, pointing away from
+/// `parent`.
+fn outward_normal(xyz: &[[f64; 3]], etype: ElementType, parent_xyz: &[[f64; 3]], point: [f64; 3]) -> Result<[f64; 3], SolverError> {
+    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let mut n = match etype.0 / 100 {
+        2 => {
+            let t = sub(xyz[1], xyz[0]);
+            [t[1], -t[0], 0.0]
+        }
+        3 | 4 => {
+            let (a, b) = if etype.0 / 100 == 3 { (sub(xyz[1], xyz[0]), sub(xyz[2], xyz[0])) } else { (sub(xyz[2], xyz[0]), sub(xyz[3], xyz[1])) };
+            [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+        }
+        _ => return Err(SolverError::Unsupported(format!("SaveScalars diffusive flux on boundary element {}", etype.0))),
+    };
+    let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    n = [n[0] / len, n[1] / len, n[2] / len];
+    let k = parent_xyz.len() as f64;
+    let c = parent_xyz.iter().fold([0.0; 3], |a, x| [a[0] + x[0] / k, a[1] + x[1] / k, a[2] + x[2] / k]);
+    let out = sub(point, c);
+    if n[0] * out[0] + n[1] * out[1] + n[2] * out[2] < 0.0 {
+        n = [-n[0], -n[1], -n[2]];
+    }
+    Ok(n)
+}
+
+/// `diffusive flux` at one integration point of boundary element `e`
+/// (`EvaluateVariableAtGivenPoint(..., DoGrad, Parent)`, SaveScalars.F90
+/// :2754): the normal component of the field's gradient taken in `parent`
+/// at the point. Without `Coefficient` the energy tensor is the identity.
+fn diffusive_flux(ctx: &SolverCtx<'_>, fe: &Fe, e: ElemId, parent: ElemId, v: &VarView<'_>, basis: &[f64]) -> Result<f64, SolverError> {
+    let el = ctx.mesh.element(e);
+    let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
+    let mut x = [0.0; 3];
+    for (b, p) in basis.iter().zip(&xyz) {
+        for k in 0..3 {
+            x[k] += b * p[k];
+        }
+    }
+    let pel = ctx.mesh.element(parent);
+    let pxyz: Vec<[f64; 3]> = pel.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
+    let shape = elmer_interp::shape::Shape::get(pel.etype.0)
+        .ok_or_else(|| SolverError::Unsupported(format!("SaveScalars diffusive flux on element {}", pel.etype.0)))?;
+    let dim = ctx.mesh.dim();
+    let uvw = elmer_interp::geom::global_to_local(shape, &pxyz, x, dim);
+    let mut out = BasisEval::default();
+    fe.basis
+        .eval(pel.etype, &pxyz, uvw, &mut out)
+        .map_err(|m| SolverError::fatal("ElementInfo", format!("element {}: {m}", parent.0 + 1)))?;
+    let mut grad = [0.0; 3];
+    for (k, &n) in pel.nodes.iter().enumerate() {
+        let u = v.slot(n as usize).map_or(0.0, |s| v.at(s, 0));
+        for d in 0..3 {
+            grad[d] += out.dbasis_dx[k][d] * u;
+        }
+    }
+    let nrm = outward_normal(&xyz, el.etype, &pxyz, x)?;
+    Ok((0..dim).map(|d| nrm[d] * grad[d]).sum())
+}
+
+/// `BoundaryIntegrals` for `boundary int`, `boundary int mean`, `area` and
+/// `diffusive flux`; per boundary condition, 0-based. `convective flux` is
+/// refused earlier.
 pub(crate) fn boundary_integrals(
     ctx: &SolverCtx<'_>,
     fe: &Fe,
@@ -329,6 +412,7 @@ pub(crate) fn boundary_integrals(
     let mut totals = BoundaryTotals {
         fluxes: vec![0.0; nbc],
         areas: vec![0.0; nbc],
+        range: (f64::MAX, -f64::MAX),
     };
     let area_only = oper == "area";
     let nb = ctx.mesh.n_bulk() as u32;
@@ -349,9 +433,23 @@ pub(crate) fn boundary_integrals(
                 continue;
             }
         }
+        let parent = match (oper, field) {
+            ("diffusive flux", Some(v)) => {
+                if v.ncomp != 1 {
+                    return Err(SolverError::fatal("SaveScalars", "diffusive flux & NoDofs /= 1?"));
+                }
+                Some(flux_parent(ctx, e, bc, v)?)
+            }
+            _ => None,
+        };
         for ip in element_points(ctx, fe, e, passive, axisym)? {
             let flux = match field {
                 None => ip.s,
+                Some(v) if parent.is_some() => {
+                    let flux = diffusive_flux(ctx, fe, e, parent.unwrap(), v, &ip.basis)?;
+                    totals.range = (totals.range.0.min(flux), totals.range.1.max(flux));
+                    ip.s * flux
+                }
                 Some(v) => {
                     let comp = |k: usize| -> f64 {
                         el.nodes
