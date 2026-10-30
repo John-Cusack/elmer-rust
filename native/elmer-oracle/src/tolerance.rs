@@ -168,12 +168,14 @@ pub fn grade_with_table(
                     fallback
                 }
             };
-            out.extend(crate::grade::grade_variable(
+            let floor = crate::grade::variable_scale(golden, step, &g_var.name);
+            out.extend(crate::grade::grade_variable_floor(
                 &g_var.name,
                 step,
                 g_var,
                 c_var,
                 bar,
+                floor,
             ));
         }
     }

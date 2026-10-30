@@ -71,16 +71,35 @@ pub fn to_node_space(var: &VariableData) -> crate::Result<Vec<f64>> {
 /// ‖golden‖∞. Returns `None` when the golden field is all zeros (exact
 /// zero then requires exact zero; any nonzero is reported as infinite).
 pub fn relative_linf(golden: &[f64], candidate: &[f64]) -> Option<f64> {
+    relative_linf_floor(golden, candidate, 0.0)
+}
+
+/// [`relative_linf`] normalised by `max(‖golden‖∞, floor)`. The floor is
+/// the scale of the solver variable the field belongs to
+/// ([`variable_scale`]): a component that is round-off around zero is
+/// judged against its whole variable, as Elmer's own norm and Reference
+/// Norm judge it, instead of against its own noise.
+pub fn relative_linf_floor(golden: &[f64], candidate: &[f64], floor: f64) -> Option<f64> {
     if golden.len() != candidate.len() {
         return None;
     }
-    let norm = golden.iter().fold(0.0f64, |m, &v| m.max(v.abs()));
-    if norm == 0.0 {
-        if candidate.iter().all(|&v| v == 0.0) {
-            return Some(0.0);
-        }
-        return None;
+    let own = golden
+        .iter()
+        .filter(|v| v.is_finite())
+        .fold(0.0f64, |m, &v| m.max(v.abs()));
+    if own == 0.0 {
+        // An identically zero golden field keeps the exact-zero rule: any
+        // value beyond one ulp of its variable's scale is a real error, so
+        // the scaled floor never applies here.
+        let round_off = f64::EPSILON * floor;
+        let ok = golden
+            .iter()
+            .zip(candidate.iter())
+            .filter(|(g, _)| g.is_finite())
+            .all(|(_, c)| c.abs() <= round_off);
+        return ok.then_some(0.0);
     }
+    let norm = own.max(floor);
     let mut worst = 0.0;
     for (g, c) in golden.iter().zip(candidate.iter()) {
         if !c.is_finite() && g.is_finite() {
@@ -94,6 +113,29 @@ pub fn relative_linf(golden: &[f64], candidate: &[f64]) -> Option<f64> {
     Some(worst)
 }
 
+/// Scale of the solver variable `field` belongs to at `step`: the largest
+/// `‖·‖∞` over its component fields (from the file's preamble groups).
+/// Zero for a field that is a variable of its own.
+pub fn variable_scale(file: &crate::result::ResultFile, step: usize, field: &str) -> f64 {
+    let Some(group) = file.groups.iter().find(|g| g.iter().any(|f| f == field)) else {
+        return 0.0;
+    };
+    let Some(st) = file.steps.get(step) else {
+        return 0.0;
+    };
+    let mut scale = 0.0f64;
+    for member in group {
+        if let Some(v) = st.vars.iter().find(|v| &v.name == member) {
+            if let Ok(nodes) = to_node_space(v) {
+                for x in nodes.iter().filter(|x| x.is_finite()) {
+                    scale = scale.max(x.abs());
+                }
+            }
+        }
+    }
+    scale
+}
+
 /// Grade one variable at one step. `allowed` is the Tier bar for this
 /// field and step.
 pub fn grade_variable(
@@ -102,6 +144,18 @@ pub fn grade_variable(
     golden: &VariableData,
     candidate: Option<&VariableData>,
     allowed: f64,
+) -> Vec<Mismatch> {
+    grade_variable_floor(variable, step, golden, candidate, allowed, 0.0)
+}
+
+/// [`grade_variable`] with the near-zero floor of [`relative_linf_floor`].
+pub fn grade_variable_floor(
+    variable: &str,
+    step: usize,
+    golden: &VariableData,
+    candidate: Option<&VariableData>,
+    allowed: f64,
+    floor: f64,
 ) -> Vec<Mismatch> {
     let mk = |kind| vec![Mismatch {
         variable: variable.to_string(),
@@ -131,7 +185,7 @@ pub fn grade_variable(
             return mk(MismatchKind::NonFinite { index: i });
         }
     }
-    match relative_linf(&g, &c) {
+    match relative_linf_floor(&g, &c, floor) {
         None => mk(MismatchKind::ExceedsTolerance {
             error: f64::INFINITY,
             allowed,
@@ -180,7 +234,8 @@ pub fn grade_results(
     }
     for (step, (g_step, c_step)) in golden.steps.iter().zip(candidate.steps.iter()).enumerate() {
         for (g_var, c_var) in pair_vars(&g_step.vars, &c_step.vars) {
-            out.extend(grade_variable(&g_var.name, step, g_var, c_var, allowed));
+            let floor = variable_scale(golden, step, &g_var.name);
+            out.extend(grade_variable_floor(&g_var.name, step, g_var, c_var, allowed, floor));
         }
     }
     out
@@ -226,6 +281,44 @@ mod tests {
             perm_size: values.len() as i32,
             values,
         }
+    }
+
+    #[test]
+    fn near_zero_component_is_judged_against_its_variable() {
+        // velocity 2 is round-off around zero; velocity 1 carries the flow.
+        let mk = |name: &str, values: Vec<f64>| VariableData {
+            name: name.to_string(),
+            perm: None,
+            perm_size: values.len() as i32,
+            values,
+        };
+        let file = |v2: Vec<f64>| crate::result::ResultFile {
+            steps: vec![crate::result::TimeStep {
+                saves_done: 1,
+                ntime: 1,
+                sim_time: 0.0,
+                vars: vec![mk("velocity 1", vec![1.0, 2.0]), mk("velocity 2", v2)],
+            }],
+            groups: vec![vec!["velocity 1".into(), "velocity 2".into()]],
+        };
+        let golden = file(vec![5e-16, -3e-16]);
+        let noisy = file(vec![4e-16, -2e-16]);
+        assert_eq!(variable_scale(&golden, 0, "velocity 2"), 2.0);
+        assert!(grade_results(&golden, &noisy, 1e-10).is_empty());
+        // Without the group the same noise is an O(1) relative error.
+        let mut lone = golden.clone();
+        lone.groups.clear();
+        let mut lone_noisy = noisy.clone();
+        lone_noisy.groups.clear();
+        assert!(!grade_results(&lone, &lone_noisy, 1e-10).is_empty());
+        // A real error in the small component is still caught.
+        let wrong = file(vec![1e-3, -3e-16]);
+        assert!(!grade_results(&golden, &wrong, 1e-10).is_empty());
+        // An identically zero component keeps the exact-zero rule: one ulp
+        // of the variable's scale passes, 1e-6 does not.
+        let zero = file(vec![0.0, 0.0]);
+        assert!(grade_results(&zero, &file(vec![2.0 * f64::EPSILON, 0.0]), 1e-10).is_empty());
+        assert!(!grade_results(&zero, &file(vec![1e-6, 0.0]), 1e-10).is_empty());
     }
 
     #[test]
@@ -301,6 +394,7 @@ mod tests {
 
     fn result_file(vars: Vec<VariableData>) -> crate::result::ResultFile {
         crate::result::ResultFile {
+            groups: Vec::new(),
             steps: vec![crate::result::TimeStep {
                 saves_done: 1,
                 ntime: 1,
@@ -329,7 +423,7 @@ mod tests {
     #[test]
     fn grade_results_flags_missing_variables_and_steps() {
         let golden = result_file(vec![var(vec![1.0])]);
-        let empty = crate::result::ResultFile { steps: vec![] };
+        let empty = crate::result::ResultFile { steps: vec![], ..Default::default() };
         let mm = grade_results(&golden, &empty, 1e-10);
         assert!(!mm.is_empty());
         let other = result_file(vec![VariableData {

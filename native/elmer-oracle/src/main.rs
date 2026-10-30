@@ -705,7 +705,7 @@ fn main() {
                             }
                             BelowFloor => {
                                 below += 1;
-                                println!("below-floor\t{test}\t{rel}\t{m}\t{}", t.target);
+                                println!("below-floor\t{test}\t{rel}\t{m}\t{}\t{}", t.target, t.detail);
                             }
                             Vacuous(why) => {
                                 vacuous += 1;
