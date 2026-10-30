@@ -1,7 +1,7 @@
 //! `elmer-oracle` command line: plan, run, manifest, and grade.
 
 use elmer_oracle::manifest::{hash_tree, Manifest};
-use elmer_oracle::registry::read_registry;
+use elmer_oracle::registry::{read_registry, read_registry_under};
 use elmer_oracle::runner::{
     discover_tests, known_bins, missing_output_dirs, parse_cmakelists, plan_test, read_startinfo,
     run_plan, run_replay, Arm, SifInject, Staging,
@@ -13,7 +13,7 @@ fn usage() -> ! {
     eprintln!("  elmer-oracle plan <tests-dir> <test> [--np N]");
     eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE]");
     eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE]");
-    eprintln!("  elmer-oracle registry <build-dir> [--label L]");
+    eprintln!("  elmer-oracle registry <build-dir> [--label L] [--suite fem/tests|elmerice]");
     eprintln!("  elmer-oracle grade-tree <tests-dir> <golden-root> <candidate-root> <tolerances.json> [--fallback X]");
     eprintln!("  elmer-oracle mutation-suite <tests-dir> <golden-root> <tolerances.json> [--fallback X]");
     eprintln!("  elmer-oracle sigma-table <tests-dir> <out.json> <golden-root> <arm=root>...");
@@ -254,15 +254,19 @@ fn main() {
                 usage();
             }
             let mut label: Option<String> = None;
+            let mut suite = String::from("fem/tests");
             let mut i = 3;
             while i < args.len() {
                 if args[i] == "--label" && i + 1 < args.len() {
                     label = Some(args[i + 1].clone());
                     i += 1;
+                } else if args[i] == "--suite" && i + 1 < args.len() {
+                    suite = args[i + 1].clone();
+                    i += 1;
                 }
                 i += 1;
             }
-            let reg = read_registry(Path::new(&args[2])).unwrap_or_else(|e| {
+            let reg = read_registry_under(&Path::new(&args[2]).join(&suite)).unwrap_or_else(|e| {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             });
