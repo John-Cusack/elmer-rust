@@ -540,7 +540,7 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     let mesh = MovableMesh::new(mesh);
     let _motion = mesh.install();
     let mesh: &dyn MeshView = &mesh;
-    let mut outputs = prepare_vtu_output(&mut model, &case_dir, &mesh_dir)?;
+    let mut outputs = prepare_vtu_output(&mut model, &case_dir, &mesh_dir, size > 1)?;
     let coords = coordinate_system(&model, mesh)?;
     legacy_solvers(&mut model, coords);
     drop_never_savedata(&mut model);

@@ -32,7 +32,7 @@ pub fn read_model(sif: &Path) -> Result<(Model, Option<String>), String> {
     };
     // Several RUN blocks run as reloads of one simulation; the screen looks
     // at all of them merged.
-    let refusal = match prepare_vtu_output(&mut model, &case_dir, &mesh_dir) {
+    let refusal = match prepare_vtu_output(&mut model, &case_dir, &mesh_dir, false) {
         Ok(_) => None,
         Err(SolverError::Unsupported(m) | SolverError::NotWired(m)) => Some(m),
         Err(e) => Some(e.to_string()),

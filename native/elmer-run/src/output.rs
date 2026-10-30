@@ -38,9 +38,14 @@ pub fn is_result_output(params: &ParamMap) -> bool {
 /// `ListRemove` does); then every `ResultOutputSolver` section is checked.
 /// `mesh_dir` is the default output directory (`SolverOutputDirectory(...,
 /// UseMeshDir = .TRUE.)`), `case_dir` the base of a relative `Output
-/// Directory`. Refuses what the composition cannot write correctly, before
-/// any side effect.
-pub fn prepare_vtu_output(model: &mut Model, case_dir: &Path, mesh_dir: &Path) -> Result<Vec<VtuOutput>, SolverError> {
+/// Directory`. `parallel` is whether the run has several ranks. Refuses
+/// what the composition cannot write correctly, before any side effect.
+pub fn prepare_vtu_output(
+    model: &mut Model,
+    case_dir: &Path,
+    mesh_dir: &Path,
+    parallel: bool,
+) -> Result<Vec<VtuOutput>, SolverError> {
     if let Some(post) = model.simulation.string("post file").map(str::to_string) {
         match post_file_solver(&model.simulation, &model.solvers) {
             Some(params) => model.solvers.push(params),
@@ -65,6 +70,11 @@ pub fn prepare_vtu_output(model: &mut Model, case_dir: &Path, mesh_dir: &Path) -
         }
         let mut opts = VtuOptions::from_params(params);
         opts.apply_simulation(&model.simulation);
+        // `Skip Halo Elements` / `Save Halo Elements Only` are read only in a
+        // parallel run; serially both are off (SaveUtils.F90:373-379).
+        if !parallel {
+            opts.unsupported.retain(|u| u != "skip halo elements" && u != "save halo elements only");
+        }
         if opts.time_collection || opts.part_collection {
             opts.unsupported.push("vtu time/part collection (.pvd)".into());
         }
