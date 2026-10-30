@@ -5,7 +5,9 @@
 //! [`thermoelectric_bulk_local`] and [`thermoelectric_boundary_local`] are
 //! pure functions of the element geometry and nodal values, on any
 //! `ElementBasis` (nodal Lagrange, or a p-hierarchic basis with interior
-//! bubbles whose condensation [`condense_bubbles`] performs).
+//! bubbles whose condensation [`condense_bubbles`] performs). With p dofs
+//! from `elmer-solver`'s `SolverDofs` (`elmer-pdofs`) the bubbles are kept
+//! in the global system instead, as in Elmer, and its norm counts them.
 //! [`ThermoElectricSolver`] drives them through `elmer-solver`'s `Solver`
 //! trait; [`register`] binds it to `Procedure = "ThermoElectricSolver"
 //! "ThermoElectricSolver"`.

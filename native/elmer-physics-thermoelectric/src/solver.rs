@@ -176,17 +176,26 @@ fn component_names(ctx: &SolverCtx<'_>) -> Result<Vec<String>, SolverError> {
 fn dirichlet_rows(ctx: &SolverCtx<'_>, comps: &[String]) -> Result<Vec<(u32, f64)>, SolverError> {
     let dofs = comps.len();
     let mut fixed = std::collections::BTreeMap::new();
-    let mut idx = Vec::new();
+    let mut extra = Vec::new();
+    let perm = ctx.primary().and_then(|f| f.perm);
+    let slot = |n: u32| perm.map_or(n, |p| p[n as usize]);
     let bnd: Vec<ElemId> = ctx.boundary_elements().collect();
     for e in bnd {
         let bc = ctx.bc_params(e).expect("boundary_elements filters on BC");
-        ctx.element_slots(e, &mut idx);
+        let nodes = ctx.mesh.element(e).nodes;
+        if let Some(d) = ctx.solver_dofs() {
+            d.boundary_extra_slots(e, &mut extra);
+        }
         for (k, key) in comps.iter().enumerate() {
             if bc.get(&format!("{key} condition")).is_some() {
                 return Err(unsupported(format!("Dirichlet mask > {key} Condition <")));
             }
             let Some(vals) = ctx.real_at_nodes(bc, key, e)? else { continue };
-            for (&s, &x) in idx.iter().zip(&vals) {
+            if !extra.is_empty() {
+                return Err(unsupported(format!("Dirichlet > {key} < on the edge or face dofs of p elements")));
+            }
+            for (&n, &x) in nodes.iter().zip(&vals) {
+                let s = slot(n);
                 if s != NO_DOF {
                     fixed.insert(s * dofs as u32 + k as u32, x);
                 }
@@ -214,6 +223,43 @@ fn apply_dirichlet(ctx: &mut SolverCtx<'_>, fixed: &[(u32, f64)]) -> Result<(), 
         .as_mut()
         .ok_or_else(|| SolverError::fatal("DefaultDirichletBCs", "call default_initialize first"))?;
     backend.try_apply_dirichlet(&mut sys.matrix, &mut sys.rhs, fixed, &slot.params)
+}
+
+/// The basis, rule and node order of element `e` from the solver's p dofs
+/// (`ElementInfo`, `GaussPoints`), with the bubbles in the global system.
+struct PElement {
+    basis: Box<dyn ElementBasis + Send + Sync>,
+    rule: FixedRule,
+    nodes: Vec<u32>,
+}
+
+fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId) -> Result<PElement, SolverError> {
+    if d.local_bubbles(e) > 0 {
+        return Err(unsupported("Bubbles in Global System = False (the bubbles are always condensed here)"));
+    }
+    Ok(PElement {
+        basis: d.element_basis(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
+        rule: FixedRule(d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?),
+        nodes: d.element_nodes(e),
+    })
+}
+
+/// One element's rule as a [`Quadrature`].
+struct FixedRule(Vec<elmer_core::QuadPoint>);
+
+impl Quadrature for FixedRule {
+    fn gauss_points(&self, _etype: elmer_core::ElementType, _np: Option<usize>) -> Vec<elmer_core::QuadPoint> {
+        self.0.clone()
+    }
+}
+
+/// `values` (at `mesh_nodes`) at `nodes` instead: a p element lists its
+/// nodes in the order of its dofs.
+fn reorder<T: Copy>(values: Vec<T>, mesh_nodes: &[u32], nodes: &[u32]) -> Vec<T> {
+    if mesh_nodes == nodes {
+        return values;
+    }
+    nodes.iter().map(|n| values[mesh_nodes.iter().position(|m| m == n).expect("same node set")]).collect()
 }
 
 fn node_xyz(mesh: &dyn elmer_core::MeshView, nodes: &[u32]) -> Vec<[f64; 3]> {
@@ -310,11 +356,17 @@ impl Solver for ThermoElectricSolver {
 
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
         let nb = check_solver_params(ctx.params())?;
-        let bubble = bubble_config(ctx, nb, transient)?;
+        // With p dofs (`SolverDofs`) the bubbles are in the global system, as
+        // in Elmer; without, this crate condenses them.
+        let pdofs = ctx.solver_dofs().is_some();
+        let bubble = if pdofs { None } else { bubble_config(ctx, nb, transient)? };
         let p = ctx.params().clone();
         let dim = ctx.mesh.dim();
         let comps = component_names(ctx)?;
         let stabilize = stabilize_flag(&p);
+        if pdofs && stabilize {
+            return Err(unsupported("Stabilize on p elements"));
+        }
         let long_edge = flag(ctx.simulation_params(), "stabilization use longest element edge");
 
         let newton_iter = p.integer("nonlinear system newton after iterations").unwrap_or(0);
@@ -344,7 +396,14 @@ impl Solver for ThermoElectricSolver {
             for &e in &elems {
                 let el = ctx.mesh.element(e);
                 let n = el.nodes.len();
-                let xyz = node_xyz(ctx.mesh, el.nodes);
+                let pe = match ctx.solver_dofs() {
+                    Some(d) => Some(p_element(d, e)?),
+                    None => None,
+                };
+                let nodes = pe.as_ref().map_or(el.nodes, |p| &p.nodes[..]);
+                let ord = |v| reorder(v, el.nodes, nodes);
+                let ordt = |v| reorder(v, el.nodes, nodes);
+                let xyz = node_xyz(ctx.mesh, nodes);
                 let bp = ctx
                     .body_params(e)
                     .ok_or_else(|| SolverError::fatal(CALLER, format!("element {} has no body", e.0)))?;
@@ -355,7 +414,9 @@ impl Solver for ThermoElectricSolver {
                     return Err(SolverError::fatal(CALLER, format!("active element {} has nodes outside the system", e.0)));
                 }
                 let values = ctx.primary().expect("checked in init").values;
-                let mut solution: Vec<[f64; 2]> = (0..n).map(|k| [values[dofs[2 * k] as usize], values[dofs[2 * k + 1] as usize]]).collect();
+                let nf = dofs.len() / 2;
+                let mut solution: Vec<[f64; 2]> =
+                    (0..nf).map(|k| [values[dofs[2 * k] as usize], values[dofs[2 * k + 1] as usize]]).collect();
                 let bubble_basis = match &bubble {
                     Some(cfg) => {
                         let b = self.bubbles.get(&e.0).cloned().unwrap_or_else(|| vec![0.0; 2 * nb]);
@@ -365,9 +426,9 @@ impl Solver for ThermoElectricSolver {
                     None => None,
                 };
 
-                let hcond = input_tensor(mat, "heat conductivity", ctx, e, n)?;
-                let alpha = input_tensor(mat, "seebeck coefficient", ctx, e, n)?;
-                let sigma = input_tensor(mat, "electric conductivity", ctx, e, n)?;
+                let hcond = ordt(input_tensor(mat, "heat conductivity", ctx, e, n)?);
+                let alpha = ordt(input_tensor(mat, "seebeck coefficient", ctx, e, n)?);
+                let sigma = ordt(input_tensor(mat, "electric conductivity", ctx, e, n)?);
                 let epsil0 = if mat.is_some_and(|m| m.get("relative permittivity").is_some()) {
                     ctx.simulation_params().real("permittivity of vacuum").ok_or_else(|| {
                         SolverError::fatal(CALLER, "> Relative Permittivity < requires > Permittivity of Vacuum < !")
@@ -375,9 +436,9 @@ impl Solver for ThermoElectricSolver {
                 } else {
                     1.0
                 };
-                let epsil = input_tensor(mat, "electric permittivity", ctx, e, n)?;
+                let epsil = ordt(input_tensor(mat, "electric permittivity", ctx, e, n)?);
                 let rho = nodal(ctx, mat, "density", e, n)?;
-                let cp = nodal(ctx, mat, "heat capacity", e, n)?;
+                let cp = ord(nodal(ctx, mat, "heat capacity", e, n)?);
 
                 let mut heat_source = vec![0.0; n];
                 let mut current_source = vec![0.0; n];
@@ -392,6 +453,7 @@ impl Solver for ThermoElectricSolver {
                     }
                     current_source = nodal(ctx, bf, "current source", e, n)?;
                 }
+                let (rho, heat_source, current_source) = (ord(rho), ord(heat_source), ord(current_source));
 
                 let stab = if stabilize {
                     let (mk, hk) = elmer_fe::stab_param(el.etype, &xyz, dim, long_edge)
@@ -418,7 +480,12 @@ impl Solver for ThermoElectricSolver {
                     want_mass: transient,
                     np: bubble.as_ref().map(|c| c.gauss_points(el.etype.0)),
                 };
-                if let Some(bb) = &bubble_basis {
+                if let Some(p) = &pe {
+                    thermoelectric_bulk_local(&*p.basis, &p.rule, &inp, &mut self.local)?;
+                    if transient {
+                        ctx.default_first_order_time(&mut self.local, e, dt)?;
+                    }
+                } else if let Some(bb) = &bubble_basis {
                     thermoelectric_bulk_local(bb, quad, &inp, &mut self.local)?;
                     if transient {
                         let name = var_name.as_deref().expect("a solver with a variable");
@@ -452,16 +519,23 @@ impl Solver for ThermoElectricSolver {
                 }
                 let el = ctx.mesh.element(e);
                 let n = el.nodes.len();
+                if dofs.len() != 2 * n {
+                    return Err(unsupported("boundary elements with edge or face dofs (p elements)"));
+                }
                 let bc = ctx.bc_params(e).expect("boundary_elements filters on BC");
-                let xyz = node_xyz(ctx.mesh, el.nodes);
-                let heat_flux = nodal(ctx, Some(bc), "heat flux", e, n)?;
-                let ext_temperature = nodal(ctx, Some(bc), "external temperature", e, n)?;
-                let heat_transfer = nodal(ctx, Some(bc), "heat transfer coefficient", e, n)?;
-                let electric_flux = nodal(ctx, Some(bc), "electric flux", e, n)?;
-                let efv = real_vector(ctx, bc, "electric flux vector", e, n)?;
-                let ext_potential = nodal(ctx, Some(bc), "external potential", e, n)?;
+                // A p boundary element lists its nodes in its parent's edge or
+                // face order; its values follow that order.
+                let nodes = ctx.solver_dofs().map_or_else(|| el.nodes.to_vec(), |d| d.element_nodes(e));
+                let ord = |v| reorder(v, el.nodes, &nodes);
+                let xyz = node_xyz(ctx.mesh, &nodes);
+                let heat_flux = ord(nodal(ctx, Some(bc), "heat flux", e, n)?);
+                let ext_temperature = ord(nodal(ctx, Some(bc), "external temperature", e, n)?);
+                let heat_transfer = ord(nodal(ctx, Some(bc), "heat transfer coefficient", e, n)?);
+                let electric_flux = ord(nodal(ctx, Some(bc), "electric flux", e, n)?);
+                let efv = real_vector(ctx, bc, "electric flux vector", e, n)?.map(|v| reorder(v, el.nodes, &nodes));
+                let ext_potential = ord(nodal(ctx, Some(bc), "external potential", e, n)?);
                 let etc = if bc.get("electric transfer coefficient").is_some() {
-                    Some(input_tensor(Some(bc), "electric transfer coefficient", ctx, e, n)?)
+                    Some(reorder(input_tensor(Some(bc), "electric transfer coefficient", ctx, e, n)?, el.nodes, &nodes))
                 } else {
                     None
                 };
