@@ -1,0 +1,48 @@
+! StatElecSolve on p:2 tetrahedra (the StokesStabilized tet mesh, unit cube):
+! a lane-made case for the p tetrahedron node order (ConvertToACTetra).
+Check Keywords Warn
+Header
+  Mesh DB "." "tetmesh"
+End
+Simulation
+  Max Output Level = 5
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output File = "case.result"
+End
+Constants
+  Permittivity Of Vacuum = 1.0
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body Force 1
+  Charge Density = 0.25
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Solver 1
+  Equation = Stat Elec Solver
+  Variable = Potential
+  Procedure = "StatElecSolveVec" "StatElecSolver"
+  Linear System Solver = Direct
+  Linear System Direct Method = UMFPack
+  Nonlinear System Max Iterations = 1
+  Element = p:2
+End
+Material 1
+  Relative Permittivity = Variable Coordinate 1
+    Real MATC "1+tx"
+End
+Boundary Condition 1
+  Target Boundaries = 5
+  Potential = 0.0
+End
+Boundary Condition 2
+  Target Boundaries = 6
+  Potential = 1.0
+End

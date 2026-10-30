@@ -29,6 +29,12 @@ components for the complex pressure).
   by the test when it reads the mesh.
 - `elstat_source/` is `fem/tests/elstat_source` unchanged (2D quad8 mesh from
   `Step.grd`). Norm 795.5054410960914.
+- `statelec_tet/` is a lane-made `case.sif` for p tetrahedra: `Element =
+  p:2` on the StokesStabilized tet mesh (143 nodes, 386 tetrahedra; 803 dofs,
+  no bubbles), `Relative Permittivity = 1 + x` (MATC in the sif, a linear
+  table in the test), `Charge Density = 0.25`, potential 0 and 1 on
+  boundaries 5 and 6. `tet_perm.dat` / `tet_solution.dat` are the pristine
+  `case.result` slot by slot; norm 0.26499018387576206.
 
 ## StatCurrentSolve
 

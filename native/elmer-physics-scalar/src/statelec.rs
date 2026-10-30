@@ -49,6 +49,27 @@ pub struct StatElecAtNodes {
     pub charge_density: Option<Vec<f64>>,
 }
 
+impl StatElecAtNodes {
+    /// The same values at `nodes`, given at `mesh_nodes` (the same set in
+    /// another order).
+    pub fn reordered(&self, mesh_nodes: &[u32], nodes: &[u32]) -> Self {
+        let map: Vec<usize> = nodes
+            .iter()
+            .map(|n| {
+                mesh_nodes
+                    .iter()
+                    .position(|m| m == n)
+                    .expect("same node set")
+            })
+            .collect();
+        let f = |v: &[f64]| map.iter().map(|&i| v[i]).collect();
+        Self {
+            relative_permittivity: f(&self.relative_permittivity),
+            charge_density: self.charge_density.as_deref().map(f),
+        }
+    }
+}
+
 /// Boundary conditions at the nodes of a boundary element.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StatElecBcAtNodes {
