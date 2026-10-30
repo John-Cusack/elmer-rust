@@ -23,9 +23,12 @@ fn active_mask(mesh: &dyn MeshView, active: &[ElemId]) -> Vec<bool> {
 
 /// `Optimize Bandwidth` (default true, MainUtils.F90:1724) and `Optimize
 /// Bandwidth Use Always` (default false).
+/// A `No Matrix` solver keeps its initial permutation: `CreateMatrix`
+/// returns before `OptimizeBandwidth` (ElementUtils.F90:2229).
 pub fn perm_options(params: &ParamMap) -> PermOptions {
     PermOptions {
-        optimize_bandwidth: params.logical("optimize bandwidth").unwrap_or(true),
+        optimize_bandwidth: params.logical("optimize bandwidth").unwrap_or(true)
+            && params.logical("no matrix") != Some(true),
         use_optimized_always: params.logical("optimize bandwidth use always").unwrap_or(false),
     }
 }
