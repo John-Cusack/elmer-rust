@@ -1478,13 +1478,14 @@ impl Simulation {
 
     /// `ExecSimulation` (ElmerSolver.F90:2703) for steady state and
     /// fixed-size transient stepping, then `CompareToReferenceSolution`.
-    /// Variable or adaptive steps, periodic time and scanning are refused.
+    /// A scanning run steps like a transient one (`Timestep Intervals`,
+    /// unit sizes by default, `time` advancing, no steady-state exit) but
+    /// its solvers run steady. Periodic time is refused.
     pub fn run(&mut self, mesh: &dyn MeshView, log: &dyn Logger, comm: &dyn Communicator) -> Result<RunReport, SolverError> {
         let simp = self.model.simulation.clone();
         let transient = self.is_transient();
-        if self.is_scanning() {
-            return Err(SolverError::Unsupported("Simulation Type = Scanning".into()));
-        }
+        let scanning = self.is_scanning();
+        let timed = transient || scanning;
         for k in ["periodic time", "predictor-corrector control", "parallel timestepping"] {
             if simp.get(k).is_some_and(|v| *v != Value::Logical(false)) {
                 return Err(SolverError::Unsupported(format!("Simulation keyword {k}")));
@@ -1494,7 +1495,7 @@ impl Simulation {
             Some(Value::Real { data, .. }) => Some(data.clone()),
             _ => None,
         };
-        let (intervals, sizes, coupled_max) = if transient {
+        let (intervals, sizes, coupled_max) = if timed {
             let iv = match simp.get("timestep intervals") {
                 Some(Value::Integer(v)) => v.clone(),
                 _ => {
@@ -1507,7 +1508,7 @@ impl Simulation {
             // InitializeIntervals: unit sizes when a Timestep Size function gives them.
             let sz = match real_array("timestep sizes") {
                 Some(d) => d,
-                None if simp.get("timestep size").is_some() => vec![1.0; iv.len()],
+                None if scanning || simp.get("timestep size").is_some() => vec![1.0; iv.len()],
                 None => {
                     return Err(SolverError::fatal(
                         "MAIN",
@@ -1552,7 +1553,7 @@ impl Simulation {
             for timestep in 1..=nsteps {
                 cum += 1;
                 self.vars.set_scalar("timestep", cum as f64);
-                dt = self.step_size(&simp, transient, cum, interval, timestep, &sizes, ratios.as_deref(), dt, mesh, log)?;
+                dt = self.step_size(&simp, timed, cum, interval, timestep, &sizes, ratios.as_deref(), dt, mesh, log)?;
                 let mut t = self.vars.scalar("time").unwrap_or(0.0);
                 if cum == 1 && simp.logical("timestep start zero") == Some(true) {
                     log.info("ExecSimulation", "Not advancing the 1st timestep!", 4);
@@ -1574,7 +1575,7 @@ impl Simulation {
                 if comm.rank() == 0 {
                     log.info("MAIN", " ", 3);
                     log.info("MAIN", "-------------------------------------", 3);
-                    if transient {
+                    if timed {
                         log.info("MAIN", &format!("Time: {}/{}:{}", cum, stepcount, es(t, 12, 3)), 3);
                     } else {
                         // WRITE(Message,*) 'Steady state iteration: ',cum_Timestep
@@ -1616,7 +1617,7 @@ impl Simulation {
                     log.info("MAIN", "Found a positive exit condition, exiting...", 3);
                     break 'outer;
                 }
-                if reached && !transient && timestep >= coupled_min {
+                if reached && !timed && timestep >= coupled_min {
                     break 'outer;
                 }
             }
@@ -1628,7 +1629,7 @@ impl Simulation {
     }
 
     /// The step size of step `timestep` of `interval` (ElmerSolver.F90:2934-2985):
-    /// `First Timestep Size` on the first step; then for a transient run
+    /// `First Timestep Size` on the first step; then for a transient or scanning run
     /// `Timestep Function` (obsolete) or `Timestep Size` (`ListGetCReal`,
     /// so it may follow `time`), re-evaluated `Timestep Size Iterations`
     /// times with `time` moved ahead by the last value; else `Timestep
