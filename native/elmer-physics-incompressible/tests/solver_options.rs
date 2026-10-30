@@ -116,8 +116,9 @@ fn defaults_follow_init0_and_init() {
     assert_eq!(q.string("variable"), Some("Flow Solution[Velocity:3 Pressure:1]"));
     assert_eq!(q.logical("gradp discretization"), Some(true));
 
-    // No stabilization: the MINI element string is not ours to add.
+    // No stabilization: _Init0's MINI element, and _Init's bubble rules.
     let mut r = ParamMap::new();
     solver_defaults(&mut r, 2, false);
-    assert!(r.get("element").is_none());
+    assert_eq!(r.string("element"), Some("p:1 -tri b:1 -tetra b:1 -quad b:3 -brick b:4 -prism b:4 -pyramid b:4"));
+    assert_eq!(r.string("element integration points"), Some("-tetra 24 -prism 85"));
 }
