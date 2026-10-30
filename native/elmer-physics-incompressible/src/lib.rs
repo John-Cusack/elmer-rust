@@ -29,8 +29,9 @@ pub mod solver;
 
 pub use boundary::{incompressible_boundary_local, incompressible_boundary_local_with, IncompressibleBoundaryInput};
 pub use bulk::{
-    incompressible_bulk_local, incompressible_bulk_local_with, lcondensate, lcondensate_bdf1, pin_pressure, HMode,
-    Compressibility, CompressModel, GlenFields, GlenParams, IncompressibleBulkInput, PressureStab, ViscosityModel,
+    incompressible_bulk_local, incompressible_bulk_local_sums, incompressible_bulk_local_with, lcondensate,
+    lcondensate_bdf1, pin_pressure, Compressibility, CompressModel, GlenFields, GlenParams, HMode,
+    IncompressibleBulkInput, PressureStab, ViscosityModel, ViscositySums,
 };
 pub use error::IncompressibleError;
 pub use solver::{

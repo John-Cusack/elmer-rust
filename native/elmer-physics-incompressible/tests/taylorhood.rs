@@ -477,6 +477,7 @@ fn taylorhood_boundary_loads_match_elmer() {
 /// the Brezzi-Pitkaranta stabilization (its tau reads it too).
 fn viscosity_case(case: &str, model: &[(&str, Value)], ref_norm: f64) {
     let newton = case.ends_with("_newton");
+    let save = case.ends_with("_save");
     let dir = data(case);
     let mesh = TestMesh::read(&dir, 2);
     let mut keys = vec![
@@ -487,6 +488,9 @@ fn viscosity_case(case: &str, model: &[(&str, Value)], ref_norm: f64) {
     ];
     if newton {
         keys.push(("Nonlinear System Newton After Iterations", ints(&[3])));
+    }
+    if save {
+        keys.push(("Save Viscosity", Value::Logical(true)));
     }
     let mut solver = ns_solver(&keys);
     solver_defaults(&mut solver, 2, false);
@@ -499,6 +503,23 @@ fn viscosity_case(case: &str, model: &[(&str, Value)], ref_norm: f64) {
     sim.setup(&mesh, &reg, &NullLogger, &SerialComm).unwrap();
     sim.run(&mesh, &NullLogger, &SerialComm).unwrap();
 
+    if save {
+        // Save Viscosity: the exported fields against the pristine ones.
+        let want = lines(&dir.join("fields.dat"));
+        for (c, name) in ["viscosity", "shearrate"].into_iter().enumerate() {
+            let v = sim.vars.get(name).unwrap_or_else(|| panic!("{case}: no {name}"));
+            let vp = v.perm.as_deref().unwrap();
+            let scale = want.iter().map(|w| w[1 + c].parse::<f64>().unwrap().abs()).fold(0.0, f64::max);
+            for w in &want {
+                let slot: usize = w[0].parse().unwrap();
+                let (ours, theirs) = (v.values[vp[slot - 1] as usize], w[1 + c].parse::<f64>().unwrap());
+                let at = format!("{case}: {name} at slot {slot}");
+                assert!((ours - theirs).abs() <= 1e-10 * scale, "{at}: {ours:e} vs {theirs:e}");
+            }
+        }
+        assert!(sim.vars.get("viscosity weight").is_some_and(|w| !w.output), "{case}: -nooutput weight");
+        return;
+    }
     let u = sim.vars.get("flow solution").unwrap();
     let perm = u.perm.as_deref().unwrap();
     let rows = lines(&dir.join("perm.dat"));
@@ -667,4 +688,18 @@ fn glen_temperature_viscosity_matches_elmer() {
 #[test]
 fn glen_temperature_viscosity_newton_matches_elmer() {
     viscosity_case("visc_glen_temp_newton", &glen_temperature(), 0.07440933427162681);
+}
+
+/// `visc_powerlaw` with `Save Viscosity`: the exported `Viscosity` (a
+/// weighted nodal average) and `Shearrate` (the nodal integral of ss, which
+/// the Fortran leaves unnormalized) of the last assembly, against the
+/// pristine fields.
+#[test]
+fn saved_viscosity_matches_elmer() {
+    let m = [
+        ("Viscosity Model", st("power law")),
+        ("Viscosity Exponent", real(0.7)),
+        ("Critical Shear Rate", real(0.05)),
+    ];
+    viscosity_case("visc_powerlaw_save", &m, 0.07532484369893568);
 }

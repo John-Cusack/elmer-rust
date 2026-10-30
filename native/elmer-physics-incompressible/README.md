@@ -56,13 +56,17 @@ element integrals) with no mass flux.
   `Relative Temperature` with `Glen Enhancement Factor`), as in
   `EffectiveViscosityVec`: the viscosity at the points from the previous
   iterate's shear rate, and with Newton its derivative in the Jacobian.
+- `Save Viscosity`: the exported `Viscosity` (nodal average weighted by the
+  hidden `Viscosity Weight`) and `Shearrate` (the nodal integral of the
+  squared shear rate, which the Fortran leaves unnormalized) of the last
+  assembly.
 
 Refused (`SolverError::Unsupported`), not approximated: `Bubbles in Global
 System`, `Boussinesq`,
 compressibility with `Pressure Stabilization` or in a transient Stokes run,
 cylindric coordinates, `Normal Slip Coefficient`, friction / `Wall Law` /
 FSSA / normal-tangential boundaries, `Pressure 1..3` (the Fortran itself asks
-for `Surface Traction`), `Save Viscosity`, `Save Slip`, `Implicit Friction
+for `Surface Traction`), `Save Slip`, `Implicit Friction
 Coefficient`, the block preconditioner and Schur operators, `Nonlinear System
 Linesearch`, relative and adaptive integration orders, density that varies
 within an element, the `power law too` and turbulence viscosity models.

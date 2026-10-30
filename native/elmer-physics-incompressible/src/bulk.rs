@@ -392,6 +392,29 @@ pub fn incompressible_bulk_local_with(
     inp: &IncompressibleBulkInput<'_>,
     out: &mut LocalSystem,
 ) -> Result<(), IncompressibleError> {
+    incompressible_bulk_local_sums(basis, points, nf, inp, out, None)
+}
+
+/// `Save Viscosity`'s sums of one element at its `n` nodes (zero without a
+/// `Viscosity Model`, as `EffectiveViscosityVec` returns before them): the
+/// viscosity, the squared shear rate `ss` (before any critical rate) and
+/// the weight, each integrated against the nodal functions.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ViscositySums {
+    pub viscosity: Vec<f64>,
+    pub shear_rate: Vec<f64>,
+    pub weight: Vec<f64>,
+}
+
+/// [`incompressible_bulk_local_with`], also filling `sums` when given.
+pub fn incompressible_bulk_local_sums(
+    basis: &dyn ElementBasis,
+    points: &[QuadPoint],
+    nf: usize,
+    inp: &IncompressibleBulkInput<'_>,
+    out: &mut LocalSystem,
+    sums: Option<&mut ViscositySums>,
+) -> Result<(), IncompressibleError> {
     let n = inp.xyz.len();
     let dim = inp.dim;
     let dofs = dim + 1;
@@ -464,8 +487,9 @@ pub fn incompressible_bulk_local_with(
     }
 
     let mut mu = at_points(inp.viscosity, &bas, nf, ngp);
-    // ViscDerVec, for the Newton linearization.
+    // ViscDerVec, for the Newton linearization; ss for Save Viscosity.
     let mut mu_der = vec![0.0; ngp];
+    let mut ss_at = vec![0.0; ngp];
     if let Some(model) = inp.viscosity_model {
         let Some(sol) = inp.solution else {
             return Err(IncompressibleError::Unsupported("a Viscosity Model with Linear Equation = True".into()));
@@ -478,6 +502,7 @@ pub fn incompressible_bulk_local_with(
                     ss += (du(i, j) + du(j, i)).powi(2);
                 }
             }
+            ss_at[t] = 0.5 * ss;
             if let ViscosityModel::Glen(g) = model {
                 let (temp, ehf) = match inp.glen_fields {
                     Some(gf) => (
@@ -497,6 +522,22 @@ pub fn incompressible_bulk_local_with(
                 mu_der[t] = model.derivative(mu[t], 0.5 * ss);
             }
             mu[t] = model.viscosity(mu[t], 0.5 * ss);
+        }
+    }
+    if let Some(sm) = sums {
+        let has = inp.viscosity_model.is_some();
+        sm.viscosity = vec![0.0; n];
+        sm.shear_rate = vec![0.0; n];
+        sm.weight = vec![0.0; n];
+        if has {
+            for i in 0..n {
+                for t in 0..ngp {
+                    let b = bas[t * nf + i] * detj[t];
+                    sm.viscosity[i] += b * mu[t];
+                    sm.shear_rate[i] += b * ss_at[t];
+                    sm.weight[i] += b;
+                }
+            }
         }
     }
     let mut rhovec = vec![rho; ngp];
