@@ -12,3 +12,7 @@ elmer-fe = { path = "../elmer-fe" }
 elmer-physics-flow = { path = "../elmer-physics-flow" }
 elmer-solver = { path = "../elmer-solver" }
 thiserror.workspace = true
+
+[dev-dependencies]
+# The p dofs of the Taylor-Hood cases.
+elmer-pdofs = { path = "../elmer-pdofs" }

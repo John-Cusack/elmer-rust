@@ -20,6 +20,13 @@ the resulting reference:
 | `ns_tri` | own | Navier-Stokes, Picard then Newton after 3, `Pressure Stabilization Element Size = longest edge` |
 | `ns_quad` | own | Newton from iteration 1, `GradP` and `Div-Curl` forms, `volume` size, coefficient 1.5, `Flow Bodyforce 2`, `Normal Surface Traction`, `Surface Traction 2`, `Slip Coefficient 1` |
 | `transient_tri` | own | BDF2, 4 steps of 0.1, Newton after 2 iterations: the PSPG/SUPG mass terms |
+| `taylorhood_quad` | `StokesStabilized/quad_taylorhood.sif` (`ElmerGrid 1 2 Step.grd`) | Stokes on `Element = "p:2"` serendipity quads, no `Pressure Stabilization`: edge pressures pinned |
+| `taylorhood_tri` | `StokesStabilized/tri_taylorhood.sif` (`ElmerGrid 1 2 Step.grd -triangles`) | the same on p:2 triangles |
+
+The two `taylorhood_*` cases have p dofs, so their references are by dof
+slot instead of node: `perm.dat` holds the `Perm` of the `.result` as `slot
+row` lines and `solution.dat` the values as `slot u1 u2 p` lines, slot by
+slot (`x(Perm(slot))`); `tests/taylorhood.rs` compares every slot.
 
 The three `StokesStabilized` sifs are the stock ones with the iterative solve
 replaced by `Linear System Solver = Direct` / `UMFPack` (the Rust side solves
