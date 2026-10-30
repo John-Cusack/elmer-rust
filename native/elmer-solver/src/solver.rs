@@ -858,6 +858,7 @@ impl<'a> SolverCtx<'a> {
         self.default_finish_boundary_assembly()?;
         let mut fixed: BTreeMap<u32, f64> = self.dirichlet_values()?.into_iter().collect();
         self.passive_values(&mut fixed)?;
+        crate::constraint_modes::set_boundaries(self, &mut fixed)?;
         let fixed: Vec<(u32, f64)> = fixed.into_iter().collect();
         self.lumped_rows()?;
         let sim = &mut *self.sim;
@@ -984,6 +985,9 @@ impl<'a> SolverCtx<'a> {
         }
         if self.params().logical("monolithic slave") == Some(true) {
             return crate::monolithic::solve_merged(self);
+        }
+        if let Some(modes) = self.sim.slots[self.slot].cmodes.clone() {
+            return crate::constraint_modes::solve_modes(self, modes);
         }
         self.solve_system()
     }
