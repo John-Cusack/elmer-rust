@@ -1,0 +1,12 @@
+SetConstraintModesBoundaries: Number of active constraint modes boundaries: 2
+ConstraintModesDriver: Setting up constrained mode: 1
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.77223499      2.0000000     ) :: heatsolver
+StoreLumpedFluxes: Allocating lumped model of size: 2
+ConstraintModesDriver: Setting up constrained mode: 2
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.32190149     0.82317609     ) :: heatsolver
+FinalizeLumpedMatrix: Lumped Matrix
+FinalizeLumpedMatrix:   1  1  2.983608139E+00
+FinalizeLumpedMatrix:   1  2  3.218620255E+00
+FinalizeLumpedMatrix:   2  2  3.591176628E-02
+FinalizeLumpedMatrix: temperature lumped matrix norm:  9.45676E+00
+ComputeChange: SS (ITER=1) (NRM,RELC): ( 0.32190149      2.0000000     ) :: heatsolver

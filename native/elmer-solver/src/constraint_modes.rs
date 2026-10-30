@@ -2,7 +2,8 @@
 //! boundary with `Constraint Modes <var> = True` (or `Constraint Modes`) is
 //! a mode (`SetConstraintModesBoundaries`, BoundaryConditionUtils.F90:2765):
 //! all of them are held at zero, and the linear system is solved once per
-//! mode with that dof at one (`ConstraintModesDriver` around
+//! mode with that dof at one (with `Constraint Modes Lumped`, a mode per
+//! boundary and component, all its dofs at one) (`ConstraintModesDriver` around
 //! `SolveLinearSystem`, SolveCore.F90:3215-3290, 3995-4290), each solve with
 //! its own nonlinear change. `Constraint Mode <var> = Integer k` numbers a
 //! boundary (0 is the ground, held at zero).
@@ -14,7 +15,8 @@
 //! stored as `res: <var> lumped matrix norm` and its entries as `res: CMF i
 //! j`.
 //!
-//! Refused: lumped modes, the `rhs`, `EM Wave` and `Coils` variants,
+//! Refused: modes set by `mode <n>: <component>` conditions, the `rhs`,
+//! `EM Wave` and `Coils` variants,
 //! `Constraint Modes Single` and mode directions, complex systems, modes over
 //! body forces or components, the external loops (`Nonlinear System`,
 //! `Steady State` and `Run Control Constraint Modes`), linkage, writing the
@@ -42,7 +44,6 @@ pub(crate) struct Modes {
 fn refuse(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
     let p = ctx.params();
     for k in [
-        "constraint modes lumped",
         "constraint modes rhs",
         "constraint modes em wave",
         "constraint modes coils",
@@ -65,6 +66,10 @@ fn refuse(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
         }
     }
     let m = &ctx.sim.model;
+    // Lumped modes set by `mode <n>: <component>` boundary conditions.
+    if m.boundary_conditions.iter().any(|b| b.0.keys().any(|k| k.starts_with("mode "))) {
+        return Err(SolverError::Unsupported("constraint modes set by mode <n>: boundary conditions".into()));
+    }
     if m.body_forces.iter().any(|b| b.0.keys().any(|k| k.starts_with("constraint mode"))) {
         return Err(SolverError::Unsupported("constraint modes over body forces".into()));
     }
@@ -153,13 +158,19 @@ pub(crate) fn set_boundaries(ctx: &mut SolverCtx<'_>, fixed: &mut BTreeMap<u32, 
             }
         }
     }
-    // Not lumped: every mode dof is a mode of its own, in row order.
-    let mut count = 0;
-    for v in index.iter_mut().filter(|v| **v > 0) {
-        count += 1;
-        *v = count;
-    }
-    ctx.info(CALLER, &format!("Number of active constraint modes: {}", i2s(i64::from(count))), 7);
+    // Lumped: a mode per boundary and component; otherwise every mode dof
+    // is a mode of its own, in row order.
+    let count = if ctx.params().logical("constraint modes lumped") == Some(true) {
+        dofs as i32 * active
+    } else {
+        let mut count = 0;
+        for v in index.iter_mut().filter(|v| **v > 0) {
+            count += 1;
+            *v = count;
+        }
+        ctx.info(CALLER, &format!("Number of active constraint modes: {}", i2s(i64::from(count))), 7);
+        count
+    };
     for (r, &k) in index.iter().enumerate() {
         if k != 0 {
             fixed.insert(r as u32, 0.0);
