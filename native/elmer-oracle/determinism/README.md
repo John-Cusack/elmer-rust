@@ -37,6 +37,16 @@ means the two runs agree bitwise. Verdicts come from
   EM_port_eigen_2ndorder (378 s) and ParStokes_ISMIP_HOM_A010 (616 s).
   They are load-sensitive, not broken.
 
+## Known exceptions
+
+Signed off with https://github.com/John-Cusack/elmer-rust/pull/239.
+Grading treats these as exceptions; they are not regressions.
+
+| Test | Exception | Consequence |
+|---|---|---|
+| `OtherMeshResults_np4` (quick, np=4) | The only test that is not bitwise reproducible: 1.95e-16 between runs (MPI reduction order). | Tier-A bars on it must not rely on bitwise agreement. Its σ_F already exceeds that difference. |
+| `EM_port_eigen_3D`, `EM_port_eigen_3D_prisms` (non-quick) | Pristine Elmer segfaults with `OMP_NUM_THREADS=1` and passes with ctest's thread count. | Capture and grade them with ctest's thread count; a candidate that passes at 1 thread does not count as diverging. |
+
 ## Runner changes found on the way
 
 - ElmerIce tests use `runTest.cmake` and `RUN_ELMERICE_TEST` (run through

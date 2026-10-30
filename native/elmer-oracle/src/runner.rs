@@ -482,6 +482,14 @@ pub fn result_name_for(sif: &str, startinfo: Option<&str>) -> String {
 /// Returns the modified file names. Sections already carrying the
 /// keywords are left untouched.
 pub fn inject_sif(dir: &Path, inj: &SifInject) -> Result<Vec<String>> {
+    inject_sif_with(dir, inj, &[])
+}
+
+/// [`inject_sif`], plus `Reference Norm` overrides `(solver number,
+/// value)` in the startinfo sif only (the bitwise grader validation,
+/// §4.3 item 2): each named Solver section gains the value with 17
+/// significant digits and `Reference Norm Tolerance = 0`.
+pub fn inject_sif_with(dir: &Path, inj: &SifInject, refnorms: &[(u32, f64)]) -> Result<Vec<String>> {
     let mut modified = Vec::new();
     let startinfo = read_startinfo(dir)?;
     let entries = std::fs::read_dir(dir).map_err(|e| io_with(dir, e))?;
@@ -498,7 +506,8 @@ pub fn inject_sif(dir: &Path, inj: &SifInject) -> Result<Vec<String>> {
         let text: String = bytes.iter().map(|&b| char::from(b)).collect();
         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         let result_name = result_name_for(&name, startinfo.as_deref());
-        let out = inject_text(&text, inj, &result_name);
+        let is_startinfo = startinfo.as_deref() == Some(name.as_str());
+        let out = inject_text_with(&text, inj, &result_name, if is_startinfo { refnorms } else { &[] });
         if out != text {
             let out: Vec<u8> = out.chars().map(|c| c as u32 as u8).collect();
             std::fs::write(&path, &out).map_err(|e| io_with(&path, e))?;
@@ -545,7 +554,7 @@ fn raise_max_output(block: &[String], level: u32) -> Vec<String> {
 /// with interpolation modifiers (`Real`, `= Variable Time Real`,
 /// `Real cubic`), as `SectionContents` reads it. `Real MATC "..."` and
 /// `Integer 20` carry their value and open nothing.
-fn opens_table(line: &str) -> bool {
+pub(crate) fn opens_table(line: &str) -> bool {
     let value = line.rsplit_once('=').map_or(line, |(_, v)| v).to_lowercase();
     let mut tokens: Vec<&str> = value.split_whitespace().collect();
     while tokens
@@ -560,7 +569,7 @@ fn opens_table(line: &str) -> bool {
 }
 
 /// A sif line with its `!`/`#` comment removed (quotes respected).
-fn strip_sif_comment(line: &str) -> &str {
+pub(crate) fn strip_sif_comment(line: &str) -> &str {
     let mut in_quote = false;
     for (i, c) in line.char_indices() {
         match c {
@@ -574,7 +583,7 @@ fn strip_sif_comment(line: &str) -> &str {
 
 /// Lowercased keyword of a `key = value` line, whitespace collapsed;
 /// `None` for comments, table rows and lines without `=`.
-fn keyword_of(line: &str) -> Option<String> {
+pub(crate) fn keyword_of(line: &str) -> Option<String> {
     let (key, _) = strip_sif_comment(line).split_once('=')?;
     let key = key.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
     (!key.is_empty()).then_some(key)
@@ -585,7 +594,12 @@ fn keyword_of(line: &str) -> Option<String> {
 /// (`Check Keywords`, `Echo`, `Include`, `RUN`), `Section :: key = value`
 /// one-liners and `/* */` blocks pass through; any other line opens a
 /// section closed by its `End` (table `End`s do not count).
+#[cfg(test)]
 fn inject_text(text: &str, inj: &SifInject, result_name: &str) -> String {
+    inject_text_with(text, inj, result_name, &[])
+}
+
+fn inject_text_with(text: &str, inj: &SifInject, result_name: &str, refnorms: &[(u32, f64)]) -> String {
     let mut out = String::new();
     let mut section = String::new();
     let mut block: Vec<String> = Vec::new();
@@ -613,6 +627,19 @@ fn inject_text(text: &str, inj: &SifInject, result_name: &str) -> String {
         if inj.o2 && is_simulation && !has_output {
             out.push_str(&format!("  Output File = \"{result_name}\"\n"));
             out.push_str("  Binary Output = Logical True\n");
+        }
+        let number: Option<u32> = section
+            .strip_prefix("solver")
+            .and_then(|n| n.trim().parse().ok());
+        for (_, value) in refnorms
+            .iter()
+            .filter(|(n, _)| Some(*n) == number && !oneliner_refnorm(text, *n))
+        {
+            out.push_str(&format!(
+                "  Reference Norm = Real {}\n",
+                crate::norm::format_grader_norm(*value)
+            ));
+            out.push_str("  Reference Norm Tolerance = Real 0\n");
         }
         if inj.o2m && is_solver && !has_save {
             out.push_str("  Linear System Save = Logical True\n");
@@ -666,7 +693,40 @@ fn inject_text(text: &str, inj: &SifInject, result_name: &str) -> String {
         out.push_str(line);
         out.push('\n');
     }
+    // A `Solver N :: Reference Norm...` one-liner overrides the section, so
+    // an override for such a solver goes right after its last one, ahead of
+    // any `RUN`.
+    for (n, value) in refnorms.iter().filter(|(n, _)| oneliner_refnorm(text, *n)) {
+        let lines: Vec<&str> = out.lines().collect();
+        let Some(at) = lines.iter().rposition(|l| is_refnorm_oneliner(l, *n)) else {
+            continue;
+        };
+        let mut rebuilt: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+        rebuilt.insert(
+            at + 1,
+            format!(
+                "Solver {n} :: Reference Norm = Real {}\nSolver {n} :: Reference Norm Tolerance = Real 0",
+                crate::norm::format_grader_norm(*value)
+            ),
+        );
+        out = rebuilt.join("\n");
+        out.push('\n');
+    }
     out
+}
+
+/// `Solver N :: Reference Norm...` (any keyword starting so).
+fn is_refnorm_oneliner(line: &str, n: u32) -> bool {
+    let code = strip_sif_comment(line).to_lowercase();
+    let Some((sec, rest)) = code.split_once("::") else {
+        return false;
+    };
+    let sec_n: Option<u32> = sec.trim().strip_prefix("solver").and_then(|x| x.trim().parse().ok());
+    sec_n == Some(n) && keyword_of(rest).is_some_and(|k| k.starts_with("reference norm"))
+}
+
+fn oneliner_refnorm(text: &str, n: u32) -> bool {
+    text.lines().any(|l| is_refnorm_oneliner(l, n))
 }
 
  /// Stage a test by copying its source tree, then run the plan steps.
@@ -768,6 +828,9 @@ pub struct Staging {
     /// that exist only in memory, so the injected `Output File`, which
     /// Elmer writes as `<mesh name>/<file>`, has somewhere to land.
     pub mkdirs: Vec<String>,
+    /// `Reference Norm` overrides for the startinfo sif (bitwise grader
+    /// validation).
+    pub refnorms: Vec<(u32, f64)>,
 }
 
 /// Copy the test sources into `run_dir`, add the arm's own build of any
@@ -789,8 +852,8 @@ fn stage_test(arm: &Arm, source_dir: &Path, run_dir: &Path, staging: &Staging) -
         let path = run_dir.join(d);
         std::fs::create_dir_all(&path).map_err(|e| io_with(&path, e))?;
     }
-    if let Some(inj) = &staging.inject {
-        inject_sif(run_dir, inj)?;
+    if staging.inject.is_some() || !staging.refnorms.is_empty() {
+        inject_sif_with(run_dir, &staging.inject.unwrap_or_default(), &staging.refnorms)?;
     }
     for d in &staging.mkdirs {
         let path = run_dir.join(d);
@@ -1313,6 +1376,29 @@ mod tests {
     fn make_directory_targets_are_relative_dirs() {
         let cmake = "IF(HAVE_UMFPACK)\n  FILE(MAKE_DIRECTORY results)\n  file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/kulma)\n  FILE(COPY a DESTINATION \"${CMAKE_CURRENT_BINARY_DIR}/\")\nENDIF()\n";
         assert_eq!(make_directories(cmake), vec!["results", "kulma"]);
+    }
+
+    #[test]
+    fn reference_norm_override_lands_in_the_named_solver() {
+        let sif = "Solver 1\n  Equation = A\nEnd\nSolver 2\n  Equation = B\n  Reference Norm = 1.5\nEnd\n";
+        let idle = SifInject::default();
+        let out = inject_text_with(sif, &idle, "case.result", &[(2, 0.1)]);
+        let s2 = out.split("Solver 2").nth(1).unwrap();
+        assert!(s2.contains("Reference Norm = Real 1.00000000000000006e-1\n"), "{out}");
+        assert!(s2.contains("Reference Norm Tolerance = Real 0\n"));
+        assert!(!out.split("Solver 2").next().unwrap().contains("Tolerance"));
+    }
+
+    #[test]
+    fn reference_norm_override_follows_the_last_oneliner() {
+        let sif = "Solver 2\n  Variable = T\nEnd\nSolver 2 :: Reference Norm = 1.5\nSolver 2 :: Reference Norm Tolerance = 1e-5\nRUN\n";
+        let out = inject_text_with(sif, &SifInject::default(), "case.result", &[(2, 0.1)]);
+        assert!(
+            out.ends_with("Solver 2 :: Reference Norm Tolerance = 1e-5\nSolver 2 :: Reference Norm = Real 1.00000000000000006e-1\nSolver 2 :: Reference Norm Tolerance = Real 0\nRUN\n"),
+            "{out}"
+        );
+        // Nothing lands inside the section.
+        assert!(!out.split("End").next().unwrap().contains("Real 0"));
     }
 
     #[test]
