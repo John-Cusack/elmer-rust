@@ -18,8 +18,12 @@ use crate::frontend;
 /// What one run came to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
-    /// Ran; every reference check passed (`TEST.PASSED` = 1).
+    /// Ran; every reference check passed (`TEST.PASSED` = 1) and, with
+    /// the field check on, every golden field is inside its Tier-A bar.
     Match,
+    /// Ran and the reference norm passed, but a golden result file could
+    /// not be graded (the run wrote no such file).
+    Unverified,
     /// Ran; a reference check failed (`TEST.PASSED` = 0) or the solver
     /// stopped on a fatal error.
     Mismatch,
@@ -35,6 +39,7 @@ impl Verdict {
     pub fn name(&self) -> &'static str {
         match self {
             Verdict::Match => "match",
+            Verdict::Unverified => "unverified",
             Verdict::Mismatch => "mismatch",
             Verdict::NoOracle => "no-oracle",
             Verdict::Refused => "refused",
@@ -43,7 +48,7 @@ impl Verdict {
     }
 
     pub fn parse(s: &str) -> Option<Verdict> {
-        [Verdict::Match, Verdict::Mismatch, Verdict::NoOracle, Verdict::Refused, Verdict::Error]
+        [Verdict::Match, Verdict::Unverified, Verdict::Mismatch, Verdict::NoOracle, Verdict::Refused, Verdict::Error]
             .into_iter()
             .find(|v| v.name() == s)
     }
@@ -52,7 +57,7 @@ impl Verdict {
     pub fn worst(self, other: Verdict) -> Verdict {
         let rank = |v: &Verdict| match v {
             Verdict::Match => 0,
-            Verdict::NoOracle => 1,
+            Verdict::Unverified | Verdict::NoOracle => 1,
             Verdict::Mismatch => 2,
             Verdict::Refused => 3,
             Verdict::Error => 4,
@@ -172,7 +177,9 @@ pub fn run_one(dir: &Path, sif: &str, local_modules: &[String], static_only: boo
         return ChildReport { verdict: Verdict::Refused, detail: "static screen only".into(), blockers, libs };
     }
 
-    let engine = NativeEngine::new(Box::new(frontend::frontend()));
+    // The O2 `Output File`, for the field check.
+    let startinfo = std::fs::read_to_string("ELMERSOLVER_STARTINFO").ok().and_then(|t| t.lines().next().map(|l| l.trim().to_string()));
+    let engine = NativeEngine::new(Box::new(frontend::O2Frontend { inner: frontend::frontend(), startinfo }));
     let buf = Buf::default();
     let log = ElmerLogger::new(OutputConfig::default(), Box::new(buf.clone()));
     let cli = args::parse(&[sif.to_string()]).expect("a sif path is a valid command line");

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use elmer_run::output::prepare_vtu_output;
 use elmer_run::sif::to_model;
-use elmer_run::SifFrontend;
+use elmer_run::{Frontend, LoadedCase, SifFrontend};
 use elmer_solver::{Model, SolverError};
 
 use crate::standin;
@@ -14,6 +14,23 @@ use crate::standin;
 /// The front end `NativeEngine` runs the quick tests through.
 pub fn frontend() -> SifFrontend {
     SifFrontend { mesh: standin::mesh::load }
+}
+
+/// [`frontend`] with the oracle's O2 `Output File` injected
+/// ([`crate::fields::output_file`]).
+pub struct O2Frontend {
+    pub inner: SifFrontend,
+    /// `ELMERSOLVER_STARTINFO`'s case.
+    pub startinfo: Option<String>,
+}
+
+impl Frontend for O2Frontend {
+    fn load(&self, sif: &Path) -> Result<LoadedCase, String> {
+        let mut case = self.inner.load(sif)?;
+        let name = sif.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        crate::fields::output_file(&mut case.model, name, self.startinfo.as_deref());
+        Ok(case)
+    }
 }
 
 /// The model `elmer-run` would run `sif` with, before the mesh is read and

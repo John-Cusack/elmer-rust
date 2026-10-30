@@ -25,6 +25,8 @@ pub struct Config {
     /// `elmer-mpi-run`, which runs the tests with more than one process
     /// under `mpirun`; without it they are refused as `mpi: np=N`.
     pub mpi_run: Option<PathBuf>,
+    /// Grade a match's fields against the golden capture.
+    pub fields: Option<crate::fields::FieldCheck>,
 }
 
 /// `ELMERSOLVER_STARTINFO`'s first line: the case the test runs.
@@ -282,6 +284,12 @@ pub fn run_test(cfg: &Config, test: &QuickTest) -> Record {
     record.verdict = verdict.unwrap_or(Verdict::Error);
     if static_only && record.verdict != Verdict::Error {
         record.verdict = Verdict::Refused;
+    }
+    if let (Verdict::Match, Some(fc)) = (&record.verdict, &cfg.fields) {
+        if let Some((v, detail)) = crate::fields::check(fc, &test.name, &dir, &test.source_dir) {
+            record.verdict = v;
+            record.detail = detail;
+        }
     }
     libs.sort();
     libs.dedup();
