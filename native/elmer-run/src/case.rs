@@ -97,6 +97,8 @@ fn drop_never_savedata(model: &mut Model) {
 /// procedure and are refused by [`preflight`].
 fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
     let cdim = coords.dim;
+    let transient = model.simulation.string("simulation type").is_some_and(|t| t.eq_ignore_ascii_case("transient"));
+    let serendipity = model.simulation.logical("serendipity p elements").unwrap_or(true);
     for params in &mut model.solvers {
         // `ElasticSolver_Init` (StressSolve delegates to it): without a
         // `Variable`, the displacement of the coordinate dimension.
@@ -116,6 +118,15 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         });
         if heat && params.get("variable").is_none() {
             params.insert("Variable", Value::Str("Temperature".into()));
+        }
+        // `IncompressibleNSSolver_Init0` / `_Init` (IncompressibleNS.F90):
+        // the `Variable`, `Element` and discretisation defaults.
+        let ns = procedure_of(params).is_some_and(|(lib, entry)| {
+            (lib.eq_ignore_ascii_case("incompressiblens") || lib.eq_ignore_ascii_case("incompressiblensvec"))
+                && entry.eq_ignore_ascii_case("incompressiblenssolver")
+        });
+        if ns {
+            elmer_physics_incompressible::solver_defaults_with(params, cdim, transient, serendipity);
         }
         if params.get("procedure").is_some() {
             continue;
@@ -446,7 +457,8 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
 /// in the global system and its solution norm, the `Reference Norm`); and
 /// any definition for the solvers that read their DOFs from `elmer-pdofs`
 /// (`ctx.solver_dofs()`) and refuse what they do not port: StressSolve
-/// (#206), ModelPDE's AdvDiffSolver and the test-local `Poisson` / `PoissonML`
+/// (#206), StatElecSolve (#208), IncompressibleNS (Taylor-Hood), ModelPDE's
+/// AdvDiffSolver and the test-local `Poisson` / `PoissonML`
 /// `PoissonSolver`, `ModelPDEsplitted`, `SingleElements`, `BenchmarkShell`
 /// and `Stokes1` ports.
 pub fn native_element(params: &ParamMap) -> bool {
@@ -456,8 +468,12 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 8] = [
+    const P_DOFS: [(&str, &str); 12] = [
         ("benchmarkshell", "shellsolver"),
+        ("incompressiblens", "incompressiblenssolver"),
+        ("incompressiblensvec", "incompressiblenssolver"),
+        ("statelecsolve", "statelecsolver"),
+        ("statelecsolvevec", "statelecsolver"),
         ("stresssolve", "stresssolver"),
         ("stokes1", "stokessolver"),
         ("poisson", "poissonsolver"),
