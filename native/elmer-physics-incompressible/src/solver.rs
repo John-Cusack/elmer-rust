@@ -195,7 +195,59 @@ fn check_solver_params(p: &ParamMap, pdofs: bool) -> Result<(), SolverError> {
     if let Some(s) = p.string("pressure stabilization element size") {
         parse_hmode(s)?;
     }
+    IntegrationPoints::from_params(p)?;
     Ok(())
+}
+
+/// The point counts `GaussPointsAdapt` takes from the solver section for
+/// bulk elements: `Element Integration Points` (one count per element
+/// family, `ParseElementalGaussRules`) over `Number of Integration Points`.
+/// Zero leaves the element its own rule.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct IntegrationPoints {
+    base: usize,
+    family: [usize; 9],
+}
+
+impl IntegrationPoints {
+    fn from_params(p: &ParamMap) -> Result<Self, SolverError> {
+        for (key, what) in [
+            ("relative integration order", "Relative Integration Order"),
+            ("bulk relative integration order", "Bulk Relative Integration Order"),
+            ("element relative integration order", "Element Relative Integration Order"),
+            ("adaptive integration variable", "adaptive integration"),
+        ] {
+            if p.get(key).is_some() {
+                return Err(unsupported(what));
+            }
+        }
+        let mut out = Self {
+            base: p.integer("number of integration points").filter(|&n| n > 0).map_or(0, |n| n as usize),
+            ..Self::default()
+        };
+        if let Some(def) = p.string("element integration points") {
+            let def = def.to_ascii_lowercase();
+            let names = ["-line", "-tri", "-quad", "-tetra", "-pyramid", "-prism", "-brick"];
+            for (k, name) in names.iter().enumerate() {
+                let Some(j) = def.find(name) else { continue };
+                let rest = def[j + name.len()..].trim_start();
+                let num: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                out.family[k + 2] = num.parse().map_err(|_| {
+                    SolverError::fatal("ParseElementalGaussRules", format!("Problems reading integer from: {rest}"))
+                })?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The count for an element of type `etype`, `None` for its own rule.
+    fn for_type(&self, etype: elmer_core::ElementType) -> Option<usize> {
+        let n = match self.family.get(etype.0 as usize / 100) {
+            Some(&n) if n > 0 => n,
+            _ => self.base,
+        };
+        (n > 0).then_some(n)
+    }
 }
 
 fn parse_hmode(s: &str) -> Result<HMode, SolverError> {
@@ -300,15 +352,27 @@ fn normal_parent(ctx: &SolverCtx<'_>, e: ElemId) -> Option<ElemId> {
     }
 }
 
-/// The basis, rule and dof count of bulk element `e` from the solver's p
-/// dofs (`ElementInfo`, `GaussPointsAdapt`, `GetElementNOFDOFs`).
+/// The basis, rule, node order and dof count of bulk element `e` from the
+/// solver's p dofs (`ElementInfo`, `GaussPointsAdapt`, `GetElementNOFDOFs`).
 struct PElement {
     basis: Box<dyn ElementBasis + Send + Sync>,
     rule: Vec<elmer_core::QuadPoint>,
+    nodes: Vec<u32>,
     nd: usize,
 }
 
-fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId) -> Result<PElement, SolverError> {
+/// `values` (at `mesh_nodes`) at `nodes` instead.
+fn reorder(values: Vec<f64>, mesh_nodes: &[u32], nodes: &[u32]) -> Vec<f64> {
+    if mesh_nodes == nodes {
+        return values;
+    }
+    nodes
+        .iter()
+        .map(|n| values[mesh_nodes.iter().position(|m| m == n).expect("same node set")])
+        .collect()
+}
+
+fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId, np: Option<usize>) -> Result<PElement, SolverError> {
     if d.local_bubbles(e) > 0 {
         return Err(unsupported("p elements with bubbles (LCondensate)"));
     }
@@ -316,7 +380,12 @@ fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId) -> Result<PElement, So
     d.element_slots(e, &mut slots);
     Ok(PElement {
         basis: d.element_basis(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
-        rule: d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?,
+        rule: match np {
+            Some(np) => d.element_rule_np(e, np),
+            None => d.element_rule(e),
+        }
+        .map_err(|m| SolverError::fatal("GaussPoints", m))?,
+        nodes: d.element_nodes(e),
         nd: slots.len(),
     })
 }
@@ -547,6 +616,7 @@ impl Solver for IncompressibleNsSolver {
             None => HMode::Default,
         };
         let long_edge = flag(ctx.simulation_params(), "stabilization use longest element edge");
+        let rule_np = IntegrationPoints::from_params(&p)?;
 
         let max_iter = p.integer("nonlinear system max iterations").unwrap_or(1);
         let mut min_iter = p.integer("nonlinear system min iterations").unwrap_or(1);
@@ -573,12 +643,15 @@ impl Solver for IncompressibleNsSolver {
             for &e in &elems {
                 let el = ctx.mesh.element(e);
                 let n = el.nodes.len();
-                let xyz = node_xyz(ctx.mesh, el.nodes);
                 let pe = match ctx.solver_dofs() {
-                    Some(d) => Some(p_element(d, e)?),
+                    Some(d) => Some(p_element(d, e, rule_np.for_type(el.etype))?),
                     None => None,
                 };
                 let nf = pe.as_ref().map_or(n, |p| p.nd);
+                // A p element's basis takes its nodes in the order of its dofs
+                // (p tetrahedra are reordered); the nodal data follows them.
+                let nodes = pe.as_ref().map_or(el.nodes, |p| &p.nodes[..]);
+                let xyz = node_xyz(ctx.mesh, nodes);
                 let bp = ctx
                     .body_params(e)
                     .ok_or_else(|| SolverError::fatal(CALLER, format!("element {} has no body", e.0)))?;
@@ -598,12 +671,12 @@ impl Solver for IncompressibleNsSolver {
                 if density.iter().any(|&d| d != density[0]) {
                     return Err(unsupported("Density varying within an element"));
                 }
-                let viscosity = nodal(ctx, mat, "viscosity", e, n)?;
+                let viscosity = reorder(nodal(ctx, mat, "viscosity", e, n)?, el.nodes, nodes);
                 let mut load = vec![[0.0; 3]; n];
                 if let Some(b) = bf {
                     for i in 0..dim {
                         if let Some(f) = ctx.real_at_nodes(b, &format!("flow bodyforce {}", i + 1), e)? {
-                            for (l, v) in load.iter_mut().zip(f) {
+                            for (l, v) in load.iter_mut().zip(reorder(f, el.nodes, nodes)) {
                                 l[i] = v;
                             }
                         }
@@ -627,7 +700,7 @@ impl Solver for IncompressibleNsSolver {
                     div_curl,
                     specific_load,
                     pstab: PressureStab { coeff, hmode, hk },
-                    np: None,
+                    np: rule_np.for_type(el.etype),
                 };
                 match &pe {
                     None => incompressible_bulk_local(basis, quad, &inp, &mut self.local)?,
