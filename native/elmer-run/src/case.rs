@@ -98,6 +98,7 @@ fn drop_never_savedata(model: &mut Model) {
 fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
     let cdim = coords.dim;
     let transient = model.simulation.string("simulation type").is_some_and(|t| t.eq_ignore_ascii_case("transient"));
+    let serendipity = model.simulation.logical("serendipity p elements").unwrap_or(true);
     for params in &mut model.solvers {
         // `ElasticSolver_Init` (StressSolve delegates to it): without a
         // `Variable`, the displacement of the coordinate dimension.
@@ -125,7 +126,7 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
                 && entry.eq_ignore_ascii_case("incompressiblenssolver")
         });
         if ns {
-            elmer_physics_incompressible::solver_defaults(params, cdim, transient);
+            elmer_physics_incompressible::solver_defaults_with(params, cdim, transient, serendipity);
         }
         if params.get("procedure").is_some() {
             continue;
