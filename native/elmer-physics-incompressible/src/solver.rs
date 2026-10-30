@@ -10,7 +10,10 @@ use elmer_solver::sim::parse_variable_spec;
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
 use crate::boundary::{incompressible_boundary_local, IncompressibleBoundaryInput};
-use crate::bulk::{incompressible_bulk_local, HMode, IncompressibleBulkInput, PressureStab};
+use crate::bulk::{
+    incompressible_bulk_local, incompressible_bulk_local_with, pin_pressure, HMode, IncompressibleBulkInput,
+    PressureStab,
+};
 use crate::error::IncompressibleError;
 
 const CALLER: &str = "IncompressibleNSSolver";
@@ -147,16 +150,28 @@ impl IncompressibleNsSolver {
     }
 }
 
-/// Solver-section options this crate does not port.
-fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
-    if !pressure_stabilization(p) {
-        return Err(unsupported(
-            "the default MINI element (condensed velocity bubbles); only Pressure Stabilization (Element = \"n:1\") is ported",
-        ));
-    }
-    if let Some(e) = p.string("element") {
-        if !e.trim().eq_ignore_ascii_case("n:1") {
-            return Err(unsupported(format!("Element = \"{e}\" (only the nodal \"n:1\" element)")));
+/// Solver-section options this crate does not port. `pdofs`: the solver
+/// has p element dofs (`SolverCtx::solver_dofs`).
+fn check_solver_params(p: &ParamMap, pdofs: bool) -> Result<(), SolverError> {
+    let element = p.string("element").map(|e| e.trim().to_ascii_lowercase());
+    if pressure_stabilization(p) {
+        if element.as_deref().is_some_and(|e| e != "n:1") {
+            return Err(unsupported(format!(
+                "Element = \"{}\" with Pressure Stabilization (only the nodal \"n:1\" element)",
+                element.unwrap_or_default()
+            )));
+        }
+    } else {
+        // Taylor-Hood: a p element without bubbles, its pressure pinned to
+        // the nodal one.
+        let Some(e) = element.filter(|e| pdofs && !e.contains("b:") && !e.contains("n:1")) else {
+            return Err(unsupported(
+                "the default MINI element (condensed velocity bubbles); only Pressure Stabilization \
+                 (Element = \"n:1\") and Taylor-Hood p elements (Element = \"p:2\") are ported",
+            ));
+        };
+        if !e.starts_with("p:") || e.split_whitespace().next() == Some("p:1") {
+            return Err(unsupported(format!("Element = \"{e}\" without Pressure Stabilization")));
         }
     }
     for (key, what) in [
@@ -285,6 +300,27 @@ fn normal_parent(ctx: &SolverCtx<'_>, e: ElemId) -> Option<ElemId> {
     }
 }
 
+/// The basis, rule and dof count of bulk element `e` from the solver's p
+/// dofs (`ElementInfo`, `GaussPointsAdapt`, `GetElementNOFDOFs`).
+struct PElement {
+    basis: Box<dyn ElementBasis + Send + Sync>,
+    rule: Vec<elmer_core::QuadPoint>,
+    nd: usize,
+}
+
+fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId) -> Result<PElement, SolverError> {
+    if d.local_bubbles(e) > 0 {
+        return Err(unsupported("p elements with bubbles (LCondensate)"));
+    }
+    let mut slots = Vec::new();
+    d.element_slots(e, &mut slots);
+    Ok(PElement {
+        basis: d.element_basis(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
+        rule: d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?,
+        nd: slots.len(),
+    })
+}
+
 fn node_xyz(mesh: &dyn elmer_core::MeshView, nodes: &[u32]) -> Vec<[f64; 3]> {
     nodes.iter().map(|&n| mesh.coord(n)).collect()
 }
@@ -304,27 +340,45 @@ fn component_names(ctx: &SolverCtx<'_>) -> Result<Vec<String>, SolverError> {
 
 /// The Dirichlet rows of the solver variable from its component names
 /// (`DefaultDirichletBCs`); `Noslip Wall BC` fixes the velocity components
-/// to zero, as the solver adds `Velocity i = 0` to those BCs.
+/// to zero, as the solver adds `Velocity i = 0` to those BCs. On p elements
+/// a component the BC sets has its edge and face dofs fixed to zero, the
+/// `LocalBcBDOFs` projection of a nodally interpolated value.
 fn dirichlet_rows(ctx: &SolverCtx<'_>, comps: &[String], dim: usize) -> Result<Vec<(u32, f64)>, SolverError> {
     let dofs = comps.len();
     let mut fixed = std::collections::BTreeMap::new();
-    let mut idx = Vec::new();
+    let mut extra = Vec::new();
+    let perm = ctx.primary().and_then(|f| f.perm);
+    let slot = |n: u32| perm.map_or(n, |p| p[n as usize]);
     let bnd: Vec<ElemId> = ctx.boundary_elements().collect();
     for e in bnd {
         let bc = ctx.bc_params(e).expect("boundary_elements filters on BC");
-        ctx.element_slots(e, &mut idx);
+        let nodes = ctx.mesh.element(e).nodes;
+        if let Some(d) = ctx.solver_dofs() {
+            d.boundary_extra_slots(e, &mut extra);
+        }
         let wall = flag(bc, "noslip wall bc");
         for (k, key) in comps.iter().enumerate() {
             if bc.get(&format!("{key} condition")).is_some() {
                 return Err(unsupported(format!("Dirichlet mask > {key} Condition <")));
             }
             let vals = if wall && k < dim {
-                Some(vec![0.0; idx.len()])
+                Some(vec![0.0; nodes.len()])
             } else {
                 ctx.real_at_nodes(bc, key, e)?
             };
             let Some(vals) = vals else { continue };
-            for (&s, &x) in idx.iter().zip(&vals) {
+            if !extra.is_empty() {
+                if let Some(Value::Dependent(d)) = bc.get(key) {
+                    if matches!(d.kind, elmer_core::DependentKind::Procedure { .. }) {
+                        return Err(unsupported(format!("p-element Dirichlet value > {key} < given by a procedure")));
+                    }
+                }
+                for &s in &extra {
+                    fixed.insert(s * dofs as u32 + k as u32, 0.0);
+                }
+            }
+            for (&n, &x) in nodes.iter().zip(&vals) {
+                let s = slot(n);
                 if s != NO_DOF {
                     fixed.insert(s * dofs as u32 + k as u32, x);
                 }
@@ -423,7 +477,7 @@ impl Solver for IncompressibleNsSolver {
             solver_defaults(&mut copy, dim, transient);
             *sp = copy;
         }
-        check_solver_params(ctx.params())?;
+        check_solver_params(ctx.params(), ctx.solver_dofs().is_some())?;
         let dofs = ctx.primary().map(|f| f.dofs);
         if dofs != Some(dim + 1) {
             return Err(unsupported(format!(
@@ -463,8 +517,13 @@ impl Solver for IncompressibleNsSolver {
     }
 
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
-        check_solver_params(ctx.params())?;
+        let pdofs = ctx.solver_dofs().is_some();
+        check_solver_params(ctx.params(), pdofs)?;
+        if pdofs && transient {
+            return Err(unsupported("transient runs on p elements"));
+        }
         let p = ctx.params().clone();
+        let pstab = pressure_stabilization(&p);
         let dim = ctx.mesh.dim();
         let comps = component_names(ctx)?;
         let nsdofs = comps.len();
@@ -477,7 +536,12 @@ impl Solver for IncompressibleNsSolver {
         let gradp = flag(&p, "gradp discretization");
         let div_curl = flag(&p, "div-curl discretization");
         let specific_load = flag(&p, "specific load");
-        let coeff = ctx.creal(&p, "pressure stabilization coefficient")?.unwrap_or(1.0);
+        // Without Pressure Stabilization (Taylor-Hood) LocalBulkMatrix skips the
+        // stabilization terms, which a zero tau does exactly.
+        let coeff = match pstab {
+            true => ctx.creal(&p, "pressure stabilization coefficient")?.unwrap_or(1.0),
+            false => 0.0,
+        };
         let hmode = match p.string("pressure stabilization element size") {
             Some(s) => parse_hmode(s)?,
             None => HMode::Default,
@@ -510,6 +574,11 @@ impl Solver for IncompressibleNsSolver {
                 let el = ctx.mesh.element(e);
                 let n = el.nodes.len();
                 let xyz = node_xyz(ctx.mesh, el.nodes);
+                let pe = match ctx.solver_dofs() {
+                    Some(d) => Some(p_element(d, e)?),
+                    None => None,
+                };
+                let nf = pe.as_ref().map_or(n, |p| p.nd);
                 let bp = ctx
                     .body_params(e)
                     .ok_or_else(|| SolverError::fatal(CALLER, format!("element {} has no body", e.0)))?;
@@ -521,7 +590,7 @@ impl Solver for IncompressibleNsSolver {
                     return Err(SolverError::fatal(CALLER, format!("active element {} has nodes outside the system", e.0)));
                 }
                 let values = ctx.primary().expect("checked in init").values;
-                let solution: Vec<[f64; 4]> = (0..n)
+                let solution: Vec<[f64; 4]> = (0..nf)
                     .map(|k| std::array::from_fn(|i| if i < nsdofs { values[dofs[k * nsdofs + i] as usize] } else { 0.0 }))
                     .collect();
 
@@ -560,7 +629,15 @@ impl Solver for IncompressibleNsSolver {
                     pstab: PressureStab { coeff, hmode, hk },
                     np: None,
                 };
-                incompressible_bulk_local(basis, quad, &inp, &mut self.local)?;
+                match &pe {
+                    None => incompressible_bulk_local(basis, quad, &inp, &mut self.local)?,
+                    Some(p) => {
+                        incompressible_bulk_local_with(&*p.basis, &p.rule, p.nd, &inp, &mut self.local)?;
+                        if !pstab {
+                            pin_pressure(&mut self.local, n, nsdofs);
+                        }
+                    }
+                }
                 if transient && !stokes {
                     ctx.default_first_order_time(&mut self.local, e, dt)?;
                 }
@@ -599,6 +676,9 @@ impl Solver for IncompressibleNsSolver {
                 let any = |v: &[f64]| v.iter().any(|&x| x != 0.0);
                 if !any(&ext) && !traction.iter().any(|t| any(t)) && !slip.iter().any(|s| any(s)) {
                     continue;
+                }
+                if pdofs {
+                    return Err(unsupported("boundary tractions, pressures and slip on p elements"));
                 }
                 let parent_center = normal_parent(ctx, e)
                     .map(|pe| elmer_physics_flow::boundary::element_center(&node_xyz(ctx.mesh, ctx.mesh.element(pe).nodes)));

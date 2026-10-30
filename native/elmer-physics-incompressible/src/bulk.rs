@@ -9,15 +9,17 @@
 //! Ported: Stokes and Navier-Stokes (steady and transient mass matrix),
 //! Picard and Newton linearization of the convection, the `GradP` and
 //! `Div-Curl` forms, element-constant density, nodal viscosity and body
-//! forces, the three `Pressure Stabilization Element Size` measures. Not
-//! ported (the solver refuses them): bubbles and p-elements, compressibility
-//! models, non-newtonian and turbulent viscosity, axisymmetric coordinates.
+//! forces, the three `Pressure Stabilization Element Size` measures, and p
+//! elements without bubbles (Taylor-Hood: the edge and face pressure dofs
+//! pinned, [`pin_pressure`]). Not ported (the solver refuses them): bubbles,
+//! compressibility models, non-newtonian and turbulent viscosity,
+//! axisymmetric coordinates.
 
 // A structural transliteration of Fortran loops over `1:dim` that index several
 // arrays by the same component number.
 #![allow(clippy::needless_range_loop)]
 
-use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, Quadrature};
+use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, QuadPoint, Quadrature};
 
 use crate::error::IncompressibleError;
 
@@ -55,8 +57,9 @@ pub struct IncompressibleBulkInput<'a> {
     pub viscosity: &'a [f64],
     /// `Flow Bodyforce 1..3` at the nodes.
     pub load: &'a [[f64; 3]],
-    /// Velocity and pressure of the previous iterate at the nodes
-    /// (`GetLocalSolution`); `None` for `Linear Equation = True`.
+    /// Velocity and pressure of the previous iterate at the nodes, then at
+    /// the other basis functions of a p element (`GetLocalSolution`); `None`
+    /// for `Linear Equation = True`.
     pub solution: Option<&'a [[f64; 4]]>,
     pub stokes: bool,
     pub newton: bool,
@@ -105,11 +108,12 @@ fn family_constant(etype: ElementType) -> f64 {
 
 /// `ListGetElementRealVec` of a nodal field at the integration points: the
 /// constant itself when the nodal values agree, else the basis interpolation.
-fn at_points(vals: &[f64], bas: &[f64], n: usize, ngp: usize) -> Vec<f64> {
+/// `bas` holds `nf` functions per point, the `n = vals.len()` nodal ones first.
+fn at_points(vals: &[f64], bas: &[f64], nf: usize, ngp: usize) -> Vec<f64> {
     if vals.iter().all(|&v| v == vals[0]) {
         return vec![vals[0]; ngp];
     }
-    (0..ngp).map(|t| (0..n).map(|k| bas[t * n + k] * vals[k]).sum()).collect()
+    (0..ngp).map(|t| vals.iter().enumerate().map(|(k, v)| bas[t * nf + k] * v).sum()).collect()
 }
 
 /// Local blocks `[i][j]` of `n x n` entries.
@@ -185,6 +189,24 @@ pub fn incompressible_bulk_local(
     inp: &IncompressibleBulkInput<'_>,
     out: &mut LocalSystem,
 ) -> Result<(), IncompressibleError> {
+    let points = quad.gauss_points(inp.etype, inp.np);
+    incompressible_bulk_local_with(basis, &points, inp.xyz.len(), inp, out)
+}
+
+/// [`incompressible_bulk_local`] for `nf >= n` basis functions (the nodal
+/// ones first, then the edge, face and bubble functions of a p element:
+/// `LocalBulkMatrix(Element, n, nd, ntot)` with `ntot = nf`) on the given
+/// rule. `inp.solution` holds `nf` entries; material data and loads are
+/// interpolated with the nodal functions. `out` is resized to
+/// `nf * (dim + 1)`; see [`pin_pressure`] for the pressure of a
+/// Taylor-Hood element.
+pub fn incompressible_bulk_local_with(
+    basis: &dyn ElementBasis,
+    points: &[QuadPoint],
+    nf: usize,
+    inp: &IncompressibleBulkInput<'_>,
+    out: &mut LocalSystem,
+) -> Result<(), IncompressibleError> {
     let n = inp.xyz.len();
     let dim = inp.dim;
     let dofs = dim + 1;
@@ -192,16 +214,18 @@ pub fn incompressible_bulk_local(
     check_len("viscosity", n, inp.viscosity.len())?;
     check_len("load", n, inp.load.len())?;
     if let Some(s) = inp.solution {
-        check_len("solution", n, s.len())?;
+        check_len("solution", nf, s.len())?;
     }
     if !(2..=3).contains(&dim) {
         return Err(IncompressibleError::Unsupported(format!("coordinate dimension {dim}")));
     }
-    let nd = n * dofs;
+    if nf < n {
+        return Err(IncompressibleError::Unsupported(format!("{nf} basis functions for {n} nodes")));
+    }
+    let nd = nf * dofs;
     let stokes = inp.stokes;
     let rho = inp.density;
 
-    let points = quad.gauss_points(inp.etype, inp.np);
     let ngp = points.len();
     if ngp == 0 {
         return Err(IncompressibleError::NoQuadrature(inp.etype.0));
@@ -209,16 +233,19 @@ pub fn incompressible_bulk_local(
 
     // BasisVec(t, p), dBasisdxVec(t, p, a) as bas / dbs[a], and the weights.
     let mut be = BasisEval::default();
-    let mut bas = vec![0.0; ngp * n];
-    let mut dbs = [vec![0.0; ngp * n], vec![0.0; ngp * n], vec![0.0; ngp * n]];
+    let mut bas = vec![0.0; ngp * nf];
+    let mut dbs = [vec![0.0; ngp * nf], vec![0.0; ngp * nf], vec![0.0; ngp * nf]];
     let mut detj = vec![0.0; ngp];
     for (t, qp) in points.iter().enumerate() {
         basis.eval(inp.etype, inp.xyz, qp.uvw, &mut be).map_err(IncompressibleError::Basis)?;
+        if be.basis.len() < nf {
+            return Err(IncompressibleError::Unsupported(format!("{} basis functions for {nf} dofs", be.basis.len())));
+        }
         detj[t] = be.det_j * qp.weight;
-        for p in 0..n {
-            bas[t * n + p] = be.basis[p];
+        for p in 0..nf {
+            bas[t * nf + p] = be.basis[p];
             for (a, d) in dbs.iter_mut().enumerate() {
-                d[t * n + p] = be.dbasis_dx[p][a];
+                d[t * nf + p] = be.dbasis_dx[p][a];
             }
         }
     }
@@ -228,19 +255,19 @@ pub fn incompressible_bulk_local(
     if let Some(sol) = inp.solution {
         for (t, vp) in velopres.iter_mut().enumerate() {
             for (k, x) in vp.iter_mut().enumerate().take(dofs) {
-                *x = (0..n).map(|p| bas[t * n + p] * sol[p][k]).sum();
+                *x = (0..nf).map(|p| bas[t * nf + p] * sol[p][k]).sum();
             }
         }
     }
 
-    let mu = at_points(inp.viscosity, &bas, n, ngp);
+    let mu = at_points(inp.viscosity, &bas, nf, ngp);
     let rhovec = vec![rho; ngp];
 
     // Body force, with the continuity row empty.
     let mut load_at = vec![[0.0; 4]; ngp];
     for i in 0..dim {
         let col: Vec<f64> = inp.load.iter().map(|l| l[i]).collect();
-        let lv = at_points(&col, &bas, n, ngp);
+        let lv = at_points(&col, &bas, nf, ngp);
         for t in 0..ngp {
             load_at[t][i] = if inp.specific_load { lv[t] } else { rhovec[t] * lv[t] };
         }
@@ -253,7 +280,7 @@ pub fn incompressible_bulk_local(
         for (t, g) in grad.iter_mut().enumerate() {
             for i in 0..dim {
                 for j in 0..dim {
-                    g[i][j] = sol.map_or(0.0, |s| (0..n).map(|q| dbs[j][t * n + q] * s[q][i]).sum());
+                    g[i][j] = sol.map_or(0.0, |s| (0..nf).map(|q| dbs[j][t * nf + q] * s[q][i]).sum());
                 }
             }
         }
@@ -267,8 +294,8 @@ pub fn incompressible_bulk_local(
         }
     }
 
-    let mut so = Blocks::new(n, dofs);
-    let mut mass = if inp.want_mass { Some(Blocks::new(n, dofs)) } else { None };
+    let mut so = Blocks::new(nf, dofs);
+    let mut mass = if inp.want_mass { Some(Blocks::new(nf, dofs)) } else { None };
 
     let weight_a: Vec<f64> = (0..ngp).map(|t| mu[t] * detj[t]).collect();
     // Viscous terms.
@@ -277,23 +304,23 @@ pub fn incompressible_bulk_local(
         let weight_c: Vec<f64> = weight_a.iter().map(|w| 4.0 / 3.0 * w).collect();
         for i in 0..dim {
             for j in 0..dim {
-                udotv(so.at(i, j), n, ngp, &dbs[i], &dbs[j], &weight_c, None);
+                udotv(so.at(i, j), nf, ngp, &dbs[i], &dbs[j], &weight_c, None);
                 if i == j {
                     for k in 0..dim {
                         if k != i {
-                            udotv(so.at(i, j), n, ngp, &dbs[k], &dbs[k], &weight_a, None);
+                            udotv(so.at(i, j), nf, ngp, &dbs[k], &dbs[k], &weight_a, None);
                         }
                     }
                 } else {
-                    udotv(so.at(i, j), n, ngp, &dbs[j], &dbs[i], &weight_b, None);
+                    udotv(so.at(i, j), nf, ngp, &dbs[j], &dbs[i], &weight_b, None);
                 }
             }
         }
     } else {
         for i in 0..dim {
             for j in 0..dim {
-                udotv(so.at(i, i), n, ngp, &dbs[j], &dbs[j], &weight_a, None);
-                udotv(so.at(i, j), n, ngp, &dbs[j], &dbs[i], &weight_a, None);
+                udotv(so.at(i, i), nf, ngp, &dbs[j], &dbs[j], &weight_a, None);
+                udotv(so.at(i, j), nf, ngp, &dbs[j], &dbs[i], &weight_a, None);
             }
         }
     }
@@ -302,23 +329,23 @@ pub fn incompressible_bulk_local(
     let neg_detj: Vec<f64> = detj.iter().map(|d| -d).collect();
     for i in 0..dim {
         let blk = if inp.gradp {
-            udotv(so.at(i, dim), n, ngp, &bas, &dbs[i], &detj, None);
+            udotv(so.at(i, dim), nf, ngp, &bas, &dbs[i], &detj, None);
             so.at(i, dim).to_vec()
         } else {
-            udotv(so.at(i, dim), n, ngp, &dbs[i], &bas, &neg_detj, None);
+            udotv(so.at(i, dim), nf, ngp, &dbs[i], &bas, &neg_detj, None);
             so.at(i, dim).to_vec()
         };
         let tr = so.at(dim, i);
-        for p in 0..n {
-            for q in 0..n {
-                tr[p * n + q] = blk[q * n + p];
+        for p in 0..nf {
+            for q in 0..nf {
+                tr[p * nf + q] = blk[q * nf + p];
             }
         }
     }
 
     // Pressure stabilization.
     let mut tau = vec![0.0; ngp];
-    let mut conv = vec![0.0; ngp * n];
+    let mut conv = vec![0.0; ngp * nf];
     let kfam = family_constant(inp.etype);
     let h_stab = match inp.pstab.hmode {
         HMode::Default => inp.pstab.hk,
@@ -345,8 +372,8 @@ pub fn incompressible_bulk_local(
         }
         for k in 0..dim {
             for t in 0..ngp {
-                for q in 0..n {
-                    conv[t * n + q] += rhovec[t] * velopres[t][k] * dbs[k][t * n + q];
+                for q in 0..nf {
+                    conv[t * nf + q] += rhovec[t] * velopres[t][k] * dbs[k][t * nf + q];
                 }
             }
         }
@@ -354,29 +381,29 @@ pub fn incompressible_bulk_local(
     let wa: Vec<f64> = (0..ngp).map(|t| -tau[t] * detj[t]).collect();
     let wb: Vec<f64> = (0..ngp).map(|t| tau[t] * detj[t]).collect();
     for i in 0..dim {
-        udotv(so.at(dim, dim), n, ngp, &dbs[i], &dbs[i], &wa, None);
+        udotv(so.at(dim, dim), nf, ngp, &dbs[i], &dbs[i], &wa, None);
     }
     if !stokes {
         for j in 0..dim {
-            udotv(so.at(dim, j), n, ngp, &dbs[j], &conv, &wa, None);
+            udotv(so.at(dim, j), nf, ngp, &dbs[j], &conv, &wa, None);
         }
         for i in 0..dim {
-            udotv(so.at(i, i), n, ngp, &conv, &conv, &wb, None);
+            udotv(so.at(i, i), nf, ngp, &conv, &conv, &wb, None);
         }
         for i in 0..dim {
-            udotv(so.at(i, dim), n, ngp, &conv, &dbs[i], &wb, None);
+            udotv(so.at(i, dim), nf, ngp, &conv, &dbs[i], &wb, None);
         }
         if let Some(m) = mass.as_mut() {
-            let mut part = vec![0.0; n * n];
-            udotv(&mut part, n, ngp, &conv, &bas, &wb, Some(&rhovec));
+            let mut part = vec![0.0; nf * nf];
+            udotv(&mut part, nf, ngp, &conv, &bas, &wb, Some(&rhovec));
             for i in 0..dim {
                 for (x, p) in m.at(i, i).iter_mut().zip(&part) {
                     *x += p;
                 }
             }
             for i in 0..dim {
-                let mut part = vec![0.0; n * n];
-                udotv(&mut part, n, ngp, &dbs[i], &bas, &wa, Some(&rhovec));
+                let mut part = vec![0.0; nf * nf];
+                udotv(&mut part, nf, ngp, &dbs[i], &bas, &wa, Some(&rhovec));
                 for (x, p) in m.at(dim, i).iter_mut().zip(&part) {
                     *x += p;
                 }
@@ -386,8 +413,8 @@ pub fn incompressible_bulk_local(
             for i in 0..dim {
                 for j in 0..dim {
                     let al: Vec<f64> = (0..ngp).map(|t| rhovec[t] * grad[t][i][j]).collect();
-                    udotv(so.at(i, j), n, ngp, &conv, &bas, &wb, Some(&al));
-                    udotv(so.at(dim, j), n, ngp, &dbs[i], &bas, &wa, Some(&al));
+                    udotv(so.at(i, j), nf, ngp, &conv, &bas, &wb, Some(&al));
+                    udotv(so.at(dim, j), nf, ngp, &dbs[i], &bas, &wa, Some(&al));
                 }
             }
         }
@@ -396,20 +423,20 @@ pub fn incompressible_bulk_local(
     // Galerkin mass and convection.
     if !stokes {
         if let Some(m) = mass.as_mut() {
-            let mut vm = vec![0.0; n * n];
-            udotv(&mut vm, n, ngp, &bas, &bas, &detj, Some(&rhovec));
+            let mut vm = vec![0.0; nf * nf];
+            udotv(&mut vm, nf, ngp, &bas, &bas, &detj, Some(&rhovec));
             for i in 0..dim {
                 for (x, p) in m.at(i, i).iter_mut().zip(&vm) {
                     *x += p;
                 }
             }
         }
-        let mut vm = vec![0.0; n * n];
+        let mut vm = vec![0.0; nf * nf];
         for k in 0..dim {
             let wk: Vec<f64> = (0..ngp).map(|t| rhovec[t] * velopres[t][k]).collect();
             // weight_a is the first weight of the Fortran call: detJ, with
             // rho*u_k as the extra factor.
-            udotv(&mut vm, n, ngp, &bas, &dbs[k], &detj, Some(&wk));
+            udotv(&mut vm, nf, ngp, &bas, &dbs[k], &detj, Some(&wk));
         }
         for i in 0..dim {
             for (x, p) in so.at(i, i).iter_mut().zip(&vm) {
@@ -420,7 +447,7 @@ pub fn incompressible_bulk_local(
             for i in 0..dim {
                 for j in 0..dim {
                     let al: Vec<f64> = (0..ngp).map(|t| rhovec[t] * grad[t][i][j]).collect();
-                    udotv(so.at(i, j), n, ngp, &bas, &bas, &detj, Some(&al));
+                    udotv(so.at(i, j), nf, ngp, &bas, &bas, &detj, Some(&al));
                 }
             }
         }
@@ -430,26 +457,26 @@ pub fn incompressible_bulk_local(
     let mut force = vec![0.0; nd];
     for i in 0..dofs {
         let f: Vec<f64> = (0..ngp).map(|t| load_at[t][i]).collect();
-        let mut part = vec![0.0; n];
-        udotf(&mut part, n, ngp, &bas, &detj, &f);
-        for p in 0..n {
+        let mut part = vec![0.0; nf];
+        udotf(&mut part, nf, ngp, &bas, &detj, &f);
+        for p in 0..nf {
             force[p * dofs + i] = part[p];
         }
     }
-    let mut part = vec![0.0; n];
+    let mut part = vec![0.0; nf];
     for i in 0..dim {
         let f: Vec<f64> = (0..ngp).map(|t| load_at[t][i]).collect();
-        udotf(&mut part, n, ngp, &dbs[i], &wa, &f);
+        udotf(&mut part, nf, ngp, &dbs[i], &wa, &f);
     }
-    for p in 0..n {
+    for p in 0..nf {
         force[p * dofs + dim] += part[p];
     }
     if !stokes {
         for i in 0..dim {
             let f: Vec<f64> = (0..ngp).map(|t| load_at[t][i]).collect();
-            let mut part = vec![0.0; n];
-            udotf(&mut part, n, ngp, &conv, &wb, &f);
-            for p in 0..n {
+            let mut part = vec![0.0; nf];
+            udotf(&mut part, nf, ngp, &conv, &wb, &f);
+            for p in 0..nf {
                 force[p * dofs + i] += part[p];
             }
         }
@@ -461,4 +488,27 @@ pub fn incompressible_bulk_local(
     out.damp = None;
     out.mass = mass.map(|m| m.scatter());
     Ok(())
+}
+
+/// The pressure of a p element without `Pressure Stabilization`
+/// (`LocalBulkMatrix` for `nb = 0`): only the nodal pressure dofs are kept,
+/// each pressure dof of the functions `n..` gets the row and column of a
+/// zero Dirichlet condition. `local` has `nf * dofs` rows, node-major.
+pub fn pin_pressure(local: &mut LocalSystem, n: usize, dofs: usize) {
+    let m = local.n;
+    for p in n..m / dofs {
+        let i = p * dofs + dofs - 1;
+        local.force[i] = 0.0;
+        for j in 0..m {
+            local.stiff[i * m + j] = 0.0;
+            local.stiff[j * m + i] = 0.0;
+        }
+        local.stiff[i * m + i] = 1.0;
+        if let Some(mass) = local.mass.as_mut() {
+            for j in 0..m {
+                mass[i * m + j] = 0.0;
+                mass[j * m + i] = 0.0;
+            }
+        }
+    }
 }
