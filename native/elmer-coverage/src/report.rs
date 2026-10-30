@@ -29,7 +29,7 @@ pub struct Rank {
 
 /// Tests the native path does not run to a match.
 fn open(records: &[Record]) -> Vec<&Record> {
-    records.iter().filter(|r| !matches!(r.verdict, Verdict::Match | Verdict::NoOracle)).collect()
+    records.iter().filter(|r| !matches!(r.verdict, Verdict::Match | Verdict::Unverified | Verdict::NoOracle)).collect()
 }
 
 /// Greedy unlock order: at each step the blocker that completes the most
@@ -116,7 +116,8 @@ fn verdict_table(out: &mut String, records: &[&Record]) {
     let n = records.len();
     let _ = writeln!(out, "| Verdict | Tests | Share |\n|---|---:|---:|");
     for (label, v) in [
-        ("match (reference norm within tolerance)", Verdict::Match),
+        ("match (reference norm within tolerance, fields within Tier A)", Verdict::Match),
+        ("unverified (reference norm passed, fields not gradable)", Verdict::Unverified),
         ("mismatch (ran, reference check failed)", Verdict::Mismatch),
         ("no-oracle (ran, no reference)", Verdict::NoOracle),
         ("refused (missing feature)", Verdict::Refused),
@@ -147,7 +148,11 @@ pub fn render(records: &[Record], meta: &Meta) -> String {
          (default 1e-5), applied by `CompareToReferenceSolution`; a test matches when `TEST.PASSED` is `1`. \
          A test with more than one process runs under `mpirun -np N elmer-mpi-run` once the static screen \
          passes, and matches when `TEST.PASSED_N` is `1`; without an `elmer-mpi-run` binary next to the \
-         harness it is refused as `mpi: np=N`.\n"
+         harness it is refused as `mpi: np=N`.\n\n\
+         With `--golden --tolerances --oracle`, a test whose norm passes is also checked field by field: the \
+         run writes the oracle's O2 `Output File`, and every result file of the pristine golden capture is \
+         graded against it with the oracle's Tier-A bars (`elmer-oracle grade-fields --tolerances`). A field \
+         over its bar makes the test a mismatch; a golden file the run did not write leaves it unverified.\n"
     );
     let _ = writeln!(out, "## Result\n");
     verdict_table(&mut out, &all);
