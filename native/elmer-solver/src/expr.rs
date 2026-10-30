@@ -12,7 +12,7 @@ use elmer_core::{MeshView, ParamMap, Params, Value};
 use elmer_expr::{compile, compile_with, CompileOptions, Compiled, FieldLookup, MatcEngine, UdfRegistry};
 
 use crate::error::SolverError;
-use crate::variable::VariableStore;
+use crate::variable::{VarHandle, VariableStore};
 
 /// The fields of a simulation as `elmer-expr` reads them: a variable or
 /// component alias at a node through its perm, a global's first value,
@@ -23,26 +23,66 @@ pub struct SimFields<'a> {
 }
 
 /// `VariableGet` + `Perm` at one node: `None` where the variable has no dof.
+/// A multi-dof variable answers with its first component.
 pub(crate) fn lookup(vars: &VariableStore, var: &str, node: u32) -> Option<f64> {
-    let v = vars.strided(var)?;
-    match v.perm {
+    component(vars, var, 0, node)
+}
+
+/// Components a dependency on `var` passes (`ListParseStrToValues`): every
+/// dof of a multi-dof field, one for a global or a single component.
+pub(crate) fn dependency_dofs(vars: &VariableStore, var: &str) -> usize {
+    match vars.resolve(var) {
+        Some(VarHandle::Primary(id)) => {
+            let v = vars.by_id(id);
+            if v.kind == elmer_core::FieldKind::Global || v.values.len() == v.dofs {
+                1
+            } else {
+                v.dofs.max(1)
+            }
+        }
+        _ => 1,
+    }
+}
+
+/// Component `k` of `var` at `node`: dof `k` of slot `Perm(node)`, as
+/// `Values(DOFs*(k1-1)+l)` in `ListParseStrToValues`. A component alias
+/// (`velocity 2`) is its parent's dof.
+pub(crate) fn component(vars: &VariableStore, var: &str, k: usize, node: u32) -> Option<f64> {
+    let (v, offset) = match vars.resolve(var)? {
+        VarHandle::Primary(id) => (vars.by_id(id), k),
+        VarHandle::Component { parent, component } if k == 0 => (vars.by_id(parent), component),
+        VarHandle::Component { .. } => return None,
+    };
+    let stride = v.dofs.max(1);
+    match v.perm.as_deref() {
         Some(perm) => {
             let s = *perm.get(node as usize)?;
             if s == elmer_core::NO_DOF {
                 None
             } else {
-                v.values.get(s as usize * v.stride + v.offset).copied()
+                v.values.get(s as usize * stride + offset).copied()
             }
         }
-        // Globals and perm-less fields: one value (globals) or node-indexed.
-        None if v.values.len() == 1 => Some(v.values[0]),
-        None => v.values.get(node as usize * v.stride + v.offset).copied(),
+        // Globals: their value (a component alias, its component);
+        // perm-less fields are node-indexed.
+        None if v.values.len() <= stride => v.values.get(offset).copied(),
+        None => v.values.get(node as usize * stride + offset).copied(),
     }
 }
 
 impl FieldLookup for SimFields<'_> {
     fn value(&self, var: &str, node: u32) -> Option<f64> {
         lookup(self.vars, var, node)
+    }
+
+    fn dofs(&self, var: &str) -> usize {
+        dependency_dofs(self.vars, var)
+    }
+
+    fn component_values(&self, var: &str, k: usize, nodes: &[u32], out: &mut [f64]) {
+        for (o, &n) in out.iter_mut().zip(nodes) {
+            *o = component(self.vars, var, k, n).unwrap_or(elmer_expr::MISSING);
+        }
     }
 
     fn coord(&self, node: u32) -> [f64; 3] {
@@ -210,4 +250,36 @@ pub fn resolve_creals<'p>(
         p.insert(k, Value::real(x));
     }
     Ok(std::borrow::Cow::Owned(p))
+}
+
+#[cfg(test)]
+mod component_tests {
+    use super::*;
+    use crate::variable::Variable;
+    use elmer_core::FieldKind;
+    use std::sync::Arc;
+
+    /// `Values(DOFs*(Perm(node)-1)+l)`: dof `k` of the node's slot, also for
+    /// a permuted two-component field; a component alias reads its dof.
+    #[test]
+    fn components_follow_perm_and_dofs() {
+        let mut vars = VariableStore::new();
+        // Node 0 -> slot 1, node 1 -> slot 0.
+        let perm: Arc<[u32]> = Arc::from(vec![1u32, 0]);
+        vars.add_with_components(
+            Variable::new("pressure", FieldKind::Nodal, 2, Some(perm), vec![10.0, 11.0, 20.0, 21.0]),
+            &["pressure re".into(), "pressure im".into()],
+        )
+        .unwrap();
+        vars.add(Variable::global("frequency", 5.0)).unwrap();
+        assert_eq!(dependency_dofs(&vars, "pressure"), 2);
+        assert_eq!(dependency_dofs(&vars, "pressure im"), 1);
+        assert_eq!(dependency_dofs(&vars, "frequency"), 1);
+        assert_eq!(component(&vars, "pressure", 0, 0), Some(20.0));
+        assert_eq!(component(&vars, "pressure", 1, 0), Some(21.0));
+        assert_eq!(component(&vars, "pressure", 1, 1), Some(11.0));
+        assert_eq!(lookup(&vars, "pressure", 1), Some(10.0));
+        assert_eq!(lookup(&vars, "pressure im", 0), Some(21.0));
+        assert_eq!(lookup(&vars, "frequency", 7), Some(5.0));
+    }
 }

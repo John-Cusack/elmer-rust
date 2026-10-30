@@ -318,3 +318,63 @@ fn shape_errors() {
     ));
     assert_eq!(MISSING, f64::MAX);
 }
+
+/// A two-component field `p` (`[p(node) re, p(node) im]`) and a scalar `t`.
+struct TwoDof;
+impl FieldLookup for TwoDof {
+    fn value(&self, var: &str, node: u32) -> Option<f64> {
+        self.component(var, 0, node)
+    }
+    fn coord(&self, node: u32) -> [f64; 3] {
+        [node as f64, 0.0, 0.0]
+    }
+    fn time(&self) -> f64 {
+        0.0
+    }
+    fn dofs(&self, var: &str) -> usize {
+        if var == "p" { 2 } else { 1 }
+    }
+    fn component_values(&self, var: &str, k: usize, nodes: &[u32], out: &mut [f64]) {
+        for (o, &n) in out.iter_mut().zip(nodes) {
+            *o = self.component(var, k, n).unwrap_or(MISSING);
+        }
+    }
+}
+impl TwoDof {
+    fn component(&self, var: &str, k: usize, node: u32) -> Option<f64> {
+        match (var, k) {
+            ("p", 0) => Some(3.0 + node as f64),
+            ("p", 1) => Some(4.0),
+            ("t", 0) => Some(100.0),
+            _ => None,
+        }
+    }
+}
+
+/// Records the `tx` row it is called with.
+struct Rows(std::cell::RefCell<Vec<Vec<f64>>>);
+impl MatcEngine for Rows {
+    fn eval(&self, _expr: &str, a: &[f64]) -> Result<Vec<f64>, String> {
+        self.0.borrow_mut().push(a.to_vec());
+        Ok(vec![a.iter().map(|x| x * x).sum::<f64>().sqrt()])
+    }
+}
+
+/// `ListParseStrToValues`: a multi-dof variable passes every component, in
+/// order, before the next dependency (`Variable p, t` -> `tx = [p1 p2 t]`).
+#[test]
+fn multi_dof_dependency_passes_all_components() {
+    let c = compile(&dep(&["p, t"], DependentKind::Matc("sqrt(tx(0)^2+tx(1)^2+tx(2)^2)".into()), 1, 1));
+    let m = Rows(Default::default());
+    let mut out = [0.0; 2];
+    c.eval_nodes(&[0, 1], &TwoDof, &m, &mut out).unwrap();
+    assert_eq!(*m.0.borrow(), vec![vec![3.0, 4.0, 100.0], vec![4.0, 4.0, 100.0]]);
+    assert!((out[0] - (9.0f64 + 16.0 + 10000.0).sqrt()).abs() < 1e-12);
+
+    // A lookup without `dofs` keeps one value per variable.
+    let c = compile(&dep(&["temperature"], DependentKind::Matc("tx(0)".into()), 1, 1));
+    let m = Rows(Default::default());
+    let mut out = [0.0; 1];
+    c.eval_nodes(&[2], &Fields { time: 0.0 }, &m, &mut out).unwrap();
+    assert_eq!(*m.0.borrow(), vec![vec![20.0]]);
+}

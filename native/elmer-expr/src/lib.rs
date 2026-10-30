@@ -47,6 +47,25 @@ pub trait FieldLookup {
             *o = self.value(var, n).unwrap_or(MISSING);
         }
     }
+
+    /// How many dependency values the named variable passes: every
+    /// component of a multi-dof nodal variable, in order
+    /// (`ListParseStrToValues`, Lists.F90), one otherwise. The default is
+    /// one.
+    fn dofs(&self, _var: &str) -> usize {
+        1
+    }
+
+    /// Component `k` (0-based, `< dofs(var)`) of the named variable at
+    /// `nodes`, [`MISSING`] where absent. Component 0 of a one-value
+    /// variable is [`values`](Self::values), which the default returns.
+    fn component_values(&self, var: &str, k: usize, nodes: &[u32], out: &mut [f64]) {
+        if k == 0 {
+            self.values(var, nodes, out);
+        } else {
+            out.fill(MISSING);
+        }
+    }
 }
 
 /// MATC evaluation, implemented by the MATC binding (S1). Results are
