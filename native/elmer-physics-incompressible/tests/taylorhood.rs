@@ -476,14 +476,19 @@ fn taylorhood_boundary_loads_match_elmer() {
 /// viscosity at the points from the previous iterate's shear rate, under
 /// the Brezzi-Pitkaranta stabilization (its tau reads it too).
 fn viscosity_case(case: &str, model: &[(&str, Value)], ref_norm: f64) {
+    let newton = case.ends_with("_newton");
     let dir = data(case);
     let mesh = TestMesh::read(&dir, 2);
-    let mut solver = ns_solver(&[
+    let mut keys = vec![
         ("Pressure Stabilization", Value::Logical(true)),
         ("Pressure Stabilization Element Size", st("longest edge")),
         ("Nonlinear System Max Iterations", ints(&[60])),
         ("Nonlinear System Convergence Tolerance", real(1.0e-10)),
-    ]);
+    ];
+    if newton {
+        keys.push(("Nonlinear System Newton After Iterations", ints(&[3])));
+    }
+    let mut solver = ns_solver(&keys);
     solver_defaults(&mut solver, 2, false);
     let mut material = vec![("Density", real(1.0)), ("Viscosity", real(0.1))];
     material.extend(model.iter().cloned());
@@ -535,6 +540,18 @@ fn power_law_viscosity_matches_elmer() {
     viscosity_case("visc_powerlaw", &m, 0.07532484369893568);
 }
 
+/// The same with Newton after 3 iterations: the viscosity derivative in
+/// the Jacobian.
+#[test]
+fn power_law_viscosity_newton_matches_elmer() {
+    let m = [
+        ("Viscosity Model", st("power law")),
+        ("Viscosity Exponent", real(0.7)),
+        ("Critical Shear Rate", real(0.05)),
+    ];
+    viscosity_case("visc_powerlaw_newton", &m, 0.07532484369725134);
+}
+
 #[test]
 fn carreau_viscosity_matches_elmer() {
     let m = [
@@ -544,6 +561,19 @@ fn carreau_viscosity_matches_elmer() {
         ("Viscosity Transition", real(1.5)),
     ];
     viscosity_case("visc_carreau", &m, 0.07577798970745593);
+}
+
+/// The same with Newton after 3 iterations: the viscosity derivative in
+/// the Jacobian.
+#[test]
+fn carreau_viscosity_newton_matches_elmer() {
+    let m = [
+        ("Viscosity Model", st("carreau")),
+        ("Viscosity Difference", real(0.2)),
+        ("Viscosity Exponent", real(0.5)),
+        ("Viscosity Transition", real(1.5)),
+    ];
+    viscosity_case("visc_carreau_newton", &m, 0.0757779897072253);
 }
 
 #[test]
@@ -557,6 +587,19 @@ fn cross_viscosity_matches_elmer() {
     viscosity_case("visc_cross", &m, 0.07552704554913707);
 }
 
+/// The same with Newton after 3 iterations: the viscosity derivative in
+/// the Jacobian.
+#[test]
+fn cross_viscosity_newton_matches_elmer() {
+    let m = [
+        ("Viscosity Model", st("cross")),
+        ("Viscosity Difference", real(0.2)),
+        ("Viscosity Exponent", real(1.3)),
+        ("Viscosity Transition", real(2.0)),
+    ];
+    viscosity_case("visc_cross_newton", &m, 0.0755270455460575);
+}
+
 /// Not converged after the 60 Picard iterations (as in the pristine run,
 /// change 1.7e-6): the 60th iterate is compared.
 #[test]
@@ -567,4 +610,16 @@ fn powell_eyring_viscosity_matches_elmer() {
         ("Viscosity Transition", real(1.5)),
     ];
     viscosity_case("visc_powell", &m, 0.07420013848890271);
+}
+
+/// The same with Newton after 3 iterations: the viscosity derivative in
+/// the Jacobian.
+#[test]
+fn powell_eyring_viscosity_newton_matches_elmer() {
+    let m = [
+        ("Viscosity Model", st("powell eyring")),
+        ("Viscosity Difference", real(0.05)),
+        ("Viscosity Transition", real(1.5)),
+    ];
+    viscosity_case("visc_powell_newton", &m, 0.07420022111104378);
 }

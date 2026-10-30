@@ -790,10 +790,8 @@ impl Solver for IncompressibleNsSolver {
                     Some(m) => viscosity_model(ctx, m, e)?,
                     None => None,
                 };
-                if viscosity_model.is_some() && (newton || linear_assembly) {
-                    return Err(unsupported(
-                        "the Newton linearization (or Linear Equation) of a non-newtonian Viscosity Model",
-                    ));
+                if viscosity_model.is_some() && linear_assembly {
+                    return Err(unsupported("Linear Equation with a non-newtonian Viscosity Model"));
                 }
                 let compress = match (compress_model(mat), mat) {
                     (Some(model), Some(m)) => {
