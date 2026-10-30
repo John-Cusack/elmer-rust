@@ -308,6 +308,15 @@ pub struct Simulation {
     pub(crate) flux_shared_warned: bool,
     /// `SetNormalizedKeywords` has run (`Mesh % EntityWeightsComputed`).
     pub(crate) keywords_normalized: bool,
+    /// The `Output File` writer ([`Simulation::set_save_current`]).
+    save_current: Option<Box<dyn SaveCurrent>>,
+}
+
+/// `SaveCurrent` (ElmerSolver.F90:3700): the `Output File` writer, called
+/// at each save point between the `before saving` and `after saving`
+/// solvers. It lives outside the solver crate, like the VTU writer.
+pub trait SaveCurrent {
+    fn save(&mut self, sim: &Simulation, mesh: &dyn MeshView, log: &dyn Logger) -> Result<(), SolverError>;
 }
 
 /// The run outcome of [`Simulation::run`].
@@ -359,7 +368,13 @@ impl Simulation {
             live: None,
             flux_shared_warned: false,
             keywords_normalized: false,
+            save_current: None,
         }
+    }
+
+    /// Installs the `Output File` writer for this and later runs.
+    pub fn set_save_current(&mut self, writer: Box<dyn SaveCurrent>) {
+        self.save_current = Some(writer);
     }
 
     /// The live model view for user functions that read node coordinates,
@@ -1729,6 +1744,11 @@ impl Simulation {
                 let oi = output_intervals[interval];
                 if oi != 0 && ((timestep - 1) % oi == 0 || reached) {
                     self.exec_slots(ExecWhen::BeforeSaving, dt, transient, mesh, log, comm)?;
+                    if let Some(mut writer) = self.save_current.take() {
+                        let saved = writer.save(self, mesh, log);
+                        self.save_current = Some(writer);
+                        saved?;
+                    }
                     self.exec_slots(ExecWhen::AfterSaving, dt, transient, mesh, log, comm)?;
                 }
                 if self.creal(&simp, "exit condition", mesh)?.is_some_and(|c| c > 0.0) {

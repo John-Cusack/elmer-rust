@@ -766,6 +766,9 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     }
     elmer_fixtures::registry::install_live(&fixture_case, &mut sim, mesh);
     sim.setup(mesh, &registry, log, comm)?;
+    if let Some(writer) = crate::result_file::writer(&sim.model, &mesh_dir, size, log) {
+        sim.set_save_current(Box::new(writer));
+    }
     if let Some((id, coarse)) = mg_coarse {
         sim.set_multigrid_meshes(id, coarse)?;
     }
