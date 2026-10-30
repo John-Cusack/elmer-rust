@@ -10,9 +10,10 @@
 //! Picard and Newton linearization of the convection, the `GradP` and
 //! `Div-Curl` forms, element-constant density, nodal viscosity and body
 //! forces, the three `Pressure Stabilization Element Size` measures, and p
-//! elements without bubbles (Taylor-Hood: the edge and face pressure dofs
-//! pinned, [`pin_pressure`]). Not ported (the solver refuses them): bubbles,
-//! compressibility models, non-newtonian and turbulent viscosity,
+//! elements: Taylor-Hood (the edge and face pressure dofs pinned,
+//! [`pin_pressure`]) and the MINI element (velocity bubbles condensed in a
+//! steady run, [`lcondensate`]). Not ported (the solver refuses them):
+//! transient bubble condensation, compressibility models, non-newtonian and turbulent viscosity,
 //! axisymmetric coordinates.
 
 // A structural transliteration of Fortran loops over `1:dim` that index several
@@ -250,12 +251,14 @@ pub fn incompressible_bulk_local_with(
         }
     }
 
-    // Velocity and pressure of the previous iterate at the points.
+    // Velocity and pressure of the previous iterate at the points: the DGEMM
+    // of LocalBulkMatrix runs over the `n` nodal functions only (the
+    // velocity gradient below takes all `nf`).
     let mut velopres = vec![[0.0; 4]; ngp];
     if let Some(sol) = inp.solution {
         for (t, vp) in velopres.iter_mut().enumerate() {
             for (k, x) in vp.iter_mut().enumerate().take(dofs) {
-                *x = (0..nf).map(|p| bas[t * nf + p] * sol[p][k]).sum();
+                *x = (0..n).map(|p| bas[t * nf + p] * sol[p][k]).sum();
             }
         }
     }
@@ -511,4 +514,79 @@ pub fn pin_pressure(local: &mut LocalSystem, n: usize, dofs: usize) {
             }
         }
     }
+}
+
+/// `LCondensate(N = nd, nb, dim, M, K, F)` of a steady run: the velocity
+/// components of the `nb` bubble functions (local rows `(nd + p) * dofs + i`,
+/// `i < dim`) are eliminated against the `nd * dofs` retained rows; the
+/// bubble pressure rows are dropped. `local` has `(nd + nb) * dofs` rows,
+/// node-major, and is left with `nd * dofs`.
+pub fn lcondensate(local: &mut LocalSystem, nd: usize, nb: usize, dim: usize) -> Result<(), IncompressibleError> {
+    let dofs = dim + 1;
+    let m = local.n;
+    if m != (nd + nb) * dofs {
+        return Err(IncompressibleError::Unsupported(format!("{m} local rows for {nd} + {nb} functions")));
+    }
+    let c: Vec<usize> = (0..nd * dofs).collect();
+    let b: Vec<usize> = (0..nb).flat_map(|p| (0..dim).map(move |i| (nd + p) * dofs + i)).collect();
+    let (nc, nbb) = (c.len(), b.len());
+    let k = |i: usize, j: usize| local.stiff[i * m + j];
+    // Kbb^-1 by Gauss-Jordan with partial pivoting (InvertMatrix).
+    let mut a: Vec<f64> = (0..nbb * nbb).map(|x| k(b[x / nbb], b[x % nbb])).collect();
+    let mut inv = vec![0.0; nbb * nbb];
+    for i in 0..nbb {
+        inv[i * nbb + i] = 1.0;
+    }
+    for col in 0..nbb {
+        let piv = (col..nbb)
+            .max_by(|&x, &y| a[x * nbb + col].abs().total_cmp(&a[y * nbb + col].abs()))
+            .expect("non-empty");
+        if a[piv * nbb + col] == 0.0 {
+            return Err(IncompressibleError::Unsupported("a singular bubble block (LCondensate)".into()));
+        }
+        for j in 0..nbb {
+            a.swap(col * nbb + j, piv * nbb + j);
+            inv.swap(col * nbb + j, piv * nbb + j);
+        }
+        let d = a[col * nbb + col];
+        for j in 0..nbb {
+            a[col * nbb + j] /= d;
+            inv[col * nbb + j] /= d;
+        }
+        for r in 0..nbb {
+            if r != col {
+                let f = a[r * nbb + col];
+                if f != 0.0 {
+                    for j in 0..nbb {
+                        a[r * nbb + j] -= f * a[col * nbb + j];
+                        inv[r * nbb + j] -= f * inv[col * nbb + j];
+                    }
+                }
+            }
+        }
+    }
+    // Klb Kbb^-1, then the Schur complement on the retained rows.
+    let mut klb_inv = vec![0.0; nc * nbb];
+    for (r, &ci) in c.iter().enumerate() {
+        for q in 0..nbb {
+            klb_inv[r * nbb + q] = (0..nbb).map(|p| k(ci, b[p]) * inv[p * nbb + q]).sum();
+        }
+    }
+    let fb: Vec<f64> = b.iter().map(|&i| local.force[i]).collect();
+    let mut stiff = vec![0.0; nc * nc];
+    let mut force = vec![0.0; nc];
+    for (r, &ci) in c.iter().enumerate() {
+        let row = &klb_inv[r * nbb..(r + 1) * nbb];
+        force[r] = local.force[ci] - row.iter().zip(&fb).map(|(x, f)| x * f).sum::<f64>();
+        for (s, &cj) in c.iter().enumerate() {
+            let kbl: f64 = row.iter().zip(&b).map(|(x, &bi)| x * k(bi, cj)).sum();
+            stiff[r * nc + s] = k(ci, cj) - kbl;
+        }
+    }
+    local.n = nc;
+    local.stiff = stiff;
+    local.force = force;
+    local.mass = None;
+    local.damp = None;
+    Ok(())
 }

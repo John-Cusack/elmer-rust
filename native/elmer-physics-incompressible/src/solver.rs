@@ -11,8 +11,8 @@ use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
 use crate::boundary::{incompressible_boundary_local, IncompressibleBoundaryInput};
 use crate::bulk::{
-    incompressible_bulk_local, incompressible_bulk_local_with, pin_pressure, HMode, IncompressibleBulkInput,
-    PressureStab,
+    incompressible_bulk_local, incompressible_bulk_local_with, lcondensate, pin_pressure, HMode,
+    IncompressibleBulkInput, PressureStab,
 };
 use crate::error::IncompressibleError;
 
@@ -101,8 +101,26 @@ fn pressure_stabilization(p: &ParamMap) -> bool {
 /// this before [`Simulation::setup`](elmer_solver::Simulation::setup);
 /// `init` repeats it for the keywords that still take effect afterwards.
 pub fn solver_defaults(p: &mut ParamMap, dim: usize, transient: bool) {
+    solver_defaults_with(p, dim, transient, true);
+}
+
+/// [`solver_defaults`] with the simulation's `Serendipity P Elements`
+/// (default true), which picks the bubble count of the MINI element
+/// `_Init0` adds without stabilization.
+pub fn solver_defaults_with(p: &mut ParamMap, dim: usize, transient: bool, serendipity: bool) {
     if pressure_stabilization(p) {
         add_new(p, "Element", Value::Str("n:1".into()));
+    } else {
+        let mini = if serendipity {
+            "p:1 -tri b:1 -tetra b:1 -quad b:3 -brick b:4 -prism b:4 -pyramid b:4"
+        } else {
+            "p:1 -tri b:1 -tetra b:1 -quad b:4 -brick b:8 -prism b:9 -pyramid b:4"
+        };
+        add_new(p, "Element", Value::Str(mini.into()));
+    }
+    // _Init: a bubble element gets its tetra and prism rules.
+    if p.string("element").is_some_and(|e| e.contains("b:")) {
+        add_new(p, "Element Integration Points", Value::Str("-tetra 24 -prism 85".into()));
     }
     add_new(
         p,
@@ -162,15 +180,15 @@ fn check_solver_params(p: &ParamMap, pdofs: bool) -> Result<(), SolverError> {
             )));
         }
     } else {
-        // Taylor-Hood: a p element without bubbles, its pressure pinned to
-        // the nodal one.
-        let Some(e) = element.filter(|e| pdofs && !e.contains("b:") && !e.contains("n:1")) else {
+        // p elements from SolverDofs: Taylor-Hood (the pressure pinned to the
+        // nodal one) and the MINI element (velocity bubbles, condensed).
+        let Some(e) = element.filter(|e| pdofs && !e.contains("n:1")) else {
             return Err(unsupported(
-                "the default MINI element (condensed velocity bubbles); only Pressure Stabilization \
-                 (Element = \"n:1\") and Taylor-Hood p elements (Element = \"p:2\") are ported",
+                "p elements without p dofs (SolverDofs): the default MINI element (condensed velocity \
+                 bubbles), Taylor-Hood; only Pressure Stabilization (Element = \"n:1\") is ported then",
             ));
         };
-        if !e.starts_with("p:") || e.split_whitespace().next() == Some("p:1") {
+        if !e.starts_with("p:") || (e.split_whitespace().next() == Some("p:1") && !e.contains("b:")) {
             return Err(unsupported(format!("Element = \"{e}\" without Pressure Stabilization")));
         }
     }
@@ -359,6 +377,8 @@ struct PElement {
     rule: Vec<elmer_core::QuadPoint>,
     nodes: Vec<u32>,
     nd: usize,
+    /// Local bubbles (`GetElementNOFBDOFs`), condensed.
+    nb: usize,
 }
 
 /// `values` (at `mesh_nodes`) at `nodes` instead.
@@ -373,9 +393,6 @@ fn reorder(values: Vec<f64>, mesh_nodes: &[u32], nodes: &[u32]) -> Vec<f64> {
 }
 
 fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId, np: Option<usize>) -> Result<PElement, SolverError> {
-    if d.local_bubbles(e) > 0 {
-        return Err(unsupported("p elements with bubbles (LCondensate)"));
-    }
     let mut slots = Vec::new();
     d.element_slots(e, &mut slots);
     Ok(PElement {
@@ -387,6 +404,7 @@ fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId, np: Option<usize>) -> 
         .map_err(|m| SolverError::fatal("GaussPoints", m))?,
         nodes: d.element_nodes(e),
         nd: slots.len(),
+        nb: d.local_bubbles(e),
     })
 }
 
@@ -647,7 +665,10 @@ impl Solver for IncompressibleNsSolver {
                     Some(d) => Some(p_element(d, e, rule_np.for_type(el.etype))?),
                     None => None,
                 };
-                let nf = pe.as_ref().map_or(n, |p| p.nd);
+                let nf = pe.as_ref().map_or(n, |p| p.nd + p.nb);
+                if transient && pe.as_ref().is_some_and(|p| p.nb > 0) {
+                    return Err(unsupported("transient runs with condensed bubbles (LCondensate's bubble history)"));
+                }
                 // A p element's basis takes its nodes in the order of its dofs
                 // (p tetrahedra are reordered); the nodal data follows them.
                 let nodes = pe.as_ref().map_or(el.nodes, |p| &p.nodes[..]);
@@ -663,8 +684,14 @@ impl Solver for IncompressibleNsSolver {
                     return Err(SolverError::fatal(CALLER, format!("active element {} has nodes outside the system", e.0)));
                 }
                 let values = ctx.primary().expect("checked in init").values;
+                // GetLocalSolution: the condensed bubbles read as zero.
                 let solution: Vec<[f64; 4]> = (0..nf)
-                    .map(|k| std::array::from_fn(|i| if i < nsdofs { values[dofs[k * nsdofs + i] as usize] } else { 0.0 }))
+                    .map(|k| {
+                        std::array::from_fn(|i| match dofs.get(k * nsdofs + i) {
+                            Some(&d) if i < nsdofs => values[d as usize],
+                            _ => 0.0,
+                        })
+                    })
                     .collect();
 
                 let density = nodal(ctx, mat, "density", e, n)?;
@@ -705,9 +732,15 @@ impl Solver for IncompressibleNsSolver {
                 match &pe {
                     None => incompressible_bulk_local(basis, quad, &inp, &mut self.local)?,
                     Some(p) => {
-                        incompressible_bulk_local_with(&*p.basis, &p.rule, p.nd, &inp, &mut self.local)?;
-                        if !pstab {
+                        incompressible_bulk_local_with(&*p.basis, &p.rule, nf, &inp, &mut self.local)?;
+                        // LocalBulkMatrix: a Stokes run with bubbles condenses
+                        // them and pins nothing; otherwise the pressure is
+                        // pinned to the nodal one first.
+                        if !(stokes && p.nb > 0) && !pstab {
                             pin_pressure(&mut self.local, n, nsdofs);
+                        }
+                        if p.nb > 0 {
+                            lcondensate(&mut self.local, p.nd, p.nb, dim)?;
                         }
                     }
                 }

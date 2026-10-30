@@ -1,9 +1,10 @@
 //! IncompressibleNSSolver for the Rust-native Elmer rewrite: the incompressible
 //! Navier-Stokes equations with equal-order velocity and pressure held stable
 //! by `Pressure Stabilization` (`fem/src/modules/IncompressibleNS.F90`, also
-//! reached as `IncompressibleNSVec`), and the Taylor-Hood pair of a steady
-//! run on p elements without bubbles (`Element = "p:2"` serendipity
-//! elements, the dofs from the solver's `SolverDofs`).
+//! reached as `IncompressibleNSVec`), and on p elements with the dofs from
+//! the solver's `SolverDofs`: the Taylor-Hood pair (`Element = "p:2"`) and,
+//! in a steady run, the default MINI element of `_Init0` (`p:1 b:N`, the
+//! velocity bubbles condensed by `LCondensate`).
 //!
 //! [`incompressible_bulk_local`] and [`incompressible_boundary_local`] are
 //! pure functions of the element geometry and nodal values; element sizes
@@ -13,10 +14,10 @@
 //! trait; [`register`] binds it to `Procedure = "IncompressibleNS"
 //! "IncompressibleNSSolver"` and `"IncompressibleNSVec" ...`.
 //!
-//! The default MINI element (`Element = "p:1 b:1"`, condensed velocity
-//! bubbles), other bubble elements, compressibility models, non-newtonian and
-//! turbulent viscosity, axisymmetric coordinates, friction and wall-law
-//! boundaries and the block preconditioner are refused, not approximated.
+//! Transient bubble condensation (the bubble history), compressibility
+//! models, non-newtonian and turbulent viscosity, axisymmetric coordinates,
+//! friction and wall-law boundaries and the block preconditioner are
+//! refused, not approximated.
 #![forbid(unsafe_code)]
 
 pub mod boundary;
@@ -26,11 +27,13 @@ pub mod solver;
 
 pub use boundary::{incompressible_boundary_local, IncompressibleBoundaryInput};
 pub use bulk::{
-    incompressible_bulk_local, incompressible_bulk_local_with, pin_pressure, HMode, IncompressibleBulkInput,
-    PressureStab,
+    incompressible_bulk_local, incompressible_bulk_local_with, lcondensate, pin_pressure, HMode,
+    IncompressibleBulkInput, PressureStab,
 };
 pub use error::IncompressibleError;
-pub use solver::{factory, install_fe, register, solver_defaults, FeProvider, IncompressibleNsSolver};
+pub use solver::{
+    factory, install_fe, register, solver_defaults, solver_defaults_with, FeProvider, IncompressibleNsSolver,
+};
 
 /// Registry entries: `Procedure = "IncompressibleNS" "IncompressibleNSSolver"`
 /// and the front `"IncompressibleNSVec" "IncompressibleNSSolver"`.

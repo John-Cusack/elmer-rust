@@ -26,6 +26,11 @@ fn lines(path: &std::path::Path) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// `Element = p:2`, the Taylor-Hood pair.
+fn p2() -> [(&'static str, Value); 1] {
+    [("Element", st("p:2"))]
+}
+
 fn bc(tags: &[i32], entries: &[(&str, Value)]) -> ParamMap {
     let mut v = vec![("Target Boundaries", ints(tags))];
     v.extend(entries.iter().cloned());
@@ -70,13 +75,13 @@ fn run(
     let dir = data(case);
     let mesh = TestMesh::read(&dir, dim);
     let mut keys = vec![
-        ("Element", st("p:2")),
         ("Stokes Flow", Value::Logical(true)),
         ("Nonlinear System Max Iterations", ints(&[1])),
         ("Nonlinear System Convergence Tolerance", real(1.0e-3)),
     ];
     keys.extend(extra.iter().cloned());
     let mut solver = ns_solver(&keys);
+    // _Init0 (the MINI element without an Element) before the dofs are made.
     solver_defaults(&mut solver, dim, false);
     let (bcs, viscosity) = setup(&mesh);
     let material = sec(&[("Density", real(1.0)), ("Viscosity", real(viscosity))]);
@@ -90,9 +95,23 @@ fn run(
 }
 
 fn run_case(case: &str, dim: usize, setup: Setup, extra: &[(&str, Value)], n_slots: usize, ref_norm: f64) {
-    let dir = data(case);
     let csys = if dim == 3 { "Cartesian 3D" } else { "Cartesian 2D" };
-    let sim = run(case, dim, setup, steady(csys), extra).unwrap();
+    run_case_with(case, dim, setup, steady(csys), extra, n_slots, ref_norm, dim + 1);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_case_with(
+    case: &str,
+    dim: usize,
+    setup: Setup,
+    simulation: ParamMap,
+    extra: &[(&str, Value)],
+    n_slots: usize,
+    ref_norm: f64,
+    compared: usize,
+) {
+    let dir = data(case);
+    let sim = run(case, dim, setup, simulation, extra).unwrap();
     let dofs = dim + 1;
 
     let u = sim.vars.get("flow solution").unwrap();
@@ -125,7 +144,7 @@ fn run_case(case: &str, dim: usize, setup: Setup, extra: &[(&str, Value)], n_slo
     let rel: Vec<f64> = (0..dofs).map(|c| err[c] / scale[c]).collect();
     eprintln!("{case}: norm {norm:.17e}, max error / scale per component {rel:?}");
     assert!((norm - ref_norm).abs() / ref_norm < 1e-10, "{case}: norm {norm:.17e} vs {ref_norm:.17e}");
-    for c in 0..dofs {
+    for c in 0..compared {
         assert!(err[c] <= 1e-10 * scale[c], "{case}: component {c} max error {} (scale {})", err[c], scale[c]);
     }
 }
@@ -133,37 +152,53 @@ fn run_case(case: &str, dim: usize, setup: Setup, extra: &[(&str, Value)], n_slo
 /// 531 serendipity quads: 595 nodes + 1125 edges.
 #[test]
 fn taylorhood_quad_matches_elmer() {
-    run_case("taylorhood_quad", 2, step, &[], 1720, 0.04399609386373855);
+    run_case("taylorhood_quad", 2, step, &p2(), 1720, 0.04399609386373855);
 }
 
 /// 1062 triangles: 595 nodes + 1656 edges.
 #[test]
 fn taylorhood_tri_matches_elmer() {
-    run_case("taylorhood_tri", 2, step, &[], 2251, 0.03851002030822979);
+    run_case("taylorhood_tri", 2, step, &p2(), 2251, 0.03851002030822979);
 }
 
 /// 386 p:2 tetrahedra (143 nodes + 660 edges) on the 5-point rule of
 /// `Element Integration Points = "-tetra 5"`.
 #[test]
 fn taylorhood_tet_matches_elmer() {
-    let extra = [("Element Integration Points", st("-tetra 5"))];
+    let extra = [("Element", st("p:2")), ("Element Integration Points", st("-tetra 5"))];
     run_case("taylorhood_tet", 3, cavity, &extra, 803, 0.025134495063016765);
 }
 
-/// Full p:2 quads have a bubble each, which `LocalBulkMatrix` would
-/// condense (`LCondensate`): refused.
+/// Full p:2 quads (`Serendipity P Elements = False`) have a bubble each,
+/// which a Stokes run condenses (`LCondensate`) without pinning the edge
+/// pressures: 595 nodes + 1125 edges in the system. The quadratic pressure
+/// then has spurious modes the direct solvers resolve differently, so the
+/// velocity (and its norm) is compared, not the pressure.
 #[test]
-fn taylorhood_with_bubbles_is_refused() {
+fn taylorhood_quad_full_matches_elmer() {
     let mut simulation = steady("Cartesian 2D");
     simulation.insert("Serendipity P Elements", Value::Logical(false));
-    let err = run("taylorhood_quad", 2, step, simulation, &[]).err().expect("refused");
-    assert!(err.to_string().contains("bubbles"), "{err}");
+    run_case_with("taylorhood_quad_full", 2, step, simulation, &p2(), 1720, 0.04394492021142661, 2);
 }
 
 /// `Relative Integration Order` (`GaussPointsAdapt`) is not ported: refused.
 #[test]
 fn relative_integration_order_is_refused() {
-    let extra = [("Relative Integration Order", ints(&[1]))];
+    let extra = [("Element", st("p:2")), ("Relative Integration Order", ints(&[1]))];
     let err = run("taylorhood_quad", 2, step, steady("Cartesian 2D"), &extra).err().expect("refused");
     assert!(err.to_string().contains("Relative Integration Order"), "{err}");
+}
+
+/// `StokesStabilized/quad.sif` and `tri.sif` without `Pressure
+/// Stabilization`: `_Init0`'s MINI element (`p:1 -tri b:1 -quad b:3`), the
+/// velocity bubbles condensed element by element (`LCondensate`), so only
+/// the 595 nodes are in the system.
+#[test]
+fn mini_quad_matches_elmer() {
+    run_case("mini_quad", 2, step, &[], 595, 0.07554915049888652);
+}
+
+#[test]
+fn mini_tri_matches_elmer() {
+    run_case("mini_tri", 2, step, &[], 595, 0.07587897980190471);
 }

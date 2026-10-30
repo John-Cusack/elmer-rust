@@ -23,8 +23,11 @@ the resulting reference:
 | `taylorhood_quad` | `StokesStabilized/quad_taylorhood.sif` (`ElmerGrid 1 2 Step.grd`) | Stokes on `Element = "p:2"` serendipity quads, no `Pressure Stabilization`: edge pressures pinned |
 | `taylorhood_tri` | `StokesStabilized/tri_taylorhood.sif` (`ElmerGrid 1 2 Step.grd -triangles`) | the same on p:2 triangles |
 | `taylorhood_tet` | `StokesStabilized/tet_taylorhood.sif` (the `stokes_tet` mesh) | the same on p:2 tetrahedra (reordered nodes), `Element Integration Points = "-tetra 5"` |
+| `taylorhood_quad_full` | `quad_taylorhood.sif` with `Serendipity P Elements = False` | full p:2 quads, one bubble each condensed (`LCondensate`, no pressure pinning in a Stokes run); velocity only (the unpinned pressure has spurious modes) |
+| `mini_quad` | `StokesStabilized/quad.sif` without `Pressure Stabilization` | `_Init0`'s MINI element `p:1 -quad b:3`, velocity bubbles condensed; norm 7.5549150E-02 |
+| `mini_tri` | `StokesStabilized/tri.sif` without `Pressure Stabilization` | the same, `-tri b:1` |
 
-The `taylorhood_*` cases have p dofs, so their references are by dof
+The `taylorhood_*` and `mini_*` cases have p dofs, so their references are by dof
 slot instead of node: `perm.dat` holds the `Perm` of the `.result` as `slot
 row` lines and `solution.dat` the values as `slot u1 u2 [u3] p` lines, slot by
 slot (`x(Perm(slot))`); `tests/taylorhood.rs` compares every slot.
