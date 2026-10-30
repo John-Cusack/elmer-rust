@@ -7,18 +7,21 @@
 //! numbering (Multigrid.F90:2094; scalar and `MG Determining Component`
 //! candidates, no complex, pseudo-geometric or compatible-relaxation
 //! variants).
-//! `InterpolateF2C` (the projector, Multigrid.F90:3367) is ported too.
+//! `InterpolateF2C` (the projector, Multigrid.F90:3367),
+//! `CRS_ProjectMatrixCreate` (the coarse matrix, Multigrid.F90:4843) and
+//! the level hierarchy and cycle of `AMGSolve`/`AMGSweep` ([`build`],
+//! [`solve`] on `multigrid::Hierarchy` with `Kind::Algebraic`) are ported
+//! too, unit-tested but not pristine-checked.
 //! Still to port before `Linear System Preconditioning = multigrid` /
 //! `Linear System Solver = Multigrid` with `MG Method = algebraic` can use
-//! it:
-//! `CRS_ProjectMatrixCreate` (the coarse matrix), `AMGSolve`/`AMGSweep` (the
-//! cycle, which can reuse `multigrid::Hierarchy`) and the multigrid
-//! preconditioner entry (`MultiGridPrec`).
+//! it: the wiring into `solve_linear` and the preconditioner entry
+//! (`MultiGridPrec`), checked against amultg2.
 #![allow(dead_code)]
 
 use elmer_core::{CsrMatrix, ParamMap, Params};
 
 use crate::error::SolverError;
+use crate::multigrid::{CoarseSolve, Hierarchy, Kind, MgOptions};
 
 /// The `MG*` keywords `AMGBonds` reads.
 #[derive(Clone, Debug)]
@@ -700,6 +703,125 @@ fn bubble(v: &mut [(usize, f64)], swap: impl Fn(f64, f64) -> bool) {
     }
 }
 
+/// `CRS_ProjectMatrixCreate(A, P, R, B, DOFs)` with `P = R^T`: the coarse
+/// matrix `B = P A R` from the node projector `r` (fine nodes x coarse
+/// nodes, `ProjT`), `dofs` components per node; with several components
+/// the entries of `A` below `MG Matrix Create Epsilon` are skipped. The
+/// Fortran stores a row's columns in the order first met; they are sorted
+/// here (the sums are unchanged).
+pub(crate) fn project_matrix_create(a: &CsrMatrix<f64>, r: &CsrMatrix<f64>, dofs: usize, epsilon: f64) -> CsrMatrix<f64> {
+    // P = R^T, rows in increasing fine order (CRS_Transpose).
+    let nc = r.ncols;
+    let mut prow: Vec<Vec<(usize, f64)>> = vec![Vec::new(); nc];
+    for i in 0..r.nrows {
+        for k in r.row_ptr[i]..r.row_ptr[i + 1] {
+            prow[r.col_idx[k] as usize].push((i, r.values[k]));
+        }
+    }
+    let nb = nc * dofs;
+    let mut b = CsrMatrix { nrows: nb, ncols: nb, row_ptr: vec![0], col_idx: Vec::new(), values: Vec::new(), diag: None };
+    let mut slot = vec![usize::MAX; nb];
+    for prow_i in &prow {
+        for m in 0..dofs {
+            let mut cols: Vec<usize> = Vec::new();
+            let mut vals: Vec<f64> = Vec::new();
+            for &(pj, pv) in prow_i {
+                let cj = dofs * pj + m;
+                for k in a.row_ptr[cj]..a.row_ptr[cj + 1] {
+                    if dofs > 1 && a.values[k].abs() < epsilon {
+                        continue;
+                    }
+                    let ck = a.col_idx[k] as usize;
+                    let (n, node) = (ck % dofs, ck / dofs);
+                    for l in r.row_ptr[node]..r.row_ptr[node + 1] {
+                        let cl = dofs * r.col_idx[l] as usize + n;
+                        let v = pv * a.values[k] * r.values[l];
+                        if slot[cl] == usize::MAX {
+                            slot[cl] = cols.len();
+                            cols.push(cl);
+                            vals.push(v);
+                        } else {
+                            vals[slot[cl]] += v;
+                        }
+                    }
+                }
+            }
+            let mut row: Vec<(usize, f64)> = cols.iter().copied().zip(vals).collect();
+            for &c in &cols {
+                slot[c] = usize::MAX;
+            }
+            row.sort_by_key(|&(c, _)| c);
+            for (c, v) in row {
+                b.col_idx.push(c as u32);
+                b.values.push(v);
+            }
+            b.row_ptr.push(b.values.len());
+        }
+    }
+    b
+}
+
+/// The level hierarchy of `AMGSolve` (coarsest first): from the finest
+/// matrix down while the level is above 1 and the matrix has at least `MG
+/// Lowest Linear Solver Limit` (20) rows; Dirichlet rows are eliminated on
+/// the finest level only. The interpolation operators are expanded to the
+/// dofs (`CRS_ProjectVector` applies the node projector per component).
+pub(crate) fn build(a: &CsrMatrix<f64>, p: &ParamMap, dofs: usize, levels: usize, ilu: Option<usize>) -> Result<Hierarchy, SolverError> {
+    let direct_limit = p.integer("mg lowest linear solver limit").map_or(20, |k| k.max(0) as usize);
+    let epsilon = p.real("mg matrix create epsilon").unwrap_or(f64::MIN_POSITIVE.sqrt());
+    let mut mats: Vec<(CsrMatrix<f64>, Option<CsrMatrix<f64>>)> = Vec::new();
+    let mut cur = a.clone();
+    let mut level = levels;
+    loop {
+        if level <= 1 || cur.nrows < direct_limit {
+            mats.push((cur, None));
+            break;
+        }
+        let (cf, _, fixed) = choose_coarse_nodes(&cur, p, dofs, level == levels)?;
+        let proj = interpolate_f2c(&cur, &cf, &fixed, dofs, &InterpOptions::from_params(p, dofs));
+        let next = project_matrix_create(&cur, &proj, dofs, epsilon);
+        mats.push((cur, Some(expand(&proj, dofs))));
+        cur = next;
+        level -= 1;
+    }
+    mats.reverse();
+    let mut h = Hierarchy::new(mats, ilu)?;
+    h.kind = Kind::Algebraic;
+    h.dofs = dofs;
+    Ok(h)
+}
+
+/// The node projector applied per component: row `dofs i + c`, columns
+/// `dofs j + c`.
+fn expand(p: &CsrMatrix<f64>, dofs: usize) -> CsrMatrix<f64> {
+    if dofs == 1 {
+        return p.clone();
+    }
+    let mut e = CsrMatrix { nrows: p.nrows * dofs, ncols: p.ncols * dofs, row_ptr: vec![0], col_idx: Vec::new(), values: Vec::new(), diag: None };
+    for i in 0..p.nrows {
+        for c in 0..dofs {
+            for k in p.row_ptr[i]..p.row_ptr[i + 1] {
+                e.col_idx.push(dofs as u32 * p.col_idx[k] + c as u32);
+                e.values.push(p.values[k]);
+            }
+            e.row_ptr.push(e.values.len());
+        }
+    }
+    e
+}
+
+/// `AMGSolve` at the finest level of `h`.
+pub(crate) fn solve(
+    h: &Hierarchy,
+    x: &mut [f64],
+    b: &mut [f64],
+    opts: &MgOptions,
+    coarse: &CoarseSolve<'_>,
+    log: &dyn elmer_core::Logger,
+) -> Result<(), SolverError> {
+    h.solve(h.levels.len(), x, b, opts, coarse, log)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -843,6 +965,71 @@ mod tests {
                 let s: f64 = row.iter().sum();
                 assert!((s - 1.0).abs() < 1e-12, "row {i}: {row:?}");
             }
+        }
+    }
+
+    fn dense_solve(a: &CsrMatrix<f64>, b: &[f64], x: &mut [f64]) -> Result<(), SolverError> {
+        let n = a.nrows;
+        let mut m = vec![0.0; n * n];
+        for i in 0..n {
+            for k in a.row_ptr[i]..a.row_ptr[i + 1] {
+                m[i * n + a.col_idx[k] as usize] = a.values[k];
+            }
+        }
+        x.copy_from_slice(b);
+        for c in 0..n {
+            for r in c + 1..n {
+                let f = m[r * n + c] / m[c * n + c];
+                for k in c..n {
+                    m[r * n + k] -= f * m[c * n + k];
+                }
+                x[r] -= f * x[c];
+            }
+        }
+        for c in (0..n).rev() {
+            let s: f64 = (c + 1..n).map(|k| m[c * n + k] * x[k]).sum();
+            x[c] = (x[c] - s) / m[c * n + c];
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn amg_cycles_solve_the_grid_laplacian() {
+        let m = 12;
+        let n = m * m;
+        let a = grid(m, 1.0);
+        let h = build(&a, &ParamMap::new(), 1, 10, None).unwrap();
+        assert!(h.levels.len() >= 3, "{} levels", h.levels.len());
+        let mut b = vec![1.0; n];
+        let mut x = vec![0.0; n];
+        let opts = MgOptions {
+            max_iter: 100,
+            tolerance: 1.0e-10,
+            level_max_iter: 1,
+            level_tolerance: f64::MAX,
+            sweeps: vec![1],
+            pre: vec![2],
+            post: vec![2],
+            smoother: "sgs".into(),
+        };
+        solve(&h, &mut x, &mut b, &opts, &dense_solve, &elmer_core::NullLogger).unwrap();
+        let mut exact = vec![0.0; n];
+        dense_solve(&a, &b, &mut exact).unwrap();
+        for i in 0..n {
+            assert!((x[i] - exact[i]).abs() < 1e-8 * exact[i].abs().max(1.0), "{i}: {} vs {}", x[i], exact[i]);
+        }
+    }
+
+    #[test]
+    fn coarse_matrix_is_the_galerkin_product() {
+        let a = grid(6, 1.0);
+        let (cf, _, fixed) = choose_coarse_nodes(&a, &ParamMap::new(), 1, true).unwrap();
+        let r = interpolate_f2c(&a, &cf, &fixed, 1, &InterpOptions::from_params(&ParamMap::new(), 1));
+        let b = project_matrix_create(&a, &r, 1, 0.0);
+        let g = crate::multigrid::galerkin(&a, &r);
+        assert_eq!((b.row_ptr.clone(), b.col_idx.clone()), (g.row_ptr.clone(), g.col_idx.clone()));
+        for (x, y) in b.values.iter().zip(&g.values) {
+            assert!((x - y).abs() < 1e-12 * x.abs().max(1.0));
         }
     }
 }
