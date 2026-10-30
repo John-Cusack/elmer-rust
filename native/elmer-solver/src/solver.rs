@@ -887,15 +887,80 @@ impl<'a> SolverCtx<'a> {
         // pushes the namespace `linsys<n>:`, so that `linsys<n>: <key>`
         // stands for `<key>` until the solve returns.
         let p = self.params();
-        if p.logical("linear system trialing") == Some(true) {
-            return Err(SolverError::Unsupported("Linear System Trialing".into()));
-        }
         let ns = self.creal(p, "linear system namespace number")?.map_or(0, |x| x.round() as i64);
+        if p.logical("linear system trialing") == Some(true) {
+            return self.default_solve_trialing(ns.max(1));
+        }
         if ns <= 0 {
             return self.default_solve_in_namespace();
         }
         self.info("DefaultSolve", &format!("Linear system namespace number: {}", crate::fortran_fmt::i2s(ns)), 7);
         crate::block_system::with_namespace(self, &format!("linsys{ns}:"), |ctx| ctx.default_solve_in_namespace())
+    }
+
+    /// `Linear System Trialing` (DefUtils.F90:4579-4604): the solve starts
+    /// in namespace `linsys<n>:` and, while the linear solver does not
+    /// converge, `SolveSystem` is repeated in the next one; none left is
+    /// fatal. With `Linear System Trialing Conserve` the converged namespace
+    /// becomes the next solve's `Linear System Namespace Number`, back to the
+    /// first after `Linear System Trialing Conserve Rounds` reuses. Only
+    /// `SolveSystem` is repeated, so the source control, monolithic slave,
+    /// constraint, complex and nonlinear post-solver paths are refused.
+    fn default_solve_trialing(&mut self, mut ns: i64) -> Result<f64, SolverError> {
+        let p = self.params();
+        for k in ["apply source control", "monolithic slave", "linear system complex", "harmonic mode"] {
+            if p.logical(k) == Some(true) {
+                return Err(SolverError::Unsupported(format!("Linear System Trialing with {k}")));
+            }
+        }
+        if p.get("nonlinear post solvers").is_some() {
+            return Err(SolverError::Unsupported("Linear System Trialing with Nonlinear Post Solvers".into()));
+        }
+        crate::constraints::generate(self)?;
+        let slot = &self.sim.slots[self.slot];
+        if slot.constraints.is_some() || slot.own_constraints.is_some() {
+            return Err(SolverError::Unsupported("Linear System Trialing with linear constraints".into()));
+        }
+        self.sim.slots[self.slot].lin_converged = true;
+        let mut norm;
+        let mut first = true;
+        loop {
+            let prefix = format!("linsys{ns}");
+            if !first && !self.params().0.keys().any(|k| k.starts_with(&prefix)) {
+                return Err(SolverError::fatal("DefaultSolve", "Exhausted all linear system strategies!"));
+            }
+            self.info("DefaultSolve", &format!("Linear system namespace number: {}", crate::fortran_fmt::i2s(ns)), 7);
+            norm = crate::block_system::with_namespace(self, &format!("{prefix}:"), |ctx| {
+                if ctx.params().logical("linear system solver disabled") == Some(true) {
+                    ctx.info("DefaultSolve", "Solver disabled, exiting early!", 10);
+                    return Ok(ctx.convergence().map_or(0.0, |c| c.norm));
+                }
+                ctx.solve_system()
+            })?;
+            if self.sim.slots[self.slot].lin_converged {
+                break;
+            }
+            ns += 1;
+            first = false;
+        }
+        let p = &mut self.sim.slots[self.slot].params;
+        if p.logical("linear system trialing conserve") == Some(true) {
+            if let Some(max) = p.integer("linear system trialing conserve rounds") {
+                let prev = p.real("linear system namespace number").map(|x| x.round() as i64);
+                let mut count = if prev == Some(ns) {
+                    1 + p.integer("linear system namespace conserve count").unwrap_or(0)
+                } else {
+                    0
+                };
+                if count > max {
+                    ns = 0;
+                    count = 0;
+                }
+                p.insert("Linear System Namespace Conserve Count", Value::Integer(vec![count]));
+            }
+            p.insert("Linear System Namespace Number", Value::real(ns as f64));
+        }
+        Ok(norm)
     }
 
     fn default_solve_in_namespace(&mut self) -> Result<f64, SolverError> {
@@ -1100,7 +1165,7 @@ impl<'a> SolverCtx<'a> {
         if let (Some(a), Some(x)) = (&mut ca, &mut cx) {
             log.info("SolveWithLinearRestriction", "Now solving the linear system with constraints!", 10);
             let env = BlockEnv { dofs: var.dofs, simulation: &sim.model.simulation, schur: schur.as_ref() };
-            solve_linear(&sim.backends.linear, &env, p, a, b, x, bnorm, nullify, log, comm)?;
+            sim.slots[slot_ix].lin_converged = solve_linear(&sim.backends.linear, &env, p, a, b, x, bnorm, nullify, log, comm)?;
             // ComputeChange over the collection solution, multipliers
             // included; then 'Picking solution from collection solution'.
             // Without NonlinValues the Fortran's x0 is the variable's own
@@ -1146,7 +1211,8 @@ impl<'a> SolverCtx<'a> {
         } else {
             let x = &mut var.values[..n];
             let env = BlockEnv { dofs: var.dofs, simulation: &sim.model.simulation, schur: schur.as_ref() };
-            solve_linear(&sim.backends.linear, &env, p, &mut sys.matrix, b, x, bnorm, nullify, log, comm)?;
+            sim.slots[slot_ix].lin_converged =
+                solve_linear(&sim.backends.linear, &env, p, &mut sys.matrix, b, x, bnorm, nullify, log, comm)?;
             var.values_changed = true;
             // SolveCore.F90:1727-1741, then the change, then :1763-1771.
             sim.calculate_loads(slot_ix, n, true, mesh, log)?;
@@ -1232,7 +1298,7 @@ pub(crate) fn solve_linear(
     nullify: bool,
     log: &dyn Logger,
     comm: &dyn Communicator,
-) -> Result<(), SolverError> {
+) -> Result<bool, SolverError> {
     let complex = p.logical("linear system complex") == Some(true)
         && p.logical("linear system skip complex") != Some(true);
     if complex {
@@ -1267,7 +1333,7 @@ pub(crate) fn solve_linear(
         if nullify {
             xc.iter_mut().for_each(|v| *v = num_complex::Complex64::new(0.0, 0.0));
         }
-        let r = crate::linsys::solve_complex(p, &ac, &bc, &mut xc, log, comm);
+        let r = crate::linsys::solve_complex(p, &ac, &bc, &mut xc, log, comm).map(|_| true);
         if let Some(rs) = scaling {
             rs.unscale(&mut ac, Some(&mut bc[..]), Some(&mut xc[..]));
         }
@@ -1300,7 +1366,7 @@ pub(crate) fn solve_linear(
                 schur: block.schur,
             };
             elmer_block::block_solve(p, block.dofs, matrix, b, x, &opts, log, comm)
-                .map(|_| ())
+                .map(|_| true)
                 .map_err(block_error)
         } else {
             match linear.select_for(p, matrix, log) {
@@ -1311,6 +1377,7 @@ pub(crate) fn solve_linear(
                     let mut y = b.to_vec();
                     d.solve_in_place(&mut y).map(|_| x.copy_from_slice(&y))
                 })
+                .map(|_| true)
                 .map_err(SolverError::from),
             Ok(LinearSolverChoice::Iterative { mut solver, precond }) => {
                 let m: Result<Box<dyn elmer_core::Preconditioner<f64> + Send>, SolverError> = match precond {
@@ -1318,9 +1385,10 @@ pub(crate) fn solve_linear(
                     None => Ok(Box::new(elmer_core::IdentityPrecond)),
                 };
                 m.and_then(|m| {
+                    // `Variable % LinConverged` (IterSolve.F90:1646, 1664).
                     solver
                         .solve(matrix, &*m, b, x, comm)
-                        .map(|_| ())
+                        .map(|s| matches!(s.status, elmer_core::SolveStatus::Converged))
                         .map_err(SolverError::from)
                 })
             }

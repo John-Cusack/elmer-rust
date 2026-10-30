@@ -155,6 +155,8 @@ pub struct SolverSlot {
     /// Whether this visit called `DefaultStart` / `DefaultFinish`.
     pub(crate) started: bool,
     pub(crate) finished: bool,
+    /// `Variable % LinConverged` of the last linear solve.
+    pub(crate) lin_converged: bool,
 }
 
 impl SolverSlot {
@@ -184,6 +186,7 @@ impl SolverSlot {
             robin_projectors: Default::default(),
             started: false,
             finished: false,
+            lin_converged: true,
         })
     }
 
