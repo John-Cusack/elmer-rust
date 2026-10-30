@@ -1,0 +1,13 @@
+[package]
+name = "elmer-physics-datatofield"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "DataToFieldSolver (fit a smooth field to nodal or scattered point data) for the Rust-native Elmer rewrite"
+
+[dependencies]
+elmer-core.workspace = true
+elmer-solver = { path = "../elmer-solver" }
+elmer-fe = { path = "../elmer-fe" }
+elmer-interp = { path = "../elmer-interp" }

@@ -23,6 +23,7 @@ elmer-savedata = { path = "../elmer-savedata" }
 elmer-physics-meshtools = { path = "../elmer-physics-meshtools" }
 elmer-physics-thermoelectric = { path = "../elmer-physics-thermoelectric" }
 elmer-physics-magneto = { path = "../elmer-physics-magneto" }
+elmer-physics-datatofield = { path = "../elmer-physics-datatofield" }
 elmer-fixtures = { path = "../elmer-fixtures" }
 elmer-pdofs = { path = "../elmer-pdofs" }
 elmer-mesh-levels = { path = "../elmer-mesh-levels" }
