@@ -19,7 +19,7 @@ use elmer_pdofs::PDofsBackend;
 use crate::motion::MovableMesh;
 use crate::output::{is_result_output, prepare_vtu_output, MappedTags};
 use elmer_mortar::{generate_periodic_projectors, PeriodicAssembly, ProjectorEnv};
-use elmer_mesh_levels::{extrude, mesh_levels, ExtrudeOptions, Mesh as LevelsMesh, MeshLevelsError};
+use elmer_mesh_levels::{extrude, mesh_levels, split_mesh_equal, ExtrudeOptions, Mesh as LevelsMesh, MeshLevelsError};
 use elmer_mesh_ops::{create_discont_mesh, increase_element_order, read_target_names, MeshOpsError};
 
 /// A parsed case and its mesh.
@@ -570,6 +570,44 @@ fn transform_mesh(model: &mut Model, mesh: &dyn MeshView) -> Result<Option<Level
     Ok(Some(extruded))
 }
 
+/// A geometric multigrid solver's mesh hierarchy: with `Linear System
+/// Solver = Multigrid` and `MG Equal Split`, `AddEquationBasics`
+/// (MainUtils.F90) splits the solver's mesh `MG Levels - 1` times and moves
+/// the solver to the finest. The solver id, its coarse meshes (coarsest
+/// first) and the finest mesh; `None` when no solver asks for it, so
+/// `elmer-solver` refuses the other multigrid variants itself.
+type MultigridMeshes = (usize, Vec<Box<dyn MeshView>>, LevelsMesh);
+
+fn multigrid_meshes(model: &Model, mesh: &dyn MeshView, ranks: usize) -> Result<Option<MultigridMeshes>, SolverError> {
+    let is_mg = |p: &ParamMap| {
+        p.string("linear system solver").is_some_and(|s| normalize_key(s) == "multigrid")
+            && p.logical("mg equal split") == Some(true)
+    };
+    let Some(ix) = model.solvers.iter().position(is_mg) else {
+        return Ok(None);
+    };
+    // Every other solver would stay on the unsplit mesh.
+    if model.solvers.len() > 1 {
+        return Err(SolverError::Unsupported("MG Equal Split alongside other solvers".into()));
+    }
+    if ranks > 1 {
+        return Err(SolverError::Unsupported("MG Equal Split in parallel".into()));
+    }
+    let p = &model.solvers[ix];
+    let levels = p.integer("mg levels").or_else(|| p.integer("multigrid levels")).unwrap_or(1).max(1) as usize;
+    let err = |e: MeshLevelsError| match e {
+        MeshLevelsError::Unsupported(m) => SolverError::Unsupported(m),
+        MeshLevelsError::Invalid(m) => SolverError::fatal("SplitMeshEqual", m),
+    };
+    let mut coarse: Vec<Box<dyn MeshView>> = Vec::with_capacity(levels - 1);
+    let mut fine = LevelsMesh::from_view(mesh);
+    for _ in 1..levels {
+        let next = split_mesh_equal(&fine).map_err(err)?;
+        coarse.push(Box::new(std::mem::replace(&mut fine, next)));
+    }
+    Ok(Some((ix + 1, coarse, fine)))
+}
+
 /// `GeneratePeriodicProjectors` (ElmerSolver.F90) when a boundary
 /// condition has `Periodic BC`: `elmer-mortar`'s projectors, applied by its
 /// [`PeriodicAssembly`] in place of the default assembly. `Save Projector`
@@ -683,6 +721,14 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
         Some(m) => m,
         None => mesh,
     };
+    let (mg_coarse, mg_fine) = match multigrid_meshes(&model, mesh, size)? {
+        Some((id, coarse, fine)) => (Some((id, coarse)), Some(fine)),
+        None => (None, None),
+    };
+    let mesh: &dyn MeshView = match &mg_fine {
+        Some(m) => m,
+        None => mesh,
+    };
     let mesh = MovableMesh::new(mesh);
     let _motion = mesh.install();
     let mesh: &dyn MeshView = &mesh;
@@ -720,6 +766,9 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     }
     elmer_fixtures::registry::install_live(&fixture_case, &mut sim, mesh);
     sim.setup(mesh, &registry, log, comm)?;
+    if let Some((id, coarse)) = mg_coarse {
+        sim.set_multigrid_meshes(id, coarse)?;
+    }
     check_mesh_velocity(&sim)?;
     // Field lists are fixed once every variable exists, before the run, so a
     // refusal still comes before any file.
