@@ -1079,6 +1079,7 @@ impl<'a> SolverCtx<'a> {
         let nonlin_iter = sim.vars.scalar("nonlin iter");
         let schur = schur_matrix(sim, &sim.slots[slot_ix].params);
         let mg = crate::multigrid::transfers(sim, slot_ix, mesh)?;
+        let eliminate = before_linsolve(&sim.slots[slot_ix].params)?;
         // SolveCore.F90:3150-3163 (ListGetCReal).
         let relaxation = crate::expr::eval_creal(
             &sim.slots[slot_ix].params,
@@ -1243,6 +1244,9 @@ impl<'a> SolverCtx<'a> {
         // the complex one's modulus; that changes their scaling, not x.
         let nullify = p.logical("linear system nullify guess") == Some(true)
             || (p.logical("linear system nullify first guess") == Some(true) && nonlin_iter.is_some_and(|i| i.round() <= 1.0));
+        if eliminate && ca.is_some() {
+            return Err(SolverError::Unsupported("Before Linsolve = EliminateDirichlet with linear constraints".into()));
+        }
         if let (Some(a), Some(x)) = (&mut ca, &mut cx) {
             log.info("SolveWithLinearRestriction", "Now solving the linear system with constraints!", 10);
             let env = BlockEnv {
@@ -1302,13 +1306,22 @@ impl<'a> SolverCtx<'a> {
                 schur: schur.as_ref(),
                 multigrid: mg.as_deref(),
             };
-            sim.slots[slot_ix].lin_converged =
-                solve_linear(&sim.backends.linear, &env, p, &mut sys.matrix, b, x, bnorm, nullify, log, comm)?;
-            var.values_changed = true;
-            // SolveCore.F90:1727-1741, then the change, then :1763-1771.
-            sim.calculate_loads(slot_ix, n, true, mesh, log)?;
-            sim.compute_change(slot_ix, false, Some(n), true, mesh, log, comm)?;
-            sim.calculate_loads(slot_ix, n, false, mesh, log)?;
+            if eliminate {
+                // SolveCore.F90:3188-3192: the procedure solves and computes
+                // the change itself; SolveLinearSystem is skipped.
+                sim.slots[slot_ix].lin_converged =
+                    eliminate_dirichlet(&sim.backends.linear, &env, p, &sys.matrix, b, x, nullify, log, comm)?;
+                var.values_changed = true;
+                sim.compute_change(slot_ix, false, Some(n), false, mesh, log, comm)?;
+            } else {
+                sim.slots[slot_ix].lin_converged =
+                    solve_linear(&sim.backends.linear, &env, p, &mut sys.matrix, b, x, bnorm, nullify, log, comm)?;
+                var.values_changed = true;
+                // SolveCore.F90:1727-1741, then the change, then :1763-1771.
+                sim.calculate_loads(slot_ix, n, true, mesh, log)?;
+                sim.compute_change(slot_ix, false, Some(n), true, mesh, log, comm)?;
+                sim.calculate_loads(slot_ix, n, false, mesh, log)?;
+            }
         }
         sim.update_2nd_order(slot_ix, n)?;
         sim.publish_live();
@@ -1379,6 +1392,117 @@ pub(crate) fn block_error(e: elmer_block::BlockError) -> SolverError {
 /// form for `Linear System Complex`), the nullify-guess flag, the solver
 /// the section selects (`block` through `elmer-block`, after the scaling
 /// as in Elmer). `bnorm` is `|b|`, which turns the rhs scaling on.
+/// `Before Linsolve` / `After Linsolve` (MainUtils.F90:2183-2188): only
+/// the `EliminateDirichlet` module's procedure is ported; any other is
+/// refused rather than skipped.
+pub(crate) fn before_linsolve(p: &ParamMap) -> Result<bool, SolverError> {
+    if p.get("after linsolve").is_some() {
+        return Err(SolverError::Unsupported("After Linsolve procedures".into()));
+    }
+    if p.get("before linsolve").is_none() {
+        return Ok(false);
+    }
+    match procedure_value(p, "before linsolve") {
+        Some((lib, entry)) if lib.eq_ignore_ascii_case("eliminatedirichlet") && entry.eq_ignore_ascii_case("eliminatedirichlet") => {
+            for k in ["calculate loads", "calculate residual", "linear system complex", "linear system residual mode"] {
+                if p.logical(k) == Some(true) {
+                    return Err(SolverError::Unsupported(format!("Before Linsolve = EliminateDirichlet with {k}")));
+                }
+            }
+            Ok(true)
+        }
+        other => Err(SolverError::Unsupported(format!("Before Linsolve = {other:?}"))),
+    }
+}
+
+/// `EliminateDirichlet` (fem/src/modules/EliminateDirichlet.F90, real
+/// systems): the rows whose off-diagonal entries are all below 1e-12 are
+/// Dirichlet rows; the others form the reduced system (nonzero entries and
+/// the diagonal, columns renumbered and sorted), its right-hand side moving
+/// each Dirichlet column over as `a_it b_t / a_tt`. The reduced system is
+/// solved as `SolveLinearSystem` would (scaling included); a Dirichlet
+/// unknown is `b_t / a_tt`. Returns whether the linear solve converged.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn eliminate_dirichlet(
+    linear: &crate::LinearSolverRegistry,
+    block: &BlockEnv<'_>,
+    p: &ParamMap,
+    a: &elmer_core::CsrMatrix<f64>,
+    b: &[f64],
+    x: &mut [f64],
+    nullify: bool,
+    log: &dyn Logger,
+    comm: &dyn Communicator,
+) -> Result<bool, SolverError> {
+    if comm.size() > 1 {
+        return Err(SolverError::Unsupported("EliminateDirichlet in parallel".into()));
+    }
+    let n = a.nrows;
+    let diag: Vec<usize> = (0..n)
+        .map(|i| {
+            (a.row_ptr[i]..a.row_ptr[i + 1])
+                .find(|&k| a.col_idx[k] as usize == i)
+                .ok_or_else(|| SolverError::fatal("EliminateDirichlet", format!("no diagonal entry in row {}", i + 1)))
+        })
+        .collect::<Result<_, _>>()?;
+    let mut new = vec![usize::MAX; n];
+    let mut m = 0;
+    for i in 0..n {
+        let dirichlet = (a.row_ptr[i]..a.row_ptr[i + 1]).all(|k| k == diag[i] || a.values[k].abs() < 1.0e-12);
+        if !dirichlet {
+            new[i] = m;
+            m += 1;
+        }
+    }
+    let mut bm = elmer_core::CsrMatrix { nrows: m, ncols: m, row_ptr: vec![0], col_idx: Vec::new(), values: Vec::new(), diag: None };
+    let mut f = vec![0.0; m];
+    let mut u = vec![0.0; m];
+    for i in 0..n {
+        let j = new[i];
+        if j == usize::MAX {
+            continue;
+        }
+        f[j] = b[i];
+        u[j] = x[i];
+        let mut row: Vec<(u32, f64)> = Vec::new();
+        for k in a.row_ptr[i]..a.row_ptr[i + 1] {
+            let t = a.col_idx[k] as usize;
+            if new[t] == usize::MAX {
+                f[j] -= a.values[k] * b[t] / a.values[diag[t]];
+            } else if a.values[k] != 0.0 || k == diag[i] {
+                row.push((new[t] as u32, a.values[k]));
+            }
+        }
+        // CRS_SortMatrix
+        row.sort_by_key(|&(c, _)| c);
+        for (c, v) in row {
+            bm.col_idx.push(c);
+            bm.values.push(v);
+        }
+        bm.row_ptr.push(bm.values.len());
+    }
+    log.info(
+        "Dirichlet",
+        &format!(
+            " Eliminated {} unknowns out of {}",
+            crate::fortran_fmt::i2s((n - m) as i64),
+            crate::fortran_fmt::i2s(n as i64)
+        ),
+        5,
+    );
+    let fnorm = f.iter().map(|v| v * v).sum::<f64>().sqrt();
+    let converged = if fnorm <= f64::MIN_POSITIVE && p.logical("skip zero rhs test") != Some(true) {
+        u.iter_mut().for_each(|v| *v = 0.0);
+        true
+    } else {
+        solve_linear(linear, block, p, &mut bm, &mut f, &mut u, fnorm, nullify, log, comm)?
+    };
+    for i in 0..n {
+        x[i] = if new[i] == usize::MAX { b[i] / a.values[diag[i]] } else { u[new[i]] };
+    }
+    Ok(converged)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn solve_linear(
     linear: &crate::LinearSolverRegistry,
@@ -1531,5 +1655,47 @@ pub(crate) fn solve_linear(
             rs.unscale(matrix, Some(b), Some(x));
         }
         solved
+    }
+}
+
+#[cfg(test)]
+mod eliminate_tests {
+    use super::*;
+    use elmer_core::{CsrMatrix, NullLogger, SerialComm, Value};
+
+    /// 1D Laplacian on 6 nodes with the end rows Dirichlet (identity times
+    /// 2, as Dirichlet scaling leaves them): the reduced solve gives the
+    /// full system's solution, the ends `b / a_tt`.
+    #[test]
+    fn eliminated_solve_matches_the_full_system() {
+        let n = 6;
+        let mut a = CsrMatrix { nrows: n, ncols: n, row_ptr: vec![0], col_idx: Vec::new(), values: Vec::new(), diag: None };
+        for i in 0..n {
+            if i == 0 || i == n - 1 {
+                a.col_idx.push(i as u32);
+                a.values.push(2.0);
+            } else {
+                for (c, v) in [(i - 1, -1.0), (i, 2.0), (i + 1, -1.0)] {
+                    a.col_idx.push(c as u32);
+                    a.values.push(v);
+                }
+            }
+            a.row_ptr.push(a.values.len());
+        }
+        let b = vec![2.0 * 0.5, 0.1, 0.1, 0.1, 0.1, 2.0 * -0.25];
+        let mut p = ParamMap::new();
+        p.insert("Linear System Solver", Value::Str("Direct".into()));
+        p.insert("Linear System Direct Method", Value::Str("umfpack".into()));
+        let linear = crate::linsys::elmer_registry();
+        let sim = ParamMap::new();
+        let env = BlockEnv { dofs: 1, simulation: &sim, schur: None, multigrid: None };
+        let mut x = vec![0.0; n];
+        eliminate_dirichlet(&linear, &env, &p, &a, &b, &mut x, false, &NullLogger, &SerialComm).unwrap();
+        assert_eq!((x[0], x[n - 1]), (0.5, -0.25));
+        // The interior equations of the full system hold.
+        for i in 1..n - 1 {
+            let r = -x[i - 1] + 2.0 * x[i] - x[i + 1] - b[i];
+            assert!(r.abs() < 1e-12, "row {i}: {r}");
+        }
     }
 }
