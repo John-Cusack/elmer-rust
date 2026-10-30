@@ -24,6 +24,6 @@ pub use driver::{assemble_elements, boundary_elements, bulk_elements};
 pub use glue::CsrAssembler;
 pub use list::ListMatrix;
 pub use perm::{
-    build_perm, build_perm_with, create_matrix, create_system, initial_permutation,
+    build_perm, build_perm_coupled, build_perm_with, create_matrix, create_system, initial_permutation,
     initialize_matrix, list_matrix, Perm, PermOptions, System,
 };

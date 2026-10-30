@@ -272,6 +272,61 @@ impl<'a> SolverCtx<'a> {
         }
     }
 
+    /// Builds this solver's permutation again with extra list-matrix rows
+    /// `(node, coupled nodes)` (`MakeListMatrix`'s radiation couplings, which
+    /// Elmer has before `OptimizeBandwidth`), for a solver's `init`, before
+    /// its matrix exists. Every variable on the old permutation is carried
+    /// over node by node. `false` when nothing changed: a non-nodal solver,
+    /// a matrix already made, or a backend that keeps its permutation.
+    pub fn reorder_perm(&mut self, extra: &[(u32, Vec<u32>)]) -> Result<bool, SolverError> {
+        let slot = &self.sim.slots[self.slot];
+        let (Some(old), Some(b)) = (slot.perm.clone(), self.sim.backends.assembly.as_ref()) else {
+            return Ok(false);
+        };
+        if slot.dofs.is_some() || slot.system.is_some() {
+            return Ok(false);
+        }
+        let Some(new) = b.build_perm_coupled(self.mesh, &slot.active, &slot.params, extra)? else {
+            return Ok(false);
+        };
+        if *new.perm == *old {
+            return Ok(false);
+        }
+        let new: Arc<[u32]> = new.perm.into();
+        let remap = |values: &mut Vec<f64>, dofs: usize| {
+            let mut out = vec![0.0; values.len()];
+            for (&o, &n) in old.iter().zip(new.iter()) {
+                if o != NO_DOF && n != NO_DOF {
+                    for c in 0..dofs {
+                        out[n as usize * dofs + c] = values[o as usize * dofs + c];
+                    }
+                }
+            }
+            *values = out;
+        };
+        let ids: Vec<_> = self
+            .sim
+            .vars
+            .iter()
+            .filter(|(_, v)| v.perm.as_ref().is_some_and(|p| Arc::ptr_eq(p, &old)))
+            .map(|(id, _)| id)
+            .collect();
+        for id in ids {
+            let v = self.sim.vars.by_id_mut(id);
+            let dofs = v.dofs;
+            remap(&mut v.values, dofs);
+            for p in &mut v.prev_values {
+                remap(p, dofs);
+            }
+            for p in [&mut v.nonlin_values, &mut v.steady_values, &mut v.delta_values].into_iter().flatten() {
+                remap(p, dofs);
+            }
+            v.perm = Some(new.clone());
+        }
+        self.sim.slots[self.slot].perm = Some(new);
+        Ok(true)
+    }
+
     /// Perm slot of each element node, [`NO_DOF`] where the node is not in
     /// the system (Elmer `Perm(Indexes)`), as the assembly glue takes it.
     pub fn element_slots(&self, e: ElemId, out: &mut Vec<u32>) {

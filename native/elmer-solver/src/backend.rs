@@ -125,6 +125,20 @@ pub trait AssemblyBackend: Send + Sync {
         Ok(self.build_perm(mesh, active, params.logical("optimize bandwidth").unwrap_or(true)))
     }
 
+    /// [`build_perm_for`](Self::build_perm_for) with extra list-matrix rows
+    /// `(node, coupled nodes)`, as `MakeListMatrix` adds radiation
+    /// couplings before `OptimizeBandwidth`. `None`: the backend keeps the
+    /// permutation it has.
+    fn build_perm_coupled(
+        &self,
+        _mesh: &dyn MeshView,
+        _active: &[ElemId],
+        _params: &ParamMap,
+        _extra: &[(u32, Vec<u32>)],
+    ) -> Result<Option<Perm>, SolverError> {
+        Ok(None)
+    }
+
     /// The CSR pattern (zero values, diagonal index set) for `dofs` dofs per slot.
     fn create_matrix(&self, mesh: &dyn MeshView, active: &[ElemId], perm: &Perm, dofs: usize) -> CsrMatrix<f64>;
 

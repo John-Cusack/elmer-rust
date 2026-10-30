@@ -80,6 +80,18 @@ impl AssemblyBackend for ElmerAssembly {
         Ok(to_perm(p))
     }
 
+    fn build_perm_coupled(
+        &self,
+        mesh: &dyn MeshView,
+        active: &[ElemId],
+        params: &ParamMap,
+        extra: &[(u32, Vec<u32>)],
+    ) -> Result<Option<Perm>, SolverError> {
+        let m = active_mask(mesh, active);
+        let (p, _) = elmer_assembly::build_perm_coupled(mesh, &|e: ElemId| m[e.0 as usize], perm_options(params), extra);
+        Ok(Some(to_perm(p)))
+    }
+
     fn create_matrix(&self, mesh: &dyn MeshView, active: &[ElemId], perm: &Perm, dofs: usize) -> CsrMatrix<f64> {
         let m = active_mask(mesh, active);
         let p = elmer_assembly::Perm::from_perm(perm.perm.clone());
