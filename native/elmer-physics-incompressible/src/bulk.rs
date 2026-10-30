@@ -10,12 +10,13 @@
 //! Picard and Newton linearization of the convection, the `GradP` and
 //! `Div-Curl` forms, element-constant density, nodal viscosity and body
 //! forces, the three `Pressure Stabilization Element Size` measures, the
-//! steady `Thermal` compressibility model ([`ThermalCompress`]),
+//! steady `Thermal` and `Perfect Gas` compressibility models
+//! ([`Compressibility`]),
 //! axisymmetric coordinates without swirl, and p
 //! elements: Taylor-Hood (the edge and face pressure dofs pinned,
 //! [`pin_pressure`]) and the MINI element (velocity bubbles condensed,
 //! [`lcondensate`], [`lcondensate_bdf1`]). Not ported (the solver refuses
-//! them): the perfect gas and transient compressibility models,
+//! them): transient compressibility models,
 //! non-newtonian and turbulent viscosity.
 
 // A structural transliteration of Fortran loops over `1:dim` that index several
@@ -77,24 +78,34 @@ pub struct IncompressibleBulkInput<'a> {
     pub pstab: PressureStab,
     /// Gauss point count, `None` for the element default.
     pub np: Option<usize>,
-    /// `Compressibility Model = Thermal`, steady.
-    pub thermal: Option<ThermalCompress<'a>>,
+    /// `Compressibility Model = Thermal` or `Perfect Gas`, steady.
+    pub compress: Option<Compressibility<'a>>,
     /// `Coordinate System = Axi Symmetric` (no swirl): `xyz` are `(r, z)`.
     pub axisymmetric: bool,
 }
 
-/// `Compressibility Model = Thermal`: `rho = rho0 (1 - beta (T - Tref))`
-/// at the integration points, with `rho0` the `Density`, and the
-/// `-(1/rho) d(rho)/dx_i u_i` term of the continuity equation.
+/// A `Compressibility Model`: the density at the integration points from
+/// the temperature (and, for a perfect gas, the previous iterate's
+/// pressure), and the `-(1/rho) d(rho)/dx_i u_i` term of the continuity
+/// equation.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct ThermalCompress<'a> {
+pub struct Compressibility<'a> {
     /// `Temperature` at the nodes (`Reference Temperature` where it is not
     /// solved).
     pub temperature: &'a [f64],
-    /// `Heat Expansion Coefficient`.
-    pub beta: f64,
-    /// `Reference Temperature`.
-    pub t_ref: f64,
+    pub model: CompressModel,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum CompressModel {
+    /// `Thermal`: `rho = rho0 (1 - beta (T - Tref))`, `rho0` the `Density`;
+    /// `beta` the `Heat Expansion Coefficient`, `t_ref` the `Reference
+    /// Temperature`.
+    Thermal { beta: f64, t_ref: f64 },
+    /// `Perfect Gas`: `rho = (p + p0) / (R T)`, `p` the previous iterate's
+    /// pressure, `p0` the `Reference Pressure`, `R = (gamma - 1) / gamma
+    /// c_p` from the `Specific Heat Ratio` and `Heat Capacity`.
+    PerfectGas { gas_constant: f64, p_ref: f64 },
 }
 
 fn check_len(what: &'static str, expected: usize, got: usize) -> Result<(), IncompressibleError> {
@@ -301,16 +312,39 @@ pub fn incompressible_bulk_local_with(
 
     let mu = at_points(inp.viscosity, &bas, nf, ngp);
     let mut rhovec = vec![rho; ngp];
-    // d(rho)/dx_i of the thermal model (zero without one).
+    // d(rho)/dx_i of a compressibility model (zero without one).
     let mut drhodx = vec![[0.0; 3]; ngp];
-    if let Some(th) = inp.thermal {
-        check_len("temperature", n, th.temperature.len())?;
+    if let Some(cm) = inp.compress {
+        let temps = cm.temperature;
+        check_len("temperature", n, temps.len())?;
         for t in 0..ngp {
-            let temp: f64 = (0..n).map(|k| bas[t * nf + k] * th.temperature[k]).sum();
-            rhovec[t] = rho * (1.0 - th.beta * (temp - th.t_ref));
-            for i in 0..dim {
-                let dt: f64 = (0..n).map(|k| dbs[i][t * nf + k] * th.temperature[k]).sum();
-                drhodx[t][i] = -rho * th.beta * dt;
+            let temp: f64 = (0..n).map(|k| bas[t * nf + k] * temps[k]).sum();
+            let dtemp: [f64; 3] = std::array::from_fn(|i| match i < dim {
+                true => (0..n).map(|k| dbs[i][t * nf + k] * temps[k]).sum(),
+                false => 0.0,
+            });
+            match cm.model {
+                CompressModel::Thermal { beta, t_ref } => {
+                    rhovec[t] = rho * (1.0 - beta * (temp - t_ref));
+                    for i in 0..dim {
+                        drhodx[t][i] = -rho * beta * dtemp[i];
+                    }
+                }
+                CompressModel::PerfectGas { gas_constant, p_ref } => {
+                    let Some(sol) = inp.solution else {
+                        return Err(IncompressibleError::Unsupported(
+                            "Compressibility Model = Perfect Gas with Linear Equation = True".into(),
+                        ));
+                    };
+                    // The pressure at the point from the nodal functions (the
+                    // velocity DGEMM), its gradient from all of them.
+                    let p = velopres[t][dim] + p_ref;
+                    rhovec[t] = p / (gas_constant * temp);
+                    for i in 0..dim {
+                        let dp: f64 = (0..nf).map(|k| dbs[i][t * nf + k] * sol[k][dim]).sum();
+                        drhodx[t][i] = rhovec[t] / p * dp - rhovec[t] / temp * dtemp[i];
+                    }
+                }
             }
         }
     }
@@ -407,7 +441,7 @@ pub fn incompressible_bulk_local_with(
 
     // The u.grad(rho) half of a compressible continuity equation:
     // (-(1/rho) d(rho)/dx_i u_i, q).
-    if inp.thermal.is_some() {
+    if inp.compress.is_some() {
         for i in 0..dim {
             let w: Vec<f64> = (0..ngp).map(|t| -detj[t] * drhodx[t][i] / rhovec[t]).collect();
             udotv(so.at(dim, i), nf, ngp, &bas, &bas, &w, None);

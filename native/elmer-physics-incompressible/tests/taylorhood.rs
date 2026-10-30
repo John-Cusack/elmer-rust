@@ -277,7 +277,39 @@ fn taylorhood_transient_tri_matches_elmer() {
 /// `-(1/rho) d(rho)/dx_i u_i` continuity term, on the MINI element.
 #[test]
 fn thermal_compressibility_matches_elmer() {
-    let dir = data("thermal_quad");
+    let material = sec(&[
+        ("Density", real(1.0)),
+        ("Viscosity", real(1.0)),
+        ("Reference Temperature", real(293.0)),
+        ("Compressibility Model", st("Thermal")),
+        ("Heat Expansion Coefficient", real(0.25)),
+    ]);
+    compressible_cavity("thermal_quad", material, 0.00445569022547017);
+}
+
+/// `tests/data/perfect_gas_quad/case.sif`: the same cavity with
+/// `Compressibility Model = Perfect Gas` (`Heat Capacity` 1000, `Specific
+/// Heat Ratio` 5/3, `Reference Pressure` 1e5): rho from the previous
+/// iterate's pressure and the temperature, through the Picard iterations.
+#[test]
+fn perfect_gas_compressibility_matches_elmer() {
+    let material = sec(&[
+        ("Density", real(1.0)),
+        ("Viscosity", real(1.0)),
+        ("Heat Capacity", real(1000.0)),
+        ("Reference Temperature", real(293.0)),
+        ("Compressibility Model", st("Perfect Gas")),
+        ("Specific Heat Ratio", real(5.0 / 3.0)),
+        ("Reference Pressure", real(1.0e5)),
+    ]);
+    compressible_cavity("perfect_gas_quad", material, 5.183198317697339e-05);
+}
+
+/// ThermalCompress_vec's cavity on the MINI element with `material`, the
+/// temperature an exported variable at its initial condition `293.5 - x`,
+/// against the pristine `case`.
+fn compressible_cavity(case: &str, material: ParamMap, ref_norm: f64) {
+    let dir = data(case);
     let mesh = TestMesh::read(&dir, 2);
     let mut solver = ns_solver(&[
         ("Equation", st("Navier-Stokes")),
@@ -288,13 +320,6 @@ fn thermal_compressibility_matches_elmer() {
         ("Nonlinear System Newton After Tolerance", real(1.0e-3)),
     ]);
     solver_defaults(&mut solver, 2, false);
-    let material = sec(&[
-        ("Density", real(1.0)),
-        ("Viscosity", real(1.0)),
-        ("Reference Temperature", real(293.0)),
-        ("Compressibility Model", st("Thermal")),
-        ("Heat Expansion Coefficient", real(0.25)),
-    ]);
     let wall = |t: i32| bc(&[t], &[("Velocity 1", real(0.0)), ("Velocity 2", real(0.0))]);
     let mut first = wall(1);
     first.insert("Pressure", real(0.0));
@@ -330,10 +355,10 @@ fn thermal_compressibility_matches_elmer() {
         }
     }
     let norm = u.conv.norm;
-    eprintln!("thermal_quad: norm {norm:.17e}, max error / scale {:?}", [0, 1, 2].map(|c| err[c] / scale[c]));
-    assert!((norm - 0.00445569022547017).abs() / 0.00445569022547017 < 1e-10, "norm {norm:e}");
+    eprintln!("{case}: norm {norm:.17e}, max error / scale {:?}", [0, 1, 2].map(|c| err[c] / scale[c]));
+    assert!((norm - ref_norm).abs() / ref_norm < 1e-10, "{case}: norm {norm:e}");
     for c in 0..3 {
-        assert!(err[c] <= 1e-10 * scale[c], "component {c} max error {} (scale {})", err[c], scale[c]);
+        assert!(err[c] <= 1e-10 * scale[c], "{case}: component {c} max error {} (scale {})", err[c], scale[c]);
     }
 }
 
