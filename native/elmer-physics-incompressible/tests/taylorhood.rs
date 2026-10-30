@@ -12,7 +12,7 @@ use elmer_core::{NullLogger, ParamMap, Params, SerialComm, Value};
 use elmer_pdofs::PDofsBackend;
 use elmer_physics_incompressible::{register, solver_defaults};
 use elmer_solver::{Simulation, SolverRegistry};
-use support::cases::{data, ints, model, ns_solver, profile, real, sec, st, steady};
+use support::cases::{data, ints, model, ns_solver, profile, real, sec, st, steady, table};
 use support::mesh::TestMesh;
 
 /// The whitespace-split lines of a fixture, `#` comments skipped.
@@ -268,4 +268,71 @@ fn taylorhood_transient_tri_matches_elmer() {
     let mut extra = transient_ns();
     extra.push(("Element", st("p:2")));
     run_case_with("taylorhood_transient_tri", 2, ns_step, transient_bdf2(), &extra, 2251, 0.037828652451776607, 3);
+}
+
+/// `tests/data/thermal_quad/case.sif`: ThermalCompress_vec's cavity with
+/// `Compressibility Model = Thermal` and the temperature an exported
+/// variable held at its initial condition `293.5 - x` (a two-point table,
+/// exact on the unit square): rho(T) at the integration points and the
+/// `-(1/rho) d(rho)/dx_i u_i` continuity term, on the MINI element.
+#[test]
+fn thermal_compressibility_matches_elmer() {
+    let dir = data("thermal_quad");
+    let mesh = TestMesh::read(&dir, 2);
+    let mut solver = ns_solver(&[
+        ("Equation", st("Navier-Stokes")),
+        ("Exported Variable 1", st("Temperature")),
+        ("Nonlinear System Max Iterations", ints(&[10])),
+        ("Nonlinear System Convergence Tolerance", real(1.0e-10)),
+        ("Nonlinear System Newton After Iterations", ints(&[20])),
+        ("Nonlinear System Newton After Tolerance", real(1.0e-3)),
+    ]);
+    solver_defaults(&mut solver, 2, false);
+    let material = sec(&[
+        ("Density", real(1.0)),
+        ("Viscosity", real(1.0)),
+        ("Reference Temperature", real(293.0)),
+        ("Compressibility Model", st("Thermal")),
+        ("Heat Expansion Coefficient", real(0.25)),
+    ]);
+    let wall = |t: i32| bc(&[t], &[("Velocity 1", real(0.0)), ("Velocity 2", real(0.0))]);
+    let mut first = wall(1);
+    first.insert("Pressure", real(0.0));
+    let bcs = vec![first, wall(2), wall(3), wall(4)];
+    let body_force = sec(&[("Flow BodyForce 2", real(-10.0))]);
+    let mut m = model(steady("Cartesian 2D"), solver, material, Some(body_force), bcs);
+    m.bodies[0].insert("Initial Condition", ints(&[1]));
+    m.initial_conditions = vec![sec(&[("Temperature", table(1, &[(0.0, 293.5), (1.0, 292.5)]))])];
+    let mut reg = SolverRegistry::new();
+    register(&mut reg);
+    let mut sim = Simulation::new(m);
+    sim.backends.dofs = Some(Box::new(PDofsBackend::new()));
+    sim.setup(&mesh, &reg, &NullLogger, &SerialComm).unwrap();
+    sim.run(&mesh, &NullLogger, &SerialComm).unwrap();
+
+    let u = sim.vars.get("flow solution").unwrap();
+    let perm = u.perm.as_deref().unwrap();
+    let rows = lines(&dir.join("perm.dat"));
+    assert_eq!(rows.len(), 441);
+    let want: Vec<Vec<f64>> = lines(&dir.join("solution.dat"))
+        .iter()
+        .map(|l| l[1..].iter().map(|x| x.parse().unwrap()).collect())
+        .collect();
+    let mut scale = [0.0f64; 3];
+    let mut err = [0.0f64; 3];
+    for (l, w) in rows.iter().zip(&want) {
+        let (slot, row): (usize, u32) = (l[0].parse().unwrap(), l[1].parse().unwrap());
+        assert_eq!(perm[slot - 1] + 1, row, "Perm({slot})");
+        let s = perm[slot - 1] as usize * 3;
+        for c in 0..3 {
+            scale[c] = scale[c].max(w[c].abs());
+            err[c] = err[c].max((u.values[s + c] - w[c]).abs());
+        }
+    }
+    let norm = u.conv.norm;
+    eprintln!("thermal_quad: norm {norm:.17e}, max error / scale {:?}", [0, 1, 2].map(|c| err[c] / scale[c]));
+    assert!((norm - 0.00445569022547017).abs() / 0.00445569022547017 < 1e-10, "norm {norm:e}");
+    for c in 0..3 {
+        assert!(err[c] <= 1e-10 * scale[c], "component {c} max error {} (scale {})", err[c], scale[c]);
+    }
 }

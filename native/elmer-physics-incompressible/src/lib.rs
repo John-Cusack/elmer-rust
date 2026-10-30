@@ -4,7 +4,8 @@
 //! reached as `IncompressibleNSVec`), and on p elements with the dofs from
 //! the solver's `SolverDofs`: the Taylor-Hood pair (`Element = "p:2"`) and,
 //! the default MINI element of `_Init0` (`p:1 b:N`, the velocity bubbles
-//! condensed by `LCondensate`, with their history in a transient run).
+//! condensed by `LCondensate`, with their history in a transient run). The
+//! steady `Compressibility Model = Thermal` reads the `Temperature` field.
 //!
 //! [`incompressible_bulk_local`] and [`incompressible_boundary_local`] are
 //! pure functions of the element geometry and nodal values; element sizes
@@ -14,7 +15,8 @@
 //! trait; [`register`] binds it to `Procedure = "IncompressibleNS"
 //! "IncompressibleNSSolver"` and `"IncompressibleNSVec" ...`.
 //!
-//! Compressibility models, non-newtonian and turbulent viscosity, axisymmetric coordinates,
+//! The perfect gas and transient compressibility models, non-newtonian and
+//! turbulent viscosity, axisymmetric coordinates,
 //! friction and wall-law boundaries and the block preconditioner are
 //! refused, not approximated.
 #![forbid(unsafe_code)]
@@ -27,7 +29,7 @@ pub mod solver;
 pub use boundary::{incompressible_boundary_local, IncompressibleBoundaryInput};
 pub use bulk::{
     incompressible_bulk_local, incompressible_bulk_local_with, lcondensate, lcondensate_bdf1, pin_pressure, HMode,
-    IncompressibleBulkInput, PressureStab,
+    IncompressibleBulkInput, PressureStab, ThermalCompress,
 };
 pub use error::IncompressibleError;
 pub use solver::{

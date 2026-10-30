@@ -9,11 +9,12 @@
 //! Ported: Stokes and Navier-Stokes (steady and transient mass matrix),
 //! Picard and Newton linearization of the convection, the `GradP` and
 //! `Div-Curl` forms, element-constant density, nodal viscosity and body
-//! forces, the three `Pressure Stabilization Element Size` measures, and p
+//! forces, the three `Pressure Stabilization Element Size` measures, the
+//! steady `Thermal` compressibility model ([`ThermalCompress`]), and p
 //! elements: Taylor-Hood (the edge and face pressure dofs pinned,
 //! [`pin_pressure`]) and the MINI element (velocity bubbles condensed,
 //! [`lcondensate`], [`lcondensate_bdf1`]). Not ported (the solver refuses
-//! them): compressibility models, non-newtonian and turbulent viscosity,
+//! them): the perfect gas and transient compressibility models, non-newtonian and turbulent viscosity,
 //! axisymmetric coordinates.
 
 // A structural transliteration of Fortran loops over `1:dim` that index several
@@ -75,6 +76,22 @@ pub struct IncompressibleBulkInput<'a> {
     pub pstab: PressureStab,
     /// Gauss point count, `None` for the element default.
     pub np: Option<usize>,
+    /// `Compressibility Model = Thermal`, steady.
+    pub thermal: Option<ThermalCompress<'a>>,
+}
+
+/// `Compressibility Model = Thermal`: `rho = rho0 (1 - beta (T - Tref))`
+/// at the integration points, with `rho0` the `Density`, and the
+/// `-(1/rho) d(rho)/dx_i u_i` term of the continuity equation.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ThermalCompress<'a> {
+    /// `Temperature` at the nodes (`Reference Temperature` where it is not
+    /// solved).
+    pub temperature: &'a [f64],
+    /// `Heat Expansion Coefficient`.
+    pub beta: f64,
+    /// `Reference Temperature`.
+    pub t_ref: f64,
 }
 
 fn check_len(what: &'static str, expected: usize, got: usize) -> Result<(), IncompressibleError> {
@@ -264,7 +281,20 @@ pub fn incompressible_bulk_local_with(
     }
 
     let mu = at_points(inp.viscosity, &bas, nf, ngp);
-    let rhovec = vec![rho; ngp];
+    let mut rhovec = vec![rho; ngp];
+    // d(rho)/dx_i of the thermal model (zero without one).
+    let mut drhodx = vec![[0.0; 3]; ngp];
+    if let Some(th) = inp.thermal {
+        check_len("temperature", n, th.temperature.len())?;
+        for t in 0..ngp {
+            let temp: f64 = (0..n).map(|k| bas[t * nf + k] * th.temperature[k]).sum();
+            rhovec[t] = rho * (1.0 - th.beta * (temp - th.t_ref));
+            for i in 0..dim {
+                let dt: f64 = (0..n).map(|k| dbs[i][t * nf + k] * th.temperature[k]).sum();
+                drhodx[t][i] = -rho * th.beta * dt;
+            }
+        }
+    }
 
     // Body force, with the continuity row empty.
     let mut load_at = vec![[0.0; 4]; ngp];
@@ -343,6 +373,15 @@ pub fn incompressible_bulk_local_with(
             for q in 0..nf {
                 tr[p * nf + q] = blk[q * nf + p];
             }
+        }
+    }
+
+    // The u.grad(rho) half of a compressible continuity equation:
+    // (-(1/rho) d(rho)/dx_i u_i, q).
+    if inp.thermal.is_some() {
+        for i in 0..dim {
+            let w: Vec<f64> = (0..ngp).map(|t| -detj[t] * drhodx[t][i] / rhovec[t]).collect();
+            udotv(so.at(dim, i), nf, ngp, &bas, &bas, &w, None);
         }
     }
 
