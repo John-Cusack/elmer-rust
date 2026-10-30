@@ -3,8 +3,10 @@
 //! `Apply Integral BCs` (`GenerateProjectors` -> `IntegralProjector`,
 //! MeshBasics.F90:3353, then `GenerateConstraintMatrix`,
 //! ProjectorUtils.F90:440) turns every boundary condition or body force with
-//! `Integral BC` and an `Integral BC <var>` value into one row: the integral
-//! of each basis function over its elements, equal to the value. One with
+//! `Integral BC` and an `Integral BC <var>` value (`Integral BC
+//! <component>` per component of a vector field) into one row per such
+//! value: the integral of each basis function over its elements, equal to
+//! the value. One with
 //! `Flux Integral BC` gets `RobinProjector`'s row, the flux of its Robin
 //! terms, and the multiplier is exported (`Lagrange Multiplier <equation>`). A solver
 //! may instead hand over its own rows ([`SolverCtx::set_constraint_matrix`],
