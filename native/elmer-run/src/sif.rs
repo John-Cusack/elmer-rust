@@ -121,10 +121,10 @@ fn is_empty(m: &elmer_sif::Model) -> bool {
 
 /// `elmer-mesh`'s reader and its load transforms (`MapCoordinates`,
 /// `MapBodiesAndBCs`, `MapInternalExternalBCs`, `CreateIntersectionBCs`,
-/// MeshLoad.F90 / MeshTagging.F90), for the cases whose BCs need
-/// `Intersection BC` / `Intersection Body` elements the pluggable reader
-/// does not create. The transformed mesh is tagged with body and BC indices,
-/// so the model's targets become the identity.
+/// MeshLoad.F90 / MeshTagging.F90), for the cases whose BCs need the
+/// `Intersection BC` elements the pluggable reader does not create. The
+/// transformed mesh is tagged with body and BC indices, so the model's
+/// targets become the identity.
 fn load_with_transforms(
     dir: &Path,
     sif: &elmer_sif::Model,
