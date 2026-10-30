@@ -38,6 +38,7 @@
 
 pub mod benchmark_shell;
 pub mod bentonite;
+pub mod count_solver;
 pub mod hooks;
 pub mod l2nd_derivatives;
 pub mod linalg;

@@ -141,6 +141,8 @@ impl Solver for ModelPdeSolver {
         dt: f64,
         transient: bool,
     ) -> Result<(), SolverError> {
+        // `DefaultStart` (ModelPDE.F90): `Pre Solvers` and friends.
+        ctx.default_start()?;
         let dim = ctx.mesh.dim();
         let basis = LagrangeBasis::new(dim);
         let quad = ElmerQuadrature;
@@ -276,6 +278,7 @@ impl Solver for ModelPdeSolver {
                 break;
             }
         }
-        Ok(())
+        // `DefaultFinish` (ModelPDE.F90): `Post Solvers`, explicit control.
+        ctx.default_finish()
     }
 }

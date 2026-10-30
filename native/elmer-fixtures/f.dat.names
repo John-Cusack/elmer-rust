@@ -1,0 +1,8 @@
+Metadata for SaveScalars file: ./f.dat
+Elmer version: 9.0
+File started at: 2026/10/30 03:32:30
+ 
+Variables in columns of matrix: 
+   1: value: cpar scalar variable
+   2: min: temperature
+   3: max: temperature
