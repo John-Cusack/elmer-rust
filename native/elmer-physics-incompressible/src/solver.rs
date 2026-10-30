@@ -12,7 +12,7 @@ use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 use crate::boundary::{incompressible_boundary_local, incompressible_boundary_local_with, IncompressibleBoundaryInput};
 use crate::bulk::{
     incompressible_bulk_local, incompressible_bulk_local_with, lcondensate, lcondensate_bdf1, pin_pressure, HMode,
-    Compressibility, CompressModel, IncompressibleBulkInput, PressureStab, ViscosityModel,
+    Compressibility, CompressModel, GlenFields, GlenParams, IncompressibleBulkInput, PressureStab, ViscosityModel,
 };
 use crate::error::IncompressibleError;
 
@@ -309,9 +309,9 @@ fn check_body(mat: Option<&ParamMap>, bf: Option<&ParamMap>) -> Result<(), Solve
         }
         if let Some(v) = m.string("viscosity model") {
             let v = elmer_core::normalize_key(v);
-            if !["power law", "carreau", "cross", "powell eyring"].contains(&v.as_str()) {
+            if !["power law", "carreau", "cross", "powell eyring", "glen"].contains(&v.as_str()) {
                 return Err(unsupported(format!(
-                    "Viscosity Model = {v} (only power law, carreau, cross, powell eyring)"
+                    "Viscosity Model = {v} (only power law, carreau, cross, powell eyring, glen)"
                 )));
             }
             // Fatal in the pristine solver ("Parameter > Basis < is required").
@@ -372,6 +372,36 @@ fn viscosity_model(ctx: &SolverCtx<'_>, m: &ParamMap, e: ElemId) -> Result<Optio
             difference: c("viscosity difference")?,
             transition: c("viscosity transition")?,
         },
+        "glen" => {
+            if m.get("glen enhancement factor function").is_some() {
+                return Err(SolverError::fatal(CALLER, "No Glen function API yet!"));
+            }
+            let or = |key: &str, default: f64| -> Result<f64, SolverError> {
+                match m.get(key) {
+                    Some(_) => c(key),
+                    None => Ok(default),
+                }
+            };
+            let set_arrhenius = m.logical("set arrhenius factor").unwrap_or(false);
+            if !set_arrhenius && m.get("relative temperature").is_none() {
+                return Err(SolverError::fatal(CALLER, ">Relative Temperature< not given for viscosity model \"glen\""));
+            }
+            ViscosityModel::Glen(GlenParams {
+                exponent: or("glen exponent", 3.0)?,
+                critical: match m.get("critical shear rate") {
+                    Some(_) => Some(c("critical shear rate")?),
+                    None => None,
+                },
+                arrhenius: match set_arrhenius {
+                    true => Some(c("arrhenius factor")?),
+                    false => None,
+                },
+                t_limit: or("limit temperature", -10.0)?,
+                rate: [or("rate factor 1", 3.985e-13)?, or("rate factor 2", 1.916e3)?],
+                energy: [or("activation energy 1", 60.0e3)?, or("activation energy 2", 139.0e3)?],
+                gas_constant: ctx.sim.model.constants.real("gas constant").unwrap_or(8.314),
+            })
+        }
         other => return Err(unsupported(format!("Viscosity Model = {other}"))),
     }))
 }
@@ -790,6 +820,18 @@ impl Solver for IncompressibleNsSolver {
                     Some(m) => viscosity_model(ctx, m, e)?,
                     None => None,
                 };
+                // The glen model's rate factor from the temperature.
+                let glen_fields = match (&viscosity_model, mat) {
+                    (Some(ViscosityModel::Glen(g)), Some(m)) if g.arrhenius.is_none() => {
+                        let t = reorder(nodal(ctx, Some(m), "relative temperature", e, n)?, el.nodes, nodes);
+                        let ehf = match m.get("glen enhancement factor") {
+                            Some(_) => reorder(nodal(ctx, Some(m), "glen enhancement factor", e, n)?, el.nodes, nodes),
+                            None => vec![1.0; n],
+                        };
+                        Some((t, ehf))
+                    }
+                    _ => None,
+                };
                 if viscosity_model.is_some() && linear_assembly {
                     return Err(unsupported("Linear Equation with a non-newtonian Viscosity Model"));
                 }
@@ -890,6 +932,9 @@ impl Solver for IncompressibleNsSolver {
                     np: rule_np.for_type(el.etype),
                     axisymmetric,
                     viscosity_model,
+                    glen_fields: glen_fields
+                        .as_ref()
+                        .map(|(t, ehf)| GlenFields { relative_temperature: t, enhancement: ehf }),
                     compress: compress.as_ref().map(|(temperature, model, prev)| Compressibility {
                         temperature,
                         model: *model,

@@ -57,7 +57,7 @@ fn bubble_element_with_stabilization_is_refused() {
 fn viscosity_model_is_refused() {
     refused(
         &[("Pressure Stabilization", logical(true))],
-        &[("Viscosity Model", st("glen"))],
+        &[("Viscosity Model", st("k-epsilon"))],
         walls(),
         "Viscosity Model",
     );

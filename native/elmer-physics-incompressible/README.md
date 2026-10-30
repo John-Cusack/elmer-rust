@@ -52,9 +52,10 @@ element integrals) with no mass flux.
   goes through `Default1stOrderTime`; `Stokes Flow` has none, as in Fortran.
 - Elmer's 1e-6 start value for an `Equation = Navier-Stokes` variable.
 - `Viscosity Model = power law` (`Critical Shear Rate`), `carreau`, `cross`,
-  `powell eyring` (`EffectiveViscosityVec`): the viscosity at the points
-  from the previous iterate's shear rate, and with Newton its derivative in
-  the Jacobian.
+  `powell eyring`, `glen` (`Set Arrhenius Factor`, or the Arrhenius law of a
+  `Relative Temperature` with `Glen Enhancement Factor`), as in
+  `EffectiveViscosityVec`: the viscosity at the points from the previous
+  iterate's shear rate, and with Newton its derivative in the Jacobian.
 
 Refused (`SolverError::Unsupported`), not approximated: `Bubbles in Global
 System`, `Boussinesq`,
@@ -64,7 +65,7 @@ FSSA / normal-tangential boundaries, `Pressure 1..3` (the Fortran itself asks
 for `Surface Traction`), `Save Viscosity`, `Save Slip`, `Implicit Friction
 Coefficient`, the block preconditioner and Schur operators, `Nonlinear System
 Linesearch`, relative and adaptive integration orders, density that varies
-within an element, the Glen, `power law too` and turbulence viscosity models.
+within an element, the `power law too` and turbulence viscosity models.
 
 ## Wiring (for the integrator)
 
@@ -109,7 +110,7 @@ and `elmer-sif` (hand-built sections).
 
 ## Not done
 
-The Glen viscosity model, turbulence models,
+Turbulence models,
 friction and wall-law boundaries, normal-tangential conditions, and the block
 preconditioner (its Schur matrix needs a child solver `elmer-solver` cannot
 create yet).
