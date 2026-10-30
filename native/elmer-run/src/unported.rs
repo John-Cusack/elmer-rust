@@ -41,8 +41,9 @@ const SOLVER: &[Rule] = &[
 const BODY_FORCE: &[Rule] = &[];
 
 const BOUNDARY: &[Rule] = &[
-    present("Intersection BC", "intersection BCs are not implemented"),
-    present("Intersection Body", "intersection BCs are not implemented"),
+    // The elements `CreateIntersectionBCs` builds for an `Intersection Body`
+    // are not composed: IntersectionBody1D diverges (norm 2.6e14 vs 0.113).
+    present("Intersection Body", "intersection bodies are not composed"),
     present("Conforming BC", "conforming BCs are not implemented"),
 ];
 
