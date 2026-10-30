@@ -66,6 +66,9 @@ pub struct Trial {
     /// `field@step` for field mutations, empty for file mutations.
     pub target: String,
     pub outcome: Outcome,
+    /// For below-floor trials: the mutation's size in the grader metric
+    /// against the field's bar, the evidence that it is undetectable.
+    pub detail: String,
 }
 
 /// Write node-space values back into Perm order.
@@ -159,6 +162,7 @@ pub fn run_suite(
             let nodes = to_node_space(var).ok();
             let bar = bar_of(table, test, file, &var.name, occ, si, fallback);
             for m in [Mutation::Noise, Mutation::Permute, Mutation::OneValue] {
+                let mut detail = String::new();
                 let outcome = match (&nodes, bar) {
                     (None, _) => Outcome::Vacuous("unmappable field"),
                     (_, None) => Outcome::Vacuous("no Tier-A bar (structure-differs)"),
@@ -169,6 +173,7 @@ pub fn run_suite(
                             let size = relative_linf_floor(nodes, &mutated_nodes, floor)
                                 .unwrap_or(f64::INFINITY);
                             if size <= bar {
+                                detail = format!("size={size:.3e} bar={bar:.3e} floor={floor:.3e}");
                                 Outcome::BelowFloor
                             } else {
                                 let mut mutated = golden.clone();
@@ -178,7 +183,7 @@ pub fn run_suite(
                         }
                     },
                 };
-                trials.push(Trial { mutation: m, target: target.clone(), outcome });
+                trials.push(Trial { mutation: m, target: target.clone(), outcome, detail });
             }
         }
     }
@@ -189,6 +194,7 @@ pub fn run_suite(
         mutation: Mutation::DropStep,
         target: String::new(),
         outcome: grade(golden, &dropped, test, file, table, fallback),
+        detail: String::new(),
     });
     let outcome = match swap_first_distinct(golden) {
         Err(why) => Outcome::Vacuous(why),
@@ -220,7 +226,12 @@ pub fn run_suite(
             }
         }
     };
-    trials.push(Trial { mutation: Mutation::SwapVariables, target: String::new(), outcome });
+    trials.push(Trial {
+        mutation: Mutation::SwapVariables,
+        target: String::new(),
+        outcome,
+        detail: String::new(),
+    });
     trials
 }
 

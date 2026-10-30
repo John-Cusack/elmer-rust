@@ -116,6 +116,7 @@ SaveDependenceSpline	no-field-output	O1+logs	no field variables in any result fi
 SecondOrderEdgeElement2D	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 SecondOrderEdgeElement3D	tier-a-unfit	O1+O4+O6	sigma_F 5.52e-07 > 0.1 x RefNorm tolerance 1e-06
 SecondOrderEdgeElement3D	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
+ShoeboxStaticShell	structure-differs	O1+O4+O6	a field differs in structure between sensitivity arms
 SlaveSolverSlots	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 SlaveSolverSlotsScan	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 SolverSpecificMeshes	tier-a-unfit	O1+O4+O6	sigma_F 0.258 > 0.1 x RefNorm tolerance 1e-05

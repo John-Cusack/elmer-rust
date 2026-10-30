@@ -14,8 +14,8 @@ through firstmate (D11).
 | 2 Direct runner | Registration-driven: 482 quick, 618 non-quick and 65 ice tests run, with `cmake -P` replay for custom `runtest.cmake` | `src/runner.rs`, `src/registry.rs` |
 | 3 Golden capture | O2 for 482/482 quick tests on all three arms. O2m (`--o2m`) and iteration counts (`--max-output`) are supported but not captured corpus-wide. | `golden/` |
 | 4 Bitwise grader validation | 223 quick tests bitwise through `Reference Norm Tolerance = 0`; 3 edge/DG grader gaps, 1 unexplained, 255 out of class (reasons listed) | `refnorm/` |
-| 5 σ_F and tolerance table | 5,665 fields, variable-scale floor for near-zero components; kill check 24/482 (5.0%) with eigen mode | `tolerances.json`, `golden/README.md` |
-| Mutation suite | 14,630/14,630 detectable mutations caught (near-zero floor); below-floor and vacuous counts kept visible | `golden/mutation-summary.txt` |
+| 5 σ_F and tolerance table | 5,665 fields, variable-scale floor for near-zero components (exact zeros stay exact); kill check 25/482 (5.2%) with eigen mode | `tolerances.json`, `golden/README.md` |
+| Mutation suite | 14,634/14,634 detectable mutations caught (near-zero floor); below-floor and vacuous counts kept visible | `golden/mutation-summary.txt` |
 | 6 Capability matrix | 482/482 LISTUSAGE runs | `capability/` |
 | 7 O6 restart round trip | 5/5 restart tests bit-stable | `golden/o6.txt`, `scripts/o6-proof.sh` |
 | 8 O7 kernel harness | not covered by this lane | — |

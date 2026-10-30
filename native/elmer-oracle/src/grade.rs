@@ -83,17 +83,23 @@ pub fn relative_linf_floor(golden: &[f64], candidate: &[f64], floor: f64) -> Opt
     if golden.len() != candidate.len() {
         return None;
     }
-    let norm = golden
+    let own = golden
         .iter()
         .filter(|v| v.is_finite())
-        .fold(0.0f64, |m, &v| m.max(v.abs()))
-        .max(floor);
-    if norm == 0.0 {
-        if candidate.iter().all(|&v| v == 0.0) {
-            return Some(0.0);
-        }
-        return None;
+        .fold(0.0f64, |m, &v| m.max(v.abs()));
+    if own == 0.0 {
+        // An identically zero golden field keeps the exact-zero rule: any
+        // value beyond one ulp of its variable's scale is a real error, so
+        // the scaled floor never applies here.
+        let round_off = f64::EPSILON * floor;
+        let ok = golden
+            .iter()
+            .zip(candidate.iter())
+            .filter(|(g, _)| g.is_finite())
+            .all(|(_, c)| c.abs() <= round_off);
+        return ok.then_some(0.0);
     }
+    let norm = own.max(floor);
     let mut worst = 0.0;
     for (g, c) in golden.iter().zip(candidate.iter()) {
         if !c.is_finite() && g.is_finite() {
@@ -308,6 +314,11 @@ mod tests {
         // A real error in the small component is still caught.
         let wrong = file(vec![1e-3, -3e-16]);
         assert!(!grade_results(&golden, &wrong, 1e-10).is_empty());
+        // An identically zero component keeps the exact-zero rule: one ulp
+        // of the variable's scale passes, 1e-6 does not.
+        let zero = file(vec![0.0, 0.0]);
+        assert!(grade_results(&zero, &file(vec![2.0 * f64::EPSILON, 0.0]), 1e-10).is_empty());
+        assert!(!grade_results(&zero, &file(vec![1e-6, 0.0]), 1e-10).is_empty());
     }
 
     #[test]
