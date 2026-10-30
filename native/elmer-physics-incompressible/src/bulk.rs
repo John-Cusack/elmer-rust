@@ -89,6 +89,25 @@ pub struct IncompressibleBulkInput<'a> {
     /// The nodal fields of a `glen` model with a temperature-dependent rate
     /// factor.
     pub glen_fields: Option<GlenFields<'a>>,
+    /// The body force's `Boussinesq` buoyancy.
+    pub boussinesq: Option<Boussinesq<'a>>,
+}
+
+/// `Boussinesq = True` in the body force: `-rho g beta (T - Tref)` added to
+/// the momentum load, `rho` the `Density`, `T` the temperature at the
+/// points.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Boussinesq<'a> {
+    /// `Temperature` at the nodes (`Reference Temperature` where it is not
+    /// solved).
+    pub temperature: &'a [f64],
+    /// `Heat Expansion Coefficient`.
+    pub beta: f64,
+    /// `Reference Temperature`.
+    pub t_ref: f64,
+    /// `Gravity` of the Constants (direction times magnitude), else
+    /// `(0, -9.81, 0)`.
+    pub gravity: [f64; 3],
 }
 
 /// A non-newtonian `Viscosity Model` of `EffectiveViscosityVec`, with `ss`
@@ -585,6 +604,15 @@ pub fn incompressible_bulk_local_sums(
         let lv = at_points(&col, &bas, nf, ngp);
         for t in 0..ngp {
             load_at[t][i] = if inp.specific_load { lv[t] } else { rhovec[t] * lv[t] };
+        }
+    }
+    if let Some(b) = inp.boussinesq {
+        check_len("temperature", n, b.temperature.len())?;
+        for t in 0..ngp {
+            let temp: f64 = (0..n).map(|k| bas[t * nf + k] * b.temperature[k]).sum();
+            for i in 0..dim {
+                load_at[t][i] -= rho * b.gravity[i] * b.beta * (temp - b.t_ref);
+            }
         }
     }
     // The d(rho)/dt half of a compressible continuity source, as a load.

@@ -33,7 +33,7 @@ pub use boundary::{
 };
 pub use bulk::{
     incompressible_bulk_local, incompressible_bulk_local_sums, incompressible_bulk_local_with, lcondensate,
-    lcondensate_bdf1, pin_pressure, Compressibility, CompressModel, GlenFields, GlenParams, HMode,
+    lcondensate_bdf1, pin_pressure, Boussinesq, Compressibility, CompressModel, GlenFields, GlenParams, HMode,
     IncompressibleBulkInput, PressureStab, ViscosityModel, ViscositySums,
 };
 pub use error::IncompressibleError;

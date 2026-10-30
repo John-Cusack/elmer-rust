@@ -41,6 +41,8 @@ element integrals) with no mass flux.
   `Viscosity` and `Flow Bodyforce i` at the nodes (expressions through
   `elmer-expr`), `Noslip Wall BC`, Dirichlet on `Velocity i` / `Pressure`
   (zero on the edge and face dofs of p elements).
+- `Boussinesq = True` in the body force: `-rho g beta (T - Tref)` on the
+  momentum load, `g` the Constants' `Gravity`.
 - `Compressibility Model = Thermal` and `Perfect Gas`, steady and transient,
   from the `Temperature` field: rho(T) or rho(p, T) at the integration
   points, the `u.grad(rho)` continuity term and, transient, the d(rho)/dt
@@ -65,7 +67,7 @@ element integrals) with no mass flux.
   is not ported) on the slip boundaries.
 
 Refused (`SolverError::Unsupported`), not approximated: `Bubbles in Global
-System`, `Boussinesq`,
+System`,
 compressibility with `Pressure Stabilization` or in a transient Stokes run,
 cylindric coordinates, `Normal Slip Coefficient`, friction / `Wall Law` /
 FSSA / normal-tangential boundaries, `Pressure 1..3` (the Fortran itself asks

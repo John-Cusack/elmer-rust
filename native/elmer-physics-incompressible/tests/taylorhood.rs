@@ -318,6 +318,12 @@ fn perfect_gas_compressibility_matches_elmer() {
 /// temperature an exported variable at its initial condition `293.5 - x`,
 /// against the pristine `case`.
 fn compressible_cavity(case: &str, material: ParamMap, ref_norm: f64) {
+    compressible_cavity_with(case, material, false, ref_norm)
+}
+
+/// [`compressible_cavity`], with `Boussinesq = True` in the body force and
+/// `Gravity(4) = 0 -1 0 9.81` in the Constants when `boussinesq`.
+fn compressible_cavity_with(case: &str, material: ParamMap, boussinesq: bool, ref_norm: f64) {
     let dir = data(case);
     let mesh = TestMesh::read(&dir, 2);
     let mut solver = ns_solver(&[
@@ -333,8 +339,14 @@ fn compressible_cavity(case: &str, material: ParamMap, ref_norm: f64) {
     let mut first = wall(1);
     first.insert("Pressure", real(0.0));
     let bcs = vec![first, wall(2), wall(3), wall(4)];
-    let body_force = sec(&[("Flow BodyForce 2", real(-10.0))]);
+    let mut body_force = sec(&[("Flow BodyForce 2", real(-10.0))]);
+    if boussinesq {
+        body_force.insert("Boussinesq", Value::Logical(true));
+    }
     let mut m = model(steady("Cartesian 2D"), solver, material, Some(body_force), bcs);
+    if boussinesq {
+        m.constants.insert("Gravity", Value::Real { rows: 4, cols: 1, data: vec![0.0, -1.0, 0.0, 9.81] });
+    }
     m.bodies[0].insert("Initial Condition", ints(&[1]));
     m.initial_conditions = vec![sec(&[("Temperature", table(1, &[(0.0, 293.5), (1.0, 292.5)]))])];
     let mut reg = SolverRegistry::new();
@@ -702,4 +714,19 @@ fn saved_viscosity_matches_elmer() {
         ("Critical Shear Rate", real(0.05)),
     ];
     viscosity_case("visc_powerlaw_save", &m, 0.07532484369893568);
+}
+
+/// `tests/data/boussinesq_quad/case.sif`: the same cavity, incompressible,
+/// driven by a `Boussinesq` body force `-rho g beta (T - Tref)` with the
+/// Constants' `Gravity` (0, -1, 0) x 9.81 and `Heat Expansion Coefficient`
+/// 0.25 (hydrostatic, no flow, without it).
+#[test]
+fn boussinesq_matches_elmer() {
+    let material = sec(&[
+        ("Density", real(1.0)),
+        ("Viscosity", real(1.0)),
+        ("Reference Temperature", real(293.0)),
+        ("Heat Expansion Coefficient", real(0.25)),
+    ]);
+    compressible_cavity_with("boussinesq_quad", material, true, 0.004364993253222428);
 }

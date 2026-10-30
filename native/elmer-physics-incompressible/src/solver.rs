@@ -13,7 +13,7 @@ use crate::boundary::{
     incompressible_boundary_local, incompressible_boundary_local_sums, IncompressibleBoundaryInput, SlipSums,
 };
 use crate::bulk::{
-    incompressible_bulk_local_sums, lcondensate, lcondensate_bdf1, pin_pressure, HMode, ViscositySums,
+    incompressible_bulk_local_sums, lcondensate, lcondensate_bdf1, pin_pressure, Boussinesq, HMode, ViscositySums,
     Compressibility, CompressModel, GlenFields, GlenParams, IncompressibleBulkInput, PressureStab, ViscosityModel,
 };
 use crate::error::IncompressibleError;
@@ -340,7 +340,7 @@ fn parse_hmode(s: &str) -> Result<HMode, SolverError> {
 }
 
 /// Material and body force options this crate does not port.
-fn check_body(mat: Option<&ParamMap>, bf: Option<&ParamMap>) -> Result<(), SolverError> {
+fn check_body(mat: Option<&ParamMap>, _bf: Option<&ParamMap>) -> Result<(), SolverError> {
     if let Some(m) = mat {
         if let Some(c) = m.string("compressibility model") {
             let c = elmer_core::normalize_key(c);
@@ -368,12 +368,32 @@ fn check_body(mat: Option<&ParamMap>, bf: Option<&ParamMap>) -> Result<(), Solve
             return Err(unsupported("turbulence model viscosity"));
         }
     }
-    if let Some(b) = bf {
-        if flag(b, "boussinesq") {
-            return Err(unsupported("Boussinesq body force"));
-        }
-    }
     Ok(())
+}
+
+/// `Gravity` of the Constants as `GravityWork(1:3) * GravityWork(4)` (a
+/// direction and a magnitude), else `(0, -9.81, 0)`.
+fn gravity(constants: &ParamMap) -> Result<[f64; 3], SolverError> {
+    match constants.get("gravity") {
+        None => Ok([0.0, -9.81, 0.0]),
+        Some(Value::Real { data, .. }) if data.len() >= 4 => Ok(std::array::from_fn(|i| data[i] * data[3])),
+        Some(_) => Err(unsupported("Gravity of the Constants other than four reals")),
+    }
+}
+
+/// The `Temperature` field at `nodes`, `t_ref` where it is not solved
+/// (`NodalTemp` of LocalBulkMatrix).
+fn nodal_temperature(ctx: &SolverCtx<'_>, nodes: &[u32], t_ref: f64, what: &str) -> Result<Vec<f64>, SolverError> {
+    let Some(tv) = ctx.variable("temperature") else {
+        return Err(SolverError::fatal(CALLER, format!("{what} requires a solved \"Temperature\" field")));
+    };
+    Ok(nodes
+        .iter()
+        .map(|&nn| match tv.perm.map_or(nn, |p| p[nn as usize]) {
+            NO_DOF => t_ref,
+            k => tv.values[k as usize * tv.dofs],
+        })
+        .collect())
 }
 
 /// The material's `Compressibility Model`, `"thermal"` or `"perfect gas"`
@@ -884,6 +904,17 @@ impl Solver for IncompressibleNsSolver {
                 if viscosity_model.is_some() && linear_assembly {
                     return Err(unsupported("Linear Equation with a non-newtonian Viscosity Model"));
                 }
+                // Body Force `Boussinesq`: the buoyancy of the temperature.
+                let boussinesq = match (bf.is_some_and(|b| flag(b, "boussinesq")), mat) {
+                    (true, Some(m)) => {
+                        let t_ref = element_constant(ctx, m, "reference temperature", e)?;
+                        let beta = element_constant(ctx, m, "heat expansion coefficient", e)?;
+                        let temp = nodal_temperature(ctx, nodes, t_ref, "Body Force \"Boussinesq\"")?;
+                        Some((temp, beta, t_ref, gravity(&ctx.sim.model.constants)?))
+                    }
+                    (true, None) => return Err(SolverError::fatal(CALLER, "Boussinesq without a material")),
+                    _ => None,
+                };
                 let compress = match (compress_model(mat), mat) {
                     (Some(model), Some(m)) => {
                         if pstab || (transient && stokes) {
@@ -981,6 +1012,12 @@ impl Solver for IncompressibleNsSolver {
                     np: rule_np.for_type(el.etype),
                     axisymmetric,
                     viscosity_model,
+                    boussinesq: boussinesq.as_ref().map(|(temperature, beta, t_ref, gravity)| Boussinesq {
+                        temperature,
+                        beta: *beta,
+                        t_ref: *t_ref,
+                        gravity: *gravity,
+                    }),
                     glen_fields: glen_fields
                         .as_ref()
                         .map(|(t, ehf)| GlenFields { relative_temperature: t, enhancement: ehf }),
