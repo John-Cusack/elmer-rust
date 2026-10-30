@@ -142,7 +142,34 @@ fn preflight(model: &Model, registry: &SolverRegistry) -> Result<(), SolverError
         }
     }
     check_calcfields_scalars(model)?;
+    check_enclosed_flow(model)?;
     crate::unported::check(model)
+}
+
+/// FlowSolve with every boundary condition fixing all velocity components
+/// and none setting the pressure: the pressure is defined only up to a
+/// constant, which Elmer's solve tolerates. The composition diverges on it
+/// (CavityLid: norm 5.5e20 against 0.2148, with or without BC-numbering
+/// order, stabilization or Newton).
+fn check_enclosed_flow(model: &Model) -> Result<(), SolverError> {
+    let flow = model.solvers.iter().any(|p| {
+        procedure_of(p).is_some_and(|(lib, _)| lib.eq_ignore_ascii_case("flowsolve"))
+            && !p.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never"))
+    });
+    if !flow || model.boundary_conditions.is_empty() {
+        return Ok(());
+    }
+    let dim = if model.boundary_conditions.iter().any(|bc| bc.get("velocity 3").is_some()) { 3 } else { 2 };
+    let enclosed = model.boundary_conditions.iter().all(|bc| {
+        (1..=dim).all(|i| bc.get(&format!("velocity {i}")).is_some())
+            && !bc.0.keys().any(|k| k.contains("pressure") || k.starts_with("normal-tangential"))
+    });
+    if enclosed {
+        return Err(SolverError::Unsupported(
+            "FlowSolve on an enclosed domain (velocity fixed on every boundary, pressure only up to a constant)".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// `MagnetoDynamicsCalcFields` also stores its integral results (field
@@ -379,8 +406,8 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
 /// bubbles stay refused (the solver condenses them, while Elmer keeps them
 /// in the global system and its solution norm, the `Reference Norm`); and
 /// any definition for the solvers that read their DOFs from `elmer-pdofs`
-/// (`ctx.solver_dofs()`) and refuse what they do not port: ModelPDE's
-/// AdvDiffSolver and the test-local `Poisson` / `PoissonML`
+/// (`ctx.solver_dofs()`) and refuse what they do not port: StressSolve
+/// (#206), ModelPDE's AdvDiffSolver and the test-local `Poisson` / `PoissonML`
 /// `PoissonSolver`, `ModelPDEsplitted`, `SingleElements`, `BenchmarkShell`
 /// and `Stokes1` ports.
 pub fn native_element(params: &ParamMap) -> bool {
@@ -390,8 +417,9 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 7] = [
+    const P_DOFS: [(&str, &str); 8] = [
         ("benchmarkshell", "shellsolver"),
+        ("stresssolve", "stresssolver"),
         ("stokes1", "stokessolver"),
         ("poisson", "poissonsolver"),
         ("poissonml", "poissonsolver"),
