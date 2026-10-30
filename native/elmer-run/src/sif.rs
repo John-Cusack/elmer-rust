@@ -44,8 +44,9 @@ fn single(section: &Option<Section>) -> ParamMap {
 }
 
 /// `-distribute` (SetNormalizedKeywords, MainUtils.F90:224) divides the
-/// value by the area or volume it acts on. The tag lives only on
-/// `elmer-sif`'s entries, so it is refused here.
+/// value by the area or volume it acts on, and `Real Cubic Monotone` picks
+/// a monotone spline. Both live only on `elmer-sif`'s entries, so they are
+/// refused here.
 fn refuse_distribute(m: &elmer_sif::Model) -> Result<(), String> {
     let numbered: [(&str, &[Section]); 7] = [
         ("Solver", &m.solvers),
@@ -67,6 +68,11 @@ fn refuse_distribute(m: &elmer_sif::Model) -> Result<(), String> {
                 "{kind} {}: {} = -distribute: keyword normalisation by area or volume is not implemented",
                 s.id, e.name
             ));
+        }
+        // `elmer-core`'s tables carry `cubic` only, so a monotone spline
+        // would be evaluated as the plain cubic one.
+        if let Some(e) = s.entries.iter().find(|e| matches!(&e.value, elmer_sif::Value::Table(t) if t.monotone)) {
+            return Err(format!("{kind} {}: {} = Real Cubic Monotone: monotone splines are not implemented", s.id, e.name));
         }
     }
     Ok(())
