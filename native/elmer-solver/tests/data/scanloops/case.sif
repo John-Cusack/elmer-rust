@@ -1,0 +1,52 @@
+Header
+  CHECK KEYWORDS Warn
+  Mesh DB "." "angle"
+End
+Simulation
+  Max Output Level = 5
+  Coordinate System = "Cartesian"
+  Simulation Type = "Steady State"
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Equation 1
+  Active Solvers(1) = 2
+End
+Solver 2
+  Equation = "Heat Equation"
+  Procedure = "HeatSolve" "HeatSolver"
+  Variable = "Temperature"
+  Linear System Solver = "Direct"
+  Linear System Direct Method = "umfpack"
+  Steady State Convergence Tolerance = 1.0e-09
+  Nonlinear System Min Iterations = 2
+  Nonlinear System Max Iterations = 2
+  Nonlinear System Convergence Tolerance = 1.0e-06
+  Scanning Loops = Integer 2
+  Pre Solvers(1) = 1
+  Nonlinear Pre Solvers(1) = 1
+  Nonlinear Post Solvers(1) = 1
+  Post Solvers(1) = 1
+End
+Solver 1
+  Exec Solver = never
+  Equation = "CountSolver"
+  Variable = -global Count
+  Procedure = "CountSolver2" "CountSolver"
+End
+Material 1
+  Density = 1
+  Heat Conductivity = 3
+End
+Body Force 1
+  Heat Source = Equals "scan"
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Temperature = 0
+End
