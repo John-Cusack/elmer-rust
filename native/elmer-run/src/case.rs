@@ -740,6 +740,10 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     check_mesh_and_elements(&model)?;
     check_reloads(&model, &reloads, &registry)?;
     install_fe(coords.dim)?;
+    crate::normalize::set_normalized_keywords(&mut model, mesh, coords, &fe_backend(coords.dim), size)?;
+    if reloads.iter().any(crate::normalize::mentions) {
+        return Err(SolverError::Unsupported("RUN block sets keyword normalisation by area or volume".into()));
+    }
 
     let periodic = periodic_assembly(&model, mesh, coords.dim, &case_dir, log)?;
 

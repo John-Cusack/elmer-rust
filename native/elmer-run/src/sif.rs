@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use elmer_core::{MeshView, ParamMap, Value};
+use elmer_core::{MeshView, ParamMap, Params, Value};
 use elmer_sif::{section_to_param_map, Section};
 use elmer_solver::Model;
 
@@ -31,7 +31,19 @@ fn numbered(kind: &str, sections: &[Section]) -> Result<Vec<ParamMap>, String> {
     let mut out = vec![ParamMap::new(); n];
     for s in sections {
         match (s.id as usize).checked_sub(1) {
-            Some(i) => out[i] = section_to_param_map(s),
+            Some(i) => {
+                out[i] = section_to_param_map(s);
+                if DISTRIBUTED.contains(&kind) {
+                    // `-distribute` as its suffix keyword, unless the
+                    // section sets that one itself (it is read later).
+                    for e in s.entries.iter().filter(|e| e.distribute) {
+                        let key = format!("{} normalize by area", e.name);
+                        if out[i].get(&key).is_none() {
+                            out[i].insert(&key, Value::Logical(true));
+                        }
+                    }
+                }
+            }
             None if s.entries.is_empty() => {}
             None => return Err(format!("{kind} section without a number")),
         }
@@ -43,10 +55,13 @@ fn single(section: &Option<Section>) -> ParamMap {
     section.as_ref().map(section_to_param_map).unwrap_or_default()
 }
 
-/// `-distribute` (SetNormalizedKeywords, MainUtils.F90:224) divides the
-/// value by the area or volume it acts on, and `Real Cubic Monotone` picks
-/// a monotone spline. Both live only on `elmer-sif`'s entries, so they are
-/// refused here.
+/// The sections whose `-distribute` keywords `SetNormalizedKeywords`
+/// (MainUtils.F90:226) divides by their area or volume (`normalize`).
+const DISTRIBUTED: [&str; 4] = ["Body", "Material", "Body Force", "Boundary Condition"];
+
+/// `-distribute` outside [`DISTRIBUTED`], and `Real Cubic Monotone`, which
+/// picks a monotone spline. Both live only on `elmer-sif`'s entries, so
+/// they are refused here.
 fn refuse_distribute(m: &elmer_sif::Model) -> Result<(), String> {
     let numbered: [(&str, &[Section]); 7] = [
         ("Solver", &m.solvers),
@@ -63,7 +78,7 @@ fn refuse_distribute(m: &elmer_sif::Model) -> Result<(), String> {
         .flat_map(|(kind, v)| v.iter().map(move |s| (*kind, s)))
         .chain(singles.iter().filter_map(|(kind, s)| s.as_ref().map(|s| (*kind, s))));
     for (kind, s) in all {
-        if let Some(e) = s.entries.iter().find(|e| e.distribute) {
+        if let Some(e) = s.entries.iter().find(|e| e.distribute && !DISTRIBUTED.contains(&kind)) {
             return Err(format!(
                 "{kind} {}: {} = -distribute: keyword normalisation by area or volume is not implemented",
                 s.id, e.name

@@ -47,10 +47,6 @@ const BOUNDARY: &[Rule] = &[
     present("Conforming BC", "conforming BCs are not implemented"),
 ];
 
-/// `SetNormalizedKeywords` (MainUtils.F90:224): `<keyword> Normalize by
-/// Area|Volume` divides the keyword by the area or volume it acts on.
-const NORMALIZE_SUFFIXES: &[&str] = &[" normalize by area", " normalize by volume"];
-
 fn scan(section: &str, i: usize, params: &ParamMap, rules: &[Rule]) -> Result<(), SolverError> {
     for r in rules {
         let hit = match r.test {
@@ -155,24 +151,6 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
                 "Body Force {}: {var}: body-force Dirichlet values are not implemented",
                 i + 1
             )));
-        }
-    }
-
-    let sections: [(&str, &[ParamMap]); 4] = [
-        ("Material", &model.materials),
-        ("Body Force", &model.body_forces),
-        ("Boundary Condition", &model.boundary_conditions),
-        ("Initial Condition", &model.initial_conditions),
-    ];
-    for (section, maps) in sections {
-        for (i, m) in maps.iter().enumerate() {
-            let normalized = m.0.keys().find(|k| NORMALIZE_SUFFIXES.iter().any(|s| k.ends_with(s)) && m.logical(k) == Some(true));
-            if let Some(key) = normalized {
-                return Err(SolverError::Unsupported(format!(
-                    "{section} {}: {key}: keyword normalisation by area or volume is not implemented",
-                    i + 1
-                )));
-            }
         }
     }
     Ok(())
@@ -294,15 +272,5 @@ mod tests {
         // Point Dirichlet conditions are elmer-solver's.
         assert!(check(&model).is_ok());
 
-        let model = Model {
-            solvers: vec![heat(&[])],
-            materials: vec![pm(&[("heat conductivity normalize by volume", Value::Logical(true))])],
-            ..Model::default()
-        };
-        assert_eq!(
-            refusal(&model),
-            "Material 1: heat conductivity normalize by volume: keyword normalisation by area or volume \
-             is not implemented"
-        );
     }
 }

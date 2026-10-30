@@ -38,6 +38,7 @@ pub mod engine;
 pub mod matc;
 mod mortar;
 mod motion;
+mod normalize;
 pub mod output;
 pub mod sif;
 pub mod unported;
