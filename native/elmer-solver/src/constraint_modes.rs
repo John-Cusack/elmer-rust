@@ -7,11 +7,19 @@
 //! its own nonlinear change. `Constraint Mode <var> = Integer k` numbers a
 //! boundary (0 is the ground, held at zero).
 //!
+//! With `Constraint Modes Fluxes` each mode's fluxes `A_bulk x` summed over
+//! the mode dofs make a row of the lumped matrix (`ConstraintModesFluxes`,
+//! `StoreLumpedFluxes`), printed after the last mode (`FinalizeLumpedMatrix`,
+//! SolveCore.F90:3526-3840), optionally symmetrised, its norm optionally
+//! stored as `res: <var> lumped matrix norm` and its entries as `res: CMF i
+//! j`.
+//!
 //! Refused: lumped modes, the `rhs`, `EM Wave` and `Coils` variants,
 //! `Constraint Modes Single` and mode directions, complex systems, modes over
 //! body forces or components, the external loops (`Nonlinear System`,
-//! `Steady State` and `Run Control Constraint Modes`), the lumped fluxes and
-//! linkage, symmetric Dirichlet elimination, p elements and parallel runs.
+//! `Steady State` and `Run Control Constraint Modes`), linkage, writing the
+//! lumped matrix to a file, symmetric Dirichlet elimination, p elements and
+//! parallel runs.
 
 use std::collections::BTreeMap;
 
@@ -42,10 +50,8 @@ fn refuse(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
         "nonlinear system constraint modes",
         "steady state constraint modes",
         "run control constraint modes",
-        "constraint modes fluxes",
         "constraint modes linkage",
-        "constraint modes fluxes norm",
-        "constraint modes matrix norm",
+        "consider p fluxes",
         "constraint modes constant matrix",
         "linear system complex",
         "linear system symmetric",
@@ -64,6 +70,11 @@ fn refuse(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
     }
     if m.boundary_conditions.iter().any(|b| b.get("constraint mode direction").is_some()) {
         return Err(SolverError::Unsupported("Constraint Mode Direction".into()));
+    }
+    for k in ["constraint modes fluxes filename", "constraint modes matrix filename"] {
+        if p.get(k).is_some() {
+            return Err(SolverError::Unsupported(format!("Constraint Modes Analysis with {k}")));
+        }
     }
     if p.get("nonlinear post solvers").is_some() {
         return Err(SolverError::Unsupported("Constraint Modes Analysis with Nonlinear Post Solvers".into()));
@@ -184,6 +195,8 @@ pub(crate) fn solve_modes(ctx: &mut SolverCtx<'_>, modes: Modes) -> Result<f64, 
     let params = &mut ctx.sim.slots[ctx.slot].params;
     let skip = params.get("skip zero rhs test").cloned();
     params.insert("Skip Zero Rhs Test", Value::Logical(true));
+    let fluxes = ctx.params().logical("constraint modes fluxes") == Some(true);
+    let mut lumped: Vec<Vec<f64>> = Vec::new();
     let mut norm = 0.0;
     let mut r = Ok(());
     for m in 1..=modes.count as i32 {
@@ -192,10 +205,34 @@ pub(crate) fn solve_modes(ctx: &mut SolverCtx<'_>, modes: Modes) -> Result<f64, 
         if r.is_err() {
             break;
         }
+        ctx.info(DRIVER, &format!("Mode {} computed, doing some postprocessing", i2s(i64::from(m))), 10);
         r = set_rhs(ctx, m, false);
         if r.is_err() {
             break;
         }
+        if fluxes {
+            ctx.info(DRIVER, "Computing lumped fluxes", 8);
+            match flux_row(ctx, &modes, m) {
+                Ok(row) => {
+                    ctx.info("StoreLumpedFluxes", "Storing lumped fluxes", 10);
+                    if lumped.is_empty() {
+                        ctx.info(
+                            "StoreLumpedFluxes",
+                            &format!("Allocating lumped model of size: {}", i2s(modes.count as i64)),
+                            5,
+                        );
+                    }
+                    lumped.push(row);
+                }
+                Err(e) => {
+                    r = Err(e);
+                    break;
+                }
+            }
+        }
+    }
+    if r.is_ok() && fluxes {
+        finalize(ctx, lumped);
     }
     let params = &mut ctx.sim.slots[ctx.slot].params;
     match skip {
@@ -203,4 +240,95 @@ pub(crate) fn solve_modes(ctx: &mut SolverCtx<'_>, modes: Modes) -> Result<f64, 
         None => params.0.remove("skip zero rhs test"),
     };
     r.map(|_| norm)
+}
+
+/// `ConstraintModesFluxes` (real): `A_bulk x` over the mode dofs; mode `n`'s
+/// row gets the fluxes of every mode dof, each other mode's entry minus its
+/// own.
+fn flux_row(ctx: &SolverCtx<'_>, modes: &Modes, n: i32) -> Result<Vec<f64>, SolverError> {
+    let slot = &ctx.sim.slots[ctx.slot];
+    let sys = slot.system.as_ref().ok_or_else(|| SolverError::fatal("ConstraintModesDriver", "no assembled system"))?;
+    let (values, _) = slot
+        .asm
+        .bulk
+        .as_ref()
+        .ok_or_else(|| SolverError::fatal("ConstraintModesDriver", "BulkValues not associated!"))?;
+    let a = &sys.matrix;
+    let id = slot.variable.expect("set up with a variable");
+    let x = &ctx.sim.vars.by_id(id).values;
+    let mut row = vec![0.0; modes.count];
+    for (j, &k) in modes.index.iter().enumerate() {
+        if k <= 0 {
+            continue;
+        }
+        let flux: f64 = (a.row_ptr[j]..a.row_ptr[j + 1]).map(|p| values[p] * x[a.col_idx[p] as usize]).sum();
+        if k != n {
+            row[k as usize - 1] -= flux;
+        }
+        row[n as usize - 1] += flux;
+    }
+    Ok(row)
+}
+
+/// `FinalizeLumpedMatrix` (real).
+fn finalize(ctx: &mut SolverCtx<'_>, mut c: Vec<Vec<f64>>) {
+    const FIN: &str = "FinalizeLumpedMatrix";
+    ctx.info(FIN, "Finalizing lumped matrix", 8);
+    let n = c.len();
+    let p = ctx.params();
+    let symmetric = p
+        .logical("constraint modes fluxes symmetric")
+        .or_else(|| p.logical("constraint modes matrix symmetric"))
+        == Some(true);
+    if symmetric {
+        ctx.info(FIN, "Enforcing symmetry of reduced system!", 8);
+        for i in 0..n {
+            for j in i + 1..n {
+                ctx.info(FIN, &format!("{:>3}{:>3}{}", i + 1, j + 1, crate::fortran_fmt::es(c[i][j] - c[j][i], 17, 9)), 10);
+            }
+        }
+        let t = c.clone();
+        for i in 0..n {
+            for j in 0..n {
+                c[i][j] = 0.5 * (t[i][j] + t[j][i]);
+            }
+        }
+    }
+    ctx.info(FIN, "Lumped Matrix", 5);
+    for (i, row) in c.iter().enumerate() {
+        for (j, v) in row.iter().enumerate() {
+            if symmetric && j < i {
+                continue;
+            }
+            ctx.info(FIN, &format!("{:>3}{:>3}{}", i + 1, j + 1, crate::fortran_fmt::es(*v, 17, 9)), 5);
+        }
+    }
+    let nrm: f64 = c.iter().flatten().map(|v| v.abs()).sum();
+    let name = ctx
+        .sim
+        .slots[ctx.slot]
+        .variable
+        .map(|id| ctx.sim.vars.by_id(id).name.clone())
+        .unwrap_or_default();
+    ctx.info(FIN, &format!("{name} lumped matrix norm: {}", crate::fortran_fmt::es(nrm, 12, 5)), 6);
+    let p = ctx.params();
+    let store_norm = p
+        .logical("constraint modes fluxes norm")
+        .or_else(|| p.logical("constraint modes matrix norm"))
+        == Some(true);
+    let results = p.logical("constraint modes matrix results") == Some(true);
+    if results {
+        ctx.info(FIN, "Adding Constraint Modes Fluxes with \"res:\" to list", 5);
+    }
+    let sim = &mut ctx.sim.model.simulation;
+    if store_norm {
+        sim.insert(&format!("res: {name} lumped matrix norm"), Value::real(nrm));
+    }
+    if results {
+        for (i, row) in c.iter().enumerate() {
+            for (j, v) in row.iter().enumerate() {
+                sim.insert(&format!("res: CMF {} {}", i + 1, j + 1), Value::real(*v));
+            }
+        }
+    }
 }
