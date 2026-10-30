@@ -1,0 +1,22 @@
+# O6 restart round trip, Release arm (build-release, ElmerSolver sha256 13c96364...), 2026-10-30
+# scripts/o6-proof.sh <bin> build-release fem/tests <out> ElasticBeamRestart MeshLevelsRestart NaturalConvectionRestart NonconformingRestart3 RenameRestart
+ElasticBeamRestart: beam2d/case.result run1 vs run2: FIELDS-EQUAL
+ElasticBeamRestart: beam2d/case.result run1 vs base/run: FIELDS-EQUAL
+ElasticBeamRestart: beam2d/old.result restart input
+ElasticBeamRestart: BIT-STABLE
+MeshLevelsRestart: square/case.result run1 vs run2: FIELDS-EQUAL
+MeshLevelsRestart: square/case.result run1 vs base/run: BYTE-IDENTICAL
+MeshLevelsRestart: square/init_bin.result restart input
+MeshLevelsRestart: BIT-STABLE
+NaturalConvectionRestart: init_bin.result restart input
+NaturalConvectionRestart: square/case.result run1 vs run2: FIELDS-EQUAL
+NaturalConvectionRestart: square/case.result run1 vs base/run: FIELDS-EQUAL
+NaturalConvectionRestart: BIT-STABLE
+NonconformingRestart3: cube_fine/case.result run1 vs run2: BYTE-IDENTICAL
+NonconformingRestart3: cube_fine/case.result run1 vs base/run: FIELDS-EQUAL
+NonconformingRestart3: BIT-STABLE
+RenameRestart: angle/case.result run1 vs run2: FIELDS-EQUAL
+RenameRestart: angle/case.result run1 vs base/run: FIELDS-EQUAL
+RenameRestart: init.result restart input
+RenameRestart: BIT-STABLE
+o6: pass=5 fail=0
