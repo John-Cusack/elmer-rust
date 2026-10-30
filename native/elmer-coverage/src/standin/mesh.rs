@@ -65,8 +65,10 @@ impl FileMesh {
         let n_bulk = elems.len();
         for r in rows(&dir.join("mesh.boundary"))? {
             let mut e = elem(&r, 4)?;
+            // A parent id <= 0 (`-1` on point elements) is no parent.
             for k in 0..2 {
-                e.parents[k] = index.get(&num::<u64>(&r, 2 + k, "parent")?).map(|&i| ElemId(i));
+                let id = num::<i64>(&r, 2 + k, "parent")?;
+                e.parents[k] = u64::try_from(id).ok().and_then(|id| index.get(&id)).map(|&i| ElemId(i));
             }
             elems.push(e);
         }
