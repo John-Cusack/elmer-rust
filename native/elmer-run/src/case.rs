@@ -110,6 +110,13 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
             params.insert("Variable", Value::Str("Displacement".into()));
             params.insert("Variable Dofs", Value::Integer(vec![cdim as i32]));
         }
+        // `HeatSolver_init` (HeatSolve.F90:167): `Variable = Temperature`.
+        let heat = procedure_of(params).is_some_and(|(lib, entry)| {
+            lib.eq_ignore_ascii_case("heatsolve") && entry.eq_ignore_ascii_case("heatsolver")
+        });
+        if heat && params.get("variable").is_none() {
+            params.insert("Variable", Value::Str("Temperature".into()));
+        }
         if params.get("procedure").is_some() {
             continue;
         }
