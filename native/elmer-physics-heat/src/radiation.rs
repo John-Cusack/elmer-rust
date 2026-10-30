@@ -301,6 +301,25 @@ impl DiffuseGray {
         }))
     }
 
+    /// The list-matrix rows `MakeListMatrix` adds for the factors
+    /// (ElementUtils.F90:744-830): each node of a radiating element coupled
+    /// to every node of the elements it sees.
+    pub(crate) fn couplings(&self, mesh: &dyn elmer_core::MeshView) -> Vec<(u32, Vec<u32>)> {
+        let mut keys: Vec<&u32> = self.factors.keys().collect();
+        keys.sort_unstable();
+        let mut out = Vec::new();
+        for &e in keys {
+            let cols: Vec<u32> = self.factors[&e]
+                .iter()
+                .flat_map(|&(j, _)| mesh.element(j).nodes.iter().copied())
+                .collect();
+            for &n in mesh.element(ElemId(e)).nodes {
+                out.push((n, cols.clone()));
+            }
+        }
+        out
+    }
+
     /// `UpdateMatrixTopologyWithFactors`: the couplings between the nodes of
     /// every radiating element and those of the elements it sees.
     pub(crate) fn extend_topology(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {

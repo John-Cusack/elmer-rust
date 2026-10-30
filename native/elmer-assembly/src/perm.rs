@@ -213,6 +213,34 @@ pub fn build_perm_with(
     (perm, report)
 }
 
+/// [`build_perm_with`] with extra list-matrix rows: each `(node, nodes)`
+/// couples `node`'s row to every one of `nodes`, as `MakeListMatrix` adds
+/// the diffuse gray radiation couplings (ElementUtils.F90:744-830) before
+/// `OptimizeBandwidth`.
+pub fn build_perm_coupled(
+    mesh: &dyn MeshView,
+    active: &dyn Fn(ElemId) -> bool,
+    opts: PermOptions,
+    extra: &[(u32, Vec<u32>)],
+) -> (Perm, BandwidthReport) {
+    let init = initial_permutation(mesh, active);
+    let mut list = list_matrix(mesh, active, &init);
+    for (node, cols) in extra {
+        let k1 = init.perm[*node as usize];
+        if k1 == NO_DOF {
+            continue;
+        }
+        for &c in cols {
+            let k2 = init.perm[c as usize];
+            if k2 != NO_DOF {
+                list.add(k1 as usize, k2);
+            }
+        }
+    }
+    let (perm, report, _) = optimize(init, &list, opts);
+    (perm, report)
+}
+
 /// Returns the final permutation, the report, and the initial-to-final
 /// slot map when the order changed.
 fn optimize(

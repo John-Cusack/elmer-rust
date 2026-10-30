@@ -271,6 +271,19 @@ impl Solver for HeatSolver {
             };
             check_supported(&sections)?;
         }
+        // `AddEquationBasics` computes the Gebhart factors of a `Radiation
+        // Solver` before the permutation (MainUtils.F90:1712-1721), so the
+        // bandwidth optimisation sees their couplings.
+        if ctx.params().logical("Legacy Assembly") != Some(true) && self.diffuse.is_none() {
+            let axisym = axisymmetric(ctx)?;
+            let bnd: Vec<ElemId> = ctx.boundary_elements().collect();
+            let dg = DiffuseGray::setup(ctx, &bnd, axisym)?;
+            if let Some(dg) = &dg {
+                let extra = dg.couplings(ctx.mesh);
+                ctx.reorder_perm(&extra)?;
+            }
+            self.diffuse = Some(dg);
+        }
         Ok(())
     }
 
