@@ -623,3 +623,48 @@ fn powell_eyring_viscosity_newton_matches_elmer() {
     ];
     viscosity_case("visc_powell_newton", &m, 0.07420022111104378);
 }
+
+fn glen_arrhenius() -> Vec<(&'static str, Value)> {
+    vec![
+        ("Viscosity Model", st("glen")),
+        ("Glen Exponent", real(3.0)),
+        ("Critical Shear Rate", real(0.01)),
+        ("Set Arrhenius Factor", Value::Logical(true)),
+        ("Arrhenius Factor", real(20.0)),
+    ]
+}
+
+fn glen_temperature() -> Vec<(&'static str, Value)> {
+    vec![
+        ("Viscosity Model", st("glen")),
+        ("Critical Shear Rate", real(0.01)),
+        ("Relative Temperature", table(1, &[(0.0, -20.0), (14.0, 2.0)])),
+        ("Rate Factor 1", real(1.0e2)),
+        ("Rate Factor 2", real(1.0e10)),
+        ("Glen Enhancement Factor", real(2.0)),
+    ]
+}
+
+/// `glen` with a given `Arrhenius Factor` (`Set Arrhenius Factor`).
+#[test]
+fn glen_arrhenius_viscosity_matches_elmer() {
+    viscosity_case("visc_glen_arr", &glen_arrhenius(), 0.07431478092397527);
+}
+
+#[test]
+fn glen_arrhenius_viscosity_newton_matches_elmer() {
+    viscosity_case("visc_glen_arr_newton", &glen_arrhenius(), 0.0743147809110728);
+}
+
+/// `glen` with the rate factor from a `Relative Temperature` of -20 to 2
+/// across the step (all three branches of the Arrhenius law), the default
+/// activation energies and a `Glen Enhancement Factor`.
+#[test]
+fn glen_temperature_viscosity_matches_elmer() {
+    viscosity_case("visc_glen_temp", &glen_temperature(), 0.07440933428570717);
+}
+
+#[test]
+fn glen_temperature_viscosity_newton_matches_elmer() {
+    viscosity_case("visc_glen_temp_newton", &glen_temperature(), 0.07440933427162681);
+}

@@ -17,7 +17,7 @@
 //! elements: Taylor-Hood (the edge and face pressure dofs pinned,
 //! [`pin_pressure`]) and the MINI element (velocity bubbles condensed,
 //! [`lcondensate`], [`lcondensate_bdf1`]). Not ported (the solver refuses
-//! them): the Glen and turbulence viscosity models.
+//! them): the turbulence viscosity models.
 
 // A structural transliteration of Fortran loops over `1:dim` that index several
 // arrays by the same component number.
@@ -86,6 +86,9 @@ pub struct IncompressibleBulkInput<'a> {
     /// iterate's shear rate, `viscosity` the base value; with `newton` its
     /// derivative enters the Jacobian.
     pub viscosity_model: Option<ViscosityModel>,
+    /// The nodal fields of a `glen` model with a temperature-dependent rate
+    /// factor.
+    pub glen_fields: Option<GlenFields<'a>>,
 }
 
 /// A non-newtonian `Viscosity Model` of `EffectiveViscosityVec`, with `ss`
@@ -103,6 +106,64 @@ pub enum ViscosityModel {
     /// `powell eyring`: `mu0 + d ln(c s + sqrt(c^2 ss + 1)) / (c ss)`,
     /// `mu0 + d` where `c s < 1e-5`.
     PowellEyring { difference: f64, transition: f64 },
+    /// `glen`: `0.5 (E A)^(-1/n) s^((1/n - 1) / 2)` with `s = ss / 4` (at
+    /// least `Critical Shear Rate` squared), `n` the `Glen Exponent`, `A`
+    /// the `Arrhenius Factor` (`Set Arrhenius Factor`) or the Arrhenius law
+    /// of the `Relative Temperature`, `E` the `Glen Enhancement Factor`
+    /// ([`GlenFields`]).
+    Glen(GlenParams),
+}
+
+/// The scalar parameters of the `glen` model.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct GlenParams {
+    pub exponent: f64,
+    pub critical: Option<f64>,
+    /// `Arrhenius Factor` when `Set Arrhenius Factor` is true; else the
+    /// rate factor follows the temperature.
+    pub arrhenius: Option<f64>,
+    /// `Limit Temperature`, `Rate Factor 1/2`, `Activation Energy 1/2` and
+    /// the `Gas Constant`.
+    pub t_limit: f64,
+    pub rate: [f64; 2],
+    pub energy: [f64; 2],
+    pub gas_constant: f64,
+}
+
+/// The nodal fields of the `glen` model: `Relative Temperature` and `Glen
+/// Enhancement Factor`, interpolated to the points.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct GlenFields<'a> {
+    pub relative_temperature: &'a [f64],
+    pub enhancement: &'a [f64],
+}
+
+impl GlenParams {
+    /// Viscosity and `ViscDerVec` at a point of squared shear rate `ss`,
+    /// relative temperature `temp` and enhancement factor `ehf`.
+    pub fn at(&self, ss: f64, temp: f64, ehf: f64) -> (f64, f64) {
+        let c2 = self.exponent;
+        let c3 = self.critical.map_or(0.0, |c| c * c);
+        let s = (ss / 4.0).max(if self.critical.is_some() { c3 } else { f64::MIN });
+        let factor = match self.arrhenius {
+            Some(a) => a,
+            None => {
+                let k = 273.15;
+                let arr = if temp < self.t_limit {
+                    self.rate[0] * (-self.energy[0] / (self.gas_constant * (k + temp))).exp()
+                } else if temp > 0.0 {
+                    self.rate[1] * (-self.energy[1] / (self.gas_constant * k)).exp()
+                } else {
+                    self.rate[1] * (-self.energy[1] / (self.gas_constant * (k + temp))).exp()
+                };
+                ehf * arr
+            }
+        };
+        let e = ((1.0 / c2) - 1.0) / 2.0;
+        let mu = 0.5 * factor.powf(-1.0 / c2) * s.powf(e);
+        let der = if s > c3 { 0.5 * factor.powf(-1.0 / c2) * e * s.powf(e - 1.0) / 4.0 } else { 0.0 };
+        (mu, der)
+    }
 }
 
 impl ViscosityModel {
@@ -111,6 +172,7 @@ impl ViscosityModel {
     /// writes it.
     pub fn derivative(&self, mu0: f64, ss: f64) -> f64 {
         match *self {
+            ViscosityModel::Glen(g) => g.at(ss, 0.0, 1.0).1,
             ViscosityModel::PowerLaw { exponent, critical } => {
                 let ss = critical.map_or(ss, |c| ss.max(c * c));
                 if ss != 0.0 {
@@ -147,6 +209,7 @@ impl ViscosityModel {
     /// rate `ss`.
     pub fn viscosity(&self, mu0: f64, ss: f64) -> f64 {
         match *self {
+            ViscosityModel::Glen(g) => g.at(ss, 0.0, 1.0).0,
             ViscosityModel::PowerLaw { exponent, critical } => {
                 let ss = critical.map_or(ss, |c| ss.max(c * c));
                 mu0 * ss.powf((exponent - 1.0) / 2.0)
@@ -414,6 +477,21 @@ pub fn incompressible_bulk_local_with(
                 for j in 0..dim {
                     ss += (du(i, j) + du(j, i)).powi(2);
                 }
+            }
+            if let ViscosityModel::Glen(g) = model {
+                let (temp, ehf) = match inp.glen_fields {
+                    Some(gf) => (
+                        (0..n).map(|k| bas[t * nf + k] * gf.relative_temperature[k]).sum(),
+                        (0..n).map(|k| bas[t * nf + k] * gf.enhancement[k]).sum(),
+                    ),
+                    None => (0.0, 1.0),
+                };
+                let (m, dm) = g.at(0.5 * ss, temp, ehf);
+                mu[t] = m;
+                if inp.newton {
+                    mu_der[t] = dm;
+                }
+                continue;
             }
             if inp.newton {
                 mu_der[t] = model.derivative(mu[t], 0.5 * ss);

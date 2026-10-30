@@ -30,7 +30,7 @@ pub mod solver;
 pub use boundary::{incompressible_boundary_local, incompressible_boundary_local_with, IncompressibleBoundaryInput};
 pub use bulk::{
     incompressible_bulk_local, incompressible_bulk_local_with, lcondensate, lcondensate_bdf1, pin_pressure, HMode,
-    Compressibility, CompressModel, IncompressibleBulkInput, PressureStab, ViscosityModel,
+    Compressibility, CompressModel, GlenFields, GlenParams, IncompressibleBulkInput, PressureStab, ViscosityModel,
 };
 pub use error::IncompressibleError;
 pub use solver::{
