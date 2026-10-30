@@ -26,3 +26,10 @@ with the nodal dofs in one system and this crate recovers them after each
 solve, so the two agree at convergence, not iterate by iterate. Elmer's
 reported norm includes the bubble dofs, so the bubble tests compare the
 nodal values only.
+
+The two bubble directories also hold `perm.dat` (`slot row`) and `slots.dat`
+(`slot temperature potential`, `x(Perm(slot))` slot by slot, the last time
+level): the full `.result` of the same pristine runs, nodes and bubbles. The
+tests that take the p dofs from `elmer-pdofs` keep the bubbles in the
+global system, as Elmer does, and compare every slot and Elmer's norm
+(549.0240106292581 steady, 343.1731238726303 after the fifth step).

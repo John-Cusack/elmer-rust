@@ -13,3 +13,7 @@ elmer-physics-flow = { path = "../elmer-physics-flow" }
 elmer-solver = { path = "../elmer-solver" }
 elmer-fe-hp = { path = "../elmer-fe-hp" }
 thiserror.workspace = true
+
+[dev-dependencies]
+# The p dofs of the global-bubble cases.
+elmer-pdofs = { path = "../elmer-pdofs" }

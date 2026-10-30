@@ -128,3 +128,78 @@ fn bubble_transient_matches_elmer() {
     let sim = run(model(sim_sec, te_solver(&extra), material(), body_force(), aniso_bcs()), &mesh).unwrap();
     compare("bubble_transient", &sim, &mesh, None, 0.0, 1e-8);
 }
+
+/// The whitespace-split numbers of a fixture, `#` comments skipped.
+fn rows(path: &std::path::Path) -> Vec<Vec<f64>> {
+    std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .map(|l| l.split_whitespace().map(|t| t.parse().unwrap()).collect())
+        .collect()
+}
+
+/// A bubble case with the p dofs from `elmer-pdofs`: the bubbles in the
+/// global system, as in Elmer, so every slot of the `case.result`
+/// (`perm.dat`, `slots.dat`: 121 nodes + 100 x 4 bubbles) and the norm
+/// Elmer prints, which counts the bubbles, are compared.
+fn global_bubble_case(case: &str, simulation: elmer_core::ParamMap, ref_norm: f64) {
+    use elmer_core::{NullLogger, SerialComm};
+    let mesh = TestMesh::read(&data(case), 2);
+    let mut extra = vec![("Element", st("p:1 b:4"))];
+    extra.extend(tight());
+    let mut reg = elmer_solver::SolverRegistry::new();
+    elmer_physics_thermoelectric::register(&mut reg);
+    let mut sim = Simulation::new(model(simulation, te_solver(&extra), material(), body_force(), aniso_bcs()));
+    sim.backends.dofs = Some(Box::new(elmer_pdofs::PDofsBackend::new()));
+    sim.setup(&mesh, &reg, &NullLogger, &SerialComm).unwrap();
+    sim.run(&mesh, &NullLogger, &SerialComm).unwrap();
+
+    let v = sim.vars.get("pot").unwrap();
+    assert_eq!(v.values.len(), 2 * 521, "{case}");
+    let perm = v.perm.as_deref().unwrap();
+    let want_perm = rows(&data(case).join("perm.dat"));
+    let want = rows(&data(case).join("slots.dat"));
+    assert_eq!(want_perm.len(), 521, "{case}");
+    let mut scale = [0.0f64; 2];
+    for w in &want {
+        for c in 0..2 {
+            scale[c] = scale[c].max(w[1 + c].abs());
+        }
+    }
+    let mut err = [0.0f64; 2];
+    for (p, w) in want_perm.iter().zip(&want) {
+        let slot = p[0] as usize;
+        assert_eq!(f64::from(perm[slot - 1] + 1), p[1], "{case}: Perm of slot {slot}");
+        let row = perm[slot - 1] as usize;
+        for c in 0..2 {
+            err[c] = err[c].max((v.values[2 * row + c] - w[1 + c]).abs());
+        }
+    }
+    let norm = norm(&sim);
+    let rel = [err[0] / scale[0], err[1] / scale[1]];
+    eprintln!("{case} (global): norm {norm:.17e}, max relative error [{:.1e}, {:.1e}]", rel[0], rel[1]);
+    assert!((norm - ref_norm).abs() / ref_norm < 1e-11, "{case}: norm {norm} vs {ref_norm}");
+    for c in 0..2 {
+        assert!(err[c] <= 1e-10 * scale[c], "{case}: component {c} max error {} (scale {})", err[c], scale[c]);
+    }
+}
+
+#[test]
+fn bubble_in_global_system_matches_elmer() {
+    global_bubble_case("bubble", steady(), 549.0240106292581);
+}
+
+/// The transient case: the bubbles are global dofs, so `Default1stOrderTime`
+/// integrates them as Elmer does; the last of the five steps is compared.
+#[test]
+fn bubble_transient_in_global_system_matches_elmer() {
+    let sim_sec = support::cases::simulation(&[
+        ("Simulation Type", st("Transient")),
+        ("Timestepping Method", st("BDF")),
+        ("BDF Order", ints(&[1])),
+        ("Timestep Sizes", real(0.1)),
+        ("Timestep Intervals", ints(&[5])),
+    ]);
+    global_bubble_case("bubble_transient", sim_sec, 343.1731238726303);
+}

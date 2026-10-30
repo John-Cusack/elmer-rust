@@ -154,9 +154,13 @@ pub fn thermoelectric_bulk_local(
         basis
             .eval(inp.etype, inp.xyz, gp.uvw, &mut ev)
             .map_err(ThermoElectricError::Basis)?;
-        check_len("basis", nd, ev.basis.len())?;
-        let bas = &ev.basis;
-        let dbas = &ev.dbasis_dx;
+        // A p basis may evaluate more functions than the element has dofs
+        // (a bubble count below the degree's): the first `nd` are its own.
+        if ev.basis.len() < nd {
+            return Err(ThermoElectricError::NodalLength { what: "basis", expected: nd, got: ev.basis.len() });
+        }
+        let bas = &ev.basis[..nd];
+        let dbas = &ev.dbasis_dx[..nd];
         let b_n = &bas[..n];
 
         let hcond = interpolate(inp.hcond, b_n);
