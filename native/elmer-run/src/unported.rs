@@ -112,11 +112,36 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
     for (i, bc) in model.boundary_conditions.iter().enumerate() {
         for (key, v) in &bc.0 {
             let Value::Dependent(d) = v else { continue };
-            if let Some(var) = d.variables.iter().find(|x| ip_vars.contains(&normalize_key(x))) {
+            let mut names = d.variables.iter().flat_map(|v| v.split(',')).map(normalize_key);
+            if let Some(var) = names.find(|x| ip_vars.contains(x)) {
                 return Err(SolverError::Unsupported(format!(
                     "Boundary Condition {}: {key} depends on the -ip variable {var}: boundary evaluation of integration-point variables is not implemented",
                     i + 1
                 )));
+            }
+        }
+    }
+
+    // `Variable "linx, liny"` where `linx` is another keyword of the same
+    // section (Elmer evaluates it there first, MatDepMat): the composition
+    // looks only for fields and evaluates to Infinity.
+    let sections: [(&str, &[ParamMap]); 4] = [
+        ("Material", &model.materials),
+        ("Body Force", &model.body_forces),
+        ("Boundary Condition", &model.boundary_conditions),
+        ("Initial Condition", &model.initial_conditions),
+    ];
+    for (section, maps) in sections {
+        for (i, m) in maps.iter().enumerate() {
+            for (key, v) in &m.0 {
+                let Value::Dependent(d) = v else { continue };
+                let mut names = d.variables.iter().flat_map(|v| v.split(',')).map(normalize_key);
+                if let Some(dep) = names.find(|x| m.0.contains_key(x)) {
+                    return Err(SolverError::Unsupported(format!(
+                        "{section} {}: {key} depends on the keyword {dep} of its own section (keyword-valued variables are not implemented)",
+                        i + 1
+                    )));
+                }
             }
         }
     }

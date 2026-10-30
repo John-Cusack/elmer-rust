@@ -73,6 +73,7 @@
 
 mod integrals;
 mod line;
+mod materials;
 mod plan;
 mod scalars;
 mod view;
@@ -84,6 +85,7 @@ use elmer_saveio::savedata::NamesMeta;
 use elmer_solver::{Solver, SolverError, SolverRegistry};
 
 pub use line::SaveLine;
+pub use materials::SaveMaterials;
 pub use plan::{LinePlan, ScalarPlan};
 pub use scalars::SaveScalars;
 
@@ -91,6 +93,8 @@ pub use scalars::SaveScalars;
 pub const SAVE_SCALARS: (&str, &str) = ("SaveData", "SaveScalars");
 /// `Procedure = "SaveData" "SaveLine"`.
 pub const SAVE_LINE: (&str, &str) = ("SaveData", "SaveLine");
+/// `Procedure = "SaveData" "SaveMaterials"`.
+pub const SAVE_MATERIALS: (&str, &str) = ("SaveData", "SaveMaterials");
 
 /// Builds the element basis and quadrature the integrals use.
 pub type FeProvider = fn() -> (Box<dyn ElementBasis + Send>, Box<dyn Quadrature + Send>);
@@ -122,10 +126,12 @@ fn names_meta() -> fn() -> NamesMeta {
     META.get().copied().unwrap_or(default_meta)
 }
 
-/// Registers `("SaveData", "SaveScalars")` and `("SaveData", "SaveLine")`.
+/// Registers `("SaveData", "SaveScalars")`, `("SaveData", "SaveLine")` and
+/// `("SaveData", "SaveMaterials")`.
 pub fn register(registry: &mut SolverRegistry) {
     registry.register(SAVE_SCALARS.0, SAVE_SCALARS.1, scalars_factory);
     registry.register(SAVE_LINE.0, SAVE_LINE.1, line_factory);
+    registry.register(SAVE_MATERIALS.0, SAVE_MATERIALS.1, materials_factory);
 }
 
 /// [`SolverFactory`](elmer_solver::SolverFactory) for [`SaveScalars`]: reads
@@ -139,4 +145,9 @@ pub fn scalars_factory(params: &ParamMap) -> Result<Box<dyn Solver>, SolverError
 /// [`SolverFactory`](elmer_solver::SolverFactory) for [`SaveLine`].
 pub fn line_factory(params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     Ok(Box::new(SaveLine::new(LinePlan::from_params(params)?, names_meta())))
+}
+
+/// [`SolverFactory`](elmer_solver::SolverFactory) for [`SaveMaterials`].
+pub fn materials_factory(params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
+    Ok(Box::new(SaveMaterials::from_params(params)?))
 }
