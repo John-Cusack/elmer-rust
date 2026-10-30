@@ -11,7 +11,7 @@ use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
 use crate::boundary::{incompressible_boundary_local, incompressible_boundary_local_with, IncompressibleBoundaryInput};
 use crate::bulk::{
-    incompressible_bulk_local, incompressible_bulk_local_with, lcondensate, lcondensate_bdf1, pin_pressure, HMode,
+    incompressible_bulk_local_sums, lcondensate, lcondensate_bdf1, pin_pressure, HMode, ViscositySums,
     Compressibility, CompressModel, GlenFields, GlenParams, IncompressibleBulkInput, PressureStab, ViscosityModel,
 };
 use crate::error::IncompressibleError;
@@ -69,6 +69,31 @@ fn flag(p: &ParamMap, key: &str) -> bool {
 fn has_prefix(p: &ParamMap, prefix: &str) -> bool {
     p.0.keys().any(|k| k.starts_with(prefix))
 }
+
+/// `ListAddString(NextFreeKeyword('Exported Variable'), spec)`, unless the
+/// section exports that variable already.
+fn add_exported(p: &mut ParamMap, spec: &str) {
+    let name = spec.split_whitespace().filter(|w| !w.starts_with('-')).collect::<Vec<_>>().join(" ").to_lowercase();
+    for l in 1.. {
+        let key = format!("exported variable {l}");
+        match p.string(&key) {
+            Some(s) => {
+                let have = s.split_whitespace().filter(|w| !w.starts_with('-')).collect::<Vec<_>>().join(" ");
+                if have.to_lowercase() == name {
+                    return;
+                }
+            }
+            None => {
+                p.insert(&key, Value::Str(spec.into()));
+                return;
+            }
+        }
+    }
+}
+
+/// `Save Viscosity`'s nodal fields (`Viscosity`, `Shearrate`, `Viscosity
+/// Weight`): zeroed before each assembly, accumulated element by element.
+const SAVED_VISCOSITY: [&str; 3] = ["viscosity", "shearrate", "viscosity weight"];
 
 fn add_new(p: &mut ParamMap, key: &str, v: Value) {
     if p.get(key).is_none() {
@@ -135,6 +160,13 @@ pub fn solver_defaults_with(p: &mut ParamMap, dim: usize, transient: bool, seren
     if let Some(m) = p.string("flow model").map(elmer_core::normalize_key) {
         if m == "stokes" {
             add_new(p, "Stokes Flow", Value::Logical(true));
+        }
+    }
+    // _Init: Save Viscosity exports the viscosity, the shear rate and the
+    // weight that normalizes the former.
+    if flag(p, "save viscosity") {
+        for name in ["Viscosity", "Shearrate", "-nooutput Viscosity Weight"] {
+            add_exported(p, name);
         }
     }
     // _Init: a transient Navier-Stokes run with condensed bubbles takes at
@@ -213,7 +245,6 @@ fn check_solver_params(p: &ParamMap, pdofs: bool) -> Result<(), SolverError> {
         ("constant-viscosity start", "Constant-Viscosity Start"),
         ("block preconditioner", "the block preconditioner"),
         ("nonlinear system linesearch", "nonlinear line search"),
-        ("save viscosity", "Save Viscosity"),
         ("save slip", "Save Slip"),
         ("bubbles in global system", "bubbles in the global system"),
         ("create schur matrix approximation", "Schur matrix approximation"),
@@ -743,6 +774,7 @@ impl Solver for IncompressibleNsSolver {
             None => HMode::Default,
         };
         let long_edge = flag(ctx.simulation_params(), "stabilization use longest element edge");
+        let save_viscosity = flag(&p, "save viscosity");
         let axisymmetric = ctx
             .simulation_params()
             .string("coordinate system")
@@ -776,6 +808,13 @@ impl Solver for IncompressibleNsSolver {
             ctx.info(CALLER, &format!("Nonlinear iteration: {iter:>4}"), 4);
             ctx.info(CALLER, "--------------------------------------------------------", 4);
             ctx.default_initialize()?;
+            if save_viscosity {
+                for name in SAVED_VISCOSITY {
+                    if let Some(v) = ctx.variable_mut(name) {
+                        v.values.iter_mut().for_each(|x| *x = 0.0);
+                    }
+                }
+            }
             let newton = newton_active(ctx);
 
             for &e in &elems {
@@ -941,10 +980,15 @@ impl Solver for IncompressibleNsSolver {
                         transient: prev.as_deref().map(|p| (p, dt)),
                     }),
                 };
+                let mut sums = ViscositySums::default();
+                let want_sums = save_viscosity.then_some(&mut sums);
                 match &pe {
-                    None => incompressible_bulk_local(basis, quad, &inp, &mut self.local)?,
+                    None => {
+                        let points = quad.gauss_points(el.etype, inp.np);
+                        incompressible_bulk_local_sums(basis, &points, n, &inp, &mut self.local, want_sums)?
+                    }
                     Some(p) => {
-                        incompressible_bulk_local_with(&*p.basis, &p.rule, nf, &inp, &mut self.local)?;
+                        incompressible_bulk_local_sums(&*p.basis, &p.rule, nf, &inp, &mut self.local, want_sums)?;
                         // LocalBulkMatrix: a Stokes run with bubbles condenses
                         // them and pins nothing; otherwise the pressure is
                         // pinned to the nodal one first.
@@ -968,6 +1012,18 @@ impl Solver for IncompressibleNsSolver {
                             self.bubbles.insert(e.0, cur);
                         } else if p.nb > 0 {
                             lcondensate(&mut self.local, p.nd, p.nb, dim)?;
+                        }
+                    }
+                }
+                if save_viscosity {
+                    let sums = [&sums.viscosity, &sums.shear_rate, &sums.weight];
+                    for (name, vals) in SAVED_VISCOSITY.into_iter().zip(sums) {
+                        let Some(v) = ctx.variable_mut(name) else { continue };
+                        for (&node, x) in nodes.iter().zip(vals.iter()) {
+                            let k = v.perm.map_or(node, |p| p[node as usize]);
+                            if k != NO_DOF {
+                                v.values[k as usize] += x;
+                            }
                         }
                     }
                 }
@@ -1052,6 +1108,19 @@ impl Solver for IncompressibleNsSolver {
 
             if ctx.convergence().is_some_and(|c| c.nonlin_converged == 1) && iter >= min_iter {
                 break;
+            }
+        }
+        // The saved viscosity as a weighted average where the weight exceeds
+        // 1e-20 (the Shearrate is left as summed: the Fortran normalizes a
+        // "Strainrate").
+        if save_viscosity {
+            let weight = ctx.variable("viscosity weight").map(|w| w.values.to_vec());
+            if let (Some(w), Some(v)) = (weight, ctx.variable_mut("viscosity")) {
+                for (x, &wi) in v.values.iter_mut().zip(&w) {
+                    if wi > 1.0e-20 {
+                        *x /= wi;
+                    }
+                }
             }
         }
         Ok(())
