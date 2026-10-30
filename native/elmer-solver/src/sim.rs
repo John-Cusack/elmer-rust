@@ -1681,6 +1681,7 @@ impl Simulation {
         let mut cum = 0;
         let mut dt = 1.0;
         let mut adapt = AdaptiveState::default();
+        let mut last_saved = false;
         'outer: for (interval, &nsteps) in intervals.iter().enumerate() {
             let mut real_timestep = 1usize;
             for timestep in 1..=nsteps {
@@ -1742,14 +1743,9 @@ impl Simulation {
                 report.steps = cum as usize;
                 report.steady_state_reached = reached;
                 let oi = output_intervals[interval];
-                if oi != 0 && ((timestep - 1) % oi == 0 || reached) {
-                    self.exec_slots(ExecWhen::BeforeSaving, dt, transient, mesh, log, comm)?;
-                    if let Some(mut writer) = self.save_current.take() {
-                        let saved = writer.save(self, mesh, log);
-                        self.save_current = Some(writer);
-                        saved?;
-                    }
-                    self.exec_slots(ExecWhen::AfterSaving, dt, transient, mesh, log, comm)?;
+                last_saved = oi != 0 && ((timestep - 1) % oi == 0 || reached);
+                if last_saved {
+                    self.save_step(dt, transient, mesh, log, comm)?;
                 }
                 if self.creal(&simp, "exit condition", mesh)?.is_some_and(|c| c > 0.0) {
                     log.info("MAIN", "Found a positive exit condition, exiting...", 3);
@@ -1762,8 +1758,31 @@ impl Simulation {
         }
 
         self.exec_slots(ExecWhen::AfterAll, dt, transient, mesh, log, comm)?;
+        // "Always save the last step to output" (ElmerSolver.F90:3557).
+        if !last_saved {
+            self.save_step(dt, transient, mesh, log, comm)?;
+        }
         crate::reference::compare_to_reference(self, mesh, log, comm)?;
         Ok(report)
+    }
+
+    /// One save point: the `before saving` solvers, `SaveCurrent`, then
+    /// the `after saving` solvers.
+    fn save_step(
+        &mut self,
+        dt: f64,
+        transient: bool,
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+        comm: &dyn Communicator,
+    ) -> Result<(), SolverError> {
+        self.exec_slots(ExecWhen::BeforeSaving, dt, transient, mesh, log, comm)?;
+        if let Some(mut writer) = self.save_current.take() {
+            let saved = writer.save(self, mesh, log);
+            self.save_current = Some(writer);
+            saved?;
+        }
+        self.exec_slots(ExecWhen::AfterSaving, dt, transient, mesh, log, comm)
     }
 
     /// The step size of step `timestep` of `interval` (ElmerSolver.F90:2934-2985):

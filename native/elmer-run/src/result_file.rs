@@ -9,7 +9,7 @@
 //! of an identical previous Perm, or `0` for none) and its values in Perm
 //! order, native-endian.
 //!
-//! Only the plain variant is written: one mesh, serial, every step saved.
+//! Only the plain variant is written: one mesh, serial, binary.
 //! Other settings leave the file unwritten with a warning, as before.
 
 use std::fs::OpenOptions;
@@ -17,7 +17,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use elmer_core::{normalize_key, FieldKind, Logger, MeshView, ParamMap, Params, Value, NO_DOF};
+use elmer_core::{normalize_key, FieldKind, Logger, MeshView, ParamMap, Params, NO_DOF};
 use elmer_solver::variable::VarHandle;
 use elmer_solver::{Model, SaveCurrent, Simulation, SolverError};
 
@@ -50,13 +50,6 @@ fn unsupported(model: &Model, ranks: usize) -> Option<String> {
     }
     if sim.get("output variable 1").is_some() {
         return Some("output variable list".into());
-    }
-    // A step left unsaved gets ElmerSolver's final save (with its own
-    // before/after saving solvers), which the time loop does not make.
-    if let Some(Value::Integer(v)) = sim.get("output intervals") {
-        if v.iter().any(|&i| i != 1) {
-            return Some("Output Intervals other than 1".into());
-        }
     }
     for p in &model.solvers {
         if p.get("output file").is_some() || p.get("mesh").is_some() {
@@ -263,5 +256,68 @@ impl SaveCurrent for ResultWriter {
         log.info(CALLER, "Done writing results file", 5);
         log.info(CALLER, "-----------------------------------------", 5);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elmer_core::{NullLogger, Value};
+    use elmer_solver::Variable;
+
+    /// MinimalExample's `triangle/case.result` from the pristine Release
+    /// arm: the binary part byte for byte, and the preamble but for the
+    /// date and the equation name (the variable here has no solver slot).
+    #[test]
+    fn minimal_example_matches_pristine() {
+        let dir = std::env::temp_dir().join(format!("elmer-run-result-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut model = Model::default();
+        model.simulation.insert("Output File", Value::Str("case.result".into()));
+        model.simulation.insert("Binary Output", Value::Logical(true));
+        let mut sim = Simulation::new(model);
+        let perm: Arc<[u32]> = Arc::from(vec![2u32, 1, 0]);
+        sim.vars.add(Variable::new("Temperature", FieldKind::Nodal, 1, Some(perm), vec![0.0, 0.0, 0.5000000000000001])).unwrap();
+        sim.vars.set_scalar("timestep", 1.0);
+        sim.vars.set_scalar("time", 1.0);
+        let mesh = elmer_mesh_levels::Mesh { dim: 2, coords: vec![[0.0; 3]; 3], elements: Vec::new(), n_bulk: 0 };
+        let mut w = writer(&sim.model, &dir, 1, &NullLogger).unwrap();
+        w.save(&sim, &mesh, &NullLogger).unwrap();
+
+        let got = std::fs::read(dir.join("case.result")).unwrap();
+        let nul = got.iter().position(|&b| b == 0).unwrap();
+        let preamble = String::from_utf8(got[..nul].to_vec()).unwrap();
+        let lines: Vec<&str> = preamble.lines().filter(|l| !l.starts_with("!File started at: ")).collect();
+        assert_eq!(
+            lines,
+            [
+                " BINARY 3.L",
+                " Degrees of freedom: ",
+                "temperature              :        3       3   1 : no equation",
+                " Total DOFs:            1",
+                " Number Of Nodes:            3",
+            ]
+        );
+        let mut want = b"Time:\0".to_vec();
+        for i in [1i32, 1] {
+            want.extend_from_slice(&i.to_le_bytes());
+        }
+        want.extend_from_slice(&1.0f64.to_le_bytes());
+        want.extend_from_slice(b"temperature\0");
+        for i in [3i32, 3, 1, 3, 2, 2, 3, 1] {
+            want.extend_from_slice(&i.to_le_bytes());
+        }
+        for x in [0.5000000000000001f64, 0.0, 0.0] {
+            want.extend_from_slice(&x.to_le_bytes());
+        }
+        assert_eq!(&got[nul + 1..], &want[..]);
+        let pos = std::fs::read(dir.join("case.result.pos")).unwrap();
+        let mut want = b"L".to_vec();
+        want.extend_from_slice(&1i32.to_le_bytes());
+        want.extend_from_slice(b"temperature\0");
+        want.extend_from_slice(&((nul + 1) as i64).to_le_bytes());
+        want.extend_from_slice(&((nul + 1 + 22) as i64).to_le_bytes());
+        assert_eq!(pos, want);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
