@@ -7,9 +7,12 @@
 
 pub mod grade;
 pub mod manifest;
+pub mod mutation;
 pub mod norm;
+pub mod registry;
 pub mod result;
 pub mod runner;
+pub mod sigma;
 pub mod tolerance;
 
 use std::fmt;

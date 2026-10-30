@@ -13,10 +13,17 @@ use crate::{OracleError, Result};
 #[derive(Debug, Clone, PartialEq)]
 pub struct TierEntry {
     pub test: String,
+    /// Result file relative to the run dir; `case.result` when the table
+    /// predates per-file keys.
+    pub file: String,
     pub field: String,
+    /// Which copy of `field` in the step (0 unless the name repeats).
+    pub occurrence: usize,
     pub step: usize,
-    pub sigma_f: f64,
-    pub bar: f64,
+    /// `None` (with `bar` `None`) when the arms disagree structurally.
+    pub sigma_f: Option<f64>,
+    /// `None` means no Tier-A bar exists: the field is graded by O1/O6.
+    pub bar: Option<f64>,
     pub rule: String,
 }
 
@@ -51,33 +58,62 @@ impl ToleranceTable {
                     .and_then(|x| x.as_str())
                     .ok_or_else(|| OracleError::Parse(format!("tolerances: entry missing {k}")))
             };
-            let get_f64 = |k: &str| {
-                e.get(k)
-                    .and_then(|x| x.as_f64())
-                    .ok_or_else(|| OracleError::Parse(format!("tolerances: entry missing {k}")))
+            // Null is meaningful (structure-differs); absence is an error.
+            let get_opt_f64 = |k: &str| match e.get(k) {
+                Some(serde_json::Value::Null) => Ok(None),
+                Some(x) => x
+                    .as_f64()
+                    .map(Some)
+                    .ok_or_else(|| OracleError::Parse(format!("tolerances: {k} not a number"))),
+                None => Err(OracleError::Parse(format!("tolerances: entry missing {k}"))),
             };
             entries.push(TierEntry {
                 test: get_str("test")?.to_string(),
+                file: e
+                    .get("file")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("case.result")
+                    .to_string(),
                 field: get_str("field")?.to_string(),
+                occurrence: e.get("occurrence").and_then(|x| x.as_u64()).unwrap_or(0) as usize,
                 step: e
                     .get("step")
                     .and_then(|x| x.as_u64())
                     .ok_or_else(|| OracleError::Parse(String::from("tolerances: entry missing step")))?
                     as usize,
-                sigma_f: get_f64("sigma_f")?,
-                bar: get_f64("bar")?,
+                sigma_f: get_opt_f64("sigma_f")?,
+                bar: get_opt_f64("bar")?,
                 rule: get_str("rule")?.to_string(),
             });
         }
         Ok(ToleranceTable { entries })
     }
 
-    /// Tier bar for one field, if the table covers it.
+    /// Table entry for one field of one result file, if covered.
+    pub fn entry_for(
+        &self,
+        test: &str,
+        file: &str,
+        field: &str,
+        occurrence: usize,
+        step: usize,
+    ) -> Option<&TierEntry> {
+        self.entries.iter().find(|e| {
+            e.test == test
+                && e.file == file
+                && e.field == field
+                && e.occurrence == occurrence
+                && e.step == step
+        })
+    }
+
+    /// Tier bar for one field of `case.result`, if the table covers it.
     pub fn bar_for(&self, test: &str, field: &str, step: usize) -> Option<f64> {
-        self.entries
-            .iter()
-            .find(|e| e.test == test && e.field == field && e.step == step)
-            .map(|e| e.bar)
+        self.entry_for(test, "case.result", field, 0, step).and_then(|e| e.bar)
+    }
+
+    pub fn entries(&self) -> &[TierEntry] {
+        &self.entries
     }
 
     pub fn len(&self) -> usize {
@@ -104,18 +140,26 @@ pub fn grade_with_table(
     golden: &crate::result::ResultFile,
     candidate: &crate::result::ResultFile,
     test: &str,
+    file: &str,
     table: &ToleranceTable,
     fallback: f64,
 ) -> (Vec<crate::grade::Mismatch>, Vec<String>) {
-    use std::collections::HashMap;
     let mut out = Vec::new();
     let mut warnings = Vec::new();
     for (step, (g_step, c_step)) in golden.steps.iter().zip(candidate.steps.iter()).enumerate() {
-        let c_vars: HashMap<&str, &crate::result::VariableData> =
-            c_step.vars.iter().map(|v| (v.name.as_str(), v)).collect();
-        for g_var in &g_step.vars {
-            let bar = match table.bar_for(test, &g_var.name, step) {
-                Some(b) => b,
+        for (k, (g_var, c_var)) in
+            crate::grade::pair_vars(&g_step.vars, &c_step.vars).into_iter().enumerate()
+        {
+            let occurrence = g_step.vars[..k].iter().filter(|v| v.name == g_var.name).count();
+            let bar = match table.entry_for(test, file, &g_var.name, occurrence, step) {
+                Some(TierEntry { bar: Some(b), .. }) => *b,
+                Some(TierEntry { rule, .. }) => {
+                    warnings.push(format!(
+                        "{test}/{file}/{} step {step}: no Tier-A bar ({rule}); graded by O1/O6, not here",
+                        g_var.name
+                    ));
+                    continue;
+                }
                 None => {
                     warnings.push(format!(
                         "no Tier bar for {test}/{} step {step}; using fallback {fallback:e}",
@@ -128,7 +172,7 @@ pub fn grade_with_table(
                 &g_var.name,
                 step,
                 g_var,
-                c_vars.get(g_var.name.as_str()).copied(),
+                c_var,
                 bar,
             ));
         }
@@ -165,6 +209,7 @@ mod tests {
         let table = ToleranceTable::parse(SAMPLE).unwrap();
         assert_eq!(table.len(), 1);
         assert_eq!(table.bar_for("t", "temperature", 0), Some(1.5e-7));
+        assert_eq!(table.entries()[0].file, "case.result");
         assert_eq!(table.bar_for("t", "other", 0), None);
         assert_eq!(table.bar_for("t", "temperature", 1), None);
     }
