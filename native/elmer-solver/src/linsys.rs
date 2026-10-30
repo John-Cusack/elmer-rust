@@ -330,3 +330,42 @@ pub(crate) fn to_complex(a: &CsrMatrix<f64>) -> Result<CsrMatrix<Complex64>, Sol
 pub(crate) fn pair_up(v: &[f64]) -> Vec<Complex64> {
     v.as_chunks::<2>().0.iter().map(|&[re, im]| Complex64::new(re, im)).collect()
 }
+
+/// The ILU level of `Linear System Preconditioning = BILU<n>` (`n` one
+/// digit, 0 otherwise), or `None` for another preconditioner
+/// (IterSolve.F90:1078-1087).
+pub(crate) fn bilu_level(p: &ParamMap) -> Option<usize> {
+    let name = normalize_key(p.string("linear system preconditioning")?);
+    if !name.starts_with("bilu") {
+        return None;
+    }
+    let k = name.as_bytes().get(4).map_or(-1, |&c| i32::from(c) - i32::from(b'0'));
+    Some(if (0..=9).contains(&k) { k as usize } else { 0 })
+}
+
+/// `CRS_BlockDiagonal(A, B, Blocks)` (CRSMatrix.F90:3002): the entries of
+/// `a` whose row and column belong to the same of `blocks` components.
+pub(crate) fn block_diagonal(a: &CsrMatrix<f64>, blocks: usize) -> CsrMatrix<f64> {
+    let mut b = CsrMatrix { nrows: a.nrows, ncols: a.ncols, row_ptr: vec![0], col_idx: Vec::new(), values: Vec::new(), diag: None };
+    for i in 0..a.nrows {
+        for k in a.row_ptr[i]..a.row_ptr[i + 1] {
+            let c = a.col_idx[k] as usize;
+            if (i + 1) % blocks == (c + 1) % blocks {
+                b.col_idx.push(a.col_idx[k]);
+                b.values.push(a.values[k]);
+            }
+        }
+        b.row_ptr.push(b.values.len());
+    }
+    b
+}
+
+/// `PRECOND_BILUn` (IterSolve.F90:1277-1290): ILU(`level`) of the block
+/// diagonal of `a` with `dofs` blocks, applied as the preconditioner of `a`.
+pub(crate) fn bilu(
+    a: &CsrMatrix<f64>,
+    dofs: usize,
+    level: usize,
+) -> Result<Box<dyn Preconditioner<f64> + Send>, SolverError> {
+    Ok(Box::new(Ilu::ilu_n(&block_diagonal(a, dofs), level)?))
+}

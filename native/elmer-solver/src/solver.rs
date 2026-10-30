@@ -1402,8 +1402,20 @@ pub(crate) fn solve_linear(
             if amg_prec && comm.size() > 1 {
                 return Err(SolverError::fatal("AMGSolve", "This algebraic multigrid is not parallel"));
             }
+            // `Linear System Preconditioning = BILU<n>`: ILU(n) of the
+            // block diagonal, which needs the dofs too.
+            let bilu = crate::linsys::bilu_level(p);
+            let bilu_prec = bilu.is_some() && block.dofs > 1;
+            if bilu.is_some() && block.dofs == 1 {
+                log.warn("IterSolver", "BILU for one dofs is equal to ILU!");
+            }
             let p_sel;
-            let p = if amg_prec {
+            let p = if let (Some(k), false) = (bilu, bilu_prec) {
+                let mut q = p.clone();
+                q.insert("Linear System Preconditioning", elmer_core::Value::Str(format!("ilu{k}")));
+                p_sel = q;
+                &p_sel
+            } else if amg_prec || bilu_prec {
                 let mut q = p.clone();
                 q.insert("Linear System Preconditioning", elmer_core::Value::Str("none".into()));
                 p_sel = q;
@@ -1424,6 +1436,7 @@ pub(crate) fn solve_linear(
             Ok(LinearSolverChoice::Iterative { mut solver, precond }) => {
                 let m: Result<Box<dyn elmer_core::Preconditioner<f64> + Send>, SolverError> = match precond {
                     _ if amg_prec => crate::amg::preconditioner(p, matrix, block.dofs),
+                    _ if bilu_prec => crate::linsys::bilu(matrix, block.dofs, bilu.unwrap_or(0)),
                     Some(f) => f(p, matrix),
                     None => Ok(Box::new(elmer_core::IdentityPrecond)),
                 };
