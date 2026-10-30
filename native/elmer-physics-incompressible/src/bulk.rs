@@ -12,11 +12,13 @@
 //! forces, the three `Pressure Stabilization Element Size` measures, the
 //! `Thermal` and `Perfect Gas` compressibility models
 //! ([`Compressibility`]),
-//! axisymmetric coordinates without swirl, and p
+//! axisymmetric coordinates without swirl, non-newtonian viscosity
+//! ([`ViscosityModel`], Picard), and p
 //! elements: Taylor-Hood (the edge and face pressure dofs pinned,
 //! [`pin_pressure`]) and the MINI element (velocity bubbles condensed,
 //! [`lcondensate`], [`lcondensate_bdf1`]). Not ported (the solver refuses
-//! them): non-newtonian and turbulent viscosity.
+//! them): the Glen and turbulence viscosity models, and the Newton
+//! linearization of a non-newtonian viscosity.
 
 // A structural transliteration of Fortran loops over `1:dim` that index several
 // arrays by the same component number.
@@ -81,6 +83,54 @@ pub struct IncompressibleBulkInput<'a> {
     pub compress: Option<Compressibility<'a>>,
     /// `Coordinate System = Axi Symmetric` (no swirl): `xyz` are `(r, z)`.
     pub axisymmetric: bool,
+    /// `Viscosity Model`: the viscosity at the points from the previous
+    /// iterate's shear rate, `viscosity` the base value (Picard only).
+    pub viscosity_model: Option<ViscosityModel>,
+}
+
+/// A non-newtonian `Viscosity Model` of `EffectiveViscosityVec`, with `ss`
+/// the squared shear rate `0.5 (du_i/dx_j + du_j/dx_i)^2` of the previous
+/// iterate and `mu0` the `Viscosity`.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ViscosityModel {
+    /// `power law`: `mu0 ss^((n - 1) / 2)`, `ss` at least `Critical Shear
+    /// Rate` squared.
+    PowerLaw { exponent: f64, critical: Option<f64> },
+    /// `carreau`: `mu0 + d (1 + c^2 ss)^((n - 1) / 2)`.
+    Carreau { difference: f64, exponent: f64, transition: f64 },
+    /// `cross`: `mu0 + d / (1 + c ss^(n / 2))`.
+    Cross { difference: f64, exponent: f64, transition: f64 },
+    /// `powell eyring`: `mu0 + d ln(c s + sqrt(c^2 ss + 1)) / (c ss)`,
+    /// `mu0 + d` where `c s < 1e-5`.
+    PowellEyring { difference: f64, transition: f64 },
+}
+
+impl ViscosityModel {
+    /// The viscosity at a point of base viscosity `mu0` and squared shear
+    /// rate `ss`.
+    pub fn viscosity(&self, mu0: f64, ss: f64) -> f64 {
+        match *self {
+            ViscosityModel::PowerLaw { exponent, critical } => {
+                let ss = critical.map_or(ss, |c| ss.max(c * c));
+                mu0 * ss.powf((exponent - 1.0) / 2.0)
+            }
+            ViscosityModel::Carreau { difference, exponent, transition } => {
+                mu0 + difference * (1.0 + transition * transition * ss).powf((exponent - 1.0) / 2.0)
+            }
+            ViscosityModel::Cross { difference, exponent, transition } => {
+                mu0 + difference / (1.0 + transition * ss.powf(exponent / 2.0))
+            }
+            ViscosityModel::PowellEyring { difference, transition } => {
+                let s = ss.sqrt();
+                if transition * s < 1.0e-5 {
+                    mu0 + difference
+                } else {
+                    mu0 + difference * (transition * s + (transition * transition * ss + 1.0).sqrt()).ln()
+                        / (transition * ss)
+                }
+            }
+        }
+    }
 }
 
 /// A `Compressibility Model`: the density at the integration points from
@@ -313,7 +363,22 @@ pub fn incompressible_bulk_local_with(
         }
     }
 
-    let mu = at_points(inp.viscosity, &bas, nf, ngp);
+    let mut mu = at_points(inp.viscosity, &bas, nf, ngp);
+    if let Some(model) = inp.viscosity_model {
+        let Some(sol) = inp.solution else {
+            return Err(IncompressibleError::Unsupported("a Viscosity Model with Linear Equation = True".into()));
+        };
+        for t in 0..ngp {
+            let du = |i: usize, j: usize| -> f64 { (0..nf).map(|k| dbs[i][t * nf + k] * sol[k][j]).sum() };
+            let mut ss = 0.0;
+            for i in 0..dim {
+                for j in 0..dim {
+                    ss += (du(i, j) + du(j, i)).powi(2);
+                }
+            }
+            mu[t] = model.viscosity(mu[t], 0.5 * ss);
+        }
+    }
     let mut rhovec = vec![rho; ngp];
     // d(rho)/dx_i of a compressibility model (zero without one).
     let mut drhodx = vec![[0.0; 3]; ngp];

@@ -51,16 +51,22 @@ element integrals) with no mass flux.
 - Transient runs: the mass matrix (Galerkin plus the PSPG/SUPG time terms)
   goes through `Default1stOrderTime`; `Stokes Flow` has none, as in Fortran.
 - Elmer's 1e-6 start value for an `Equation = Navier-Stokes` variable.
+- `Viscosity Model = power law` (`Critical Shear Rate`), `carreau`, `cross`,
+  `powell eyring` (`EffectiveViscosityVec`), with Picard
+  iteration: the viscosity at the points from the previous iterate's shear
+  rate.
 
 Refused (`SolverError::Unsupported`), not approximated: `Bubbles in Global
-System`, `Viscosity Model` and turbulence viscosity, `Boussinesq`,
+System`, `Boussinesq`,
 compressibility with `Pressure Stabilization` or in a transient Stokes run,
 cylindric coordinates, `Normal Slip Coefficient`, friction / `Wall Law` /
 FSSA / normal-tangential boundaries, `Pressure 1..3` (the Fortran itself asks
 for `Surface Traction`), `Save Viscosity`, `Save Slip`, `Implicit Friction
 Coefficient`, the block preconditioner and Schur operators, `Nonlinear System
 Linesearch`, relative and adaptive integration orders, density that varies
-within an element.
+within an element, the Glen, `power law too` and turbulence viscosity models
+and the Newton
+linearization of any `Viscosity Model`.
 
 ## Wiring (for the integrator)
 
@@ -105,7 +111,8 @@ and `elmer-sif` (hand-built sections).
 
 ## Not done
 
-Non-newtonian viscosity (`EffectiveViscosityVec`), turbulence models,
+The Newton linearization of non-newtonian viscosity and the Glen model,
+turbulence models,
 friction and wall-law boundaries, normal-tangential conditions, and the block
 preconditioner (its Schur matrix needs a child solver `elmer-solver` cannot
 create yet).

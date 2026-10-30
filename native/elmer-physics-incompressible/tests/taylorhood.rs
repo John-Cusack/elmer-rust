@@ -470,3 +470,101 @@ fn axi_pipe(case: &str, loads: bool, ref_norm: f64) {
 fn taylorhood_boundary_loads_match_elmer() {
     run_case("taylorhood_quad_loads", 2, step_loads, &p2(), 1720, 0.04399059383796517);
 }
+
+/// `tests/data/ns_tri` with a non-newtonian `Viscosity Model` (Picard only,
+/// the Newton keywords removed; `tests/data/visc_*/case.sif`): the
+/// viscosity at the points from the previous iterate's shear rate, under
+/// the Brezzi-Pitkaranta stabilization (its tau reads it too).
+fn viscosity_case(case: &str, model: &[(&str, Value)], ref_norm: f64) {
+    let dir = data(case);
+    let mesh = TestMesh::read(&dir, 2);
+    let mut solver = ns_solver(&[
+        ("Pressure Stabilization", Value::Logical(true)),
+        ("Pressure Stabilization Element Size", st("longest edge")),
+        ("Nonlinear System Max Iterations", ints(&[60])),
+        ("Nonlinear System Convergence Tolerance", real(1.0e-10)),
+    ]);
+    solver_defaults(&mut solver, 2, false);
+    let mut material = vec![("Density", real(1.0)), ("Viscosity", real(0.1))];
+    material.extend(model.iter().cloned());
+    let m = model_of(steady("Cartesian 2D"), solver, sec(&material), step(&mesh).0);
+    let mut reg = SolverRegistry::new();
+    register(&mut reg);
+    let mut sim = Simulation::new(m);
+    sim.setup(&mesh, &reg, &NullLogger, &SerialComm).unwrap();
+    sim.run(&mesh, &NullLogger, &SerialComm).unwrap();
+
+    let u = sim.vars.get("flow solution").unwrap();
+    let perm = u.perm.as_deref().unwrap();
+    let rows = lines(&dir.join("perm.dat"));
+    assert_eq!(rows.len(), 595);
+    let want: Vec<Vec<f64>> = lines(&dir.join("solution.dat"))
+        .iter()
+        .map(|l| l[1..].iter().map(|x| x.parse().unwrap()).collect())
+        .collect();
+    let mut scale = [0.0f64; 3];
+    let mut err = [0.0f64; 3];
+    for (l, w) in rows.iter().zip(&want) {
+        let (slot, row): (usize, u32) = (l[0].parse().unwrap(), l[1].parse().unwrap());
+        assert_eq!(perm[slot - 1] + 1, row, "Perm({slot})");
+        let s = perm[slot - 1] as usize * 3;
+        for c in 0..3 {
+            scale[c] = scale[c].max(w[c].abs());
+            err[c] = err[c].max((u.values[s + c] - w[c]).abs());
+        }
+    }
+    let norm = u.conv.norm;
+    eprintln!("{case}: norm {norm:.17e}, max error / scale {:?}", [0, 1, 2].map(|c| err[c] / scale[c]));
+    assert!((norm - ref_norm).abs() / ref_norm < 1e-10, "{case}: norm {norm:e}");
+    for c in 0..3 {
+        assert!(err[c] <= 1e-10 * scale[c], "{case}: component {c} max error {} (scale {})", err[c], scale[c]);
+    }
+}
+
+fn model_of(simulation: ParamMap, solver: ParamMap, material: ParamMap, bcs: Vec<ParamMap>) -> elmer_solver::Model {
+    model(simulation, solver, material, None, bcs)
+}
+
+#[test]
+fn power_law_viscosity_matches_elmer() {
+    let m = [
+        ("Viscosity Model", st("power law")),
+        ("Viscosity Exponent", real(0.7)),
+        ("Critical Shear Rate", real(0.05)),
+    ];
+    viscosity_case("visc_powerlaw", &m, 0.07532484369893568);
+}
+
+#[test]
+fn carreau_viscosity_matches_elmer() {
+    let m = [
+        ("Viscosity Model", st("carreau")),
+        ("Viscosity Difference", real(0.2)),
+        ("Viscosity Exponent", real(0.5)),
+        ("Viscosity Transition", real(1.5)),
+    ];
+    viscosity_case("visc_carreau", &m, 0.07577798970745593);
+}
+
+#[test]
+fn cross_viscosity_matches_elmer() {
+    let m = [
+        ("Viscosity Model", st("cross")),
+        ("Viscosity Difference", real(0.2)),
+        ("Viscosity Exponent", real(1.3)),
+        ("Viscosity Transition", real(2.0)),
+    ];
+    viscosity_case("visc_cross", &m, 0.07552704554913707);
+}
+
+/// Not converged after the 60 Picard iterations (as in the pristine run,
+/// change 1.7e-6): the 60th iterate is compared.
+#[test]
+fn powell_eyring_viscosity_matches_elmer() {
+    let m = [
+        ("Viscosity Model", st("powell eyring")),
+        ("Viscosity Difference", real(0.05)),
+        ("Viscosity Transition", real(1.5)),
+    ];
+    viscosity_case("visc_powell", &m, 0.07420013848890271);
+}
