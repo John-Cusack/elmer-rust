@@ -10,6 +10,7 @@ description = "SaveScalars and SaveLine as scheduled Solver hooks for the Rust-n
 elmer-core.workspace = true
 elmer-solver = { path = "../elmer-solver" }
 elmer-saveio = { path = "../elmer-saveio" }
+elmer-expr = { path = "../elmer-expr" }
 elmer-assembly = { path = "../elmer-assembly" }
 
 [dev-dependencies]

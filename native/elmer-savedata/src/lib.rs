@@ -71,6 +71,7 @@
 //! need neither.
 #![forbid(unsafe_code)]
 
+mod dependence;
 mod integrals;
 mod line;
 mod materials;
@@ -84,6 +85,7 @@ use elmer_core::{ElementBasis, ParamMap, Quadrature};
 use elmer_saveio::savedata::NamesMeta;
 use elmer_solver::{Solver, SolverError, SolverRegistry};
 
+pub use dependence::SaveDependence;
 pub use line::SaveLine;
 pub use materials::SaveMaterials;
 pub use plan::{LinePlan, ScalarPlan};
@@ -93,6 +95,8 @@ pub use scalars::SaveScalars;
 pub const SAVE_SCALARS: (&str, &str) = ("SaveData", "SaveScalars");
 /// `Procedure = "SaveData" "SaveLine"`.
 pub const SAVE_LINE: (&str, &str) = ("SaveData", "SaveLine");
+/// `Procedure = "SaveData" "SaveDependence"`.
+pub const SAVE_DEPENDENCE: (&str, &str) = ("SaveData", "SaveDependence");
 /// `Procedure = "SaveData" "SaveMaterials"`.
 pub const SAVE_MATERIALS: (&str, &str) = ("SaveData", "SaveMaterials");
 
@@ -126,12 +130,13 @@ fn names_meta() -> fn() -> NamesMeta {
     META.get().copied().unwrap_or(default_meta)
 }
 
-/// Registers `("SaveData", "SaveScalars")`, `("SaveData", "SaveLine")` and
-/// `("SaveData", "SaveMaterials")`.
+/// Registers `("SaveData", "SaveScalars")`, `("SaveData", "SaveLine")`,
+/// `("SaveData", "SaveMaterials")` and `("SaveData", "SaveDependence")`.
 pub fn register(registry: &mut SolverRegistry) {
     registry.register(SAVE_SCALARS.0, SAVE_SCALARS.1, scalars_factory);
     registry.register(SAVE_LINE.0, SAVE_LINE.1, line_factory);
     registry.register(SAVE_MATERIALS.0, SAVE_MATERIALS.1, materials_factory);
+    registry.register(SAVE_DEPENDENCE.0, SAVE_DEPENDENCE.1, dependence_factory);
 }
 
 /// [`SolverFactory`](elmer_solver::SolverFactory) for [`SaveScalars`]: reads
@@ -150,4 +155,9 @@ pub fn line_factory(params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
 /// [`SolverFactory`](elmer_solver::SolverFactory) for [`SaveMaterials`].
 pub fn materials_factory(params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     Ok(Box::new(SaveMaterials::from_params(params)?))
+}
+
+/// [`SolverFactory`](elmer_solver::SolverFactory) for [`SaveDependence`].
+pub fn dependence_factory(params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
+    Ok(Box::new(SaveDependence::from_params(params)?))
 }
