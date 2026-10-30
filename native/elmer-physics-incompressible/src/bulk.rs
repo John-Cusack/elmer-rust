@@ -13,12 +13,11 @@
 //! `Thermal` and `Perfect Gas` compressibility models
 //! ([`Compressibility`]),
 //! axisymmetric coordinates without swirl, non-newtonian viscosity
-//! ([`ViscosityModel`], Picard), and p
+//! ([`ViscosityModel`], Picard and Newton), and p
 //! elements: Taylor-Hood (the edge and face pressure dofs pinned,
 //! [`pin_pressure`]) and the MINI element (velocity bubbles condensed,
 //! [`lcondensate`], [`lcondensate_bdf1`]). Not ported (the solver refuses
-//! them): the Glen and turbulence viscosity models, and the Newton
-//! linearization of a non-newtonian viscosity.
+//! them): the Glen and turbulence viscosity models.
 
 // A structural transliteration of Fortran loops over `1:dim` that index several
 // arrays by the same component number.
@@ -84,7 +83,8 @@ pub struct IncompressibleBulkInput<'a> {
     /// `Coordinate System = Axi Symmetric` (no swirl): `xyz` are `(r, z)`.
     pub axisymmetric: bool,
     /// `Viscosity Model`: the viscosity at the points from the previous
-    /// iterate's shear rate, `viscosity` the base value (Picard only).
+    /// iterate's shear rate, `viscosity` the base value; with `newton` its
+    /// derivative enters the Jacobian.
     pub viscosity_model: Option<ViscosityModel>,
 }
 
@@ -106,6 +106,43 @@ pub enum ViscosityModel {
 }
 
 impl ViscosityModel {
+    /// `ViscDerVec`, the derivative of the viscosity with respect to `ss`
+    /// that the Newton linearization uses, as `EffectiveViscosityVec`
+    /// writes it.
+    pub fn derivative(&self, mu0: f64, ss: f64) -> f64 {
+        match *self {
+            ViscosityModel::PowerLaw { exponent, critical } => {
+                let ss = critical.map_or(ss, |c| ss.max(c * c));
+                if ss != 0.0 {
+                    mu0 * (exponent - 1.0) / 2.0 * ss.powf((exponent - 1.0) / 2.0 - 1.0)
+                } else {
+                    0.0
+                }
+            }
+            ViscosityModel::Carreau { difference, exponent, transition } => {
+                let c2 = transition * transition;
+                difference * (exponent - 1.0) / 2.0 * c2 * (1.0 + c2 * ss).powf((exponent - 1.0) / 2.0 - 1.0)
+            }
+            ViscosityModel::Cross { difference, exponent, transition } => {
+                let p = ss.powf(exponent / 2.0);
+                -difference * transition * p * exponent / (2.0 * (1.0 + transition * p).powi(2) * ss)
+            }
+            ViscosityModel::PowellEyring { difference, transition } => {
+                let (c1, c2) = (difference, transition);
+                let s = ss.sqrt();
+                if c2 * s < 1.0e-5 {
+                    0.0
+                } else {
+                    // As written there: sqrt(c2 ss + 1) in the first
+                    // denominator, sqrt(c2^2 ss + 1) elsewhere.
+                    c1 * (c2 / (2.0 * s) + c2 * c2 / (2.0 * (c2 * c2 * ss + 1.0).sqrt()))
+                        / ((c2 * s + (c2 * ss + 1.0).sqrt()) * c2 * s)
+                        - c1 * (c2 * s + (c2 * c2 * ss + 1.0).sqrt()).ln() / (c2 * s.powi(3)) / 2.0
+                }
+            }
+        }
+    }
+
     /// The viscosity at a point of base viscosity `mu0` and squared shear
     /// rate `ss`.
     pub fn viscosity(&self, mu0: f64, ss: f64) -> f64 {
@@ -364,6 +401,8 @@ pub fn incompressible_bulk_local_with(
     }
 
     let mut mu = at_points(inp.viscosity, &bas, nf, ngp);
+    // ViscDerVec, for the Newton linearization.
+    let mut mu_der = vec![0.0; ngp];
     if let Some(model) = inp.viscosity_model {
         let Some(sol) = inp.solution else {
             return Err(IncompressibleError::Unsupported("a Viscosity Model with Linear Equation = True".into()));
@@ -375,6 +414,9 @@ pub fn incompressible_bulk_local_with(
                 for j in 0..dim {
                     ss += (du(i, j) + du(j, i)).powi(2);
                 }
+            }
+            if inp.newton {
+                mu_der[t] = model.derivative(mu[t], 0.5 * ss);
             }
             mu[t] = model.viscosity(mu[t], 0.5 * ss);
         }
@@ -466,6 +508,37 @@ pub fn incompressible_bulk_local_with(
 
     let mut so = Blocks::new(nf, dofs);
     let mut mass = if inp.want_mass { Some(Blocks::new(nf, dofs)) } else { None };
+    // The viscosity derivative's Jacobian (JacOrd): with the strain rate
+    // e = (grad u + grad u^T) / 2 of the previous iterate and
+    // g_i(q) = e_ik d phi_q / dx_k, J(j, i) += 8 mu' g_j(p) g_i(q); then
+    // STIFF += J and FORCE += J SOL.
+    let mut jac_force = vec![[0.0; 3]; nf];
+    if inp.newton && mu_der.iter().any(|&d| d != 0.0) {
+        let sol = inp.solution.expect("a viscosity model needs the previous iterate");
+        let w: Vec<f64> = (0..ngp).map(|t| mu_der[t] * detj[t] * 8.0).collect();
+        let mut g = vec![vec![0.0; ngp * nf]; dim];
+        for t in 0..ngp {
+            for (i, gi) in g.iter_mut().enumerate() {
+                for q in 0..nf {
+                    gi[t * nf + q] = (0..dim)
+                        .map(|k| (grad[t][i][k] + grad[t][k][i]) / 2.0 * dbs[k][t * nf + q])
+                        .sum();
+                }
+            }
+        }
+        for i in 0..dim {
+            for j in 0..dim {
+                let mut blk = vec![0.0; nf * nf];
+                udotv(&mut blk, nf, ngp, &g[j], &g[i], &w, None);
+                for p in 0..nf {
+                    jac_force[p][j] += (0..nf).map(|q| blk[p * nf + q] * sol[q][i]).sum::<f64>();
+                }
+                for (x, b) in so.at(j, i).iter_mut().zip(&blk) {
+                    *x += b;
+                }
+            }
+        }
+    }
     // A transient perfect gas: the pressure half of d(rho)/dt,
     // -(1/(p + p0)) (dp/dt, q).
     if let (Some(m), Some(cm)) = (mass.as_mut(), inp.compress.filter(|c| c.transient.is_some())) {
@@ -676,6 +749,12 @@ pub fn incompressible_bulk_local_with(
             for p in 0..nf {
                 force[p * dofs + i] += part[p];
             }
+        }
+    }
+
+    for p in 0..nf {
+        for i in 0..dim {
+            force[p * dofs + i] += jac_force[p][i];
         }
     }
 
