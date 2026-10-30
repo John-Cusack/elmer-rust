@@ -742,9 +742,10 @@ impl Solver for IncompressibleNsSolver {
                 let viscosity = reorder(nodal(ctx, mat, "viscosity", e, n)?, el.nodes, nodes);
                 let compress = match (compress_model(mat), mat) {
                     (Some(model), Some(m)) => {
-                        if transient || pstab {
+                        if pstab || (transient && stokes) {
                             return Err(unsupported(format!(
-                                "Compressibility Model = {model} in a transient run or with Pressure Stabilization"
+                                "Compressibility Model = {model} with Pressure Stabilization or in a transient \
+                                 Stokes run"
                             )));
                         }
                         let t_ref = element_constant(ctx, m, "reference temperature", e)?;
@@ -779,7 +780,29 @@ impl Solver for IncompressibleNsSolver {
                                 k => tv.values[k as usize * tv.dofs],
                             })
                             .collect();
-                        Some((temp, model))
+                        // TempVar % PrevValues(:, 1) at a transient run.
+                        let prev = match transient {
+                            false => None,
+                            true => {
+                                let tvar = ctx.sim.vars.get("temperature").expect("looked up above");
+                                let Some(pv) = tvar.prev_values.first() else {
+                                    return Err(SolverError::fatal(
+                                        CALLER,
+                                        "a transient compressible run needs the previous Temperature",
+                                    ));
+                                };
+                                let tperm = tvar.perm.as_deref();
+                                let p: Vec<f64> = nodes
+                                    .iter()
+                                    .map(|&nn| match tperm.map_or(nn, |p| p[nn as usize]) {
+                                        NO_DOF => t_ref,
+                                        k => pv[k as usize * tvar.dofs],
+                                    })
+                                    .collect();
+                                Some(p)
+                            }
+                        };
+                        Some((temp, model, prev))
                     }
                     _ => None,
                 };
@@ -813,9 +836,11 @@ impl Solver for IncompressibleNsSolver {
                     pstab: PressureStab { coeff, hmode, hk },
                     np: rule_np.for_type(el.etype),
                     axisymmetric,
-                    compress: compress
-                        .as_ref()
-                        .map(|(temperature, model)| Compressibility { temperature, model: *model }),
+                    compress: compress.as_ref().map(|(temperature, model, prev)| Compressibility {
+                        temperature,
+                        model: *model,
+                        transient: prev.as_deref().map(|p| (p, dt)),
+                    }),
                 };
                 match &pe {
                     None => incompressible_bulk_local(basis, quad, &inp, &mut self.local)?,

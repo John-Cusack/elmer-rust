@@ -32,6 +32,8 @@ the resulting reference:
 | `taylorhood_transient_tri` | `transient_tri` with `Element = p:2`, no `Pressure Stabilization` | Taylor-Hood Navier-Stokes over 4 BDF2 steps (`Default1stOrderTime`, the pinned pressures' mass rows zero); norm 3.7828652E-02 |
 | `thermal_quad` | own (`ThermalCompress_vec` without its HeatSolve, `ElmerGrid 1 2 ThermalCompress_vec.grd`) | `Compressibility Model = Thermal` on the MINI element: the temperature an exported variable at its initial condition `293.5 - x`, gravity, pressure pinned on boundary 1; norm 4.4556902E-03 |
 | `perfect_gas_quad` | own (`PerfectGasCompress_vec` without its HeatSolve, the `thermal_quad` mesh) | `Compressibility Model = Perfect Gas` (`Heat Capacity` 1000, `Specific Heat Ratio` 5/3, `Reference Pressure` 1e5), the same fixed temperature; norm 5.1831983E-05 |
+| `thermal_transient_quad` | own (the `thermal_quad` cavity, transient) | ModelPDE solving `Temperature` (diffusion, walls 293.5 / 293.5 - x / 292.5) ahead of the Thermal model over 3 BDF1 steps: the d(rho)/dt load, bubbles condensed with their history; norm 5.1557636E-03 |
+| `perfect_gas_transient_quad` | own (the same with the Perfect Gas material) | the pressure mass `-(1/(p+p0)) (dp/dt, q)` and the temperature load; norm 6.3234214E-05 |
 | `axi_pipe` | `fem/tests/IncompressibleNSAxi` (`ElmerGrid 1 2 pipe.grd`) | axisymmetric Stokes, Pressure Stabilization on `p:1`, `Specific Load` `-1/r`; norm 1.3600543 |
 | `axi_pipe_loads` | own (`axi_pipe` with its outer wall loaded) | `External Pressure` (a table in z), `Surface Traction 2` and `Slip Coefficient 2` on boundary 2, integrated over r ds; norm 1.3245395 |
 

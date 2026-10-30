@@ -10,14 +10,13 @@
 //! Picard and Newton linearization of the convection, the `GradP` and
 //! `Div-Curl` forms, element-constant density, nodal viscosity and body
 //! forces, the three `Pressure Stabilization Element Size` measures, the
-//! steady `Thermal` and `Perfect Gas` compressibility models
+//! `Thermal` and `Perfect Gas` compressibility models
 //! ([`Compressibility`]),
 //! axisymmetric coordinates without swirl, and p
 //! elements: Taylor-Hood (the edge and face pressure dofs pinned,
 //! [`pin_pressure`]) and the MINI element (velocity bubbles condensed,
 //! [`lcondensate`], [`lcondensate_bdf1`]). Not ported (the solver refuses
-//! them): transient compressibility models,
-//! non-newtonian and turbulent viscosity.
+//! them): non-newtonian and turbulent viscosity.
 
 // A structural transliteration of Fortran loops over `1:dim` that index several
 // arrays by the same component number.
@@ -94,6 +93,10 @@ pub struct Compressibility<'a> {
     /// solved).
     pub temperature: &'a [f64],
     pub model: CompressModel,
+    /// A transient run: the temperature at the nodes at the previous
+    /// timestep and the timestep, for the d(rho)/dt half of the continuity
+    /// source (and the pressure mass of a perfect gas).
+    pub transient: Option<(&'a [f64], f64)>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -358,6 +361,22 @@ pub fn incompressible_bulk_local_with(
             load_at[t][i] = if inp.specific_load { lv[t] } else { rhovec[t] * lv[t] };
         }
     }
+    // The d(rho)/dt half of a compressible continuity source, as a load.
+    if let Some((tprev, dt)) = inp.compress.and_then(|c| c.transient) {
+        let cm = inp.compress.expect("transient implies a model");
+        check_len("previous temperature", n, tprev.len())?;
+        for t in 0..ngp {
+            let temp: f64 = (0..n).map(|k| bas[t * nf + k] * cm.temperature[k]).sum();
+            let tp: f64 = (0..n).map(|k| bas[t * nf + k] * tprev[k]).sum();
+            load_at[t][dim] = match cm.model {
+                CompressModel::Thermal { beta, t_ref } => {
+                    let rho_prev = rho * (1.0 - beta * (tp - t_ref));
+                    (rhovec[t] - rho_prev) / (rhovec[t] * dt)
+                }
+                CompressModel::PerfectGas { .. } => -(temp - tp) / (temp * dt),
+            };
+        }
+    }
 
     // GradVec(t, i, j) = d u_i / d x_j of the previous iterate.
     let mut grad = vec![[[0.0; 3]; 3]; ngp];
@@ -382,6 +401,14 @@ pub fn incompressible_bulk_local_with(
 
     let mut so = Blocks::new(nf, dofs);
     let mut mass = if inp.want_mass { Some(Blocks::new(nf, dofs)) } else { None };
+    // A transient perfect gas: the pressure half of d(rho)/dt,
+    // -(1/(p + p0)) (dp/dt, q).
+    if let (Some(m), Some(cm)) = (mass.as_mut(), inp.compress.filter(|c| c.transient.is_some())) {
+        if let CompressModel::PerfectGas { p_ref, .. } = cm.model {
+            let w: Vec<f64> = (0..ngp).map(|t| -detj[t] / (velopres[t][dim] + p_ref)).collect();
+            udotv(m.at(dim, dim), nf, ngp, &bas, &bas, &w, None);
+        }
+    }
 
     let weight_a: Vec<f64> = (0..ngp).map(|t| mu[t] * detj[t]).collect();
     // Viscous terms.

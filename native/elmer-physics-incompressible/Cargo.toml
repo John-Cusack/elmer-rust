@@ -16,3 +16,5 @@ thiserror.workspace = true
 [dev-dependencies]
 # The p dofs of the Taylor-Hood cases.
 elmer-pdofs = { path = "../elmer-pdofs" }
+# ModelPDE solving the temperature of the transient compressible case.
+elmer-physics-advdiff = { path = "../elmer-physics-advdiff" }
