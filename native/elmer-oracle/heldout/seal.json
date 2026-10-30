@@ -1,0 +1,294 @@
+{
+ "commitment_sha256": "7ddcaa627e895d18fbc641133bc3d8f0f3c461d50ba1541c32fc0e1a626cf4dd",
+ "excluded": {
+  "d12-test-local-plugin": [
+   "elmerice/Tests/BackgroundError",
+   "elmerice/Tests/Calving2D",
+   "elmerice/Tests/Calving3D",
+   "elmerice/Tests/CovarianceVector",
+   "elmerice/Tests/CovarianceVector2",
+   "elmerice/Tests/Damage",
+   "elmerice/Tests/Emergence",
+   "elmerice/Tests/FrictionHeat",
+   "elmerice/Tests/FrictionHeatMasked",
+   "elmerice/Tests/Grounded",
+   "elmerice/Tests/GroundingLineFlux",
+   "elmerice/Tests/InvMeth_AdjRobin",
+   "elmerice/Tests/Teterousse3a",
+   "elmerice/Tests/Teterousse3a_b",
+   "elmerice/Tests/Teterousse_DeformHeat",
+   "fem/tests/1sttime",
+   "fem/tests/2ndtime",
+   "fem/tests/AdvDiffFCT",
+   "fem/tests/ArteryOutlet",
+   "fem/tests/BDM3D",
+   "fem/tests/BlockPoisson3",
+   "fem/tests/Classical2DShell",
+   "fem/tests/CompressIdealGas2",
+   "fem/tests/ConstantParamFunc",
+   "fem/tests/CoupledPoisson2",
+   "fem/tests/EdgeElementInterpolation",
+   "fem/tests/H1BasisEvaluation",
+   "fem/tests/HeatAnisoUDF",
+   "fem/tests/HydrostaticNSVec-ISMIP-HOM-C",
+   "fem/tests/KeywordCompare",
+   "fem/tests/KeywordCompare2",
+   "fem/tests/KeywordCompare3",
+   "fem/tests/KeywordCompare4",
+   "fem/tests/KeywordCompare5",
+   "fem/tests/L2norm",
+   "fem/tests/LevelsetFallingDrop",
+   "fem/tests/LimitDisplacement2",
+   "fem/tests/LinearFormsAssembly",
+   "fem/tests/MeshSolverCubeToSphere",
+   "fem/tests/ModelPDEevol",
+   "fem/tests/ModelPDEipadapt",
+   "fem/tests/ModelPDEthreaded",
+   "fem/tests/OptimizeSimplexFourHeaters",
+   "fem/tests/OptimizeSimplexFourHeatersInt",
+   "fem/tests/P2ndDerivatives",
+   "fem/tests/ParticleAdvectorZalesak",
+   "fem/tests/ParticleFallingBlock",
+   "fem/tests/PoissonThreaded",
+   "fem/tests/PoissonThreaded2",
+   "fem/tests/PoissonThreaded3",
+   "fem/tests/RigidMeshMapperCatenary",
+   "fem/tests/SD_H1BasisEvaluation",
+   "fem/tests/SD_LinearFormsAssembly",
+   "fem/tests/SD_ModelPDEevol",
+   "fem/tests/SD_ModelPDEthreaded",
+   "fem/tests/SD_pmultg",
+   "fem/tests/Shell_With_NormalSolver",
+   "fem/tests/TimeProfileBC",
+   "fem/tests/TravellingHeater",
+   "fem/tests/TravellingHeater2",
+   "fem/tests/Zirka",
+   "fem/tests/bodydir2",
+   "fem/tests/fsi_beam",
+   "fem/tests/fsi_beam_nodalforce",
+   "fem/tests/fsi_beam_optimize",
+   "fem/tests/levelset1",
+   "fem/tests/levelset2",
+   "fem/tests/mgdyn2D_bh_relfun",
+   "fem/tests/mgdyn_anisotropic_cond",
+   "fem/tests/mgdyn_anisotropic_rel",
+   "fem/tests/mgdyn_anisotropic_rel2",
+   "fem/tests/mgdyn_bh_relfun",
+   "fem/tests/mgdyn_harmonic_wire_Cgauge",
+   "fem/tests/mgdyn_lamstack_lowfreq_transient",
+   "fem/tests/mhd",
+   "fem/tests/pmultg"
+  ],
+  "pristine-failing": [
+   "elmerice/Tests/FSSA_perlin2d",
+   "elmerice/Tests/Hydro_Coupled",
+   "elmerice/Tests/Hydro_SedOnly",
+   "fem/tests/ContactBlunt3DLevelProj",
+   "fem/tests/ContactBlunt3DNormalProj",
+   "fem/tests/EM_port_eigen_2ndorder",
+   "fem/tests/ParStokes_ISMIP_HOM_A010"
+  ]
+ },
+ "method": "directories with no quick test; fem strata (serial|parallel, most common family label) sealed at 30% (rounded half up) ranked by sha256(salt+dir) with a secret salt; all eligible elmerice dirs sealed",
+ "min_sealed": 21,
+ "pool_dirs": 520,
+ "sealed_dirs": 190,
+ "sealed_elmerice_dirs": 47,
+ "sealed_tests": 204,
+ "secret_location": "/home/john/firstmate/data/elmer-s0-oracle-opus/heldout/secret/sealed.json",
+ "strata": {
+  "elmerice": {
+   "pool": 47,
+   "sealed": 47
+  },
+  "parallel/cmodes": {
+   "pool": 1,
+   "sealed": 0
+  },
+  "parallel/dg": {
+   "pool": 1,
+   "sealed": 0
+  },
+  "parallel/feti": {
+   "pool": 2,
+   "sealed": 1
+  },
+  "parallel/heateq": {
+   "pool": 6,
+   "sealed": 2
+  },
+  "parallel/hutiter": {
+   "pool": 2,
+   "sealed": 1
+  },
+  "parallel/mgdyn": {
+   "pool": 1,
+   "sealed": 0
+  },
+  "parallel/mortar": {
+   "pool": 7,
+   "sealed": 2
+  },
+  "parallel/radiation": {
+   "pool": 1,
+   "sealed": 0
+  },
+  "parallel/radiator": {
+   "pool": 3,
+   "sealed": 1
+  },
+  "parallel/restart": {
+   "pool": 3,
+   "sealed": 1
+  },
+  "parallel/unlabelled": {
+   "pool": 27,
+   "sealed": 8
+  },
+  "parallel/useextrude": {
+   "pool": 1,
+   "sealed": 0
+  },
+  "parallel/whitney": {
+   "pool": 9,
+   "sealed": 3
+  },
+  "serial/aster": {
+   "pool": 4,
+   "sealed": 1
+  },
+  "serial/battery": {
+   "pool": 1,
+   "sealed": 0
+  },
+  "serial/beam": {
+   "pool": 2,
+   "sealed": 1
+  },
+  "serial/block": {
+   "pool": 9,
+   "sealed": 3
+  },
+  "serial/circuit_utils": {
+   "pool": 1,
+   "sealed": 0
+  },
+  "serial/cmodes": {
+   "pool": 7,
+   "sealed": 2
+  },
+  "serial/conforming": {
+   "pool": 3,
+   "sealed": 1
+  },
+  "serial/control": {
+   "pool": 3,
+   "sealed": 1
+  },
+  "serial/eigen": {
+   "pool": 11,
+   "sealed": 3
+  },
+  "serial/elasticity": {
+   "pool": 11,
+   "sealed": 3
+  },
+  "serial/elasticsolve": {
+   "pool": 13,
+   "sealed": 4
+  },
+  "serial/harmonic": {
+   "pool": 5,
+   "sealed": 2
+  },
+  "serial/heateq": {
+   "pool": 6,
+   "sealed": 2
+  },
+  "serial/helmholtz": {
+   "pool": 2,
+   "sealed": 1
+  },
+  "serial/limiter": {
+   "pool": 15,
+   "sealed": 5
+  },
+  "serial/lumping": {
+   "pool": 1,
+   "sealed": 0
+  },
+  "serial/matc": {
+   "pool": 9,
+   "sealed": 3
+  },
+  "serial/mgdyn": {
+   "pool": 36,
+   "sealed": 11
+  },
+  "serial/mortar": {
+   "pool": 30,
+   "sealed": 9
+  },
+  "serial/n-t": {
+   "pool": 10,
+   "sealed": 3
+  },
+  "serial/p-fem": {
+   "pool": 1,
+   "sealed": 0
+  },
+  "serial/particle": {
+   "pool": 6,
+   "sealed": 2
+  },
+  "serial/plate": {
+   "pool": 1,
+   "sealed": 0
+  },
+  "serial/radiation": {
+   "pool": 2,
+   "sealed": 1
+  },
+  "serial/radiator": {
+   "pool": 3,
+   "sealed": 1
+  },
+  "serial/restart": {
+   "pool": 10,
+   "sealed": 3
+  },
+  "serial/serendipity": {
+   "pool": 6,
+   "sealed": 2
+  },
+  "serial/shell": {
+   "pool": 29,
+   "sealed": 9
+  },
+  "serial/transient": {
+   "pool": 18,
+   "sealed": 5
+  },
+  "serial/unlabelled": {
+   "pool": 86,
+   "sealed": 26
+  },
+  "serial/useextrude": {
+   "pool": 4,
+   "sealed": 1
+  },
+  "serial/vector_element": {
+   "pool": 1,
+   "sealed": 0
+  },
+  "serial/vtu": {
+   "pool": 2,
+   "sealed": 1
+  },
+  "serial/whitney": {
+   "pool": 61,
+   "sealed": 18
+  }
+ },
+ "version": 1
+}

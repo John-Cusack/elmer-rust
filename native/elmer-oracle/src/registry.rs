@@ -149,7 +149,13 @@ pub fn parse_ctest_file(text: &str) -> (Vec<RegisteredTest>, Vec<String>) {
 
 /// Every test registered under `<build>/fem/tests`, sorted by name.
 pub fn read_registry(build_dir: &Path) -> Result<Vec<RegisteredTest>> {
-    let root = build_dir.join("fem").join("tests");
+    read_registry_under(&build_dir.join("fem").join("tests"))
+}
+
+/// Every test registered under `root` (a binary-tree directory with a
+/// `CTestTestfile.cmake`, e.g. `<build>/elmerice` for the ice suite).
+pub fn read_registry_under(root: &Path) -> Result<Vec<RegisteredTest>> {
+    let root = root.to_path_buf();
     let mut out = Vec::new();
     let mut queue: Vec<PathBuf> = vec![root.clone()];
     while let Some(dir) = queue.pop() {
