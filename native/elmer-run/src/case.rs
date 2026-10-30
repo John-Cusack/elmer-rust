@@ -98,6 +98,18 @@ fn drop_never_savedata(model: &mut Model) {
 fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
     let cdim = coords.dim;
     for params in &mut model.solvers {
+        // `ElasticSolver_Init` (StressSolve delegates to it): without a
+        // `Variable`, the displacement of the coordinate dimension.
+        let elastic = procedure_of(params).is_some_and(|(lib, entry)| {
+            [("stresssolve", "stresssolver"), ("elasticsolve", "elasticsolver")]
+                .iter()
+                .any(|(l, e)| lib.eq_ignore_ascii_case(l) && entry.eq_ignore_ascii_case(e))
+        });
+        let mixed = params.logical("mixed formulation") == Some(true) && params.logical("neo-hookean material") == Some(true);
+        if elastic && !mixed && params.get("variable").is_none() {
+            params.insert("Variable", Value::Str("Displacement".into()));
+            params.insert("Variable Dofs", Value::Integer(vec![cdim as i32]));
+        }
         if params.get("procedure").is_some() {
             continue;
         }
