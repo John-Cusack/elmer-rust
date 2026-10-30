@@ -11,9 +11,10 @@ use std::path::{Path, PathBuf};
 fn usage() -> ! {
     eprintln!("usage:");
     eprintln!("  elmer-oracle plan <tests-dir> <test> [--np N]");
-    eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N] [--o2] [--o2m] [--max-output L]");
-    eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N] [--o2] [--o2m] [--max-output L]");
+    eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE]");
+    eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE]");
     eprintln!("  elmer-oracle registry <build-dir> [--label L]");
+    eprintln!("  elmer-oracle grade-tree <tests-dir> <golden-root> <candidate-root> <tolerances.json> [--fallback X]");
     eprintln!("  elmer-oracle mutation-suite <tests-dir> <golden-root> <tolerances.json> [--fallback X]");
     eprintln!("  elmer-oracle sigma-table <tests-dir> <out.json> <golden-root> <arm=root>...");
     eprintln!("  elmer-oracle grade-fields <golden.result> <candidate.result> [--tol X] [--tolerances T --test NAME [--file REL]]");
@@ -33,6 +34,7 @@ fn arm_from_build(build_dir: PathBuf, name: &str) -> Arm {
         mesh2d: Some(resolve_tool(&build_dir, &["meshgen2d/src/Mesh2D"])),
         mpiexec: Some(PathBuf::from("mpiexec")),
         with_mpi: true,
+        solver_override: false,
         build_dir,
     }
 }
@@ -68,6 +70,7 @@ fn execute(args: &[String]) -> Executed {
     let run_dir = PathBuf::from(&args[3]);
     let mut np: Option<u32> = None;
     let mut inj = SifInject::default();
+    let mut solver: Option<PathBuf> = None;
     let mut i = 4;
     while i < args.len() {
         match args[i].as_str() {
@@ -77,6 +80,10 @@ fn execute(args: &[String]) -> Executed {
             }
             "--max-output" if i + 1 < args.len() => {
                 inj.max_output = Some(args[i + 1].parse().unwrap_or_else(|_| usage()));
+                i += 1;
+            }
+            "--solver" if i + 1 < args.len() => {
+                solver = Some(PathBuf::from(&args[i + 1]));
                 i += 1;
             }
             "--o2" => inj.o2 = true,
@@ -98,7 +105,14 @@ fn execute(args: &[String]) -> Executed {
     let mut spec = parse_cmakelists(&dir_name, &cmake);
     spec.startinfo_sif = read_startinfo(&dir).unwrap_or_else(|_| usage());
     let runtest = std::fs::read_to_string(dir.join("runtest.cmake")).unwrap_or_else(|_| usage());
-    let arm = arm_from_build(build_dir, "cli");
+    let mut arm = arm_from_build(build_dir, "cli");
+    if let Some(candidate) = solver {
+        // Grade a candidate: its ElmerSolver, everything else (ElmerGrid,
+        // test-local plugins, registration) from the pristine arm.
+        arm.name = format!("candidate {}", candidate.display());
+        arm.elmersolver = candidate;
+        arm.solver_override = true;
+    }
     let plan = plan_test(&spec, &runtest, np, &arm).unwrap_or_else(|e| {
         eprintln!("error: {e}");
         std::process::exit(1);
@@ -381,6 +395,86 @@ fn main() {
             }
             eprintln!("entries: {} errors: {errors}", entries.len());
             if errors > 0 {
+                std::process::exit(1);
+            }
+        }
+        "grade-tree" => {
+            // grade-tree <tests-dir> <golden-root> <candidate-root> <tolerances.json> [--fallback X]:
+            // every test captured under <candidate-root> is graded file by
+            // file against the golden with the committed Tier bars. The
+            // candidate's own TEST.PASSED is never read.
+            if args.len() < 6 {
+                usage();
+            }
+            let tests_dir = PathBuf::from(&args[2]);
+            let golden_root = PathBuf::from(&args[3]);
+            let cand_root = PathBuf::from(&args[4]);
+            let text = std::fs::read_to_string(&args[5]).unwrap_or_else(|_| usage());
+            let table = elmer_oracle::tolerance::ToleranceTable::parse(&text).unwrap_or_else(|e| {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            });
+            let mut fallback = 1e-10f64;
+            if args.len() >= 8 && args[6] == "--fallback" {
+                fallback = args[7].parse().unwrap_or_else(|_| usage());
+            }
+            let registry = std::fs::read_to_string(golden_root.join("registry.tsv"))
+                .unwrap_or_else(|_| usage());
+            let mut verdicts: std::collections::BTreeMap<&str, usize> = Default::default();
+            println!("test\tverdict\tfiles\tmismatches\tdetail");
+            for line in registry.lines() {
+                let mut cols = line.split('\t');
+                let (Some(test), Some(dir)) = (cols.next(), cols.next()) else {
+                    continue;
+                };
+                let cand_run = cand_root.join(test).join("run");
+                if !cand_run.is_dir() {
+                    continue;
+                }
+                let golden_run = golden_root.join(test).join("run");
+                let rels = elmer_oracle::sigma::result_files(&golden_run, &tests_dir.join(dir))
+                    .unwrap_or_default();
+                let (mut files, mut bad, mut detail) = (0, 0, Vec::new());
+                for rel in &rels {
+                    let golden = match elmer_oracle::result::read_result_file(&golden_run.join(rel)) {
+                        Ok(g) if g.steps.iter().any(|s| !s.vars.is_empty()) => g,
+                        _ => continue,
+                    };
+                    files += 1;
+                    match elmer_oracle::result::read_result_file(&cand_run.join(rel)) {
+                        Err(_) => {
+                            bad += 1;
+                            detail.push(format!("{rel}: no candidate file"));
+                        }
+                        Ok(cand) => {
+                            let (m, _) = elmer_oracle::tolerance::grade_with_table(
+                                &golden, &cand, test, rel, &table, fallback,
+                            );
+                            if let Some(first) = m.first() {
+                                detail.push(format!(
+                                    "{rel}: {} step {}: {:?}",
+                                    first.variable, first.step, first.kind
+                                ));
+                            }
+                            bad += m.len();
+                        }
+                    }
+                }
+                let verdict = if files == 0 {
+                    "no-golden-fields"
+                } else if bad == 0 {
+                    "tier-a-pass"
+                } else if detail.iter().all(|d| d.ends_with("no candidate file")) {
+                    "no-candidate-output"
+                } else {
+                    "tier-a-FAIL"
+                };
+                *verdicts.entry(verdict).or_default() += 1;
+                println!("{test}\t{verdict}\t{files}\t{bad}\t{}", detail.join("; "));
+            }
+            let summary: Vec<String> = verdicts.iter().map(|(k, v)| format!("{k}={v}")).collect();
+            eprintln!("{}", summary.join(" "));
+            if verdicts.contains_key("tier-a-FAIL") {
                 std::process::exit(1);
             }
         }
