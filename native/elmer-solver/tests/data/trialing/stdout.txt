@@ -1,0 +1,33 @@
+       1 0.7762E+00
+       2 0.5196E+00
+       3 0.2996E+00
+       4 0.1884E+00
+       5 0.1283E+00
+       6 0.1283E+00
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.24701342E-01  2.0000000     ) :: heat equation
+       1 0.1879E-01
+       2 0.3892E-02
+       3 0.4479E-03
+       4 0.3161E-04
+       5 0.1367E-05
+       6 0.1367E-05
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.25941323E-01 0.48969792E-01 ) :: heat equation
+ComputeChange: NS (ITER=3) (NRM,RELC): ( 0.25941344E-01 0.80182370E-06 ) :: heat equation
+       1 0.3881E+00
+       2 0.2598E+00
+       3 0.1498E+00
+       4 0.9422E-01
+       5 0.6416E-01
+       6 0.6416E-01
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.50614100E-01 0.64457223     ) :: heat equation
+       1 0.9394E-02
+       2 0.1946E-02
+       3 0.2240E-03
+       4 0.1581E-04
+       5 0.6836E-06
+       6 0.6836E-06
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.51882666E-01 0.24753296E-01 ) :: heat equation
+ComputeChange: NS (ITER=3) (NRM,RELC): ( 0.51882687E-01 0.40091129E-06 ) :: heat equation
+CompareToReferenceSolution: Solver 1 PASSED:  Norm = 5.18826873E-02  RefNorm = 5.18826873E-02
+CompareToReferenceSolution: Relative Error to reference norm: 4.153979E-10
+CompareToReferenceSolution: PASSED all 1 tests!

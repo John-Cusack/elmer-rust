@@ -1,0 +1,4 @@
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.24701342E-01  2.0000000     ) :: heat equation
+ComputeChange: NS (ITER=2) (NRM,RELC): ( 0.25941323E-01 0.48969792E-01 ) :: heat equation
+ComputeChange: NS (ITER=3) (NRM,RELC): ( 0.25941344E-01 0.80182370E-06 ) :: heat equation
+ComputeChange: NS (ITER=1) (NRM,RELC): ( 0.51882687E-01 0.66666667     ) :: heat equation
