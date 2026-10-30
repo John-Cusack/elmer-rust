@@ -78,7 +78,6 @@ fn section_features(kind: &str, p: &ParamMap, out: &mut Vec<String>) {
             "element" if elmer_run::case::native_element(p) => {}
             "element" if t.contains("p:") => feature("p-hierarchic elements"),
             "element" if t.contains("e:") => feature("edge elements"),
-            "linear system solver" if t == "multigrid" => feature("multigrid linear solver"),
             _ => {}
         }
         // `Periodic BC` (nodal projectors) is served by `elmer-mortar`, which
