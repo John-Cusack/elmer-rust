@@ -11,3 +11,7 @@ elmer-core.workspace = true
 elmer-solver = { path = "../elmer-solver" }
 num-complex.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+# p-element dofs (Backends::dofs) for the p:2 end-to-end check.
+elmer-pdofs = { path = "../elmer-pdofs" }

@@ -64,8 +64,8 @@ pub use statcurrent::{
 };
 pub use statcurrent_solver::{stat_current_factory, StatCurrentSolver};
 pub use statelec::{
-    stat_elec_boundary_local, stat_elec_bulk_local, StatElecAtNodes, StatElecBcAtNodes,
-    StatElecConfig, PHYSICAL_EPS0,
+    stat_elec_boundary_local, stat_elec_boundary_local_with, stat_elec_bulk_local,
+    stat_elec_bulk_local_with, StatElecAtNodes, StatElecBcAtNodes, StatElecConfig, PHYSICAL_EPS0,
 };
 pub use statelec_solver::{stat_elec_factory, StatElecSolver};
 

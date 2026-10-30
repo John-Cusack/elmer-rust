@@ -1,0 +1,51 @@
+Check Keywords Warn
+Header
+  Mesh DB "." "plates"
+End
+Simulation
+  Max Output Level = 5
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Serendipity P Elements = False
+  Output File = "case.result"
+End
+Constants
+  Permittivity Of Vacuum = 1.0
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Solver 1
+  Equation = Stat Elec Solver
+  Variable = Potential
+  Procedure = "StatElecSolveVec" "StatElecSolver"
+  Linear System Solver = Direct
+  Linear System Direct Method = UMFPack
+  Nonlinear System Max Iterations = 1
+  Element = p:2
+  Bubbles in Global System = False
+End
+Material 1
+  Relative Permittivity = 1
+End
+Boundary Condition 1
+  Target Boundaries = 1
+  Potential = 0.0
+End
+Boundary Condition 2
+  Target Boundaries = 2
+  Potential = 1.0
+End
+Boundary Condition 3
+  Target Boundaries = 3
+  Potential = 2.0
+End
+Boundary Condition 4
+  Target Boundaries = 4
+  Electric Flux = 0.5
+End
