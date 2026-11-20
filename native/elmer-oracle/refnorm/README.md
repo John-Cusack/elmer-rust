@@ -108,7 +108,8 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
 | grader gap: the solver sets its own norm (FluxSolver, VectorHelmholtzNodal, WhitneyAVSolver) | 7 |
 | grader gap: DG field (PoissonDG) | 1 |
 | unexplained mismatch (PhaseChange3, solver 3 `PhaseSurface`) | 1 |
-| out of the validated class | 83 |
+| **printed-precision** (separate class, never counted as bitwise; see below) | **6** |
+| out of the validated class | 77 |
 
 Before this widening the class held 223 tests (238 solvers). All 223 are
 still bitwise, each with at least as many solvers as before.
@@ -139,19 +140,43 @@ Each test is listed under the first reason in its row.
 
 | Reason | Tests |
 |---|---:|
-| `Show Norm Index` / `Show Norm Name` (a SaveScalars value is the norm; see below) | 28 |
-| no `Variable`: several saved variables of its equation | 10 |
+| `Show Norm Index` / `Show Norm Name` (a SaveScalars value is the norm; see below) | 27 |
 | no `Variable`: no saved variable of its equation | 10 |
-| variable not in any result file (edge fields, a coupled vector Elmer does not output, matrix-only tests) | 6 |
+| no `Variable`: several saved variables of its equation | 9 |
 | MPI: non-nodal unknowns (no owners in the partition files) | 8 |
 | MPI: local mesh changed after load (extruded, refined, view factors) | 6 |
 | no `Variable`: coupled solver | 5 |
+| variable not in any result file (edge fields, a coupled vector Elmer does not output) | 4 |
 | several `RUN` blocks with `Output Intervals = 0` | 3 |
-| CutFEM: the cut-mesh solution is not saved (library CutFEM) | 2 |
 | other (`-nooutput`, several solver runs, a multi-RUN sif with no field solver, an MPI variable in two per-rank result sets) | 4 |
 | non-nodal unknowns | 1 |
 
-**Why the SaveScalars norms stay out.** With `Show Norm Index` (or
+**Printed-precision class (signed off by firstmate, message 013).** This
+class covers a test with no solver checkable bitwise whose SaveScalars
+solver reports a norm (`Show Norm Index`/`Name`) and writes a scalars file
+(`Filename`). That solver is checked at the file's precision: the grader
+reads the norm column of the last row (`<file>.names` names the columns),
+writes it as `Reference Norm` with `Reference Norm Tolerance = 1e-12`
+(relative; `ES22.12E3` rounds at 5e-13), and reruns. A pass is verdict
+`printed-precision`, a failure `printed-precision-MISMATCH`. Neither counts
+as bitwise, and neither enters the kill check.
+
+| Test | Verdict |
+|---|---|
+| CutFEMPoisson1Lib, CutFEMPoisson1LibLim | printed-precision |
+| FilmFlowPlane | printed-precision |
+| HeatSolveVecCondMatrix, StatCurrentVecResMatrix | printed-precision |
+| WeightComputation | printed-precision |
+
+Of the other Show Norm sifs that name a file, the four MPI variants
+(CapacitanceMatrix3/4_np3, SD_CapacitanceMatrix3_np3, OtherMeshResults_np4)
+stay out, because SaveScalars reduces over the ranks. So do the three
+multi-RUN ones (SaveLine, savescalars, savescalars_boundary), whose
+scalars rows are appended across RUNs and not tied to one. In
+HelmholtzPlaneWaves(+Axis) the file belongs to a SaveLine solver; the norm
+solver writes none.
+
+**Why the remaining SaveScalars norms stay out.** With `Show Norm Index` (or
 `Name`), SaveScalars sets its solver's norm to one of its computed values
 (`SaveScalars.F90`, `Norm = Values(NormInd)`). That value lives in a
 `-nooutput -global` variable, so no result file holds it. It reaches disk

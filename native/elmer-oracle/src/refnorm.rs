@@ -43,6 +43,84 @@ pub struct RefSolver {
     /// `Variable = -global ...`: a global variable, saved only with
     /// `Output Global Variables`.
     pub global: bool,
+    /// SaveScalars `Show Norm Index` / `Show Norm Name`: the norm is one of
+    /// its values (printed-precision class).
+    pub show_norm: Option<ShowNorm>,
+    /// SaveScalars `Filename`, as written in the sif.
+    pub filename: Option<String>,
+}
+
+/// Which SaveScalars value is the solver's norm.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShowNorm {
+    Index(usize),
+    Name(String),
+}
+
+fn unquote(v: &str) -> String {
+    let v = v.trim();
+    let v = v.strip_prefix("String").or_else(|| v.strip_prefix("string")).unwrap_or(v).trim();
+    let v = v.strip_prefix("File").or_else(|| v.strip_prefix("file")).unwrap_or(v).trim();
+    v.trim_matches('"').trim().to_string()
+}
+
+/// The value a SaveScalars solver reports as its norm, from its scalars
+/// file in `run`: the last row's column for `show` (`SaveScalars.F90`,
+/// `Norm = Values(NormInd)`, `|Norm|`), at the file's 13 significant digits
+/// (`ES22.12E3`). Columns are named in `<file>.names`; a leading `Line
+/// Marker` column is skipped.
+pub fn saved_scalar(run: &std::path::Path, filename: &str, show: &ShowNorm) -> Result<f64, String> {
+    let base = std::path::Path::new(filename).file_name().ok_or("empty Filename")?.to_owned();
+    let mut hits = Vec::new();
+    let mut stack = vec![run.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).map_err(|e| e.to_string())?.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.file_name() == Some(base.as_os_str()) {
+                hits.push(p);
+            }
+        }
+    }
+    let [path] = hits.as_slice() else {
+        return Err(format!("{} scalars files named {filename}", hits.len()));
+    };
+    let names = std::fs::read_to_string(format!("{}.names", path.display())).map_err(|e| format!("{filename}.names: {e}"))?;
+    let mut columns = Vec::new();
+    let mut listing = false;
+    for l in names.lines() {
+        if l.trim_start().starts_with("Variables in columns of matrix") {
+            listing = true;
+            continue;
+        }
+        if listing {
+            if let Some((n, name)) = l.trim().split_once(": ") {
+                if n.trim().parse::<usize>().is_ok() {
+                    columns.push(name.trim().to_lowercase());
+                }
+            }
+        }
+    }
+    if columns.is_empty() {
+        return Err(format!("{filename}.names lists no columns"));
+    }
+    let data = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let last = data.lines().rev().find(|l| !l.trim().is_empty()).ok_or("empty scalars file")?;
+    let mut row: Vec<&str> = last.split_whitespace().collect();
+    if row.len() == columns.len() + 1 {
+        row.remove(0);
+    }
+    if row.len() != columns.len() {
+        return Err(format!("last row has {} values for {} columns", row.len(), columns.len()));
+    }
+    let i = match show {
+        ShowNorm::Index(k) if (1..=columns.len()).contains(k) => k - 1,
+        ShowNorm::Index(k) => return Err(format!("Show Norm Index {k} beyond {} columns", columns.len())),
+        ShowNorm::Name(n) => columns.iter().position(|c| c == n).ok_or_else(|| format!("no column {n:?}"))?,
+    };
+    let v: f64 = row[i].parse().map_err(|_| format!("bad value {:?}", row[i]))?;
+    Ok(v.abs())
 }
 
 /// Solver entries that assign `Solver % Variable % Norm` themselves
@@ -286,6 +364,17 @@ pub fn reference_solvers(text: &str) -> Result<Vec<RefSolver>, String> {
                 entry: keys_entry(&k),
                 cutfem: k.iter().any(|(k, v)| k == "cutfem" && v.to_lowercase().contains("true")),
                 global: k.iter().rev().find(|(k, _)| k == "variable").is_some_and(|(_, v)| v.to_lowercase().contains("-global")),
+                show_norm: k
+                    .iter()
+                    .rev()
+                    .find(|(k, _)| k == "show norm name")
+                    .map(|(_, v)| ShowNorm::Name(unquote(v).to_lowercase()))
+                    .or_else(|| {
+                        k.iter().rev().find(|(k, _)| k == "show norm index").and_then(|(_, v)| {
+                            v.split_whitespace().filter_map(|w| w.parse().ok()).next().map(ShowNorm::Index)
+                        })
+                    }),
+                filename: k.iter().rev().find(|(k, _)| k == "filename").map(|(_, v)| unquote(v)),
                 mesh: k.iter().rev().find(|(k, _)| k == "mesh").and_then(|(_, v)| {
                     v.split_whitespace().next().map(|m| m.trim_matches('"').to_lowercase())
                 }),
@@ -641,6 +730,8 @@ mod tests {
             mesh: None,
             cutfem: false,
             global: false,
+            show_norm: None,
+            filename: None,
         }
     }
 
@@ -712,6 +803,26 @@ mod tests {
         let s = reference_solvers("Solver 1\n Variable = -global Ode\n Reference Norm = 1\nEnd\n").unwrap();
         assert!(s[0].global);
         assert_eq!(s[0].variable.as_deref(), Ok("ode"));
+    }
+
+    #[test]
+    fn saved_scalar_reads_the_last_row_column() {
+        let dir = std::env::temp_dir().join(format!("refnorm-scalars-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(
+            dir.join("sub/f.dat.names"),
+            "Metadata\nVariables in columns of matrix: \n   1: value: time\n   2: max: potential\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("sub/f.dat"), "   1.0E+000  -2.5E-001\n   2.000000000000E+000  -4.649448930093E-001\n").unwrap();
+        assert_eq!(saved_scalar(&dir, "f.dat", &ShowNorm::Index(2)).unwrap(), 4.649448930093e-1);
+        assert_eq!(saved_scalar(&dir, "f.dat", &ShowNorm::Name("max: potential".into())).unwrap(), 4.649448930093e-1);
+        assert!(saved_scalar(&dir, "f.dat", &ShowNorm::Index(3)).is_err());
+        assert!(saved_scalar(&dir, "g.dat", &ShowNorm::Index(1)).is_err());
+        let s = reference_solvers("Solver 2\n Procedure = \"SaveData\" \"SaveScalars\"\n Filename = File \"f.dat\"\n Show Norm Index = 2\n Reference Norm = 1\nEnd\n").unwrap();
+        assert_eq!(s[0].show_norm, Some(ShowNorm::Index(2)));
+        assert_eq!(s[0].filename.as_deref(), Some("f.dat"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

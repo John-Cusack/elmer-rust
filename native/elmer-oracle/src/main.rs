@@ -578,6 +578,24 @@ fn refnorm_one(
             return skip("no Reference Norm in a Solver section");
         }
     }
+    // Printed-precision class (signed off separately from bitwise): when
+    // no solver can be checked bitwise, a SaveScalars solver whose norm is
+    // one of its values (`Show Norm Index`/`Name`) is checked at its
+    // scalars file's 13 digits, with a 1e-12 relative tolerance.
+    let mut printed = false;
+    if refnorms.is_empty() && run_refnorms.is_empty() && np == 1 && runs <= 1 {
+        for s in solvers.iter().filter(|s| s.show_norm.is_some()) {
+            let (Some(show), Some(file)) = (&s.show_norm, &s.filename) else {
+                notes.push(format!("solver {}: Show Norm without a scalars file (the norm is in no file)", s.number));
+                continue;
+            };
+            match elmer_oracle::refnorm::saved_scalar(&golden_run, file, show) {
+                Ok(v) => refnorms.push((s.number, v)),
+                Err(e) => notes.push(format!("solver {}: Show Norm: {e}", s.number)),
+            }
+        }
+        printed = !refnorms.is_empty();
+    }
     if refnorms.is_empty() && run_refnorms.is_empty() {
         return skip(&notes.join("; "));
     }
@@ -591,7 +609,13 @@ fn refnorm_one(
     let any_global = solvers.iter().any(|s| s.global);
     let run = |run_dir: &Path, refnorms: &[(u32, f64)], run_refnorms: &[(usize, u32, f64)]| {
         let mut staging = Staging {
-            inject: Some(SifInject { o2: true, per_run: runs > 1, globals: any_global, ..SifInject::default() }),
+            inject: Some(SifInject {
+                o2: true,
+                per_run: runs > 1,
+                globals: any_global,
+                refnorm_tol: if printed { 1e-12 } else { 0.0 },
+                ..SifInject::default()
+            }),
             mkdirs: Vec::new(),
             refnorms: refnorms.to_vec(),
             run_refnorms: run_refnorms.to_vec(),
@@ -621,6 +645,18 @@ fn refnorm_one(
         result
     };
     let solvers_n = refnorms.len() + run_refnorms.len();
+    if printed {
+        // Never counted as bitwise, and SaveScalars sets its own norm by
+        // design, so no self-norm retry.
+        return match run(&run_dir, &refnorms, &run_refnorms) {
+            Ok(o) if o.passed => (String::from("printed-precision"), solvers_n, notes.join("; ")),
+            Ok(o) => {
+                notes.extend(o.compare_lines.iter().filter(|l| l.contains("FAILED")).cloned());
+                (String::from("printed-precision-MISMATCH"), solvers_n, notes.join("; "))
+            }
+            Err(e) => (String::from("ERROR"), solvers_n, e.to_string()),
+        };
+    }
     match run(&run_dir, &refnorms, &run_refnorms) {
         Ok(o) if o.passed => (String::from("bitwise"), solvers_n, notes.join("; ")),
         Ok(o) => {
