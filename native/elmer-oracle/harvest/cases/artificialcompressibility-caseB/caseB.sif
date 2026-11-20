@@ -1,0 +1,73 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+  Max Output Level = Integer 10
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+End
+Material 1
+  Density = 1.0
+  Artificial Compressibility = Real 1.0e-3
+End
+Solver 1
+  Equation = Mesh Update
+  Procedure = "MeshSolve" "MeshSolver"
+  Variable = String Mesh Update
+  Variable DOFs = Integer 2
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+End
+Solver 2
+  Equation = CompressibilityScale
+  Procedure = File "ArtificialCompressibility" "CompressibilityScale"
+  Variable = String ScaleVar
+  Variable DOFs = Integer 1
+  Flow Variable Name = String Mesh Update
+  Displacement Variable Name = String Mesh Update
+  Artificial Compressibility Scale = Logical True
+  Artificial Compressibility Critical Volume = Real 0.01
+  Weight By Displacement = Logical False
+  Nonlinear System Relaxation Factor = Real 1.0
+End
+Boundary Condition 1
+  Target Boundaries(1) = Integer 1
+  Mesh Update 1 = Real 0.0
+  Mesh Update 2 = Real 0.0
+End
+Boundary Condition 2
+  Target Boundaries(1) = Integer 2
+  Mesh Update 1 = Real 0.1
+  Mesh Update 2 = Real 0.0
+End
+Boundary Condition 3
+  Target Boundaries(1) = Integer 3
+  Mesh Update 1 = Real 0.0
+  Mesh Update 2 = Real 0.0
+End
+Boundary Condition 4
+  Target Boundaries(1) = Integer 4
+  Mesh Update 1 = Real 0.0
+  Mesh Update 2 = Real 0.05
+End

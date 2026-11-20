@@ -1,0 +1,100 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Output Intervals = 0
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+  Initial Condition = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+  Body Force = 1
+  Initial Condition = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+  Body Force = 1
+  Initial Condition = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Body Force = 1
+  Initial Condition = 1
+End
+Initial Condition 1
+  Name = "Guess"
+  topo rho = Real 0.4
+  topo mult = Real 0.064
+End
+Body Force 1
+  Name = "Source"
+  Volumetric Heat Source = Real 1.0
+End
+Equation 1
+  Name = "HeatEq"
+  Active Solvers(2) = 1 2
+End
+Material 1
+  Name = "Ideal"
+  Heat Conductivity = Real 1.0
+  Heat Capacity = Real 0.0
+  Density = Real 1.0
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Name = "Natural"
+End
+Boundary Condition 2
+  Target Boundaries(1) = 2
+  Name = "Null"
+  Temperature = Real 0.0
+End
+Solver 1
+  Equation = HeatEq
+  Procedure = "HeatSolve" "HeatSolver"
+  Variable = Temperature
+  Nonlinear System Max Iterations = 1
+  Linear System Solver = Direct
+  Linear System Direct Method = umfpack
+  Local Matrix Identical = Logical True
+  Local Matrix Storage = Logical True
+  Vector Assembly = False
+  Matrix Multiplier Name = String "topo mult"
+  Optimize Bandwidth = False
+  Steady State Convergence Measure = solution
+  Steady State Convergence Tolerance = 1.0e-4
+End
+Solver 2
+  Equation = TopoOpt
+  Procedure = "TopoOpt" "TopoOpt"
+  Filter Method = String "density"
+  Filter Type = String "pde"
+  Pde Filter Diffusion Constant = Real 1.0
+  Variable = xnodal
+  Penalty Exponent = Real 3.0
+  Minimum Relative Density = Real 1.0e-3
+  Volume Fraction = Real 0.4
+  Linear System Solver = direct
+  Linear System Direct Method = umfpack
+  Steady State Convergence Tolerance = Real 1.0e-12
+End
+Solver 3
+  Exec Solver = After Simulation
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Temperature
+  Operator 1 = min
+  Variable 2 = Temperature
+  Operator 2 = max
+End

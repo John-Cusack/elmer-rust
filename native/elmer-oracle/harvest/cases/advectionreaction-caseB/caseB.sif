@@ -1,0 +1,76 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Output Intervals = 1
+  Max Output Level = 4
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Body Force = 2
+End
+Equation 1
+  Active Solvers(1) = 1
+  Convection = constant
+End
+Material 1
+  Convection Velocity 1 = Real 2.0
+  Convection Velocity 2 = Real 1.0
+  Tracer Gamma = Real 1.0
+  Tracer Upper Limit = Real 2.0
+  Tracer Lower Limit = Real -1.0
+End
+Body Force 1
+  Tracer Source = Real 2.0
+End
+Body Force 2
+  Tracer Source = Real -1.0
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Tracer = Real 0.0
+End
+Boundary Condition 2
+  Target Boundaries(3) = 2 3 4
+  Tracer = Real 1.0
+End
+Solver 1
+  Equation = "AdvReact"
+  Procedure = "AdvectionReaction" "AdvectionReactionSolver"
+  Variable = "Tracer"
+  Discontinuous Galerkin = Logical True
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = Integer 500
+  Linear System Preconditioning = ILU0
+  Linear System Convergence Tolerance = Real 1.0e-6
+  Nonlinear System Max Iterations = Integer 2
+  Limit Solution = Logical True
+  Calculate Nodal Average = Logical True
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Tracer
+  Operator 1 = min
+  Variable 2 = Tracer
+  Operator 2 = max
+End

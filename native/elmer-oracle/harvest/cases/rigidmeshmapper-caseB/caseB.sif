@@ -1,0 +1,96 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Equation 1
+  Active Solvers(2) = 1 2
+End
+Material 1
+  Density = 1.0
+  Heat Conductivity = 1.0
+End
+Body Force 1
+  Mesh Rotate 3 = Real 30.0
+  Mesh Origin(3) = Real 0.5 0.5 0.0
+  Mesh Translate 1 = Real 0.05
+  Mesh Scale 1 = Real 1.1
+  Heat Source = Real 1.0
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Fixed Boundary = Logical True
+  Temperature = Real 0.0
+End
+Boundary Condition 2
+  Target Boundaries(3) = 2 3 4
+  Moving Boundary = Logical True
+End
+Solver 1
+  Equation = MeshDeform
+  Procedure = "RigidMeshMapper" "RigidMeshMapper"
+  Cumulative Displacements = Logical True
+  Calculate Mesh Velocity = Logical True
+  Mesh Relax Normalize = Logical True
+  Mesh Rotation Axis Order(2) = Integer 2 1
+  Variable = MeshRelax
+  Nonlinear System Relaxation Factor = Real 0.5
+  Nonlinear System Relaxation After = Integer 1
+  Nonlinear System Max Iterations = Integer 30
+  Nonlinear System Convergence Tolerance = Real 1.4e-4
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-12
+  Linear System Preconditioning = ILU1
+  Linear System ILUT Tolerance = 1.0e-3
+  Linear System Abort Not Converged = False
+  Linear System Residual Output = 20
+  Linear System Precondition Recompute = 1
+End
+Solver 2
+  Equation = HeatSolver
+  Variable = Temperature
+  Procedure = "HeatSolve" "HeatSolver"
+  Steady State Convergence Tolerance = 1.0e-5
+  Nonlinear System Convergence Tolerance = 1.0e-4
+  Nonlinear System Max Iterations = 1
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+End
+Solver 3
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Temperature
+  Operator 1 = min
+  Variable 2 = Temperature
+  Operator 2 = max
+End

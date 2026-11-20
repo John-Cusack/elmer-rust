@@ -1,0 +1,96 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Output Intervals = 1
+  Max Output Level = Integer 4
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 2
+End
+Body 4
+  Equation = 1
+  Material = 2
+End
+Equation 1
+  Active Solvers(3) = 1 2 3
+End
+Material 1
+  Density = 1.0
+  Heat Conductivity(2,2) = Real 1.0 0.0 0.0 10.0
+End
+Material 2
+  Density = 1.0
+  Heat Conductivity(2,2) = Real 1.0 0.0 0.0 10.0
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Temperature = Real 0.0
+End
+Boundary Condition 2
+  Target Boundaries(3) = 2 3 4
+  Temperature = Real 1.0
+End
+Solver 1
+  Equation = "Heat Equation"
+  Procedure = "HeatSolve" "HeatSolver"
+  Variable = Temperature
+  Variable DOFs = 1
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+  Linear System Residual Output = 10
+End
+Solver 2
+  Equation = ComputeFlux
+  Procedure = "FluxSolver" "FluxSolver"
+  Calculate Flux = Logical True
+  Calculate Grad = Logical True
+  Calculate Flux Magnitude = Logical True
+  Calculate Grad Magnitude = Logical True
+  Enforce Positive Magnitude = Logical True
+  Constant Bulk Matrix = Logical True
+  Calculate Flux Abs = Logical True
+  Calculate Grad Abs = Logical True
+  Discontinuous Galerkin = Logical True
+  Average Within Materials = Logical True
+  Target Variable = String Temperature
+  Flux Coefficient = String "Heat Conductivity"
+  Linear System Solver = Iterative
+  Linear System Iterative Method = cg
+  Linear System Preconditioning = None
+  Linear System Residual Output = 10
+  Linear System Max Iterations = Integer 500
+  Linear System Convergence Tolerance = 1.0e-10
+End
+Solver 3
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Temperature Grad 1
+  Operator 1 = min
+  Variable 2 = Temperature Grad 1
+  Operator 2 = max
+  Variable 3 = Temperature Grad_mag
+  Operator 3 = min
+  Variable 4 = Temperature Grad_mag
+  Operator 4 = max
+  Variable 5 = Temperature Flux_abs
+  Operator 5 = max
+  Variable 6 = Temperature Grad_abs
+  Operator 6 = max
+End

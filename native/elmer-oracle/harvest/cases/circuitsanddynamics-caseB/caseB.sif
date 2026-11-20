@@ -1,0 +1,146 @@
+! Proof case B (clean-room): transient circuit differential for the
+! circuitsanddynamics port. A time-varying voltage source drives a
+! stranded coil in series with a plain resistor, so the run covers the
+! transient driver, the transient resistor branch, the timestep refresh
+! block, and the transient reporter over several timesteps.
+Check Keywords "Warn"
+INCLUDE mesh1381/mesh.names
+$ Circuits = 1
+$ C.1.perm = zeros(6)
+$ C.1.variables = 6
+$ C.1.A = zeros(6,6)
+$ C.1.B = zeros(6,6)
+$ C.1.Mre = zeros(6,6)
+$ C.1.Mim = zeros(6,6)
+$ C.1.name.1 = "i_testsource"
+$ C.1.name.2 = "v_testsource"
+$ C.1.name.3 = "i_component(1)"
+$ C.1.name.4 = "v_component(1)"
+$ C.1.name.5 = "i_component(2)"
+$ C.1.name.6 = "v_component(2)"
+$ C.1.B(0,1) = 1
+$ C.1.source.1 = "testsource"
+$ C.1.B(1,1) = -1
+$ C.1.B(1,3) = 1
+$ C.1.B(1,5) = 1
+$ C.1.B(2,0) = 1
+$ C.1.B(2,2) = -1
+$ C.1.B(4,0) = 1
+$ C.1.B(4,4) = -1
+Header 1
+   Mesh DB "." "mesh1381"
+End
+Simulation 1
+   Max Output Level = Integer 4
+   Coordinate System = Axi symmetric
+   Simulation Type = String Transient
+   Timestepping Method = String BDF
+   BDF Order = Integer 1
+   Timestep Sizes(1) = Real 0.0002
+   Timestep Intervals(1) = Integer 5
+   Steady State Max Iterations = Integer 1
+End
+Solver 1
+   Exec Solver = Always
+   Equation = Circuits
+   Procedure = "CircuitsAndDynamics" "CircuitsAndDynamics"
+End
+Solver 2
+   Equation = "Mag"
+   Variable = A
+   Procedure = "MagnetoDynamics2D" "MagnetoDynamics2D"
+   NonLinear System Relaxation Factor = Real 1
+   Export Lagrange Multiplier = Logical True
+   Linear System Solver = Iterative
+   Linear System Iterative Method = BiCGStab
+   Linear System Convergence Tolerance = Real 1.0e-9
+   Linear System Max Iterations = Integer 3000
+   Linear System Residual Output = Integer 10
+   Linear System Abort Not Converged = Logical False
+   Linear System ILUT Tolerance = Real 1.0e-8
+   Linear System Preconditioning = Circuit
+   BicgStabL Polynomial Degree = Integer 2
+   Steady State Convergence Tolerance = Real 1.0e-6
+End
+Solver 3
+   Exec Solver = Always
+   Equation = Circuits Output
+   Procedure = "CircuitsAndDynamics" "CircuitsOutput"
+End
+Solver 4
+   Exec Solver = After All
+   Equation = "sv"
+   Procedure = "SaveData" "SaveScalars"
+   Filename = File "scalars.dat"
+   Show Norm Name = String "res: v_component(2)"
+End
+Equation 1
+   Active Solvers(2) = Integer 1 2
+End
+Equation 2
+   Active Solvers(2) = Integer 1 2
+End
+Material 1
+   Name = String iron
+   Electric Conductivity = Real 0
+   Relative Permeability = Real 2000
+End
+Material 2
+   Name = String air
+   Electric Conductivity = Real 0
+   Relative Permeability = Real 1
+End
+Material 3
+   Name = String aluminium
+   Relative Permeability = Real 1
+   Electric Conductivity = Real 1e7
+End
+Body 1
+   Name = String Core
+   Target Bodies(6) = Integer 1 2 3 4 5 6
+   Equation = Integer 1
+   Material = Integer 1
+End
+Body 2
+   Name = String air
+   Target Bodies(2) = Integer 9 7
+   Equation = Integer 1
+   Material = Integer 2
+End
+Body 3
+   Name = String coil
+   Target Bodies = Integer 8
+   Equation = Integer 2
+   Material = Integer 3
+End
+Component 1
+   Name = String coil
+   Master Bodies = Integer 3
+   Coil Type = String stranded
+   Number of Turns = Real 1000
+End
+Component 2
+   Name = String resistor
+   Component Type = String Resistor
+   Resistance = Real 2.5
+End
+Body Force 1
+   Name = String Circuit
+   testsource = Variable time
+     Real MATC "1.41421356237 * sin(2 * 3.14159265358979 * 50 * tx)"
+End
+Boundary Condition 1
+   Target Boundaries(4) = Integer $ center0 center1 center2 center3
+   A = Real 0
+End
+Boundary Condition 2
+   Target Boundaries(2) = Integer 4 6
+   Name = "Air Gap"
+   Air Gap = Logical True
+   Air Gap Length = Real 0.0001
+   Air Gap Relative Permeability = Real 1
+End
+Boundary Condition 3
+   Target Boundaries(7) = Integer 10 13 14 17 18 19 27
+   Infinity BC = Logical True
+End

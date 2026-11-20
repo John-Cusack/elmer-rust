@@ -1,0 +1,96 @@
+Check Keywords Warn
+
+Header
+  Mesh DB "." "square"
+End
+
+Simulation
+  Max Output Level = 5
+  Coordinate System = Cartesian
+  Simulation Type = transient
+  Steady State Max Iterations = 1
+  Timestep Intervals = 3
+  Output Intervals = 1
+  Timestep Sizes = 0.1
+End
+
+Constants
+  Gravity(4) = 0 -1 0 1
+End
+
+Body 1
+  Equation = 1
+  Material = 1
+End
+
+Body 2
+  Equation = 1
+  Material = 1
+End
+
+Body 3
+  Equation = 1
+  Material = 1
+End
+
+Body 4
+  Equation = 1
+  Material = 1
+End
+
+Equation 1
+  Active Solvers(2) = 1 2
+End
+
+Solver 1
+  Equation = ParticleDynamics
+  Procedure = "ParticleDynamics" "ParticleDynamics"
+
+  Number of Particles = Integer 100
+  Coordinate Initialization Method = String "box random"
+  Initial Velocity(1,2) = Real 0.0 0.0
+
+  Simulation Timestep Sizes = Logical True
+  Max Timestep Intervals = Integer 10
+  Time Order = Integer 1
+  Output Interval = Integer 0
+
+  Particle Gravity = Logical True
+  Particle Mass = Real 1.0
+  Particle Radius = Real 0.01
+  Particle Spring = Real 100.0
+  Particle Damping = Real 0.01
+  Particle Friction = Real 0.1
+  Particle Drag Coefficient = Real 1.0
+  Box Particle Periodic = Logical True
+
+  Particle Accurate Always = Logical True
+
+  Particle To Field = Logical True
+  Field 1 = String "weight"
+  Particle To Field Reset = Logical False
+
+  Particle Particle Contact = Logical True
+  Wall Particle Contact = Logical True
+  Wall Particle Spring = Real 100.0
+  Particle Bunch = Logical True
+  Initial Total Energy = Real 1.0
+End
+
+Solver 2
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = "scalars.dat"
+  Variable 1 = String "Particle Weight"
+  Operator 1 = String "sum"
+End
+
+Material 1
+  Name = "Ideal"
+End
+
+Boundary Condition 1
+  Name = BCs
+  Target Boundaries(6) = 1 2 3 4 5 6
+  Wall Particle Contact = Logical True
+End

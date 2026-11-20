@@ -1,0 +1,57 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Body 2
+  Equation = 1
+  Material = 2
+End
+Body 3
+  Equation = 1
+  Material = 3
+End
+Body 4
+  Equation = 1
+  Material = 4
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Test Height = Real 4.0
+End
+Material 2
+  Test Height = Real 0.5
+End
+Material 3
+  Test Height = Real 2.0
+End
+Material 4
+  Test Height = Real 9.0
+End
+Solver 1
+  Equation = Sun Angle
+  Procedure = "SunAngle" "SunAngleSolver"
+  Variable = CriticalTan
+  Variable DOFs = 1
+  Test Angle = Real 2.2
+  Enforce Parallel = Logical True
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = CriticalTan
+  Operator 1 = min
+  Variable 2 = CriticalTan
+  Operator 2 = max
+End

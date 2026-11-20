@@ -1,0 +1,78 @@
+Header
+  Mesh DB "." "mesh6464"
+End
+Simulation
+  Max Output Level = 5
+  Coordinate System = Cartesian 3D
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+  Body Force = 2
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Electric Conductivity = 36e6
+End
+Body Force 1
+  Source = Real 2.5
+End
+Body Force 2
+  Source = Real -0.5
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  W = Real 0.0
+End
+Boundary Condition 2
+  Target Boundaries(4) = 2 3 4 5
+  W = Real 2.0
+End
+Component 1
+  Name = String "A1"
+  Master Bodies(1) = Integer 3
+  Coil Type = String massive
+End
+Solver 1
+  Equation = Wire direction
+  Procedure = "WPotentialSolver" "Wsolve"
+  Variable = W
+  Linear System Solver = Iterative
+  Linear System Iterative Method = CG
+  Linear System Max Iterations = 5000
+  Linear System Convergence Tolerance = 1.0e-10
+  Linear System Abort Not Converged = True
+  Linear System Residual Output = 1000
+  Compute J Vector = Logical True
+End
+Solver 2
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = W
+  Operator 1 = min
+  Variable 2 = W
+  Operator 2 = max
+  Variable 3 = W Potential
+  Operator 3 = min
+  Variable 4 = W Potential
+  Operator 4 = max
+  Variable 5 = J Vector E
+  Operator 5 = min
+  Variable 6 = J Vector E
+  Operator 6 = max
+End

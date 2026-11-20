@@ -1,0 +1,35 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Transient
+  Timestepping Method = BDF
+  BDF Order = 1
+  Timestep Sizes(1) = 0.1
+  Timestep Intervals(1) = 2
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Density = 1.0
+End
+Solver 1
+  Equation = ElemSize
+  Procedure = "ElementSizeSolver" "ElementSizeSolver"
+  Variable = ElemSize
+  Variable DOFs = 1
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+  Element Size Exponent = Real 2.0
+  No Integration Weight = Logical True
+End

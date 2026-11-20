@@ -1,0 +1,145 @@
+! Config A: reference two-mesh projection (local donut mesh current
+! density projected onto the global sphere mesh edge-basis 'g', with
+! precomputed source + fixing term), plus a SaveScalars probe so the
+! differential covers scalars.dat. Adapted from
+! fem/tests/DistributeSourceMgdyn/case.sif: Max Output Level 4 (wall-clock
+! discipline), no VTU post file (not compared), SaveScalars added.
+Header
+  Mesh DB "." "sphere"
+End
+
+Simulation
+  Max Output Level = 4
+  Coordinate System = "Cartesian"
+  Simulation Type = "Steady State"
+  Output Intervals = 1
+  Steady State Max Iterations = 1
+
+  Use Mesh Projector = Logical False
+  Try Linear Search If QTree Fails = Logical False
+End
+
+Body 1
+  Name = "ball"
+  Target Bodies(1) = 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+
+Body 2
+  Name = "donut"
+  Target Bodies(1) = 2
+  Equation = 2
+  Body Force = 2
+  Initial Condition = 1
+End
+
+Material 1
+  Name = "Ideal"
+  Reluctivity = 1
+End
+
+Solver 1
+  Equation = "DistributeSource"
+  Exec Solver = "Before all"
+  Mesh = "donut"
+  Procedure = "DistributeSource" "DistributeSource"
+End
+
+Initial Condition 1
+End
+
+Solver 2
+  Equation = MGDynamics
+  Procedure = "MagnetoDynamics" "WhitneyAVSolver"
+  Variable = AV
+
+  Fix Input Current Density = Logical True
+
+  Steady State Convergence Tolerance = 1.0e-5
+  Nonlinear System Convergence Tolerance = 1.0e-8
+  Nonlinear System Max Iterations = 1
+  Nonlinear System Newton After Iterations = 3
+  Nonlinear System Newton After Tolerance = 1.0e-3
+  Nonlinear System Relaxation Factor = 1
+
+  Linear System Solver = iterative
+  Linear System Symmetric = True
+  Linear System Iterative Method = BiCGStabL
+  Linear System GCR Restart = 150
+  Linear System Max Iterations = 2500
+  Linear System Convergence Tolerance = 1.0e-7
+  Linear System Preconditioning = none
+  Linear System Residual Output = 10
+  Linear System Abort Not Converged = False
+
+  Exported Variable 1 = g
+
+  Precomputed Source Term = Logical True
+  Precomputed Fixing Term = Logical True
+End
+
+
+Solver 3
+  Equation = MGDynamicsCalc
+  Procedure = "MagnetoDynamics" "MagnetoDynamicsCalcFields"
+  Potential Variable = String "AV"
+
+  Exported Variable 1 = "g fix"
+
+  Steady State Convergence Tolerance = 1.0e-5
+  Nonlinear System Convergence Tolerance = 1.0e-8
+  Nonlinear System Max Iterations = 20
+  Nonlinear System Newton After Iterations = 3
+  Nonlinear System Newton After Tolerance = 1.0e-3
+  Nonlinear System Relaxation Factor = 1
+
+  Calculate Magnetic Vector Potential = Logical True
+
+  Linear System Solver = Iterative
+  Linear System Symmetric = True
+  Linear System Iterative Method = CG
+  Linear System Max Iterations = 5000
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+  Linear System ILUT Tolerance = 1.0e-3
+  Linear System Abort Not Converged = False
+  Linear System Residual Output = 1
+  Linear System Precondition Recompute = 1
+End
+
+
+Solver 4
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = AV
+  Operator 1 = min
+  Variable 2 = AV
+  Operator 2 = max
+End
+
+
+Equation 1 :: Active Solvers(3) = 2 3 4
+Equation 2 :: Active Solvers(1) = 1
+
+Body Force 1
+  Name = "GlobalCurrentDensity"
+End
+
+Body Force 2
+  Name = "LocalCurrentDensity"
+  Local Current Density 1 = Opposes Coordinate 2
+  Local Current Density 2 = Equals  Coordinate 1
+End
+
+Boundary Condition 1
+  Name = "External"
+  Target Boundaries(1) = 3
+  AV = Real 0
+  AV {e} = Real 0
+End
+
+Solver 2 :: Reference Norm = 6.73333546E-01
+Solver 3 :: Reference Norm = 1.15188631E-01

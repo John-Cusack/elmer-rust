@@ -781,7 +781,11 @@ fn oneliner_refnorm(text: &str, n: u32) -> bool {
                 } else {
                     String::from("test")
                 };
-                let outcome = run_solver(arm, spec, run_dir, &sif_name, *np, extra_lib, &log_base)?;
+                let mut outcome = run_solver(arm, spec, run_dir, &sif_name, *np, extra_lib, &log_base)?;
+                if staging.exit_verdict && !outcome.passed && exit_verdict_passed(run_dir, &plan.passed_file, outcome.exit_ok) {
+                    outcome.passed = true;
+                    outcome.failed_step = None;
+                }
                 if *verdict {
                     if !outcome.passed {
                         return Ok(outcome);
@@ -807,10 +811,11 @@ fn oneliner_refnorm(text: &str, n: u32) -> bool {
     }
     // Re-read the final verdict files for the graded outcome.
     let stdout = std::fs::read_to_string(run_dir.join(&plan.stdout_log)).unwrap_or_default();
+    let passed = std::fs::read_to_string(run_dir.join(&plan.passed_file))
+        .map(|s| s.trim() == "1")
+        .unwrap_or(false);
     Ok(RunOutcome {
-        passed: std::fs::read_to_string(run_dir.join(&plan.passed_file))
-            .map(|s| s.trim() == "1")
-            .unwrap_or(false),
+        passed: passed || (staging.exit_verdict && exit_verdict_passed(run_dir, &plan.passed_file, true)),
         exit_ok: true,
         failed_step: None,
         compare_lines: compare_lines(&stdout),
@@ -831,6 +836,18 @@ pub struct Staging {
     /// `Reference Norm` overrides for the startinfo sif (bitwise grader
     /// validation).
     pub refnorms: Vec<(u32, f64)>,
+    /// Pass on a zero exit when Elmer wrote no failing verdict: for cases
+    /// without `Reference Norm` (the harvested campaign differentials),
+    /// where ElmerSolver writes no `TEST.PASSED` at all. Off for every
+    /// registered test.
+    pub exit_verdict: bool,
+}
+
+/// The exit-status verdict of [`Staging::exit_verdict`]: a zero exit and
+/// no `0` in the verdict file.
+fn exit_verdict_passed(run_dir: &Path, passed_file: &str, exit_ok: bool) -> bool {
+    exit_ok
+        && std::fs::read_to_string(run_dir.join(passed_file)).map_or(true, |s| s.trim() != "0")
 }
 
 /// Copy the test sources into `run_dir`, add the arm's own build of any

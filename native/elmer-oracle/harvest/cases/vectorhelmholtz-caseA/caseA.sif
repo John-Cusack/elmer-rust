@@ -1,0 +1,71 @@
+Check Keywords "Warn"
+
+Header
+  Mesh DB "." "shoebox_tets"
+End
+
+Simulation
+  Max Output Level = 5
+  Coordinate System = "Cartesian"
+  Simulation Type = Steady
+  Steady State Max Iterations = 2
+End
+
+$ mu0 = 4e-7*pi
+$ eps0 = 8.854187817e-12
+$ c = 1/sqrt(mu0*eps0)
+$ a = 0.1
+$ w = 2*pi*(2.5e9)
+$ k0 = w/c
+$ kc = 1*pi/a
+$ beta0 = sqrt(k0^2-kc^2)
+
+Material 1
+  Relative Permittivity = Real 1
+  Electric Conductivity = Real 0.0
+End
+
+Equation 1
+  Active Solvers(2) = 1 2
+  Angular Frequency = Real $w
+End
+
+Solver 1
+  Equation = "VectorHelmholtz"
+  Use Piola Transform = Logical True
+  Procedure = "VectorHelmholtz" "VectorHelmholtzSolver"
+  Linear System Solver = String "Iterative"
+  Linear System Iterative Method = String "bicgstabl"
+  BiCGstabl polynomial degree = Integer 4
+  Linear System Preconditioning Damp Coefficient = Real 0.0
+  Linear System Preconditioning Damp Coefficient im = Real -1
+  Mass-proportional Damping = True
+  Linear System Preconditioning = String "ILU0"
+  Linear System ILUT Tolerance = Real 3e-3
+  Linear System Max Iterations = Integer 4000
+  Linear System Convergence Tolerance = 1.0e-7
+  Linear System Abort not Converged = Logical False
+  Steady State Convergence Tolerance = 1e-09
+  Linear System Residual Output = 10
+End
+
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = File "scalars.dat"
+  Variable 1 = String "e"
+  Operator 1 = String "norm"
+End
+
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Electric Robin Coefficient im = Real $ beta0
+  Magnetic Boundary Load 2 = Variable Coordinate 1
+    Real MATC "-2*beta0*k0/kc*sin(kc*tx)"
+End
+
+Boundary Condition 2
+  Target Boundaries(5) = 2 3 4 5 6
+  Electric Robin Coefficient = Real $ -474315.9900340191
+  Electric Robin Coefficient im = Real $ 474315.9900340191
+End

@@ -2,7 +2,7 @@
 # Golden capture sweep over an arm's registered tests (default: label
 # quick). Each test is captured with O2 injection into <out>/<test>/ with a
 # hashed manifest; the verdict matrix lands in <out>/matrix.tsv.
-# Usage: [SUITE=elmerice] sweep-capture.sh <elmer-oracle-bin> <build-dir> <tests-dir> <out> [jobs] [label|'!label'] [extra capture flags...]
+# Usage: [SUITE=elmerice] [REGISTRY=file] sweep-capture.sh <elmer-oracle-bin> <build-dir> <tests-dir> <out> [jobs] [label|'!label'] [extra capture flags...]
 set -u
 BIN="$1"; BUILD="$2"; TESTS="$3"; OUT="$4"; JOBS="${5:-6}"; LABEL="${6:-quick}"
 shift 6 2>/dev/null || shift $#
@@ -12,7 +12,13 @@ export BIN BUILD TESTS OUT EXTRA
 mkdir -p "$OUT"
 # SUITE selects the registration root (fem/tests, or elmerice for the
 # ice tests, whose <tests-dir> is then elmerice/Tests).
-"$BIN" registry "$BUILD" --label "$LABEL" --suite "${SUITE:-fem/tests}" > "$OUT/registry.tsv" || exit 1
+# REGISTRY=<file> supplies the test list instead (test, dir, np per line),
+# for test trees the arm never registered, such as the harvested cases.
+if [ -n "${REGISTRY:-}" ]; then
+  cp "$REGISTRY" "$OUT/registry.tsv" || exit 1
+else
+  "$BIN" registry "$BUILD" --label "$LABEL" --suite "${SUITE:-fem/tests}" > "$OUT/registry.tsv" || exit 1
+fi
 one() {
   name="$1"
   dest="$OUT/$name"

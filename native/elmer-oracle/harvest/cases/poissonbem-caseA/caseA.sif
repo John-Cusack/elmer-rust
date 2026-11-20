@@ -1,0 +1,71 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Body Force = 2
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Density = 1.0
+End
+Body Force 1
+  Source = Real 1.0
+End
+Body Force 2
+  Source = Real -1.0
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Potential = Real 0.0
+  Body Id = 1
+  Normal Target Body = Integer -1
+End
+Boundary Condition 2
+  Target Boundaries(3) = 2 3 4
+  Flux = Real 2.0
+  Body Id = 1
+  Normal Target Body = Integer -1
+End
+Solver 1
+  Equation = PoissonBEM
+  Procedure = "PoissonBEM" "PoissonBEMSolver"
+  Variable = Potential
+  Variable DOFs = 1
+  Exported Variable 1 = Flux
+  Exported Variable 1 DOFs = 1
+  Linear System Solver = Direct
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Potential
+  Operator 1 = min
+  Variable 2 = Potential
+  Operator 2 = max
+  Variable 3 = Flux
+  Operator 3 = max
+End

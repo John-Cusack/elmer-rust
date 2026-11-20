@@ -1,0 +1,76 @@
+Header
+  Mesh DB "." "Curve"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+  Max Output Level = Integer 4
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 2
+End
+Equation 1
+  Name = "CoilCurrent"
+  Active Solvers(3) = 1 2 3
+End
+Equation 2
+  Name = "NoEquations"
+End
+Solver 1
+  Equation = "CoilSolver"
+  Procedure = "CoilSolver" "CoilSolver"
+  Linear System Solver = "Iterative"
+  Linear System Preconditioning = ilu1
+  Linear System Max Iterations = Integer 1000
+  Linear System Convergence Tolerance = Real 1e-10
+  Linear System Iterative Method = BiCGStabL
+  Linear System Residual Output = Integer 20
+  Steady State Convergence Tolerance = Real 1e-06
+  Desired Coil Current = Real 1.0
+End
+Solver 2
+  Equation = "UDFPoisson"
+  Variable = "UDFPot"
+  Variable DOFs = Integer 1
+  Procedure = "Poisson" "PoissonSolver"
+  Linear System Solver = "Direct"
+  Linear System Direct Method = "Umfpack"
+End
+Solver 3
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = "scalars.dat"
+  Variable 1 = "CoilPot"
+  Operator 1 = min
+  Variable 2 = "CoilPot"
+  Operator 2 = max
+  Variable 3 = "UDFPot"
+  Operator 3 = min
+  Variable 4 = "UDFPot"
+  Operator 4 = max
+End
+Body Force 1
+  Source = Variable CoilPot
+    Real Procedure "CoilSolver" "CoilPotential"
+End
+Material 1
+  Density = Real 1.0
+End
+Boundary Condition 1
+  Name = "Start of coil loop"
+  Target Boundaries = Integer 4
+  Coil Start = Logical True
+  UDFPot = Real 0.0
+End
+Boundary Condition 2
+  Name = "End of coil loop"
+  Target Boundaries = Integer 1
+  Coil End = Logical True
+End

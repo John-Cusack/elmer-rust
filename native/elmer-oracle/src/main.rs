@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 fn usage() -> ! {
     eprintln!("usage:");
     eprintln!("  elmer-oracle plan <tests-dir> <test> [--np N]");
-    eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE]");
-    eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE]");
+    eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE] [--exit-verdict]");
+    eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE] [--exit-verdict]");
     eprintln!("  elmer-oracle registry <build-dir> [--label L|'!L'] [--suite fem/tests|elmerice]");
     eprintln!("  elmer-oracle refnorm-validate <build-dir> <tests-dir> <golden-root> <out-root>");
     eprintln!("  elmer-oracle grade-tree <tests-dir> <golden-root> <candidate-root> <tolerances.json> [--fallback X]");
@@ -73,6 +73,7 @@ fn execute(args: &[String]) -> Executed {
     let mut np: Option<u32> = None;
     let mut inj = SifInject::default();
     let mut solver: Option<PathBuf> = None;
+    let mut exit_verdict = false;
     let mut i = 4;
     while i < args.len() {
         match args[i].as_str() {
@@ -90,6 +91,7 @@ fn execute(args: &[String]) -> Executed {
             }
             "--o2" => inj.o2 = true,
             "--o2m" => inj.o2m = true,
+            "--exit-verdict" => exit_verdict = true,
             _ => {}
         }
         i += 1;
@@ -124,6 +126,7 @@ fn execute(args: &[String]) -> Executed {
         inject: inj.is_active().then_some(inj),
         mkdirs: Vec::new(),
         refnorms: Vec::new(),
+        exit_verdict,
     };
     let outcome = loop {
         let result = match (&plan.custom, &registered) {
@@ -315,6 +318,7 @@ fn refnorm_one(
             inject: Some(SifInject { o2: true, ..SifInject::default() }),
             mkdirs: Vec::new(),
             refnorms: refnorms.to_vec(),
+            exit_verdict: false,
         };
         // Same in-memory-mesh retry as `capture`.
         let mut result = run_plan(arm, &spec, &plan, &src, run_dir, &staging);

@@ -1,0 +1,8 @@
+INCLUDE(test_macros)
+INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/fem/src)
+
+CONFIGURE_FILE(caseB.sif caseB.sif COPYONLY)
+
+file(COPY ELMERSOLVER_STARTINFO square.grd vals.dat DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/")
+
+ADD_ELMER_TEST(datatoffieldsolver-caseB LABELS harvest)

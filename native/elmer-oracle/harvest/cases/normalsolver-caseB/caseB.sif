@@ -1,0 +1,62 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian 2D
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Density = 1.0
+End
+Solver 1
+  Equation = ComputeNormals
+  Procedure = "NormalSolver" "NormalSolver"
+  Variable = -nooutput nrm_temp
+  Normals Result Variable = String "Normals"
+  Exported Variable 1 = Normals[Normals:2]
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-10
+  Linear System Preconditioning = ILU0
+  Set Dirichlet Conditions = Logical True
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Normals
+  Operator 1 = max
+End
+
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Normals 1 = Real 0.5
+  Normals 2 = Real -0.25
+End
+Boundary Condition 2
+  Target Boundaries(3) = 2 3 4
+  Normals 1 = Real -0.5
+  Normals 2 = Real 0.25
+End

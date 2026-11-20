@@ -1,0 +1,64 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Steady State Min Iterations = 2
+  Output Intervals = 1
+  Max Output Level = 4
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Density = 1.0
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Distance = Real 0.0
+End
+Boundary Condition 2
+  Target Boundaries(3) = 2 3 4
+  Distance = Real 0.0
+End
+Solver 1
+  Equation = DistancePDE
+  Procedure = "DistanceSolve" "DistanceSolver"
+  Variable = Distance
+  Variable DOFs = 1
+  Nonlinear System Max Iterations = 50
+  Distance Pseudo dt = Real 0.05
+  H Scale = Real 1.0
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Distance
+  Operator 1 = min
+  Variable 2 = Distance
+  Operator 2 = max
+End

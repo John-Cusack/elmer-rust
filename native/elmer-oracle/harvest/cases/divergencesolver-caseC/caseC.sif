@@ -1,0 +1,65 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Axi Symmetric
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+  Max Output Level = Integer 4
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Initial Condition 1
+  Velocity 1 = Variable Coordinate 1
+    Real MATC "tx"
+  Velocity 2 = Variable Coordinate 2
+    Real MATC "tx"
+End
+Equation 1
+  Active Solvers(3) = 1 2 3
+End
+Material 1
+  Density = 1.0
+End
+Solver 1
+  Equation = AllocateStuff
+  Procedure = "AllocateSolver" "AllocateSolver"
+  Variable = Velocity
+  Variable DOFs = 2
+End
+Solver 2
+  Equation = DivEq
+  Procedure = "DivergenceSolver" "DivergenceSolver"
+End
+Solver 3
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Divergence
+  Operator 1 = min
+  Variable 2 = Divergence
+  Operator 2 = max
+  Variable 3 = Velocity 1
+  Operator 3 = min
+  Variable 4 = Velocity 1
+  Operator 4 = max
+End

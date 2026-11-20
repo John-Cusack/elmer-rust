@@ -1,0 +1,82 @@
+Header
+  Mesh DB "." "cube3"
+End
+Simulation
+  Coordinate System = Cartesian 3D
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+  Max Output Level = 4
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Equation 1
+  Active Solvers(4) = 1 2 3 4
+End
+Material 1
+  Electric Conductivity = Real 1.0
+  Relative Permeability = Real 1.0
+End
+Body Force 1
+  Current Density 3 = Real 2500.0
+End
+Boundary Condition 1
+  Target Boundaries(6) = 1 2 3 4 5 6
+  P {e} = Real 0.0
+  phi = Real 0.0
+End
+Solver 1
+  Equation = MGDynamics
+  Procedure = "MagnetoDynamics" "WhitneyAVSolver"
+  Variable = String "P"
+  Fix Input Current Density = Logical True
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStabl
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = None
+  Steady State Convergence Tolerance = 1.0e-6
+End
+Solver 2
+  Equation = Helmholtz projection
+  Procedure = "HelmholtzProjection" "HelmholtzProjector"
+  Variable = String "phi"
+  Variable DOFs = 1
+  Potential Variable = String "P"
+  Constant Bulk Matrix = Logical False
+  Linear System Solver = Iterative
+  Linear System Iterative Method = CG
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+End
+Solver 3
+  Equation = Remove kernel component
+  Procedure = "HelmholtzProjection" "RemoveKernelComponent"
+  Variable = String "Kernel Component"
+  Variable DOFs = 1
+  Potential Variable = String "P"
+  Kernel Variable = String "phi"
+  Constant Bulk Matrix = Logical False
+  Linear System Solver = Iterative
+  Linear System Iterative Method = CG
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+End
+Solver 4
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = phi
+  Operator 1 = min
+  Variable 2 = phi
+  Operator 2 = max
+  Variable 3 = Kernel Component
+  Operator 3 = min
+  Variable 4 = Kernel Component
+  Operator 4 = max
+End

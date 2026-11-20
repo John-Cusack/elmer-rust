@@ -1,0 +1,49 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(2) = 1 2
+End
+Material 1
+  Electric Conductivity = 36.0e6
+End
+Solver 1
+  Equation = WireDir
+  Exec Solver = Never
+  Procedure = "WPotentialSolver" "Wsolve_Dummy"
+  No Matrix = Logical True
+  Discontinuous Galerkin = True
+  Optimize Bandwidth = False
+  Variable = -nooutput wdummy
+  Exported Variable 1 = "-dg W Vector E[W Vector E:3]"
+  Exported Variable 2 = "-dg J Vector E[J Vector E:3]"
+End
+Solver 2
+  Equation = WFix
+  Procedure = "WVectorFix" "WVectorFix"
+  Variable DOFs = 1
+  Linear System Solver = Iterative
+  Linear System Iterative Method = CG
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-10
+  Linear System Preconditioning = ILU0
+End
+Solver 3
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = WFixVarTmp
+  Operator 1 = min
+  Variable 2 = WFixVarTmp
+  Operator 2 = max
+End

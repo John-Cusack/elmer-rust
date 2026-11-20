@@ -1,0 +1,57 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+  Max Output Level = Integer 4
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(2) = 1 2
+End
+Material 1
+  Name = String "Ideal"
+  Data Diffusivity(3) = Real 0.1 0.1 0.0
+End
+Solver 1
+  Equation = String "FitDataB"
+  Procedure = "DataToFieldSolver" "DataToFieldSolver"
+  Variable = FitB
+  Normalize Data by Weight = Logical True
+  Set Constant Weight Sum = Logical True
+  Point Data Filename = File vals.dat
+  Point Data Column = Integer 4
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+  Linear System Residual Output = Integer 50
+End
+Solver 2
+  Equation = String "SaveScalarsB"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = FitB
+  Operator 1 = min
+  Variable 2 = FitB
+  Operator 2 = max
+End

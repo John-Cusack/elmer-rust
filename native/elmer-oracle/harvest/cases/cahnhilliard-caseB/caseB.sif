@@ -1,0 +1,74 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Max Output Level = 4
+  Coordinate System = Cartesian
+  Simulation Type = Transient
+  Timestepping Method = BDF
+  BDF Order = 1
+  Timestep Sizes(1) = 0.1
+  Timestep Intervals(1) = 2
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+End
+Initial Condition 1
+  Phase 1 = Real 0.5
+  Phase 2 = Real 0.0
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Convection Velocity 1 = Real 0.5
+  Convection Velocity 2 = Real 0.0
+  Surface Tension Coefficient = Real 0.1
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Phase 1 = Real 1.0
+  Phase 2 = Real 0.0
+End
+Boundary Condition 2
+  Target Boundaries(3) = 2 3 4
+  Phase 1 = Real -1.0
+  Phase 2 = Real 0.0
+End
+Solver 1
+  Equation = CahnHilliard
+  Procedure = "CahnHilliard" "CahnHilliardSolver"
+  Variable = String "Phase"
+  Variable DOFs = Integer 2
+  Nonlinear System Max Iterations = Integer 3
+  Nonlinear System Convergence Tolerance = Real 1.0e-12
+  Linear System Solver = Direct
+  Linear System Direct Method = UMFPack
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Phase 1
+  Operator 1 = min
+  Variable 2 = Phase 1
+  Operator 2 = max
+  Variable 3 = Phase 2
+  Operator 3 = min
+  Variable 4 = Phase 2
+  Operator 4 = max
+End

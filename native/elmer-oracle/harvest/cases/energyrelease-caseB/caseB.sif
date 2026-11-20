@@ -1,0 +1,78 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Transient
+  Timestepping Method = BDF
+  BDF Order = 1
+  Timestep Sizes(1) = 0.1
+  Timestep Intervals(1) = 2
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Initial Condition 1
+  True Displacement 1 = Variable Coordinate 1
+    Real MATC "tx*tx"
+  True Displacement 2 = Variable Coordinate 2
+    Real MATC "tx*tx"
+  True Displacement 3 = Real 0.0
+  Stress 1 = Real 1.0
+  Stress 2 = Real 2.0
+  Stress 3 = Real 3.0
+  Stress 4 = Real 0.5
+  Stress 5 = Real 0.5
+  Stress 6 = Real 0.5
+  Shape Displacement 1 = Variable Coordinate 2
+    Real MATC "tx*tx"
+  Shape Displacement 2 = Variable Coordinate 1
+    Real MATC "tx*tx"
+  Shape Displacement 3 = Real 0.0
+End
+Equation 1
+  Active Solvers(4) = 1 2 3 4
+End
+Material 1
+  Density = 1.0
+End
+Solver 1
+  Equation = AllocateDisp
+  Procedure = "AllocateSolver" "AllocateSolver"
+  Variable = True Displacement
+  Variable DOFs = 3
+End
+Solver 2
+  Equation = AllocateStress
+  Procedure = "AllocateSolver" "AllocateSolver"
+  Variable = Stress
+  Variable DOFs = 6
+End
+Solver 3
+  Equation = AllocateShape
+  Procedure = "AllocateSolver" "AllocateSolver"
+  Variable = Shape Displacement
+  Variable DOFs = 3
+End
+Solver 4
+  Equation = Fracture
+  Procedure = "EnergyRelease" "ReleaseRateSolver"
+End

@@ -1,0 +1,70 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Angular Frequency = Real 1000.0
+  Max Output Level = 4
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Specific Heat = 1005.0
+  Specific Heat Ratio = 1.4
+  Equilibrium Density = 1.2
+  Equilibrium Temperature = 293.0
+  Heat Conductivity = 0.0257
+  Viscosity = 1.8e-5
+End
+Body Force 1
+  Re Body Force 1 = Real 1.0
+End
+Boundary Condition 1
+  Target Boundaries(4) = 1 2 3 4
+  Re Velocity 1 = Real 0.0
+  Im Velocity 1 = Real 0.0
+  Re Velocity 2 = Real 0.0
+  Im Velocity 2 = Real 0.0
+End
+Solver 1
+  Equation = Acoustics
+  Procedure = "Acoustics" "AcousticsSolver"
+  Variable = Flow
+  Variable Dofs = 8
+  Bubbles = Logical False
+  Linear System Solver = Direct
+  Linear System Direct Method = Banded
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Flow
+  Operator 1 = min
+  Variable 2 = Flow
+  Operator 2 = max
+End

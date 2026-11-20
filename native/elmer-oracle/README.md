@@ -21,7 +21,7 @@ through firstmate (D11).
 | 8 O7 kernel harness | Rust tests call the pristine `GaussPoints` rule builders and `ElementInfo` through a `BIND(C)` shim; Release reproduces 89 rules and 792 `ElementInfo` calls on 21 types (all S1 types) at 0 ulp, the FMA arm does not | `o7/`, `src/o7.rs`, `tests/o7.rs` |
 | 9 Held-out seal and determinism | 190 directories sealed with a hash commitment; pristine-vs-pristine determinism of quick, non-quick and ice tests | `heldout/`, `determinism/` |
 | 10 Benchmark baselines | **deferred** (see below) | — |
-| 11 ABI harvest | not covered by this lane | — |
+| 11 ABI harvest | 256 staged campaign cases from 108 solver proofs as oracle tests; 236 golden-captured on Release, FMA and OpenBLAS (bitwise deterministic, σ_F per field), 20 pristine failures explained; 15 known-divergence entries from the documented upstream defects | `harvest/` |
 | External grading of a candidate | `--solver` plus `grade-tree`; the Rust path is not gradable yet | `candidate/` |
 
 ## Benchmarks: deferred

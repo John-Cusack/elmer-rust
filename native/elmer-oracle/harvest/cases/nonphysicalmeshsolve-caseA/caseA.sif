@@ -1,0 +1,61 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Youngs Modulus = 1.0
+  Poisson Ratio = 0.25
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Mesh Update 1 = Real 0.0
+  Mesh Update 2 = Real 0.0
+End
+Boundary Condition 2
+  Target Boundaries(3) = 2 3 4
+  Mesh Force 1 = Real 0.1
+End
+Solver 1
+  Equation = Mesh Update
+  Procedure = "NonphysicalMeshSolve" "MeshSolver"
+  Variable = Mesh Update
+  Variable DOFs = 2
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Mesh Update
+  Operator 1 = min
+  Variable 2 = Mesh Update
+  Operator 2 = max
+End

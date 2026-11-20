@@ -1,0 +1,93 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = Integer 1
+  Output Intervals = Integer 1
+  Max Output Level = Integer 4
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Initial Condition 1
+  Velocity 1 = Real 0.0
+  Velocity 2 = Real 0.0
+  Kinetic energy = Real 0.003
+  Kinetic Dissipation = Real 0.4
+End
+Equation 1
+  Active Solvers(3) = Integer 1 2 3
+End
+Material 1
+  Density = Real 1.0
+  Viscosity = Real 0.01
+End
+Boundary Condition 1
+  Target Boundaries(3) = Integer 1 2 4
+  Velocity 1 = Real 0.0
+  Velocity 2 = Real 0.0
+End
+Boundary Condition 2
+  Target Boundaries(1) = Integer 3
+  Velocity 1 = Real 1.0
+  Velocity 2 = Real 0.0
+End
+Solver 1
+  Equation = Navier-Stokes
+  Procedure = "FlowSolve" "FlowSolver"
+  Stabilization Method = String Stabilized
+  Nonlinear System Max Iterations = Integer 20
+  Nonlinear System Convergence Tolerance = Real 1.0e-8
+  Nonlinear System Newton After Iterations = Integer 3
+  Nonlinear System Newton After Tolerance = Real 1.0e-3
+  Nonlinear System Relaxation Factor = Real 1.0
+  Linear System Solver = Direct
+  Linear System Direct Method = UMFPack
+  Steady State Convergence Tolerance = Real 1.0e-5
+End
+Solver 2
+  Equation = Komega Legacy
+  Procedure = "KomegaLegacy" "KOmegaLegacy"
+  Variable = "KE[Kinetic energy:1 Kinetic Dissipation:1]"
+  Nonlinear System Max Iterations = Integer 1
+  Nonlinear System Convergence Tolerance = Real 1.0e-5
+  Linear System Solver = Direct
+  Linear System Direct Method = UMFPack
+  Steady State Convergence Tolerance = Real 1.0e-4
+End
+Solver 3
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Velocity 1
+  Operator 1 = min
+  Variable 2 = Velocity 1
+  Operator 2 = max
+  Variable 3 = Kinetic energy
+  Operator 3 = min
+  Variable 4 = Kinetic energy
+  Operator 4 = max
+  Variable 5 = Kinetic Dissipation
+  Operator 5 = min
+  Variable 6 = Kinetic Dissipation
+  Operator 6 = max
+End

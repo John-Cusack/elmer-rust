@@ -1,0 +1,168 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Max Output Level = 4
+  Coordinate System = Cartesian
+  Simulation Type = Transient
+  Timestepping Method = BDF
+  BDF Order = 1
+  Timestep Intervals(1) = 30
+  Timestep Sizes(1) = 0.1
+  Steady State Max Iterations = 1
+  Frequency = Real 1.0
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Equation 1
+  Active Solvers(2) = 1 2
+End
+Material 1
+  Time Derivative Coefficient = Real 0.0
+  Diffusion Coefficient = Real 1.0
+  Harmonic Loss Coefficient 1 = Variable frequency
+    Real
+      0.0 1.0
+      3.0 1.0
+    End
+  Harmonic Loss Coefficient 2 = Variable frequency
+    Real
+      0.0 2.0
+      3.0 2.0
+    End
+End
+Body Force 1
+  Field Source = Real 0.0
+End
+Boundary Condition 1
+  Target Boundaries(4) = 1 2 3 4
+  Potential = Variable Time
+    Real
+      0.00 3.750000000000e+00
+      0.05 3.824576874202e+00
+      0.10 3.406702298774e+00
+      0.15 2.740232426478e+00
+      0.20 2.141455380341e+00
+      0.25 1.800000000000e+00
+      0.30 1.692815787862e+00
+      0.35 1.659767573522e+00
+      0.40 1.562754200694e+00
+      0.45 1.393457114548e+00
+      0.50 1.250000000000e+00
+      0.55 1.219554221090e+00
+      0.60 1.282737302119e+00
+      0.65 1.331173185665e+00
+      0.70 1.284641726201e+00
+      0.75 1.200000000000e+00
+      0.80 1.263053116846e+00
+      0.85 1.650792825585e+00
+      0.90 2.365840187163e+00
+      0.95 3.180445778910e+00
+      1.00 3.750000000000e+00
+      1.05 3.824576874202e+00
+      1.10 3.406702298774e+00
+      1.15 2.740232426478e+00
+      1.20 2.141455380341e+00
+      1.25 1.800000000000e+00
+      1.30 1.692815787862e+00
+      1.35 1.659767573522e+00
+      1.40 1.562754200694e+00
+      1.45 1.393457114548e+00
+      1.50 1.250000000000e+00
+      1.55 1.219554221090e+00
+      1.60 1.282737302119e+00
+      1.65 1.331173185665e+00
+      1.70 1.284641726201e+00
+      1.75 1.200000000000e+00
+      1.80 1.263053116846e+00
+      1.85 1.650792825585e+00
+      1.90 2.365840187163e+00
+      1.95 3.180445778910e+00
+      2.00 3.750000000000e+00
+      2.05 3.824576874202e+00
+      2.10 3.406702298774e+00
+      2.15 2.740232426478e+00
+      2.20 2.141455380341e+00
+      2.25 1.800000000000e+00
+      2.30 1.692815787862e+00
+      2.35 1.659767573522e+00
+      2.40 1.562754200694e+00
+      2.45 1.393457114548e+00
+      2.50 1.250000000000e+00
+      2.55 1.219554221090e+00
+      2.60 1.282737302119e+00
+      2.65 1.331173185665e+00
+      2.70 1.284641726201e+00
+      2.75 1.200000000000e+00
+      2.80 1.263053116846e+00
+      2.85 1.650792825585e+00
+      2.90 2.365840187163e+00
+      2.95 3.180445778910e+00
+      3.00 3.750000000000e+00
+    End
+End
+Solver 1
+  Equation = AdvDiff
+  Procedure = "ModelPDE" "AdvDiffSolver"
+  Variable = String Potential
+  Variable DOFs = Integer 1
+  Linear System Solver = Iterative
+  Linear System Preconditioning = ILU0
+  Linear System Max Iterations = 1000
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Iterative Method = BiCGStab
+End
+Solver 2
+  Equation = Fourier
+  Procedure = "FourierLoss" "FourierLossSolver"
+  Target Variable = String Potential
+  Target Variable Direct = Logical False
+  Inexact Integration = Logical True
+  Simpsons Rule = Logical True
+  Fourier Series Components = Integer 1
+  Fourier Series Output = Logical True
+  Calculate Nodal Fields = Logical True
+  Calculate Elemental Fields = Logical True
+  Separate Loss Components = Logical True
+  Calculate Nodal Losses = Logical True
+  Harmonic Loss Frequency Exponent(2) = Real 1.0 2.0
+  Harmonic Loss Field Exponent(2) = Real 1.0 2.0
+  Fourier Start Cycles = Integer 1
+  Fourier Integrate Cycles = Integer 1
+  Frequency = Real 1.0
+  Linear System Solver = Iterative
+  Linear System Preconditioning = None
+  Linear System Max Iterations = 5000
+  Linear System Iterative Method = CG
+  Linear System Convergence Tolerance = 1.0e-6
+End
+Solver 3
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Exec Solver = after timestep
+  Filename = scalars.dat
+  Variable 1 = String "Fourier Loss 1"
+  Operator 1 = max
+  Variable 2 = String "Fourier Loss 2"
+  Operator 2 = max
+  Variable 3 = String Potential
+  Operator 3 = mean
+End

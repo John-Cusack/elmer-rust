@@ -1,0 +1,33 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Density = 1.0
+End
+Solver 1
+  Equation = Mesh Check
+  Procedure = "MeshChecksum" "MeshChecksum"
+  Reference Values(8) = Real 1080 127260 1078 151830 17574 0 21177 236.24999999999363
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = meshcheck_var
+  Operator 1 = min
+  Variable 2 = meshcheck_var
+  Operator 2 = max
+End

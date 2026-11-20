@@ -1,0 +1,80 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Output Intervals = 1
+  Max Output Level = Integer 4
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Initial Condition 1
+  Data = Variable Coordinate
+    Real MATC "1+tx(0)+2*tx(1)+3*sin(15*tx(0))*cos(10*tx(1))"
+  Mask = Variable Coordinate
+    Real MATC "sin(15*tx(0))*cos(10*tx(1))"
+End
+Equation 1
+  Active Solvers(2) = 1 2
+End
+Material 1
+  Name = String "Ideal"
+End
+Boundary Condition 1
+  Target Boundaries(3) = 1 3 4
+  FitA Continue = Logical True
+End
+Boundary Condition 2
+  Target Boundaries(1) = 2
+  FitA = Variable Coordinate
+    Real MATC "1+tx(0)+2*tx(1)"
+End
+Solver 1
+  Equation = String "FitDataA"
+  Procedure = "DataToFieldSolver" "DataToFieldSolver"
+  Variable = FitA
+  Target Variable = String "Data"
+  Mask Variable = String "Mask"
+  Min Mask Value = Real -0.01
+  Max Mask Value = Real 0.01
+  Mask Diffusion = Logical True
+  Diffusion Coefficient = Real 1.0e-5
+  Continue BC With Boundary Assembly = Logical True
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+  Linear System Residual Output = Integer 50
+  Exported Variable 1 = Data
+  Exported Variable 2 = Mask
+End
+Solver 2
+  Equation = String "SaveScalarsA"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = FitA
+  Operator 1 = min
+  Variable 2 = FitA
+  Operator 2 = max
+End

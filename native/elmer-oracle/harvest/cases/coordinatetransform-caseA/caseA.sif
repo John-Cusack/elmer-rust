@@ -1,0 +1,101 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+  Max Output Level = Integer 4
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+  Alpha Reference(3) = Real 1.0 0.0 0.0
+  Beta Reference(3) = Real 0.0 1.0 0.0
+End
+Body 2
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+  Alpha Reference(3) = Real 1.0 0.0 0.0
+  Beta Reference(3) = Real 0.0 1.0 0.0
+End
+Body 3
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+  Alpha Reference(3) = Real 1.0 0.0 0.0
+  Beta Reference(3) = Real 0.0 1.0 0.0
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+  Alpha Reference(3) = Real 1.0 0.0 0.0
+  Beta Reference(3) = Real 0.0 1.0 0.0
+End
+Initial Condition 1
+  alpha = Variable Coordinate 1
+    Real MATC "tx"
+  beta = Variable Coordinate 2
+    Real MATC "tx"
+  coilcurrent e 1 = Variable Coordinate 1
+    Real MATC "tx"
+  coilcurrent e 2 = Variable Coordinate 2
+    Real MATC "tx"
+  coilcurrent e 3 = Real 1.0
+End
+Equation 1
+  Active Solvers(5) = 1 2 3 4 5
+End
+Material 1
+  Density = 1.0
+End
+Solver 1
+  Equation = AllocAlpha
+  Procedure = "AllocateSolver" "AllocateSolver"
+  Variable = alpha
+  Variable DOFs = 1
+End
+Solver 2
+  Equation = AllocBeta
+  Procedure = "AllocateSolver" "AllocateSolver"
+  Variable = beta
+  Variable DOFs = 1
+End
+Solver 3
+  Equation = AllocCoil
+  Procedure = "AllocateSolver" "AllocateSolver"
+  Variable = String "coilcurrent e"
+  Variable DOFs = 3
+End
+Solver 4
+  Equation = Transformation matrix
+  Procedure = "CoordinateTransform" "RotMSolver"
+  Variable = -nooutput Dummy
+  Optimize Bandwidth = False
+  Discontinuous Galerkin = True
+  Polar Decomposition Determinant Tolerance = Real 1.0e-9
+  Polar Decomposition Max Iterations = Integer 100
+  Exported Variable 1 = RotM E[RotM E:9]
+  Exported Variable 2 = Alpha Vector E[Alpha Vector E:3]
+  Exported Variable 3 = Beta Vector E[Beta Vector E:3]
+  Exported Variable 4 = Gamma Vector E[Gamma Vector E:3]
+End
+Solver 5
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = RotM E
+  Operator 1 = min
+  Variable 2 = RotM E
+  Operator 2 = max
+  Variable 3 = RotM E
+  Operator 3 = sum
+  Variable 4 = Alpha Vector E
+  Operator 4 = sum
+  Variable 5 = Gamma Vector E
+  Operator 5 = sum
+End
