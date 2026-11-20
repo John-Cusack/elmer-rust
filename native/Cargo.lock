@@ -602,6 +602,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "elmer-physics-coil"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-solver",
+]
+
+[[package]]
 name = "elmer-physics-datatofield"
 version = "0.1.0"
 dependencies = [
@@ -767,6 +775,7 @@ dependencies = [
  "elmer-mortar",
  "elmer-pdofs",
  "elmer-physics-advdiff",
+ "elmer-physics-coil",
  "elmer-physics-datatofield",
  "elmer-physics-elastic",
  "elmer-physics-elasticsolve",

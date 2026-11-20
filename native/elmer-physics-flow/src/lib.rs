@@ -34,7 +34,6 @@ pub mod cylindric;
 pub mod error;
 pub mod fix_tangent;
 pub mod solver;
-pub mod stokes;
 
 pub use boundary::{flow_boundary_local, outward_normal, FlowBoundaryInput};
 pub use bulk::{flow_bulk_local, Discretization, FlowBulkInput, StabParams};

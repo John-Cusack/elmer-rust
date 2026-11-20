@@ -144,6 +144,16 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if film {
             elmer_physics_filmflow::solver_defaults(params, serendipity);
         }
+        // `CoilSolver_init` and `DivergenceSolver_Init`: their variables.
+        let is = |p: &ParamMap, (l, e): (&str, &str)| {
+            procedure_of(p).is_some_and(|(lib, entry)| lib.eq_ignore_ascii_case(l) && entry.eq_ignore_ascii_case(e))
+        };
+        if is(params, elmer_physics_coil::PROCEDURE) {
+            elmer_physics_coil::solver_defaults(params, cdim);
+        }
+        if is(params, elmer_physics_flux::DIVERGENCE_PROCEDURE) {
+            elmer_physics_flux::divergence_defaults(params);
+        }
         // AddEquationBasics (MainUtils.F90:1231): a legacy `Equation` name
         // gives the `Variable` when there is none, with or without a
         // `Procedure`, and the `Procedure` when there is none.
@@ -516,7 +526,7 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 16] = [
+    const P_DOFS: [(&str, &str); 15] = [
         ("benchmarkshell", "shellsolver"),
         ("filmflowsolver", "filmflowsolver"),
         ("flowsolve", "flowsolver"),
@@ -526,7 +536,6 @@ pub fn native_element(params: &ParamMap) -> bool {
         ("statelecsolve", "statelecsolver"),
         ("statelecsolvevec", "statelecsolver"),
         ("stresssolve", "stresssolver"),
-        ("stokes", "stokessolver"),
         ("stokes1", "stokessolver"),
         ("poisson", "poissonsolver"),
         ("poissonml", "poissonsolver"),

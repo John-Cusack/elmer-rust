@@ -1,0 +1,11 @@
+[package]
+name = "elmer-physics-coil"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CoilSolver (the current distribution of a coil from a dummy potential) for the Rust-native Elmer rewrite"
+
+[dependencies]
+elmer-core.workspace = true
+elmer-solver = { path = "../elmer-solver" }

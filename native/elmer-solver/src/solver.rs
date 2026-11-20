@@ -1873,6 +1873,23 @@ impl<'a> SolverCtx<'a> {
         }
     }
 
+    /// `ListAddLogical( Solver % Values, key, v )` and the like: sets a
+    /// keyword of this solver's section while it runs.
+    pub fn set_param(&mut self, key: &str, v: Value) {
+        self.sim.slots[self.slot].params.insert(key, v);
+    }
+
+    /// `A % BulkValues` of this assembly pass (kept by
+    /// [`default_finish_bulk_assembly`](Self::default_finish_bulk_assembly)
+    /// for `Calculate Loads`) with the matrix whose structure it shares.
+    /// `None` before the bulk system is kept.
+    pub fn bulk_values_mut(&mut self) -> Option<(&elmer_core::CsrMatrix<f64>, &mut [f64])> {
+        let slot = &mut self.sim.slots[self.slot];
+        let sys = slot.system.as_ref()?;
+        let (values, _) = slot.asm.bulk.as_mut()?;
+        Some((&sys.matrix, values.as_mut_slice()))
+    }
+
     /// The assembled system, if any.
     pub fn system(&self) -> Option<&LinearSystem> {
         self.sim.slots[self.slot].system.as_ref()
