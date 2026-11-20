@@ -133,7 +133,7 @@ impl Solver for SingleElements {
         let (xyz, basis, rule): (_, Box<dyn ElementBasis>, _) = match &self.p_layout {
             Some(d) => {
                 let xyz: Vec<[f64; 3]> = d.element_nodes(e).iter().map(|&n| ctx.mesh.coord(n)).collect();
-                (xyz, d.element_basis(e).map_err(fatal)?, d.element_rule(e).map_err(fatal)?)
+                (xyz, d.element_basis_scalar(e).map_err(fatal)?, d.element_rule(e).map_err(fatal)?)
             }
             None => (element_nodes(ctx.mesh, e), Box::new(lagrange_basis(ctx)?), ElmerQuadrature.gauss_points(etype, None)),
         };

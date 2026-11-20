@@ -79,7 +79,8 @@ pub(crate) fn element(ctx: &SolverCtx<'_>, e: ElemId) -> Result<Elem, SolverErro
             Ok(Elem {
                 etype,
                 nodes: d.element_nodes(e),
-                basis: d.element_basis(e).map_err(fatal)?,
+                // The test plugins call the scalar ElementInfo.
+                basis: d.element_basis_scalar(e).map_err(fatal)?,
                 rule: d.element_rule(e).map_err(fatal)?,
                 nd: slots.len(),
                 nb: d.local_bubbles(e),

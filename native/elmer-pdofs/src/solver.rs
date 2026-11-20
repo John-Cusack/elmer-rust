@@ -465,7 +465,7 @@ impl Solver for PoissonPfem {
             let nb = d.local_bubbles(e);
             let nodes = d.element_nodes(e);
             let basis = d
-                .element_basis(e)
+                .element_basis_scalar(e)
                 .map_err(|m| SolverError::fatal("ElementInfo", m))?;
             let rule = d
                 .element_rule(e)

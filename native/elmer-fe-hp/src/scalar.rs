@@ -14,10 +14,16 @@
 //! that one path leaves nonzero and the other cancels to zero changes
 //! ILU(0)'s sparsity pattern (StokesPFEM).
 //!
-//! Ported so far: triangles (303), nodal and edge functions with edge
-//! polynomials up to degree 5 (`varPhi` / `dVarPhi` cases 2-5, whose
-//! powers are `x**2` only). Bubbles and higher edge degrees keep the
-//! H1Basis values.
+//! Ported so far, for degrees up to 5 (the `varPhi` / `dVarPhi` / `dPhi`
+//! cases whose powers are `x**2` and `x**4`, which every gfortran
+//! expansion of `**` evaluates the same way):
+//! * triangles (303): nodal and edge functions;
+//! * quadrilaterals (404, full scheme): nodal, edge and interior bubble
+//!   functions (`QuadEdgePBasis`, `QuadBubblePBasis` without
+//!   `localNumbers`, PElementBase.F90:915, :981, :1168, :1219).
+//!
+//! Triangle bubbles, face-directed quad bubbles (a 2D element on a 3D
+//! face), serendipity quads and higher degrees keep the H1Basis values.
 
 // Index loops mirror the Fortran's.
 #![allow(clippy::needless_range_loop)]
@@ -147,6 +153,87 @@ pub(crate) fn triangle_edge(
     })
 }
 
+/// `QuadNodalPBasis(node, u, v)` and `dQuadNodalPBasis` (PElementBase.F90:327,
+/// :384), the forms the quad edge functions use.
+fn quad_n(node: usize, u: f64, v: f64) -> (f64, [f64; 2]) {
+    match node {
+        1 => (
+            (1.0 - u) * (1.0 - v) / 4.0,
+            [-((1.0 - v) / 4.0), -((1.0 - u) / 4.0)],
+        ),
+        2 => (
+            (1.0 + u) * (1.0 - v) / 4.0,
+            [(1.0 - v) / 4.0, -((1.0 + u) / 4.0)],
+        ),
+        3 => (
+            (1.0 + u) * (1.0 + v) / 4.0,
+            [(1.0 + v) / 4.0, (1.0 + u) / 4.0],
+        ),
+        _ => (
+            (1.0 - u) * (1.0 + v) / 4.0,
+            [-((1.0 + v) / 4.0), (1.0 - u) / 4.0],
+        ),
+    }
+}
+
+/// `QuadL(which, u, v)` and `dQuadL`.
+fn quad_l(node: usize, u: f64, v: f64) -> (f64, [f64; 2]) {
+    match node {
+        1 => ((2.0 - u - v) / 2.0, [-0.5, -0.5]),
+        2 => ((2.0 + u - v) / 2.0, [0.5, -0.5]),
+        3 => ((2.0 + u + v) / 2.0, [0.5, 0.5]),
+        _ => ((2.0 - u + v) / 2.0, [-0.5, 0.5]),
+    }
+}
+
+/// `QuadEdgePBasis(edge, i, u, v, invert)` and `dQuadEdgePBasis`, edge in
+/// 1..=4 on `getQuadEdgeMap` ((1,2), (2,3), (4,3), (1,4)).
+pub(crate) fn quad_edge(
+    edge: usize,
+    i: usize,
+    u: f64,
+    v: f64,
+    invert: bool,
+) -> Option<(f64, [f64; 2])> {
+    let [a, b] = [[1, 2], [2, 3], [4, 3], [1, 4]][edge - 1];
+    let ((na, dna), (nb, dnb)) = (quad_n(a, u, v), quad_n(b, u, v));
+    let ((la, dla), (lb, dlb)) = (quad_l(a, u, v), quad_l(b, u, v));
+    let (mut par, mut dpar) = (lb - la, [dlb[0] - dla[0], dlb[1] - dla[1]]);
+    if invert {
+        par = -par;
+        dpar = [-dpar[0], -dpar[1]];
+    }
+    let vphi = var_phi(i, par)?;
+    let dv = d_var_phi(i, par)?;
+    let dvphi = [dv * dpar[0], dv * dpar[1]];
+    let g = |k: usize| dna[k] * nb * vphi + na * dnb[k] * vphi + na * nb * dvphi[k];
+    Some((na * nb * vphi, [g(0), g(1)]))
+}
+
+/// `Phi(i, x) = varPhi(i, x) (1 - x**2) / 4` (PElementBase.F90:8329) and
+/// `dPhi` (:8380), cases 2-5.
+fn phi(i: usize, x: f64) -> Option<f64> {
+    Some(var_phi(i, x)? * (1.0 - x * x) / 4.0)
+}
+
+fn d_phi(i: usize, x: f64) -> Option<f64> {
+    let x2 = x * x;
+    Some(match i {
+        2 => 6f64.sqrt() * x / 2.0,
+        3 => 10f64.sqrt() * (3.0 * x2 - 1.0) / 4.0,
+        4 => 14f64.sqrt() * x * (5.0 * x2 - 3.0) / 4.0,
+        5 => 3.0 / 16.0 * 2f64.sqrt() * (35.0 * (x2 * x2) - 30.0 * x2 + 3.0),
+        _ => return None,
+    })
+}
+
+/// `QuadBubblePBasis(i, j, u, v)` and `dQuadBubblePBasis` without
+/// `localNumbers`: `Phi(i+2, u) Phi(j+2, v)`.
+pub(crate) fn quad_bubble(i: usize, j: usize, u: f64, v: f64) -> Option<(f64, [f64; 2])> {
+    let (pu, pv) = (phi(i + 2, u)?, phi(j + 2, v)?);
+    Some((pu * pv, [d_phi(i + 2, u)? * pv, pu * d_phi(j + 2, v)?]))
+}
+
 /// `ElementMetric` (ElemInfo.F90:9893) for a 1D or 2D element in a `cdim`
 /// coordinate system: `dx` from the first `n` functions, then `detJ`
 /// and `LtoGMap`. `Err` for a degenerate element.
@@ -241,5 +328,38 @@ mod tests {
             }
         }
         assert!(triangle_edge(1, 6, u, v, false).is_none());
+    }
+
+    #[test]
+    fn quad_gradients_differentiate_the_values() {
+        let (u, v, h) = (0.13, -0.41, 1e-6);
+        let check = |f: &dyn Fn(f64, f64) -> (f64, [f64; 2]), what: &str| {
+            let (_, g) = f(u, v);
+            let du = (f(u + h, v).0 - f(u - h, v).0) / (2.0 * h);
+            let dv = (f(u, v + h).0 - f(u, v - h).0) / (2.0 * h);
+            assert!(
+                (g[0] - du).abs() < 1e-7 && (g[1] - dv).abs() < 1e-7,
+                "{what}: {g:?} vs {du} {dv}"
+            );
+        };
+        for edge in 1..=4 {
+            for i in 2..=5 {
+                for invert in [false, true] {
+                    check(
+                        &|u, v| quad_edge(edge, i, u, v, invert).unwrap(),
+                        &format!("edge {edge} i {i} {invert}"),
+                    );
+                }
+            }
+        }
+        for i in 0..=3 {
+            for j in 0..=3 {
+                check(
+                    &|u, v| quad_bubble(i, j, u, v).unwrap(),
+                    &format!("bubble {i} {j}"),
+                );
+            }
+        }
+        assert!(quad_bubble(4, 0, u, v).is_none());
     }
 }

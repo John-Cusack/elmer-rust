@@ -89,7 +89,7 @@ fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId) -> Result<PElement, So
     let mut slots = Vec::new();
     d.element_slots(e, &mut slots);
     Ok(PElement {
-        basis: d.element_basis(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
+        basis: d.element_basis_scalar(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
         rule: d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?,
         nodes: d.element_nodes(e),
         nd: slots.len(),

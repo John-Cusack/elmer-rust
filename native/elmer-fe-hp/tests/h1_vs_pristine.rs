@@ -141,3 +141,28 @@ fn scalar_triangle_is_bitwise_except_bubbles() {
     }
     assert!(checked >= 100, "only {checked} functions checked bitwise");
 }
+
+/// Full-scheme quads on the scalar path: `detJ` and every nodal, edge and
+/// interior bubble function are bitwise for the fixture degrees (2..5).
+#[test]
+fn scalar_quad_is_bitwise() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pristine");
+    let mut checked = 0usize;
+    for name in ["h2d_p2_sh.txt", "h2d_p3_id.txt", "h2d_p3_sh.txt", "h2d_p4_sh.txt", "h2d_p5_sh.txt"] {
+        let recs = parse(&std::fs::read_to_string(dir.join(name)).unwrap());
+        for r in recs.iter().filter(|r| r.code == 404 && !r.sd) {
+            let mut spec = spec_for(r);
+            spec.scalar_element_info = true;
+            let mut out = BasisEval::default();
+            PElementBasis::new(spec).eval(ElementType(404), &r.xyz, r.uvw, &mut out).unwrap();
+            let ctx = format!("{name} p={} uvw={:?}", r.p, r.uvw);
+            assert_eq!(out.det_j, r.detj, "{ctx}: detJ");
+            for k in 0..r.basis.len() {
+                assert_eq!(out.basis[k], r.basis[k], "{ctx}: fn {k} value");
+                assert_eq!(&out.dbasis_dx[k][..2], &r.grad[k][..2], "{ctx}: fn {k} gradient");
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked >= 100, "only {checked} functions checked bitwise");
+}
