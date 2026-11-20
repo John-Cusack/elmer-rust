@@ -55,6 +55,7 @@ pub mod single_elements;
 pub mod q1q0;
 pub mod stokes_pfem;
 pub mod stokes_proj;
+pub mod tangent_force;
 pub mod tresca;
 pub mod udf;
 

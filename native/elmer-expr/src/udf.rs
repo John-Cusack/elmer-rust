@@ -72,6 +72,25 @@ pub fn current_element() -> Option<CurrentElement> {
     CURRENT_ELEMENT.with(|c| c.borrow().clone())
 }
 
+thread_local! {
+    static CURRENT_COORDS: RefCell<Vec<[f64; 3]>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The coordinates of the current element's nodes as the mesh has them now
+/// (`GetElementNodes(ElementNodes, Model % CurrentElement)`), set with it.
+pub fn set_current_coords(coords: &[[f64; 3]]) {
+    CURRENT_COORDS.with(|c| {
+        let mut c = c.borrow_mut();
+        c.clear();
+        c.extend_from_slice(coords);
+    });
+}
+
+/// [`set_current_coords`]'s coordinates (empty when none were set).
+pub fn current_coords() -> Vec<[f64; 3]> {
+    CURRENT_COORDS.with(|c| c.borrow().clone())
+}
+
 /// `fortranMangle` for `ELMER_LINKTYP == 1`: ASCII lower-case plus `_`.
 pub fn fortran_mangle(name: &str) -> String {
     let mut s = name.to_ascii_lowercase();

@@ -64,6 +64,9 @@ const FIXTURES: &[(&str, &str, &str, Build)] = &[
     ("MixedPoisson2D", "Source", "SourceFun", |_| Udf::Node(Arc::new(|_, _| 0.0))),
     ("RaviartThomas2D", "Source", "SourceFun", |m| Udf::Node(mixed_source_2d_fn(m))),
     ("BDM2D", "Source", "SourceFun", |m| Udf::Node(mixed_source_2d_fn(m))),
+    ("NormalTangentialDisplacement", "TangentForce", "TangentForce", |m| {
+        Udf::Node(crate::tangent_force::tangent_force_fn(m))
+    }),
     ("1dtests", "Source", "Source", |m| {
         Udf::Node(OneDSource::new(m, OneDTolerances::ONE_D_TESTS).into_fn())
     }),
