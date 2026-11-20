@@ -1,5 +1,11 @@
 //! The test-local `Hrot.f90` of `HelmholtzEdge` (`Procedure = "Hrot"
-//! "HrotSolver"`): the 2D vector Helmholtz equation `rot rot u + A u = f`
+//! "HrotSolver"`) and its face-element twin, `Helmholtz.f90` of
+//! `HelmholtzFace` (`"Helmholtz" "HelmholtzHDIVSolver"`, [`factory_hdiv`]:
+//! `grad div u + A u = f` on Raviart-Thomas elements, the rotated Whitney
+//! basis `RT_k = (W_k,2, -W_k,1)` with `div RT_k = rot W_k`, the normal
+//! component `Normal Velocity` and `B / (2h)` instead of `B / 2 / h`).
+//!
+//! `Hrot.f90`: the 2D vector Helmholtz equation `rot rot u + A u = f`
 //! with complex `A = (A 1, A 2)`, on lowest-order Whitney (edge) elements of
 //! triangles (`Element = "n:0 e:1"`) and a complex variable of two real
 //! components (`Variable DOFs = 2`; the solver sets `Solver % Matrix %
@@ -27,10 +33,17 @@ pub fn init_section(p: &mut ParamMap) {
 }
 
 pub fn factory(_params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
-    Ok(Box::new(Hrot))
+    Ok(Box::new(Hrot { hdiv: false }))
 }
 
-struct Hrot;
+/// `HelmholtzHDIVSolver`.
+pub fn factory_hdiv(_params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
+    Ok(Box::new(Hrot { hdiv: true }))
+}
+
+struct Hrot {
+    hdiv: bool,
+}
 
 const EDGES: [[usize; 2]; 3] = [[0, 1], [1, 2], [2, 0]];
 
@@ -43,15 +56,22 @@ fn interp(basis: &[f64], c: &[f64]) -> f64 {
     s
 }
 
-/// The plugin's `EdgeBasis(WhitneyBasis, RotWhitneyBasis, u, v, w, Element)`.
-fn edge_basis(be: &BasisEval, g: &[u32]) -> ([[f64; 2]; 3], [f64; 3]) {
+/// The plugin's `EdgeBasis(WhitneyBasis, RotWhitneyBasis, u, v, w, Element)`,
+/// or with `hdiv` `FaceBasis(RTBasis, DivRTBasis, ...)`.
+fn edge_basis(be: &BasisEval, g: &[u32], hdiv: bool) -> ([[f64; 2]; 3], [f64; 3]) {
     let (b, d) = (&be.basis, &be.dbasis_dx);
     let mut w = [[0.0; 2]; 3];
     let mut r = [0.0; 3];
     for (k, &[i, j]) in EDGES.iter().enumerate() {
-        w[k][0] = b[i] * d[j][0] - b[j] * d[i][0];
-        w[k][1] = b[i] * d[j][1] - b[j] * d[i][1];
-        r[k] = 2.0 * (d[i][1] * d[j][0] - d[j][1] * d[i][0]);
+        if hdiv {
+            w[k][0] = b[i] * d[j][1] - b[j] * d[i][1];
+            w[k][1] = -b[i] * d[j][0] + b[j] * d[i][0];
+            r[k] = 2.0 * (d[i][0] * d[j][1] - d[i][1] * d[j][0]);
+        } else {
+            w[k][0] = b[i] * d[j][0] - b[j] * d[i][0];
+            w[k][1] = b[i] * d[j][1] - b[j] * d[i][1];
+            r[k] = 2.0 * (d[i][1] * d[j][0] - d[j][1] * d[i][0]);
+        }
         if g[j] < g[i] {
             w[k] = [-w[k][0], -w[k][1]];
             r[k] = -r[k];
@@ -138,7 +158,7 @@ impl Solver for Hrot {
                 let basis = &be.basis[..3];
                 let (l1, l2) = (interp(basis, &load1), interp(basis, &load2));
                 let (ca1, ca2) = (interp(basis, &a1), interp(basis, &a2));
-                let (w, rot) = edge_basis(&be, &g);
+                let (w, rot) = edge_basis(&be, &g, self.hdiv);
                 for i in 0..3 {
                     fre[i] += (l1 * w[i][0] + l2 * w[i][1]) * dj * s;
                     for j in 0..3 {
@@ -182,8 +202,14 @@ impl Solver for Hrot {
             let (mut fre, mut fim) = (vec![0.0; 3], vec![0.0; 3]);
             fre[j] = half(&v[0]);
             fim[j] = half(&v[1]);
-            sre[j * 3 + j] = half(&v[2]) / h;
-            sim[j * 3 + j] = half(&v[3]) / h;
+            if self.hdiv {
+                // DCMPLX(SUM(B 1), SUM(B 2)) / (2*EdgeH).
+                sre[j * 3 + j] = (v[2][0] + v[2][1]) / (2.0 * h);
+                sim[j * 3 + j] = (v[3][0] + v[3][1]) / (2.0 * h);
+            } else {
+                sre[j * 3 + j] = half(&v[2]) / h;
+                sim[j * 3 + j] = half(&v[3]) / h;
+            }
             ctx.default_update(&to_real(3, &sre, &sim, &fre, &fim), parent)?;
         }
         ctx.default_finish_boundary_assembly()?;

@@ -197,6 +197,7 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("RaviartThomas3D", "ComputeError", "IntegrateError", Hook::Solver(compute_error::factory_3d)),
     ("SecondOrderEdgeElement2D", "EdgeElementTest", "EdgeElementSolver", Hook::Solver(edge_element_test::factory_2d)),
     ("HelmholtzEdge", "Hrot", "HrotSolver", Hook::Solver(hrot::factory)),
+    ("HelmholtzFace", "Helmholtz", "HelmholtzHDIVSolver", Hook::Solver(hrot::factory_hdiv)),
     ("SecondOrderEdgeElement3D", "EdgeElementTest", "EdgeElementSolver", Hook::Solver(edge_element_test::factory_3d)),
     (
         "SecondOrderEdgeElement2D_BCs",
@@ -223,6 +224,7 @@ const SECTION_INITS: &[(&str, &str, &str, SectionInit)] = &[
     ("SD_ElementUnitTest_p1", "SingleElements", "SingleElements", single_elements::init_section),
     ("ElementUnitTest_edge", "SingleEdgeElements", "SingleEdgeElements", single_edge_elements::init_section),
     ("HelmholtzEdge", "Hrot", "HrotSolver", hrot::init_section),
+    ("HelmholtzFace", "Helmholtz", "HelmholtzHDIVSolver", hrot::init_section),
     ("ElementUnitTest_edge_piola", "SingleEdgeElements", "SingleEdgeElements", single_edge_elements::init_section),
     ("ElementUnitTest_edge_quadratic", "SingleEdgeElements", "SingleEdgeElements", single_edge_elements::init_section),
     (
