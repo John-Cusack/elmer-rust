@@ -70,6 +70,10 @@ impl SolverDofs for PSetup {
         PSetup::boundary_extra_slots(self, e, out);
     }
 
+    fn is_p_element(&self, e: ElemId) -> bool {
+        PSetup::is_p_element(self, e)
+    }
+
     /// The p basis of an active p element; for any other element (a
     /// boundary element without a p parent, say) `ElementInfo`'s nodal
     /// Lagrange basis, as Elmer evaluates it there.

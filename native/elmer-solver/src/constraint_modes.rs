@@ -178,8 +178,8 @@ fn refuse(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
     if p.get("nonlinear post solvers").is_some() {
         return Err(SolverError::Unsupported("Constraint Modes Analysis with Nonlinear Post Solvers".into()));
     }
-    if ctx.comm.size() > 1 || ctx.solver_dofs().is_some() {
-        return Err(SolverError::Unsupported("constraint modes in parallel or on p elements".into()));
+    if ctx.comm.size() > 1 {
+        return Err(SolverError::Unsupported("constraint modes in parallel".into()));
     }
     Ok(())
 }
@@ -238,8 +238,13 @@ pub(crate) fn set_boundaries(ctx: &mut SolverCtx<'_>, fixed: &mut BTreeMap<u32, 
         return Err(SolverError::fatal(CALLER, "Constraint Modes Analysis requested but no constrained BCs given!"));
     }
 
+    // `HaveP` is whether the first bulk element is an active p element;
+    // `Ignore Constraint Modes p` then leaves the p dofs out (`nb = n`).
+    let have_p = ctx.mesh.n_bulk() > 0 && ctx.solver_dofs().is_some_and(|d| d.is_p_element(elmer_core::ElemId(0)));
+    let ignore_p = have_p && ctx.params().logical("ignore constraint modes p") == Some(true);
     let mut index = vec![0i32; nrows];
     let (nb, nt) = (ctx.mesh.n_bulk(), ctx.mesh.n_bulk() + ctx.mesh.n_boundary());
+    let mut slots = Vec::new();
     for e in nb..nt {
         let e = elmer_core::ElemId(e as u32);
         let Some(bc) = ctx.bc_id(e) else { continue };
@@ -247,13 +252,44 @@ pub(crate) fn set_boundaries(ctx: &mut SolverCtx<'_>, fixed: &mut BTreeMap<u32, 
         if k == 0 {
             continue;
         }
-        for &node in ctx.mesh.element(e).nodes {
-            let s = perm.get(node as usize).copied().unwrap_or(elmer_core::NO_DOF);
+        // `Perm(Indexes(1:nb))` of `mGetElementDOFs`: the nodes, then any
+        // p dofs of the boundary element.
+        let nodes = ctx.mesh.element(e).nodes;
+        match ctx.solver_dofs() {
+            Some(d) => {
+                d.element_slots(e, &mut slots);
+                if ignore_p {
+                    slots.truncate(nodes.len());
+                }
+            }
+            None => {
+                slots.clear();
+                slots.extend(nodes.iter().map(|&n| perm.get(n as usize).copied().unwrap_or(elmer_core::NO_DOF)));
+            }
+        }
+        for &s in &slots {
             if s == elmer_core::NO_DOF {
                 continue;
             }
             for c in 0..dofs {
                 index[dofs * s as usize + c] = dofs as i32 * (k - 1) + c as i32 + 1;
+            }
+        }
+    }
+    // The p dofs (perm entries past the nodes) are shifted by
+    // `2*(NoModes+1)` below zero: held at zero in every mode, apart from
+    // the nodal mode dofs (BoundaryConditionUtils.F90:3047).
+    if have_p && !ignore_p {
+        let poffset = 2 * (dofs as i32 * active + 1);
+        for &s in perm.iter().skip(ctx.mesh.n_nodes()) {
+            if s == elmer_core::NO_DOF {
+                continue;
+            }
+            for c in 0..dofs {
+                let v = &mut index[dofs * s as usize + c];
+                if *v != 0 {
+                    *v -= poffset;
+                }
             }
         }
     }

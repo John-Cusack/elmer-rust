@@ -184,6 +184,12 @@ pub struct SolverSlot {
 }
 
 impl SolverSlot {
+    /// The solver's non-nodal dofs (`None` for a nodal solver): what
+    /// `Var % Solver` gives `EvaluateVariableAtGivenPoint`.
+    pub fn solver_dofs(&self) -> Option<&dyn crate::SolverDofs> {
+        self.dofs.as_deref()
+    }
+
     /// A slot with no variable or procedure; tests and the CLI use it to
     /// build slots by hand.
     pub fn new(id: usize, params: ParamMap) -> Result<Self, SolverError> {

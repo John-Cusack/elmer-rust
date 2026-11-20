@@ -25,6 +25,8 @@ pub(crate) struct Fe {
 /// axisymmetric `2 pi r` already in), the basis values and their physical
 /// gradients.
 pub(crate) struct Ip {
+    /// The point on the (nodal) reference element.
+    pub uvw: [f64; 3],
     pub s: f64,
     pub basis: Vec<f64>,
     pub grad: Vec<[f64; 3]>,
@@ -74,12 +76,71 @@ pub(crate) fn element_points(
             s *= 2.0 * PI * x;
         }
         pts.push(Ip {
+            uvw: q.uvw,
             s,
             basis: out.basis.clone(),
             grad: out.dbasis_dx.clone(),
         });
     }
     Ok(pts)
+}
+
+/// `ConvertToPReference` (Integration.F90:3444): a point of the nodal
+/// reference element on the p reference element.
+fn to_p_reference(t: ElementType, [u, v, w]: [f64; 3]) -> Result<[f64; 3], SolverError> {
+    let s3 = 3.0f64.sqrt();
+    Ok(match t.0 / 100 {
+        1 | 2 | 4 | 8 => [u, v, w],
+        3 | 7 => [2.0 * u + v - 1.0, s3 * v, w],
+        5 => [2.0 * u + v + w - 1.0, s3 * v + 1.0 / s3 * w, 2.0 * (2.0f64 / 3.0).sqrt() * w],
+        6 => [u, v, 2.0f64.sqrt() * w],
+        _ => return Err(SolverError::fatal("Integration::ConvertToPReference", "Unsupported element type")),
+    })
+}
+
+/// The p branch of `EvaluateVariableAtGivenPoint` (ElementUtils.F90:3735)
+/// for an element that is an active p element of the variable's solver:
+/// the p basis at the point moved to the p reference element, over the
+/// element's dofs (`mGetElementDOFs` with `Var % Solver`).
+struct PField {
+    basis: Box<dyn ElementBasis + Send + Sync>,
+    etype: ElementType,
+    xyz: Vec<[f64; 3]>,
+    slots: Vec<u32>,
+    out: BasisEval,
+}
+
+impl PField {
+    fn new(ctx: &SolverCtx<'_>, d: &dyn elmer_solver::SolverDofs, e: ElemId) -> Result<Self, SolverError> {
+        let mut slots = Vec::new();
+        d.element_slots(e, &mut slots);
+        Ok(PField {
+            basis: d.element_basis(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
+            etype: ctx.mesh.element(e).etype,
+            xyz: d.element_nodes(e).iter().map(|&n| ctx.mesh.coord(n)).collect(),
+            slots,
+            out: BasisEval::default(),
+        })
+    }
+
+    /// Component `k` of the field at nodal reference point `uvw`, and its
+    /// gradient.
+    fn eval(&mut self, view: &VarView<'_>, k: usize, uvw: [f64; 3]) -> Result<(f64, [f64; 3]), SolverError> {
+        let p = to_p_reference(self.etype, uvw)?;
+        self.basis.eval(self.etype, &self.xyz, p, &mut self.out).map_err(|m| SolverError::fatal("ElementInfo", m))?;
+        let (mut val, mut grad) = (0.0, [0.0; 3]);
+        for (i, &s) in self.slots.iter().enumerate() {
+            if s == elmer_core::NO_DOF {
+                continue;
+            }
+            let x = view.at(s as usize, k);
+            val += self.out.basis[i] * x;
+            for (g, d) in grad.iter_mut().zip(&self.out.dbasis_dx[i]) {
+                *g += x * d;
+            }
+        }
+        Ok((val, grad))
+    }
 }
 
 fn is_point(t: ElementType) -> bool {
@@ -298,6 +359,15 @@ pub(crate) fn bulk_integral(
             "SaveScalars: diffusive energy of a vector field".into(),
         ));
     }
+    // `Var % Solver`'s dofs, when that solver is not nodal: the slot that
+    // shares the variable's permutation.
+    let var_dofs = view.perm.and_then(|vp| {
+        ctx.sim
+            .slots
+            .iter()
+            .find(|s| s.perm.as_deref().is_some_and(|p| std::ptr::eq(p, vp)))
+            .and_then(|s| s.solver_dofs())
+    });
     let (mut integral1, mut integral2, mut vol) = (0.0, 0.0, 0.0);
     let mut hits = 0usize;
     let nb = ctx.mesh.n_bulk() as u32;
@@ -341,12 +411,32 @@ pub(crate) fn bulk_integral(
                 energy_coeff = Some(material_scalar(ctx, material, name, e)?);
             }
         }
+        let mut pfield = match var_dofs {
+            Some(d) if own.is_none() && d.is_p_element(e) => Some(PField::new(ctx, d, e)?),
+            _ => None,
+        };
         for ip in element_points(ctx, fe, e, req.passive, axisym)? {
             // `coeff = SUM(EnergyCoeff * Basis)`, then `vol = coeff * vol + S`.
             let coeff = energy_coeff.as_ref().map_or(1.0, |c| c.iter().zip(&ip.basis).map(|(c, b)| c * b).sum());
             vol = coeff * vol + ip.s;
             let n = el.nodes.len();
+            // On a p element of the variable's solver, the values and the
+            // gradient (component 0) come from the p field.
+            let mut pvals = Vec::new();
+            let mut pgrad = None;
+            if let Some(pf) = pfield.as_mut() {
+                for k in 0..view.ncomp {
+                    let (v, g) = pf.eval(view, k, ip.uvw)?;
+                    pvals.push(v);
+                    if k == 0 {
+                        pgrad = Some(g);
+                    }
+                }
+            }
             let comp = |k: usize| -> f64 {
+                if let Some(&v) = pvals.get(k) {
+                    return v;
+                }
                 match own {
                     Some(s) => view.at(s, k),
                     None => (0..n)
@@ -370,10 +460,14 @@ pub(crate) fn bulk_integral(
                 }
                 "diffusive energy" => {
                     let mut grad = [0.0; 3];
-                    for i in 0..n {
-                        let v = view.slot(el.nodes[i] as usize).map_or(0.0, |s| view.at(s, 0));
-                        for (g, d) in grad.iter_mut().zip(&ip.grad[i]) {
-                            *g += v * d;
+                    if let Some(g) = pgrad {
+                        grad = g;
+                    } else {
+                        for i in 0..n {
+                            let v = view.slot(el.nodes[i] as usize).map_or(0.0, |s| view.at(s, 0));
+                            for (g, d) in grad.iter_mut().zip(&ip.grad[i]) {
+                                *g += v * d;
+                            }
                         }
                     }
                     integral1 += ip.s
@@ -734,4 +828,29 @@ pub(crate) fn boundary_statistics(
         value = count as f64;
     }
     (value, count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The nodal reference triangle's and tetrahedron's vertices land on
+    /// the p reference element's (`ConvertToPReference`): the triangle
+    /// (-1,0), (1,0), (0,sqrt 3); the tetrahedron adds (0, 1/sqrt 3,
+    /// 2 sqrt(2/3)). Quads and bricks are unchanged.
+    #[test]
+    fn nodal_points_move_to_the_p_reference_element() {
+        let s3 = 3.0f64.sqrt();
+        let close = |a: [f64; 3], b: [f64; 3]| a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-15);
+        let tri = ElementType(303);
+        assert!(close(to_p_reference(tri, [0.0, 0.0, 0.0]).unwrap(), [-1.0, 0.0, 0.0]));
+        assert!(close(to_p_reference(tri, [1.0, 0.0, 0.0]).unwrap(), [1.0, 0.0, 0.0]));
+        assert!(close(to_p_reference(tri, [0.0, 1.0, 0.0]).unwrap(), [0.0, s3, 0.0]));
+        let tet = ElementType(510);
+        let top = to_p_reference(tet, [0.0, 0.0, 1.0]).unwrap();
+        assert!(close(top, [0.0, 1.0 / s3, 2.0 * (2.0f64 / 3.0).sqrt()]));
+        assert_eq!(to_p_reference(ElementType(408), [0.3, -0.2, 0.0]).unwrap(), [0.3, -0.2, 0.0]);
+        assert!(to_p_reference(ElementType(101), [0.0; 3]).is_ok());
+        assert!(to_p_reference(ElementType(901), [0.0; 3]).is_err());
+    }
 }

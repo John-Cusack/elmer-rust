@@ -70,6 +70,11 @@ pub trait SolverDofs: Send + Sync {
     /// `GetElementNOFBDOFs`: bubbles a kernel condenses locally (0 when the
     /// bubbles are in the global system).
     fn local_bubbles(&self, e: ElemId) -> usize;
+    /// `isActivePElement(Element, Solver)`. The default is `false`.
+    fn is_p_element(&self, e: ElemId) -> bool {
+        let _ = e;
+        false
+    }
 }
 
 /// Builds a solver's [`SolverDofs`].
