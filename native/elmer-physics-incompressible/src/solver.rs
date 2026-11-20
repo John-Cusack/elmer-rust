@@ -654,17 +654,10 @@ fn element_constant(ctx: &SolverCtx<'_>, p: &ParamMap, key: &str, e: ElemId) -> 
 
 /// Boundary options this crate does not port.
 fn check_bc(bc: &ParamMap, var_name: &str) -> Result<(), SolverError> {
-    for (key, what) in [
-        ("normal-tangential velocity", "normal-tangential velocity"),
-        ("wall law", "wall law"),
-    ] {
-        if flag(bc, key) {
-            return Err(unsupported(what));
-        }
+    if flag(bc, "wall law") {
+        return Err(unsupported("wall law"));
     }
-    if flag(bc, &format!("normal-tangential {var_name}")) {
-        return Err(unsupported("normal-tangential velocity"));
-    }
+    let _ = var_name;
     for (prefix, what) in [
         ("normal slip coefficient", "Normal Slip Coefficient"),
         ("friction coefficient", "Friction Coefficient"),
@@ -786,74 +779,17 @@ fn component_names(ctx: &SolverCtx<'_>) -> Result<Vec<String>, SolverError> {
     Ok(parse_variable_spec(spec, ctx.params().integer("variable dofs"))?.components)
 }
 
-/// The Dirichlet rows of the solver variable from its component names
-/// (`DefaultDirichletBCs`); `Noslip Wall BC` fixes the velocity components
-/// to zero, as the solver adds `Velocity i = 0` to those BCs. On p elements
-/// a component the BC sets has its edge and face dofs fixed to zero, the
-/// `LocalBcBDOFs` projection of a nodally interpolated value.
-fn dirichlet_rows(ctx: &SolverCtx<'_>, comps: &[String], dim: usize) -> Result<Vec<(u32, f64)>, SolverError> {
-    let dofs = comps.len();
-    let mut fixed = std::collections::BTreeMap::new();
-    let mut extra = Vec::new();
-    let perm = ctx.primary().and_then(|f| f.perm);
-    let slot = |n: u32| perm.map_or(n, |p| p[n as usize]);
-    let bnd: Vec<ElemId> = ctx.boundary_elements().collect();
-    for e in bnd {
-        let bc = ctx.bc_params(e).expect("boundary_elements filters on BC");
-        let nodes = ctx.mesh.element(e).nodes;
-        if let Some(d) = ctx.solver_dofs() {
-            d.boundary_extra_slots(e, &mut extra);
-        }
-        let wall = flag(bc, "noslip wall bc");
-        for (k, key) in comps.iter().enumerate() {
-            if bc.get(&format!("{key} condition")).is_some() {
-                return Err(unsupported(format!("Dirichlet mask > {key} Condition <")));
-            }
-            let vals = if wall && k < dim {
-                Some(vec![0.0; nodes.len()])
-            } else {
-                ctx.real_at_nodes(bc, key, e)?
-            };
-            let Some(vals) = vals else { continue };
-            if !extra.is_empty() {
-                if let Some(Value::Dependent(d)) = bc.get(key) {
-                    if matches!(d.kind, elmer_core::DependentKind::Procedure { .. }) {
-                        return Err(unsupported(format!("p-element Dirichlet value > {key} < given by a procedure")));
-                    }
-                }
-                for &s in &extra {
-                    fixed.insert(s * dofs as u32 + k as u32, 0.0);
-                }
-            }
-            for (&n, &x) in nodes.iter().zip(&vals) {
-                let s = slot(n);
-                if s != NO_DOF {
-                    fixed.insert(s * dofs as u32 + k as u32, x);
-                }
+/// The noslip wall code of IncompressibleNSSolver (as FlowSolve.F90:1416):
+/// a `Noslip Wall BC` section gets `Velocity i = 0` for the velocity
+/// components, which `DefaultDirichletBCs` then applies.
+fn noslip_walls(ctx: &mut SolverCtx<'_>, comps: &[String], dim: usize) {
+    for bc in ctx.sim.model.boundary_conditions.iter_mut() {
+        if flag(bc, "noslip wall bc") {
+            for key in comps.iter().take(dim) {
+                bc.insert(key, Value::real(0.0));
             }
         }
     }
-    Ok(fixed.into_iter().collect())
-}
-
-fn apply_dirichlet(ctx: &mut SolverCtx<'_>, fixed: &[(u32, f64)]) -> Result<(), SolverError> {
-    let id = ctx.solver_id();
-    let sim = &mut *ctx.sim;
-    let backend = sim
-        .backends
-        .assembly
-        .as_ref()
-        .ok_or_else(|| SolverError::NotWired("assembly backend (elmer-assembly)".into()))?;
-    let slot = sim
-        .slots
-        .iter_mut()
-        .find(|s| s.id == id)
-        .expect("the running solver has a slot");
-    let sys = slot
-        .system
-        .as_mut()
-        .ok_or_else(|| SolverError::fatal("DefaultDirichletBCs", "call default_initialize first"))?;
-    backend.try_apply_dirichlet(&mut sys.matrix, &mut sys.rhs, fixed, &slot.params)
 }
 
 /// `AddEquationBasics` (MainUtils.F90:1241) fills the variable of an
@@ -1338,6 +1274,14 @@ impl Solver for IncompressibleNsSolver {
                 {
                     continue;
                 }
+                // LocalBoundaryMatrix's n-t form (forces and slip in n-t
+                // components) is not ported; without loads the element adds
+                // nothing and the n-t system is the framework's.
+                if bc.is_some_and(|b| {
+                    flag(b, "normal-tangential velocity") || flag(b, &format!("normal-tangential {var_name}"))
+                }) {
+                    return Err(unsupported("normal-tangential velocity with boundary forces or slip"));
+                }
                 let parent_center = normal_parent(ctx, e)
                     .map(|pe| elmer_physics_flow::boundary::element_center(&node_xyz(ctx.mesh, ctx.mesh.element(pe).nodes)));
                 // A p boundary element lists its nodes in its parent's edge or
@@ -1391,8 +1335,11 @@ impl Solver for IncompressibleNsSolver {
             }
             ctx.default_finish_boundary_assembly()?;
 
-            let fixed = dirichlet_rows(ctx, &comps, dim)?;
-            apply_dirichlet(ctx, &fixed)?;
+            // DefaultDirichletBCs, with the n-t rows; `Noslip Wall BC`
+            // sections get `Velocity i = 0` first, as the Fortran adds them.
+            noslip_walls(ctx, &comps, dim);
+            let (fixed, rows) = ctx.dirichlet_values_with_rows()?;
+            ctx.apply_dirichlet_values_with_rows(&fixed, &rows)?;
             if block_prec {
                 ctx.child_dirichlet(SCHUR)?;
             }

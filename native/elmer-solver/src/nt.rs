@@ -71,7 +71,7 @@ pub(crate) fn tangent_directions(n: [f64; 3]) -> ([f64; 3], [f64; 3]) {
 /// parent with the larger body id of two, the only one otherwise; turned
 /// when the vector from the point to the parent's centre has a positive
 /// component along it. `None`: no unit normal.
-pub(crate) fn boundary_normal(
+pub fn boundary_normal(
     mesh: &dyn MeshView,
     model: &Model,
     e: ElemId,
@@ -137,6 +137,8 @@ pub(crate) fn boundary_normal(
             3 => 3,
             4 => 4,
             5 => 4,
+            // The wedge at (1/3, 1/3, 0): the mean of its six nodes.
+            7 => 6,
             8 => 8,
             f => return Err(unsupported(format!("normal direction from a parent element of family {f}"))),
         };
