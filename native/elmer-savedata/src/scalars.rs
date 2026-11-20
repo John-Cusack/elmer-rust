@@ -615,6 +615,12 @@ impl SaveScalars {
     ) -> Result<(), SolverError> {
         match oper {
             "partitions" => list.add(plan, ctx, "value: number of partitions", ctx.comm.size() as f64, true),
+            // Run-dependent values, as the POSIX branch of CPUTime.c gives
+            // them: `ru_utime`, `gettimeofday`, `ru_maxrss` (kB).
+            "threads" => list.add(plan, ctx, "value: number of threads", 1.0, true),
+            "cpu time" => list.add(plan, ctx, "value: cpu time (s)", crate::timing::cpu_time(), false),
+            "wall time" => list.add(plan, ctx, "value: real time (s)", crate::timing::real_time(), false),
+            "cpu memory" => list.add(plan, ctx, "value: maximum memory usage (kb)", crate::timing::cpu_memory(), false),
             // Serial runs: the Fortran only fills these in for parallel meshes.
             "partition checksum" => list.add(plan, ctx, "value: partition checksum", 0.0, false),
             "partition neighbours checksum" => list.add(plan, ctx, "value: partition neighbours checksum", 0.0, false),

@@ -119,7 +119,6 @@ const BOUNDARY_STATISTICS: [&str; 7] = [
 fn refused_operator(oper: &str) -> Option<&'static str> {
     Some(match oper {
         "convective energy" => "SaveScalars.F90:2358 evaluates it from a gradient it never computes",
-        "cpu time" | "wall time" | "cpu memory" | "threads" => "run-dependent value, not reproducible",
         _ => return None,
     })
 }
@@ -149,7 +148,7 @@ pub(crate) fn parse_operator(text: &str) -> Result<ParsedOper, SolverError> {
     }
     let kind = match oper.as_str() {
         "partitions" | "partition checksum" | "partition neighbours checksum" | "nodes" | "elements"
-        | "bounding box" => OperKind::Mesh,
+        | "bounding box" | "cpu time" | "wall time" | "cpu memory" | "threads" => OperKind::Mesh,
         "norm" | "nonlin change" | "steady state change" | "nonlin iter" | "nonlin converged"
         | "steady converged" | "dofs" | "nans" => OperKind::Meta,
         "deviation" => OperKind::Deviation,

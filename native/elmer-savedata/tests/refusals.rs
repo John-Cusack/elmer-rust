@@ -38,10 +38,6 @@ fn with_oper(op: &str) -> ParamMap {
 fn operators_that_are_not_implemented_are_refused_by_name() {
     for (op, why) in [
         ("convective energy", "convective energy"),
-        ("cpu time", "cpu time"),
-        ("wall time", "wall time"),
-        ("cpu memory", "cpu memory"),
-        ("threads", "threads"),
         ("positive max", "positive/negative"),
         ("negative sum", "positive/negative"),
         ("frobnicate", "frobnicate"),
@@ -156,8 +152,9 @@ fn mpi_runs_need_parallel_reduce_and_reducible_operators() {
             other => panic!("{other:?}"),
         }
     }
-    // An operator whose reduction is not implemented.
-    let mut p = with_oper("int");
+    // An operator whose reduction is not implemented (the bulk integrals
+    // reduce since a9b9e9c).
+    let mut p = with_oper("deviation");
     p.insert("Parallel Reduce", yes());
     let ix = c.hook("SaveScalars", p).unwrap();
     match c.visit_with(ix, &TwoPartitions) {
