@@ -57,6 +57,14 @@ fn trialing_moves_on_until_the_linear_solve_converges() {
             let (wh, wn, wr, wt) = split_change(w);
             assert_eq!((gh, gn, gt), (wh, wn, wt), "line {i}");
             assert!((gr - wr).abs() <= 1e-6 * wr, "line {i}\n{g}\n{w}");
+        } else if let (Some(gv), Some(wv)) = (rel_error(g), rel_error(w)) {
+            // |norm - reference| / reference is ~4e-10 here, i.e. the last
+            // digits of the 9-digit reference norm: the test-local HeatSolve
+            // stand-in's system is not Elmer's to the last bit, so the final
+            // (UMFPACK) solve agrees to the ulps of the norm, not to the 7
+            // printed digits of this difference. (The real quick test
+            // LinearSystemNamespace2 grades `match`.)
+            assert!((gv - wv).abs() <= 1e-14, "line {i}\n{g}\n{w}");
         } else {
             assert_eq!(g, w, "line {i}");
         }
@@ -103,4 +111,8 @@ fn running_out_of_namespaces_is_fatal() {
         Err(SolverError::Fatal { msg, .. }) => assert_eq!(msg, "Exhausted all linear system strategies!"),
         other => panic!("expected the strategies exhausted, got {other:?}"),
     }
+}
+
+fn rel_error(line: &str) -> Option<f64> {
+    line.strip_prefix("CompareToReferenceSolution: Relative Error to reference norm:")?.trim().parse().ok()
 }

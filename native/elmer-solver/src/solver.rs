@@ -2243,6 +2243,21 @@ pub(crate) fn solve_linear(
             } else {
                 p
             };
+            // CheckLinearSolverOptions (MainUtils.F90:164): a serial direct
+            // solve without `Linear System Direct Method` is UMFPACK in
+            // Elmer (HAVE_UMFPACK), not `banded`.
+            let p_dm;
+            let p = if comm.size() <= 1
+                && p.string("linear system solver").is_some_and(|s| elmer_core::normalize_key(s) == "direct")
+                && p.string("linear system direct method").is_none()
+            {
+                let mut q = p.clone();
+                q.insert("Linear System Direct Method", elmer_core::Value::Str("umfpack".into()));
+                p_dm = q;
+                &p_dm
+            } else {
+                p
+            };
             match linear.select_for(p, matrix, log) {
             Err(e) => Err(e),
             Ok(LinearSolverChoice::Direct(mut d)) => d
