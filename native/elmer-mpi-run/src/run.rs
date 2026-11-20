@@ -89,7 +89,7 @@ fn preflight(model: &Model, registry: &elmer_solver::SolverRegistry) -> Result<(
         return Err(unsupported("Coordinate Scaling that is not a constant"));
     }
     for (i, p) in model.equations.iter().enumerate() {
-        if p.string("element").is_some_and(|e| normalize_key(e) != "n:1") {
+        if p.string("element").is_some_and(|e| normalize_key(e) != "n:1" && p_degree(e).is_none()) {
             return Err(unsupported(format!("Equation {}: Element (p-, bubble, edge or DG elements)", i + 1)));
         }
     }
@@ -108,8 +108,8 @@ fn preflight(model: &Model, registry: &elmer_solver::SolverRegistry) -> Result<(
         if registry.get(&lib, &entry).is_none() {
             return Err(unsupported(format!("Solver {id}: Procedure \"{lib}\" \"{entry}\"")));
         }
-        if p.string("element").is_some_and(|e| normalize_key(e) != "n:1") {
-            return Err(unsupported(format!("Solver {id}: Element (p-, bubble, edge or DG elements)")));
+        if p.string("element").is_some_and(|e| normalize_key(e) != "n:1" && p_degree(e).is_none()) {
+            return Err(unsupported(format!("Solver {id}: Element (bubble, edge or DG elements)")));
         }
         for key in ["linear system complex", "coupled solver", "block solver", "monolithic slave"] {
             if p.logical(key) == Some(true) {
@@ -180,6 +180,127 @@ impl elmer_solver::NodeInterface for ParNodes {
 /// A row of an element whose nodes are all interface nodes is shared with
 /// the partitions of its node (the element's own first when not reduced);
 /// any other row is private to this rank. Collective.
+/// The degree of an `Element = "p:N"` definition (a constant `N`, no other
+/// tokens).
+fn p_degree(e: &str) -> Option<usize> {
+    let e = normalize_key(e);
+    let mut it = e.split_whitespace();
+    let d = it.next()?.strip_prefix("p:")?.parse::<usize>().ok()?;
+    it.next().is_none().then_some(d)
+}
+
+/// Whether a solver section defines p elements (`Element = "p:N"`).
+fn p_solver(p: &ParamMap) -> Option<usize> {
+    if p.logical("discontinuous galerkin") == Some(true) {
+        return None;
+    }
+    p.string("element").and_then(p_degree)
+}
+
+/// `MatrixParallelInfoDefault` for a p-element solver: nodal dofs
+/// `DOFs*(GlobalDOFs(node)-1)+j`, the node's owner; edge dofs
+/// `DOFs*(maxnode+maxedofs*(GElementIndex(edge)-1)+j-1)+m`, the first of
+/// the edge's `EdgeNeighbourList`; the global bubbles
+/// `DOFs*(maxnode+maxedge*maxedofs+maxbdofs*(GElementIndex-1)+l-1)+j`, this
+/// rank's (Elmer's 1-based numbers less one). 2D meshes (no faces).
+fn register_p_matrices(
+    sim: &mut Simulation,
+    mesh: &ParMesh,
+    ctx: &RankContext,
+    edges: &std::collections::HashMap<(u64, u64), (u64, Vec<usize>)>,
+) -> Result<(), SolverError> {
+    let rank = ctx.ex.rank();
+    let node_gid = mesh.node_gids();
+    let node_owner = mesh.node_owners();
+    let maxv = |v: f64| {
+        let mut x = [v];
+        ctx.ex.max_f64(&mut x);
+        x[0] as u64
+    };
+    let maxnode = maxv(node_gid.iter().copied().max().unwrap_or(0) as f64);
+    let maxedge = maxv(edges.values().map(|e| e.0).max().unwrap_or(0) as f64);
+    let mut slots = Vec::new();
+    for ix in 0..sim.slots.len() {
+        let Some(p) = p_solver(&sim.slots[ix].params) else { continue };
+        let slot = &sim.slots[ix];
+        let (Some(d), Some(id)) = (slot.solver_dofs(), slot.variable) else { continue };
+        let dofs = sim.vars.by_id(id).dofs as u64;
+        let edofs = p.saturating_sub(1) as u64;
+        // Mesh % MaxBDOFs over the ranks.
+        let mut local_b = 0usize;
+        for t in 0..mesh.n_bulk() {
+            let el = mesh.element(ElemId(t as u32));
+            let ne = edge_count(el.etype.0);
+            d.element_slots(ElemId(t as u32), &mut slots);
+            local_b = local_b.max(slots.len().saturating_sub(el.nodes.len() + ne * edofs as usize));
+        }
+        let maxbdofs = maxv(local_b as f64);
+        let a = d.create_matrix(dofs as usize);
+        let mut gid = vec![u64::MAX; a.nrows];
+        let mut owner = vec![rank; a.nrows];
+        let mut set = |row: usize, g: u64, o: usize| {
+            if row < gid.len() {
+                gid[row] = g;
+                owner[row] = o;
+            }
+        };
+        for t in 0..mesh.n_bulk() {
+            let e = ElemId(t as u32);
+            let el = mesh.element(e);
+            let n = el.nodes.len();
+            d.element_slots(e, &mut slots);
+            let emap = edge_map_2d(el.etype.0).ok_or_else(|| unsupported(format!("p elements of type {} in a partitioned run", el.etype.0)))?;
+            for (j, &s) in slots.iter().enumerate() {
+                if s == NO_DOF {
+                    continue;
+                }
+                let base = s as usize * dofs as usize;
+                if j < n {
+                    let node = el.nodes[j] as usize;
+                    for k in 0..dofs {
+                        set(base + k as usize, dofs * (node_gid[node] - 1) + k, node_owner[node]);
+                    }
+                } else if j < n + emap.len() * edofs as usize {
+                    let (l, jj) = ((j - n) / edofs as usize, (j - n) as u64 % edofs);
+                    let [a0, b0] = emap[l];
+                    let (ga, gb) = (node_gid[el.nodes[a0] as usize], node_gid[el.nodes[b0] as usize]);
+                    let key = if ga < gb { (ga, gb) } else { (gb, ga) };
+                    let (egid, holders) = edges.get(&key).ok_or_else(|| SolverError::fatal("MatrixParallelInfoDefault", "an edge without a global number"))?;
+                    for k in 0..dofs {
+                        set(base + k as usize, dofs * (maxnode + edofs * (egid - 1) + jj) + k, holders[0]);
+                    }
+                } else {
+                    let l = (j - n - emap.len() * edofs as usize) as u64;
+                    let g = mesh.element_gids()[t];
+                    for k in 0..dofs {
+                        set(base + k as usize, dofs * (maxnode + maxedge * edofs + maxbdofs * (g - 1) + l) + k, rank);
+                    }
+                }
+            }
+        }
+        if gid.contains(&u64::MAX) {
+            return Err(SolverError::fatal("MatrixParallelInfoDefault", "a p-element row without a global number"));
+        }
+        let owned: std::sync::Arc<[bool]> = owner.iter().map(|&o| o == rank).collect();
+        ctx.register_rows(gid, owner, &a);
+        sim.slots[ix].owned_rows = Some(owned);
+    }
+    Ok(())
+}
+
+/// The edges of a 2D element type as 0-based node pairs (`GetEdgeMap`).
+pub(crate) fn edge_map_2d(code: u16) -> Option<&'static [[usize; 2]]> {
+    match code / 100 {
+        3 => Some(&[[0, 1], [1, 2], [2, 0]]),
+        4 => Some(&[[0, 1], [1, 2], [2, 3], [3, 0]]),
+        _ => None,
+    }
+}
+
+pub(crate) fn edge_count(code: u16) -> usize {
+    edge_map_2d(code).map_or(0, <[[usize; 2]]>::len)
+}
+
 fn register_dg_matrices(sim: &mut Simulation, mesh: &ParMesh, ctx: &RankContext) -> Result<(), SolverError> {
     if mesh.element_gids().is_empty() {
         return Ok(());
@@ -291,12 +412,19 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     elmer_run::install_fe(coords.dim)?;
     let (ctx, _guard) = RankContext::install(ex, mesh.node_gids().to_vec(), mesh.node_owners().to_vec());
     let comm: &dyn Communicator = &*ctx.ex;
-    if np > 1 && model.solvers.iter().any(|p| p.logical("discontinuous galerkin") == Some(true)) {
+    let any_p = model.solvers.iter().any(|p| !runs_never(p) && p_solver(p).is_some());
+    let mut p_edges = std::collections::HashMap::new();
+    if np > 1 && (any_p || model.solvers.iter().any(|p| p.logical("discontinuous galerkin") == Some(true))) {
         if mesh.dim() != 2 {
-            return Err(unsupported("Discontinuous Galerkin on a partitioned 3D mesh (SParFaceNumbering)"));
+            return Err(unsupported("Discontinuous Galerkin or p elements on a partitioned 3D mesh (SParFaceNumbering)"));
         }
         let edges = elmer_solver::dg_edges(&mesh)?;
-        let keys = crate::edges::edge_numbers(&*ctx.ex, &mesh, &edges).map_err(SolverError::Unsupported)?;
+        let (keys, holders) = crate::edges::edge_numbers_with_holders(&*ctx.ex, &mesh, &edges).map_err(SolverError::Unsupported)?;
+        let gid = mesh.node_gids();
+        for ((_, _, nodes), (&k, h)) in edges.iter().zip(keys.iter().zip(holders)) {
+            let (a, b) = (gid[nodes[0] as usize], gid[nodes[1] as usize]);
+            p_edges.insert(if a < b { (a, b) } else { (b, a) }, (k, h));
+        }
         mesh.set_edge_order(keys);
     }
 
@@ -330,6 +458,9 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
         }
     }
     register_dg_matrices(&mut sim, &mesh, &ctx)?;
+    if np > 1 {
+        register_p_matrices(&mut sim, &mesh, &ctx, &p_edges)?;
+    }
     if let Some(writer) = elmer_run::result_file::writer(&sim.model, &loaded.mesh_dir, rank, np, log) {
         sim.set_save_current(Box::new(writer));
     }
