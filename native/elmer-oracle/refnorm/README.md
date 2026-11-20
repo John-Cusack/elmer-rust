@@ -34,6 +34,15 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
   saved root variable that the preamble assigns to its `Equation`.
   Coupled solvers, equations shared by several solvers, and several
   candidates stay out of class.
+- **Several `RUN` blocks.** Elmer compares after every RUN with the
+  keywords read so far. So run *j* checks the solvers that have a
+  `Reference Norm` in the sif up to RUN *j*. Their golden norm comes from
+  the per-RUN golden (`--per-run`: `case.run<j>.result`, with the last RUN
+  in `case.result`), and the override is written as a one-liner just
+  before RUN *j*. The rerun uses the same per-RUN capture. A multi-RUN sif
+  that names its own `Output File`, or sets `Output Intervals = 0`, stays
+  out of class: in the second case each saved field is not the solution
+  of its RUN (RotatingFlow's holds FlowSolve's 1e-6 initial value).
 - **Includes.** A top-level `include <file>` that only defines MATC
   variables (`$` lines: `params.sif`, the `mesh.names` ElmerGrid writes)
   is expanded as Elmer reads it. The file is looked up in the golden run
@@ -49,11 +58,11 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
 
 | Verdict | Tests |
 |---|---:|
-| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **338** (370 solvers) |
+| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **350** (457 solvers) |
 | grader gap: the solver sets its own norm (FluxSolver, VectorHelmholtzNodal, WhitneyAVSolver) | 7 |
 | grader gap: DG field (PoissonDG) | 1 |
 | unexplained mismatch (PhaseChange3, solver 3 `PhaseSurface`) | 1 |
-| out of the validated class | 135 |
+| out of the validated class | 123 |
 
 Before this widening the class held 223 tests (238 solvers). All 223 are
 still bitwise, each with at least as many solvers as before.
@@ -80,29 +89,29 @@ Each test is listed under the first reason in its row.
 | Reason | Tests |
 |---|---:|
 | MPI | 28 |
-| several `RUN` blocks | 25 |
-| `Show Norm` / `Show Norm Index` (a SaveScalars value is the norm) | 23 |
+| `Show Norm` / `Show Norm Index` (a SaveScalars value is the norm) | 26 |
 | custom `runtest.cmake` (replay) | 13 |
 | variable in several result files (several meshes) | 12 |
+| no `Variable`: no saved variable of its equation | 10 |
 | variable not in any result file (global, or not output) | 9 |
 | duplicate `Solver N` sections (merged by Elmer) | 7 |
-| no `Variable`: coupled solver | 5 |
 | no `Variable`: several saved variables of its equation | 6 |
-| no `Variable`: no saved variable of its equation | 4 |
-| other (`-nooutput`, several solver runs) | 2 |
+| no `Variable`: coupled solver | 5 |
+| several `RUN` blocks with `Output Intervals = 0` | 3 |
+| other (`-nooutput`, several solver runs, a multi-RUN sif with no field solver) | 3 |
 | non-nodal unknowns | 1 |
 
 So item 4 is **not** done for every captured test. The validated class
-covers 338 of the 482 quick tests. Widening it further means per-run
-checks for multi-`RUN` sifs, the SaveScalars-style norms, and per-mesh
-result files.
+covers 350 of the 482 quick tests. Widening it further means the
+SaveScalars-style norms, per-mesh result files, and MPI norms (owned
+nodes only).
 
 ## Reproduce
 
 ```sh
 S=/home/john/firstmate/data/elmer-s0-oracle
 OMP_NUM_THREADS=1 target/release/elmer-oracle refnorm-validate \
-  $S/build-release $S/src/fem/tests <golden-root> <out-root>
+  $S/build-release $S/src/fem/tests <per-RUN golden-root> <out-root>
 ```
 
 The table is written to `<out-root>/refnorm.tsv`.

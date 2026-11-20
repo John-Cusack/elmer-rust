@@ -13,7 +13,7 @@ through firstmate (D11).
 | 1 Pinned arms | Release (golden), FMA, OpenBLAS and LISTUSAGE arms built and published | `oracle-builds.json`, `../oracle-arms/`, `../docker/` |
 | 2 Direct runner | Registration-driven: 482 quick, 618 non-quick and 65 ice tests run, with `cmake -P` replay for custom `runtest.cmake` | `src/runner.rs`, `src/registry.rs` |
 | 3 Golden capture | O2 for 482/482 quick tests on all three arms, and per RUN (`--per-run`) for the 24 multi-RUN tests, with σ_F. O2m (`--o2m`) and iteration counts (`--max-output`) are supported but not captured corpus-wide. | `golden/` |
-| 4 Bitwise grader validation | 338 quick tests bitwise through `Reference Norm Tolerance = 0`, vectors, default variables and MATC includes included; 8 grader gaps (7 self-norming solvers, 1 DG), 1 unexplained, 135 out of class (reasons listed) | `refnorm/` |
+| 4 Bitwise grader validation | 350 quick tests bitwise through `Reference Norm Tolerance = 0`, vectors, default variables, MATC includes and every RUN of multi-RUN sifs included; 8 grader gaps (7 self-norming solvers, 1 DG), 1 unexplained, 123 out of class (reasons listed) | `refnorm/` |
 | 5 σ_F and tolerance table | 5,665 fields, variable-scale floor for near-zero components (exact zeros stay exact); kill check 24/482 (5.0%) with eigen mode | `tolerances.json`, `golden/README.md` |
 | Mutation suite | 14,634/14,634 detectable mutations caught (near-zero floor); below-floor and vacuous counts kept visible | `golden/mutation-summary.txt` |
 | 6 Capability matrix | 482/482 LISTUSAGE runs | `capability/` |
