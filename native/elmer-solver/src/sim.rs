@@ -420,6 +420,13 @@ pub struct Simulation {
     /// Elements of another partition (`Element % PartIndex /= myPE`): the
     /// halo of an `ElmerGrid -halo` partitioning ([`Simulation::set_halo_elements`]).
     halo: Option<Arc<[bool]>>,
+    /// Boundary elements of other partitions imported for the radiation
+    /// factors ([`Simulation::set_foreign_boundary`]).
+    foreign: Option<Arc<[bool]>>,
+    /// `GElementIndex` of every element ([`Simulation::set_element_gids`]).
+    element_gids: Option<Arc<[u64]>>,
+    /// `GlobalDOFs` of every node ([`Simulation::set_node_gids`]).
+    node_gids: Option<Arc<[u64]>>,
     /// ARPACK's saved state (`dgetv0`'s seed), kept across eigen solves as
     /// in one ElmerSolver process.
     pub(crate) arpack: elmer_eigen::arpack::saupd::Arpack,
@@ -546,6 +553,9 @@ impl Simulation {
             save_current: None,
             node_owned: None,
             halo: None,
+            foreign: None,
+            element_gids: None,
+            node_gids: None,
             arpack: Default::default(),
             zarpack: Default::default(),
             extra_meshes: Vec::new(),
@@ -639,6 +649,42 @@ impl Simulation {
     /// ([`SolverCtx::partition_share`](crate::SolverCtx::partition_share)).
     pub fn set_halo_elements(&mut self, halo: Arc<[bool]>) {
         self.halo = Some(halo);
+    }
+
+    /// Marks the boundary elements (by element index, bulk then boundary)
+    /// that `RadiationParallelMeshDistribute` imported from other
+    /// partitions: `ActiveBoundaryElement` is false for them
+    /// (`PartIndex /= myPE`), so no solver assembles them, but the
+    /// radiation factors see them
+    /// ([`SolverCtx::foreign_boundary_elements`](crate::SolverCtx::foreign_boundary_elements)).
+    pub fn set_foreign_boundary(&mut self, foreign: Arc<[bool]>) {
+        self.foreign = Some(foreign);
+    }
+
+    /// [`Simulation::set_foreign_boundary`]'s flags.
+    pub fn foreign_boundary(&self) -> Option<&[bool]> {
+        self.foreign.as_deref()
+    }
+
+    /// The global element ids (`GElementIndex`, bulk then boundary) of a
+    /// partitioned mesh.
+    pub fn set_element_gids(&mut self, gids: Arc<[u64]>) {
+        self.element_gids = Some(gids);
+    }
+
+    /// [`Simulation::set_element_gids`]'s ids.
+    pub fn element_gids(&self) -> Option<&[u64]> {
+        self.element_gids.as_deref()
+    }
+
+    /// The global node ids (`GlobalDOFs`, 1-based) of a partitioned mesh.
+    pub fn set_node_gids(&mut self, gids: Arc<[u64]>) {
+        self.node_gids = Some(gids);
+    }
+
+    /// [`Simulation::set_node_gids`]'s ids.
+    pub fn node_gids(&self) -> Option<&[u64]> {
+        self.node_gids.as_deref()
     }
 
     /// [`Simulation::set_halo_elements`]'s flags, `None` without halo.

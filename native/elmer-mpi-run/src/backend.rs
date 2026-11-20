@@ -96,12 +96,28 @@ impl AssemblyBackend for ParAssembly {
         ElmerAssembly.build_perm_for(mesh, active, params)
     }
 
+    fn build_perm_coupled(
+        &self,
+        mesh: &dyn MeshView,
+        active: &[ElemId],
+        params: &ParamMap,
+        extra: &[(u32, Vec<u32>)],
+    ) -> Result<Option<Perm>, SolverError> {
+        ElmerAssembly.build_perm_coupled(mesh, active, params, extra)
+    }
+
     fn create_matrix(&self, mesh: &dyn MeshView, active: &[ElemId], perm: &Perm, dofs: usize) -> CsrMatrix<f64> {
         let a = ElmerAssembly.create_matrix(mesh, active, perm, dofs);
         if let Some(ctx) = RankContext::current() {
             ctx.register(&perm.perm, dofs, &a);
         }
         a
+    }
+
+    fn pattern_changed(&self, perm: &Perm, dofs: usize, a: &CsrMatrix<f64>) {
+        if let Some(ctx) = RankContext::current() {
+            ctx.register(&perm.perm, dofs, a);
+        }
     }
 
     fn add_local(&self, a: &mut CsrMatrix<f64>, rhs: &mut [f64], slots: &[u32], local: &LocalSystem) {

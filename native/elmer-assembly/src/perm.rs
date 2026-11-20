@@ -115,6 +115,19 @@ pub fn initial_permutation(mesh: &dyn MeshView, active: &dyn Fn(ElemId) -> bool)
 /// exceeds the node count, and `CreateMatrix` keeps the element order even
 /// when every node is used (`k == SIZE(Perm)` is false).
 pub fn initial_permutation_ndeg(mesh: &dyn MeshView, active: &dyn Fn(ElemId) -> bool, ndeg: usize) -> Perm {
+    initial_permutation_radiation(mesh, active, ndeg, &[])
+}
+
+/// [`initial_permutation_ndeg`] of a `Radiation Solver`: the nodes of the
+/// radiating boundary elements, `radiation` in boundary element order,
+/// that no active element numbered (those a partitioned run imported) get
+/// slots after the active elements' (Lists.F90:641-659).
+pub fn initial_permutation_radiation(
+    mesh: &dyn MeshView,
+    active: &dyn Fn(ElemId) -> bool,
+    ndeg: usize,
+    radiation: &[u32],
+) -> Perm {
     let n_nodes = mesh.n_nodes();
     let mut perm = vec![NO_DOF; n_nodes];
     let mut k = 0u32;
@@ -132,6 +145,7 @@ pub fn initial_permutation_ndeg(mesh: &dyn MeshView, active: &dyn Fn(ElemId) -> 
             number(&mut perm, mesh.element(e).nodes);
         }
     }
+    number(&mut perm, radiation);
     // Connection elements join the system whatever their equation.
     for e in boundary_elements(mesh) {
         let el = mesh.element(e);
@@ -241,7 +255,11 @@ pub fn build_perm_coupled(
     opts: PermOptions,
     extra: &[(u32, Vec<u32>)],
 ) -> (Perm, BandwidthReport) {
-    let init = initial_permutation(mesh, active);
+    // The coupled rows are the radiating elements' nodes in boundary element
+    // order: InitialPermutation's radiation branch numbers any of them no
+    // active element has.
+    let rows: Vec<u32> = extra.iter().map(|(n, _)| *n).collect();
+    let init = initial_permutation_radiation(mesh, active, mesh.n_nodes(), &rows);
     let mut list = list_matrix(mesh, active, &init);
     for (node, cols) in extra {
         let k1 = init.perm[*node as usize];

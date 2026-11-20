@@ -245,6 +245,12 @@ pub trait AssemblyBackend: Send + Sync {
     /// The CSR pattern (zero values, diagonal index set) for `dofs` dofs per slot.
     fn create_matrix(&self, mesh: &dyn MeshView, active: &[ElemId], perm: &Perm, dofs: usize) -> CsrMatrix<f64>;
 
+    /// A solver extended the pattern of a matrix made by
+    /// [`create_matrix`](Self::create_matrix) over `perm`
+    /// (`UpdateMatrixTopologyWithFactors`, which ends in
+    /// `ParallelInitMatrix`). Nothing by default.
+    fn pattern_changed(&self, _perm: &Perm, _dofs: usize, _a: &CsrMatrix<f64>) {}
+
     /// Adds `local.stiff` and `local.force`. `slots` holds one entry per
     /// element node: its perm slot, or [`elmer_core::NO_DOF`] to skip it
     /// (Elmer's `Perm(Indexes)`); local row `dofs * i + c` is component `c`

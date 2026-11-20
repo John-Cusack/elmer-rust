@@ -499,6 +499,13 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     for _ in 0..crate::levels::splits(&model.simulation, &model.boundary_conditions)? {
         mesh = crate::levels::split(&mesh, &*ex)?;
     }
+    // LoadMesh (MeshLoad.F90:221): RadiationParallelMeshDistribute.
+    let radiating = |tag: i32| {
+        model.bc_of_tag(tag).and_then(|b| model.boundary_conditions.get(b.checked_sub(1)?)).is_some_and(|bc| {
+            bc.string("radiation").is_some_and(|r| normalize_key(r) == "diffuse gray") || bc.logical("radiator bc") == Some(true)
+        })
+    };
+    let foreign = mesh.radiation_distribute(&*ex, &radiating);
     let coords = elmer_run::coordinate_system(&model, &mesh)?;
     elmer_run::case::legacy_solvers(&mut model, coords);
     elmer_run::install_fe(coords.dim)?;
@@ -550,6 +557,13 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     elmer_run::elmer_fixtures::registry::install_live(&fixture_case, &mut sim, &moving);
     if let Some(h) = mesh.halo_elements() {
         sim.set_halo_elements(h.into());
+    }
+    if !mesh.element_gids().is_empty() {
+        sim.set_element_gids(mesh.element_gids().into());
+    }
+    sim.set_node_gids(mesh.node_gids().into());
+    if foreign.iter().any(|&f| f) {
+        sim.set_foreign_boundary(foreign.into());
     }
     // `Apply Conforming BCs`: each rank's ConformingNodePerm /
     // ConformingEdgePerm of its own partition, as PeriodicPermutation

@@ -283,9 +283,35 @@ impl<'a> SolverCtx<'a> {
     /// Boundary elements that carry a boundary condition, in mesh order.
     pub fn boundary_elements(&self) -> impl Iterator<Item = ElemId> + '_ {
         let nb = self.mesh.n_bulk() as u32;
+        let foreign = self.sim.foreign_boundary();
         (nb..nb + self.mesh.n_boundary() as u32)
             .map(ElemId)
+            .filter(move |&e| !foreign.is_some_and(|f| f[e.0 as usize]))
             .filter(|&e| self.bc_id(e).is_some())
+    }
+
+    /// The boundary elements of other partitions that a partitioned run
+    /// imported for the radiation factors (`RadiationParallelMeshDistribute`),
+    /// with a boundary condition; none in a serial run.
+    pub fn foreign_boundary_elements(&self) -> impl Iterator<Item = ElemId> + '_ {
+        let nb = self.mesh.n_bulk() as u32;
+        let foreign = self.sim.foreign_boundary();
+        (nb..nb + self.mesh.n_boundary() as u32)
+            .map(ElemId)
+            .filter(move |&e| foreign.is_some_and(|f| f[e.0 as usize]))
+            .filter(|&e| self.bc_id(e).is_some())
+    }
+
+    /// `GlobalDOFs` of a node: its global id in a partitioned mesh, its
+    /// 1-based index otherwise.
+    pub fn node_gid(&self, n: u32) -> u64 {
+        self.sim.node_gids().map_or(u64::from(n) + 1, |g| g[n as usize])
+    }
+
+    /// `Element % GElementIndex`: the global element id of a partitioned
+    /// mesh, the 1-based element index otherwise.
+    pub fn element_gid(&self, e: ElemId) -> u64 {
+        self.sim.element_gids().map_or(u64::from(e.0) + 1, |g| g[e.0 as usize])
     }
 
     /// Body, equation, material, body force and initial condition of a
@@ -364,8 +390,15 @@ impl<'a> SolverCtx<'a> {
             return Ok(false);
         }
         let new: Arc<[u32]> = new.perm.into();
+        // The radiation branch may number nodes the old Perm had not (a
+        // partitioned run's imported radiation nodes): the values grow.
+        let (n_old, n_new) = (
+            old.iter().filter(|&&p| p != NO_DOF).count(),
+            new.iter().filter(|&&p| p != NO_DOF).count(),
+        );
         let remap = |values: &mut Vec<f64>, dofs: usize| {
-            let mut out = vec![0.0; values.len()];
+            let len = if n_old > 0 && values.len() == n_old * dofs { n_new * dofs } else { values.len() };
+            let mut out = vec![0.0; len];
             for (&o, &n) in old.iter().zip(new.iter()) {
                 if o != NO_DOF && n != NO_DOF {
                     for c in 0..dofs {
@@ -2825,6 +2858,20 @@ impl<'a> SolverCtx<'a> {
 
     pub fn system_mut(&mut self) -> Option<&mut LinearSystem> {
         self.sim.slots[self.slot].system.as_mut()
+    }
+
+    /// Tells the assembly backend that the solver extended its system's
+    /// pattern ([`AssemblyBackend::pattern_changed`](crate::AssemblyBackend::pattern_changed)).
+    pub fn system_pattern_changed(&self) {
+        let slot = &self.sim.slots[self.slot];
+        let (Some(b), Some(perm), Some(id), Some(sys)) =
+            (self.sim.backends.assembly.as_ref(), slot.perm.as_ref(), slot.variable, slot.system.as_ref())
+        else {
+            return;
+        };
+        let v = self.sim.vars.by_id(id);
+        let perm = Perm { perm: perm.to_vec(), n_slots: v.values.len() / v.dofs.max(1) };
+        b.pattern_changed(&perm, v.dofs, &sys.matrix);
     }
 
     /// `BackRotateNTSystem(Values, Perm, DOFs)`: the solver variable's

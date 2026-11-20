@@ -33,8 +33,52 @@ pub struct Gebhart {
     pub max_row_sum: f64,
 }
 
-/// The Gebhart factors of `input`. See [`GebhartInput`].
+/// The matrix `G` of `CalculateGebhartFactors` as `CreateRadiationMatrix`
+/// lays it out: row `i` holds the columns of its view factors and the
+/// diagonal, sorted (CRS, 0-based).
+pub struct GebhartMatrix {
+    pub row_ptr: Vec<usize>,
+    pub cols: Vec<u32>,
+    pub values: Vec<f64>,
+}
+
+impl GebhartMatrix {
+    fn at(&mut self, i: usize, c: usize) -> &mut f64 {
+        let span = self.row_ptr[i]..self.row_ptr[i + 1];
+        let k = self.cols[span.clone()].binary_search(&(c as u32)).expect("entry in the pattern");
+        &mut self.values[span.start + k]
+    }
+}
+
+/// A direct solve of `G x = b` in place, `G` factored on the first call
+/// (Elmer's `DirectSolver` with `Linear System Refactorize` false after it).
+pub type GebhartSolve<'a> = dyn FnMut(&GebhartMatrix, &mut [f64]) -> Result<(), String> + 'a;
+
+/// The Gebhart factors of `input`. See [`GebhartInput`]. The system is
+/// solved by a dense LU; [`gebhart_factors_with`] takes the solver.
 pub fn gebhart_factors(input: &GebhartInput<'_>) -> Result<Gebhart, Error> {
+    let mut lu: Option<Lu> = None;
+    let mut dense = |g: &GebhartMatrix, b: &mut [f64]| -> Result<(), String> {
+        if lu.is_none() {
+            let n = g.row_ptr.len() - 1;
+            let mut a = vec![0.0; n * n];
+            for i in 0..n {
+                for k in g.row_ptr[i]..g.row_ptr[i + 1] {
+                    a[i * n + g.cols[k] as usize] = g.values[k];
+                }
+            }
+            lu = Some(Lu::new(n, a).map_err(|e| e.to_string())?);
+        }
+        lu.as_ref().expect("factored").solve(b);
+        Ok(())
+    };
+    gebhart_factors_with(input, &mut dense)
+}
+
+/// [`gebhart_factors`] with the sparse `G` of `CreateRadiationMatrix`,
+/// assembled and scaled in the Fortran's order, solved by `solve` (Elmer's
+/// `DirectSolver`, UMFPACK by default).
+pub fn gebhart_factors_with(input: &GebhartInput<'_>, solve: &mut GebhartSolve<'_>) -> Result<Gebhart, Error> {
     let n = input.rows.len();
     let (rel, emis, refl) = (input.rel_areas, input.emissivity, input.reflectivity);
     if rel.len() != n || emis.len() != n || refl.len() != n {
@@ -44,18 +88,28 @@ pub fn gebhart_factors(input: &GebhartInput<'_>) -> Result<Gebhart, Error> {
     let triv = refl.iter().all(|r| r.abs() <= AEPS);
     let symm = refl.iter().all(|r| r.abs() > AEPS) || triv;
 
-    // The matrix, scaled to unit diagonal.
+    // The matrix, scaled to unit diagonal: CRS_AddToMatrixElement of the
+    // view factors and then of the diagonal, `G(i,j) = G(i,j)*Diag(i)*Diag(j)`.
+    let mut row_ptr = vec![0usize];
+    let mut cols: Vec<u32> = Vec::new();
+    for (i, row) in input.rows.iter().enumerate() {
+        let mut c: Vec<u32> = row.iter().map(|&(c, _)| c as u32).chain(std::iter::once(i as u32)).collect();
+        c.sort_unstable();
+        c.dedup();
+        cols.extend(c);
+        row_ptr.push(cols.len());
+    }
+    let mut g = GebhartMatrix { row_ptr, values: vec![0.0; cols.len()], cols };
     let mut diag = vec![0.0; n];
-    let mut g = vec![0.0; n * n];
     if !triv {
         for i in 0..n {
             let r = if symm { refl[i] } else { 1.0 };
             for &(c, v) in &input.rows[i] {
                 let s = if symm { refl[i] * refl[c] } else { refl[i] };
-                g[i * n + c] -= s * v;
+                *g.at(i, c) += -s * v;
             }
             diag[i] = r * rel[i];
-            g[i * n + i] += diag[i];
+            *g.at(i, i) += diag[i];
         }
     }
     let scale: Vec<f64> = diag
@@ -64,12 +118,11 @@ pub fn gebhart_factors(input: &GebhartInput<'_>) -> Result<Gebhart, Error> {
         .collect();
     if !triv {
         for i in 0..n {
-            for j in 0..n {
-                g[i * n + j] *= scale[i] * scale[j];
+            for k in g.row_ptr[i]..g.row_ptr[i + 1] {
+                g.values[k] = g.values[k] * scale[i] * scale[g.cols[k] as usize];
             }
         }
     }
-    let lu = if triv { None } else { Some(Lu::new(n, g)?) };
 
     let mut rows = Vec::with_capacity(n);
     let mut row_sums = vec![0.0; n];
@@ -86,7 +139,7 @@ pub fn gebhart_factors(input: &GebhartInput<'_>) -> Result<Gebhart, Error> {
         } else {
             let mut sol = vec![0.0; n];
             sol[t] = scale[t];
-            lu.as_ref().expect("factored above").solve(&mut sol);
+            solve(&g, &mut sol).map_err(Error::Invalid)?;
             for i in 0..n {
                 sol[i] *= scale[i];
             }
