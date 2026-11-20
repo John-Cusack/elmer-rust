@@ -27,6 +27,7 @@
 
 pub mod boundary;
 pub mod bulk;
+mod diameter;
 pub mod error;
 mod law;
 pub mod neohooke;

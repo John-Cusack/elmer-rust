@@ -66,6 +66,10 @@ pub struct BulkInput<'a> {
     /// after the `cdim` displacement components of each dof, `Lame1 = 0`
     /// and `Lame2 = E/3`.
     pub incompressible: bool,
+    /// `Pressure Stabilization` with `Incompressible`: `(Pressure
+    /// Stabilization Coefficient, Element % hK)`. The pressure keeps all its
+    /// dofs, with `-Tau grad(p).grad(q)` on the pressure block.
+    pub pstab: Option<(f64, f64)>,
 }
 
 /// The displacement gradient `Grad(a,b) = d u_a / d x_b` (with the hoop term
@@ -334,6 +338,29 @@ pub fn elastic_bulk_local_p(
             }
         };
 
+        // ElasticSolve.F90:4495-4575: `Tau` of the pressure stabilization,
+        // `MuEff = Lame2`, `Kfam` per element family.
+        let tau = match (inp.pstab, &law) {
+            (Some((coeff, hk)), PointLaw::Iso { lame2, .. }) if inp.incompressible => {
+                let kfam = match inp.etype.family() {
+                    3 => 0.0104,
+                    4 => 0.0417,
+                    5 => 0.0029,
+                    6 => 0.005,
+                    7 => 0.0090,
+                    _ => 0.0232,
+                };
+                let gpa_mag = gpa_ip.unwrap_or(0.0).abs();
+                let t = if gpa_mag * hk > 0.0 {
+                    let pe = f64::min(1.0, 2.0 * kfam * gpa_mag * hk / lame2);
+                    hk * pe / (2.0 * gpa_mag)
+                } else {
+                    kfam * (hk * hk) / lame2
+                };
+                Some(coeff * t)
+            }
+            _ => None,
+        };
         // The affine part of the response: sigma = C(eps - eps0) + sigma0.
         let mut stress_offset = ZERO;
         if got_offset {
@@ -447,6 +474,12 @@ pub fn elastic_bulk_local_p(
                         out.stiff[row * ndof + dofs * q + j] -= db[q][j] * bas[p] * s;
                     }
                 }
+                if let Some(tau) = tau {
+                    for q in 0..ntot {
+                        let g: f64 = (0..cdim).map(|j| db[p][j] * db[q][j]).sum();
+                        out.stiff[row * ndof + dofs * q + cdim] -= tau * g * s;
+                    }
+                }
             }
         }
 
@@ -490,7 +523,7 @@ pub fn elastic_bulk_local_p(
     // ElasticSolve.F90:4848: the pressure lives on the nodal functions only
     // (MINI for p:1 b:N, Taylor-Hood for p:2); every higher pressure dof is
     // eliminated with a unit diagonal.
-    if inp.incompressible {
+    if inp.incompressible && inp.pstab.is_none() {
         for p in n..ntot {
             let i = dofs * p + cdim;
             out.force[i] = 0.0;

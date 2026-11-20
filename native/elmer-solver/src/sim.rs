@@ -391,6 +391,39 @@ pub struct Simulation {
     /// The mesh-wide p dofs of the p solvers ([`SolverDofs::ndeg_parts`],
     /// their maxima): what makes a nodal solver's `Ndeg` exceed the nodes.
     pub(crate) p_ndeg_parts: Option<(usize, usize)>,
+    /// Every element's nodes in a p layout's order (p tetrahedra are
+    /// reordered in `Mesh % Elements` itself), when it differs from the
+    /// mesh's: the order a nodal solver's first-touch numbering sees.
+    pub(crate) p_element_nodes: Option<Arc<Vec<Vec<u32>>>>,
+}
+
+/// `mesh` with its elements' nodes in a p layout's order.
+struct PNodeOrder<'a> {
+    mesh: &'a dyn MeshView,
+    nodes: &'a [Vec<u32>],
+}
+
+impl MeshView for PNodeOrder<'_> {
+    fn dim(&self) -> usize {
+        self.mesh.dim()
+    }
+    fn n_nodes(&self) -> usize {
+        self.mesh.n_nodes()
+    }
+    fn coord(&self, node: u32) -> [f64; 3] {
+        self.mesh.coord(node)
+    }
+    fn n_bulk(&self) -> usize {
+        self.mesh.n_bulk()
+    }
+    fn n_boundary(&self) -> usize {
+        self.mesh.n_boundary()
+    }
+    fn element(&self, e: ElemId) -> elmer_core::ElementRef<'_> {
+        let mut el = self.mesh.element(e);
+        el.nodes = &self.nodes[e.0 as usize];
+        el
+    }
 }
 
 /// `SaveCurrent` (ElmerSolver.F90:3700): the `Output File` writer, called
@@ -455,6 +488,7 @@ impl Simulation {
             node_owned: None,
             arpack: Default::default(),
             p_ndeg_parts: None,
+            p_element_nodes: None,
         }
     }
 
@@ -481,8 +515,22 @@ impl Simulation {
                         .collect();
                     let dofs = params.integer("variable dofs").unwrap_or(1).max(1) as usize;
                     if let Some(d) = b.for_solver_id(mesh, &self.model, j + 1, params, &active, dofs) {
-                        let (bub, ef) = d?.ndeg_parts();
+                        let d = d?;
+                        let (bub, ef) = d.ndeg_parts();
                         parts = (parts.0.max(bub), parts.1.max(ef));
+                        if self.p_element_nodes.is_none() {
+                            let all: Vec<Vec<u32>> = (0..(nb + mesh.n_boundary()) as u32)
+                                .map(|e| {
+                                    let own = mesh.element(ElemId(e)).nodes;
+                                    let p = d.element_nodes(ElemId(e));
+                                    if p.len() == own.len() { p } else { own.to_vec() }
+                                })
+                                .collect();
+                            let differs = all.iter().enumerate().any(|(e, n)| n[..] != *mesh.element(ElemId(e as u32)).nodes);
+                            if differs {
+                                self.p_element_nodes = Some(Arc::new(all));
+                            }
+                        }
                     }
                 }
             }
@@ -1129,7 +1177,13 @@ impl Simulation {
                 let ndeg = self.nodal_ndeg(mesh, slot)?;
                 let b = self.backends.assembly.as_ref().expect("matched above");
                 if ndeg > mesh.n_nodes() {
-                    b.build_perm_ndeg(mesh, &slot.active, &slot.params, ndeg)?
+                    match &self.p_element_nodes {
+                        Some(nodes) => {
+                            let view = PNodeOrder { mesh, nodes };
+                            b.build_perm_ndeg(&view, &slot.active, &slot.params, ndeg)?
+                        }
+                        None => b.build_perm_ndeg(mesh, &slot.active, &slot.params, ndeg)?,
+                    }
                 } else {
                     b.build_perm_for(mesh, &slot.active, &slot.params)?
                 }

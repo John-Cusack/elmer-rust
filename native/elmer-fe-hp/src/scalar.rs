@@ -27,8 +27,11 @@
 //!   PElementBase.F90:915, :981, :1168, :1219) and serendipity
 //!   (`SD_QuadEdgePBasis`, `SD_QuadBubblePBasis`, :495, :657, :738, :786).
 //!
-//! Triangle bubbles, face-directed quad bubbles (a 2D element on a 3D
-//! face) and degrees above 9 keep the H1Basis values.
+//! * triangle bubbles of a 2D element (`TriangleBubblePBasis`,
+//!   `dTriangleBubblePBasis`, PElementBase.F90).
+//!
+//! Face-directed bubbles (a 2D element on a 3D face) and degrees above 9
+//! keep the H1Basis values.
 
 // Index loops mirror the Fortran's.
 #![allow(clippy::needless_range_loop)]
@@ -387,8 +390,64 @@ pub(crate) fn element_metric(
     Ok((detg, l2g))
 }
 
+/// `toExp(x, n)` (PElementBase.F90): 1 for `n == 0`, 0 for `x == 0`, else
+/// `x**n` (a negative `n` as `1 / x**-n`).
+fn to_exp(x: f64, n: i32) -> f64 {
+    if n == 0 {
+        1.0
+    } else if x == 0.0 {
+        0.0
+    } else if n < 0 {
+        1.0 / pow(x, (-n) as usize)
+    } else {
+        pow(x, n as usize)
+    }
+}
+
+/// `TriangleBubblePBasis(i, j, u, v)` and `dTriangleBubblePBasis` without
+/// `localNumbers` (a 2D element's bubble).
+pub(crate) fn triangle_bubble(i: usize, j: usize, u: f64, v: f64) -> (f64, [f64; 2]) {
+    let (la, lb, lc) = (l(1, u, v), l(2, u, v), l(3, u, v));
+    let s3 = 3f64.sqrt();
+    let dla = [-1.0 / 2.0, -s3 / 6.0];
+    let dlb = [1.0 / 2.0, -s3 / 6.0];
+    let dlc = [0.0, s3 / 3.0];
+    let value = la * lb * lc * pow(lb - la, i) * pow(2.0 * lc - 1.0, j);
+    let (ji, ni) = (i as i32, j as i32);
+    let lb_laj = to_exp(lb - la, ji);
+    let lc_1n = to_exp(2.0 * lc - 1.0, ni);
+    let mut grad = [0.0; 2];
+    for k in 0..2 {
+        grad[k] = dla[k] * lb * lc * lb_laj * lc_1n
+            + la * dlb[k] * lc * lb_laj * lc_1n
+            + la * lb * dlc[k] * lb_laj * lc_1n
+            + la * lb * lc * f64::from(ji) * to_exp(lb - la, ji - 1) * (dlb[k] - dla[k]) * lc_1n
+            + la * lb * lc * lb_laj * f64::from(ni) * to_exp(2.0 * lc - 1.0, ni - 1) * (2.0 * dlc[k]);
+    }
+    (value, grad)
+}
+
 #[cfg(test)]
 mod tests {
+    /// The scalar triangle bubble is `H1Basis`'s away from `Lb == La` and
+    /// stays finite on it (`toExp`), where `0 * (Lb-La)**(-1)` is NaN.
+    #[test]
+    fn triangle_bubble_is_finite_on_the_symmetry_line() {
+        let (v0, g0) = triangle_bubble(0, 0, 0.0, 0.1);
+        assert!(v0.is_finite() && g0.iter().all(|x| x.is_finite()), "{v0} {g0:?}");
+        for &(u, v) in &[(0.3, 0.4), (-0.2, 0.9)] {
+            let mut val = vec![0.0; 1];
+            let mut grad = vec![[0.0; 3]; 1];
+            let mut nb = 0;
+            crate::triangle::triangle_bubble_p(u, v, 3, &mut val, &mut nb, None);
+            nb = 0;
+            crate::triangle::d_triangle_bubble_p(u, v, 3, &mut grad, &mut nb, None);
+            let (b, g) = triangle_bubble(0, 0, u, v);
+            assert!((b - val[0]).abs() < 1e-15, "{b} {}", val[0]);
+            assert!((g[0] - grad[0][0]).abs() < 1e-14 && (g[1] - grad[0][1]).abs() < 1e-14, "{g:?} {:?}", grad[0]);
+        }
+    }
+
     use super::*;
 
     /// The hand-expanded scalar gradients are the derivatives of the values.

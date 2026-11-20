@@ -549,6 +549,22 @@ impl PElementBasis {
                 }
             }
         }
+        // Triangle bubbles, i = 0..p-3 outer, j = 0..p-i-3 inner, as
+        // `bubbles_triangle` (ElemInfo.F90:901).
+        if tri && self.spec.bubble_p > 0 && self.spec.bubble_face_dir.is_none() {
+            let bp = self.spec.bubble_p as usize;
+            'tb: for i in 0..=bp.saturating_sub(3) {
+                for j in 0..=(bp.saturating_sub(3)).saturating_sub(i) {
+                    if bp < 3 || q >= nb {
+                        break 'tb;
+                    }
+                    let (value, g) = crate::scalar::triangle_bubble(i, j, u, v);
+                    val[q] = value;
+                    grad[q] = [g[0], g[1], 0.0];
+                    q += 1;
+                }
+            }
+        }
         // Quad interior bubbles, i (u) outer, j (v) inner, as `bubbles_quad`.
         if !tri
             && !self.spec.serendipity
