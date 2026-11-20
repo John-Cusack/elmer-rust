@@ -51,6 +51,7 @@
 #![forbid(unsafe_code)]
 
 pub mod backend;
+pub mod conforming;
 pub mod constrain;
 pub mod constraint;
 pub mod interface;
@@ -61,6 +62,7 @@ pub mod save;
 pub mod weighted;
 
 pub use backend::PeriodicAssembly;
+pub use conforming::generate_conforming_map;
 pub use constrain::{
     add_projector_topology, periodic_active, set_periodic_boundaries, PeriodicTarget,
 };

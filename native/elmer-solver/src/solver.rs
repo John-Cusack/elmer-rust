@@ -630,6 +630,16 @@ impl<'a> SolverCtx<'a> {
             .assembly
             .as_ref()
             .ok_or_else(|| SolverError::NotWired("assembly backend (elmer-assembly)".into()))?;
+        // FlipPeriodicLocalMatrix / FlipPeriodicLocalForce: antisymmetric
+        // conforming nodes enter with the opposite sign.
+        let flipped = match (&sim.backends.conforming, sim.slots[self.slot].conforming_flip) {
+            (Some(map), true) => {
+                let mut l = local.clone();
+                crate::conforming::flip_local(&mut l, self.mesh.element(e).nodes, map).then_some(l)
+            }
+            _ => None,
+        };
+        let local = flipped.as_ref().unwrap_or(local);
         let sys = sim.slots[self.slot]
             .system
             .as_mut()

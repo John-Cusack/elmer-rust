@@ -18,7 +18,7 @@ use elmer_expr::MatcEngine;
 use elmer_pdofs::PDofsBackend;
 use crate::motion::MovableMesh;
 use crate::output::{is_result_output, prepare_vtu_output, MappedTags};
-use elmer_mortar::{generate_periodic_projectors, PeriodicAssembly, ProjectorEnv};
+use elmer_mortar::{generate_conforming_map, generate_periodic_projectors, PeriodicAssembly, ProjectorEnv};
 use elmer_mesh_levels::{extrude, mesh_levels, split_mesh_equal, ExtrudeOptions, Mesh as LevelsMesh, MeshLevelsError};
 use elmer_mesh_ops::{create_discont_mesh, increase_element_order, read_target_names, MeshOpsError};
 
@@ -628,6 +628,29 @@ fn periodic_assembly(
     Ok(Some(PeriodicAssembly::new(model.boundary_conditions.clone(), projectors, mesh.n_nodes())))
 }
 
+/// `Mesh % PeriodicPerm` / `PeriodicFlip` when a boundary condition has
+/// `Conforming BC` (`GeneratePeriodicProjectors`): `elmer-mortar`'s node
+/// map, which the solvers with `Apply Conforming BCs` number their dofs by.
+fn conforming_map(
+    model: &Model,
+    mesh: &dyn MeshView,
+    coord_dim: usize,
+    log: &dyn Logger,
+) -> Result<Option<elmer_solver::conforming::ConformingMap>, SolverError> {
+    let bcs: Vec<&dyn Params> = model.boundary_conditions.iter().map(|b| b as &dyn Params).collect();
+    let bc_of = |tag: i32| model.bc_of_tag(tag);
+    let env = ProjectorEnv {
+        mesh,
+        bcs: &bcs,
+        bc_of: &bc_of,
+        simulation: &model.simulation,
+        solver: model.solvers.first().map(|s| s as &dyn Params),
+        coord_dim,
+        log,
+    };
+    Ok(generate_conforming_map(&env)?)
+}
+
 /// The `fem/tests` case name `elmer-fixtures` keys its ports by: the case
 /// directory's name (the `.sif`'s directory; empty means the working one).
 fn fixture_case(case_dir: &Path) -> String {
@@ -730,6 +753,7 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     install_fe(coords.dim)?;
 
     let periodic = periodic_assembly(&model, mesh, coords.dim, &case_dir, log)?;
+    let conforming = conforming_map(&model, mesh, coords.dim, log)?;
 
     // The test-local plugins' `<Proc>_init` section edits (before Elmer
     // creates their variables).
@@ -748,6 +772,7 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     if let Some(periodic) = periodic {
         sim.backends.assembly = Some(Box::new(periodic));
     }
+    sim.backends.conforming = conforming.map(Arc::new);
     sim.set_matc(Rc::new(SifMatc));
     for (name, value) in globals.iter().chain(&env.globals) {
         sim.vars.set_scalar(name, *value);

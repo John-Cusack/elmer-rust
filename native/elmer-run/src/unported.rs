@@ -33,7 +33,6 @@ const SIMULATION: &[Rule] = &[];
 /// Read by the solver's own procedure; skipped for `Exec Solver = Never`.
 const SOLVER: &[Rule] = &[
     present("Mesh", "solver-specific meshes are not implemented"),
-    flag("Apply Conforming BCs", "conforming BCs are not implemented"),
     flag("Adaptive Mesh Refinement", "mesh refinement is not implemented"),
     // SolverBasics.F90:6859: integration-point fields projected to
     // `<name>_nodal` / elemental / DG variables after the solve; nothing
@@ -47,7 +46,6 @@ const BOUNDARY: &[Rule] = &[
     // The elements `CreateIntersectionBCs` builds for an `Intersection Body`
     // are not composed: IntersectionBody1D diverges (norm 2.6e14 vs 0.113).
     present("Intersection Body", "intersection bodies are not composed"),
-    present("Conforming BC", "conforming BCs are not implemented"),
 ];
 
 /// `SetNormalizedKeywords` (MainUtils.F90:224): `<keyword> Normalize by
@@ -243,10 +241,10 @@ mod tests {
 
         let model = Model {
             solvers: vec![heat(&[]), heat(&[("exec solver", st("never")), ("mesh", st("local"))])],
-            boundary_conditions: vec![pm(&[]), pm(&[("conforming bc", Value::Integer(vec![2]))])],
+            boundary_conditions: vec![pm(&[]), pm(&[("intersection body", Value::Integer(vec![1]))])],
             ..Model::default()
         };
-        assert_eq!(refusal(&model), "Boundary Condition 2: Conforming BC: conforming BCs are not implemented");
+        assert_eq!(refusal(&model), "Boundary Condition 2: Intersection Body: intersection bodies are not composed");
 
         let model = Model {
             solvers: vec![heat(&[])],

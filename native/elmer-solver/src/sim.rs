@@ -178,6 +178,9 @@ pub struct SolverSlot {
     /// `ASSOCIATED(Solver % BlockMatrix)`: a block solve of this solver ran
     /// ([`crate::block_alias`]).
     pub(crate) block_matrix: bool,
+    /// `Solver % PeriodicFlipActive`: the solver numbers its dofs by the
+    /// conforming map and some of its nodes are flipped.
+    pub(crate) conforming_flip: bool,
 }
 
 impl SolverSlot {
@@ -214,6 +217,7 @@ impl SolverSlot {
             cmodes: None,
             children: Vec::new(),
             block_matrix: false,
+            conforming_flip: false,
         })
     }
 
@@ -927,11 +931,41 @@ impl Simulation {
                 .map(Arc::from),
             None => None,
         };
+        let conforming = slot.params.logical("apply conforming bcs") == Some(true);
         let perm = match (&layout, &self.backends.assembly) {
+            (Some(_), _) if conforming => {
+                return Err(SolverError::Unsupported(format!(
+                    "Solver {}: Apply Conforming BCs with p element dofs",
+                    slot.id
+                )))
+            }
             (Some(d), _) => d.perm(),
+            // CreateMatrix: no bandwidth optimisation for conforming BCs.
+            (None, Some(b)) if conforming => b.build_perm(mesh, &slot.active, false),
             (None, Some(b)) => b.build_perm_for(mesh, &slot.active, &slot.params)?,
             (None, None) => node_order_perm(mesh, &slot.active),
         };
+        let mut perm = perm;
+        if conforming {
+            let transient = self
+                .model
+                .simulation
+                .string("simulation type")
+                .is_some_and(|t| t.eq_ignore_ascii_case("transient"));
+            if transient {
+                // MainUtils: conforming BCs enforce `Use Global Mass Matrix`.
+                return Err(SolverError::Unsupported(format!(
+                    "Solver {}: Apply Conforming BCs in a transient run (Use Global Mass Matrix)",
+                    slot.id
+                )));
+            }
+            // Without a map (no `Conforming BC`) Elmer warns that the
+            // conforming BC is requested but not generated, and numbers the
+            // nodes as usual.
+            if let Some(map) = &self.backends.conforming {
+                slot.conforming_flip = crate::conforming::apply_conforming(&mut perm, map);
+            }
+        }
         slot.dofs = layout;
         let perm_arc: Arc<[u32]> = perm.perm.into();
         let mut values = vec![0.0; perm.n_slots * spec.dofs];
