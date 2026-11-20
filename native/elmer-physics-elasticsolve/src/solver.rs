@@ -925,7 +925,6 @@ impl Solver for ElasticSolver {
                 }
                 for (prefix, what) in [
                     ("stress load", "boundary 'Stress Load'"),
-                    ("normal-tangential", "normal-tangential displacement"),
                     ("force 1 im", "imaginary boundary load"),
                     ("force 2 im", "imaginary boundary load"),
                     ("force 3 im", "imaginary boundary load"),
