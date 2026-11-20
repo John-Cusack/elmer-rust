@@ -34,6 +34,7 @@ pub mod cylindric;
 pub mod error;
 pub mod fix_tangent;
 pub mod free_surface;
+pub mod fs_solver;
 pub mod adv_react;
 pub mod parstokes;
 pub mod poisson_dg;

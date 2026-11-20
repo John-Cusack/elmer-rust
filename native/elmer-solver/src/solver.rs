@@ -700,6 +700,11 @@ impl<'a> SolverCtx<'a> {
             .iter()
             .map(|&i| if i == NO_DOF { 0.0 } else { v.values[i as usize] })
             .collect();
+        let method = self.params().string("timestepping method").map(normalize_key);
+        if !second && matches!(method.as_deref(), Some("adams-bashforth") | Some("adams-moulton")) {
+            let bashforth = method.as_deref() == Some("adams-bashforth");
+            return self.adams(local, e, dt, &prev, bashforth);
+        }
         let backend = self
             .sim
             .backends
@@ -722,6 +727,64 @@ impl<'a> SolverCtx<'a> {
         } else {
             backend.add_time_terms(local, &terms)
         }
+    }
+
+    /// `AdamsBashforth` / `AdamsMoulton` (TimeIntegrate.F90:134-254) for
+    /// `Add1stOrderTime`: `PredCorrOrder = MIN(Predictor-Corrector Scheme
+    /// Order, DoneTime / 2)`, `Adams Zeta` for the predictor; the
+    /// predictor's residual and force of each element are kept for the
+    /// corrector (`Element % PropertyData`, zero before the first one).
+    fn adams(&mut self, local: &mut LocalSystem, e: ElemId, dt: f64, prev: &[Vec<f64>], bashforth: bool) -> Result<(), SolverError> {
+        let n = local.n;
+        let mass = local.mass.take().ok_or_else(|| SolverError::fatal("Add1stOrderTime", "no mass matrix"))?;
+        let slot = &mut self.sim.slots[self.slot];
+        let order = (slot.params.integer("predictor-corrector scheme order").unwrap_or(2) as usize).min(slot.done_time / 2);
+        let zeta = slot.params.real("adams zeta").unwrap_or(1.0);
+        let p1 = prev.first().ok_or_else(|| SolverError::fatal("Add1stOrderTime", "no history"))?;
+        if bashforth {
+            let store = slot.adams.entry(e.0).or_insert_with(|| vec![0.0; 2 * n]);
+            if store.len() != 2 * n {
+                store.resize(2 * n, 0.0);
+            }
+            for i in 0..n {
+                let (mut s_curr, mut m_curr) = (0.0, 0.0);
+                for j in 0..n {
+                    s_curr += local.stiff[i * n + j] * p1[j];
+                    m_curr += (1.0 / dt) * mass[i * n + j] * p1[j];
+                }
+                let curr_res = -s_curr;
+                let (residual, pre_force) = if order == 1 { (curr_res, local.force[i]) } else { (store[i], store[i + n]) };
+                store[i] = curr_res;
+                store[i + n] = local.force[i];
+                let f = local.force[i];
+                local.force[i] = f - s_curr + m_curr + 0.5 * zeta * (f - pre_force) + 0.5 * zeta * (curr_res - residual);
+                for j in 0..n {
+                    local.stiff[i * n + j] = (1.0 / dt) * mass[i * n + j];
+                }
+            }
+        } else {
+            let p2 = prev.get(1).ok_or_else(|| SolverError::fatal("AdamsMoulton", "two history columns needed"))?;
+            let store = slot.adams.get(&e.0).ok_or_else(|| {
+                SolverError::fatal("AdamsMoulton", "Adams-Moulton method must be executed after Adams-Bashforth method!")
+            })?;
+            for i in 0..n {
+                let (mut s_curr, mut m_curr) = (0.0, 0.0);
+                for j in 0..n {
+                    s_curr += local.stiff[i * n + j] * p1[j];
+                    m_curr += (1.0 / dt) * mass[i * n + j] * p2[j];
+                }
+                for j in 0..n {
+                    local.stiff[i * n + j] = (1.0 / dt) * mass[i * n + j];
+                }
+                let (residual, pre_force) = (store[i], store[i + n]);
+                local.force[i] = if order == 1 {
+                    local.force[i] + m_curr - s_curr
+                } else {
+                    0.5 * (local.force[i] + pre_force) + m_curr + 0.5 * (-s_curr + residual)
+                };
+            }
+        }
+        Ok(())
     }
 
     /// `Default2ndOrderTime`: fold `local.mass` and `local.damp` into the
