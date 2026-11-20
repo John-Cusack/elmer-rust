@@ -178,7 +178,7 @@ impl Solver for StatCurrentSolver {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         // StatCurrentSolve.F90:186: `Calculate Conductivity Matrix` is the
         // library's constraint-mode lumping (`Conductivity Body` BCs).
-        elmer_solver::constraint_modes_lumping(ctx, "calculate conductivity matrix", "ConductivityMatrix.dat", "Constraint Mode Potential");
+        elmer_solver::constraint_modes_lumping(ctx, &elmer_solver::CONDUCTIVITY);
         check_supported(ctx)?;
         axisymmetric(ctx)?;
         let dim = ctx.mesh.dim();
