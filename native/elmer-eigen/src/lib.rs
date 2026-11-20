@@ -32,6 +32,7 @@ pub use dsyev::{dsyev, DsyevError, Jobz};
 pub use krylov::{krylov_schur, EigenOperator, KrylovParams, RitzPairs};
 pub use scale::{check_residuals, scale_eigen_vectors};
 pub use solve::{eigs, shifted_matrix, EigenResult, Mass};
+pub use num_complex::Complex64;
 pub use sort::{eigen_system_sorting, sort_r};
 
 use elmer_core::Logger;

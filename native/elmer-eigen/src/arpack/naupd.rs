@@ -13,9 +13,10 @@
 //! process (`SAVE`d after the first call, with that call's `n`); the value
 //! is kept in [`Arpack`] with `dgetv0`'s seed.
 
-use super::blas::{daxpy, dcopy, ddot, dgemv_n, dgemv_t, dnrm2, dscal};
+use super::blas::{daxpy, dcopy, dgemv_n, dgemv_t, dnrm2, dscal};
 use super::lapack::{dlacpy, dlapy2, dlarf, dlarfg, dlartg, dlascl_g, dlaset, EPS, PREC, SAFMIN};
 use super::lapack_ns::{dlanhs_one, dlanv2, drot_within, dtrevc_right};
+use super::par::{eps23, pddot, pdnorm2, psum, Par};
 use super::saupd::{c0717, dgetv0, Arpack, Op, Stats};
 
 /// `which` of the non-symmetric routines.
@@ -428,6 +429,7 @@ fn smlnum_once(cell: &mut Option<f64>, n: usize) -> f64 {
 /// found).
 #[allow(clippy::too_many_arguments)]
 fn dnaitr(
+    par: Par<'_>,
     op: &mut Op<'_>,
     st: &mut Stats,
     arp: &mut Arpack,
@@ -461,7 +463,7 @@ fn dnaitr(
             let mut itry = 1;
             loop {
                 // 20 / 30
-                let (rn, ierr) = dgetv0(op, st, arp, bmat_g, false, n, j, v, ldv, resid, workd)?;
+                let (rn, ierr) = dgetv0(par, op, st, arp, bmat_g, false, n, j, v, ldv, resid, workd)?;
                 *rnorm = rn;
                 if ierr < 0 {
                     itry += 1;
@@ -498,10 +500,12 @@ fn dnaitr(
             dcopy(n, resid, &mut workd[ipj..]);
         }
         // 60
-        let wnorm = if bmat_g { ddot(n, resid, &workd[ipj..]).abs().sqrt() } else { dnrm2(n, resid) };
+        let wnorm = if bmat_g { pddot(par, n, resid, &workd[ipj..]).abs().sqrt() } else { pdnorm2(par, n, resid) };
         // STEP 5: h = V^T B r; r = r - V h.
         let hj = (j - 1) * ldh;
         dgemv_t(n, j, 1.0, v, ldv, &workd[ipj..], 0.0, &mut h[hj..]);
+        // PARPACK: computed in its workspace, reduced into h(1,j).
+        psum(par, &mut h[hj..hj + j]);
         {
             let col: Vec<f64> = h[hj..hj + j].to_vec();
             dgemv_n(n, j, -1.0, v, ldv, &col, 1.0, resid);
@@ -517,7 +521,7 @@ fn dnaitr(
             dcopy(n, resid, &mut workd[ipj..]);
         }
         // 70: compute the B-norm of r_{j}.
-        *rnorm = if bmat_g { ddot(n, resid, &workd[ipj..]).abs().sqrt() } else { dnrm2(n, resid) };
+        *rnorm = if bmat_g { pddot(par, n, resid, &workd[ipj..]).abs().sqrt() } else { pdnorm2(par, n, resid) };
         // STEP 5: Re-orthogonalization / Iterative refinement phase.
         // `IF (rnorm .GT. 0.717*wnorm) GO TO 100`: a NaN norm refines too.
         #[allow(clippy::neg_cmp_op_on_partial_ord)]
@@ -526,12 +530,22 @@ fn dnaitr(
             st.nrorth += 1;
             loop {
                 // 80
-                {
-                    let (p, r) = workd.split_at_mut(irj);
-                    dgemv_t(n, j, 1.0, v, ldv, p, 0.0, r);
+                if par.is_some() {
+                    // PARPACK: V^T B r reduced in its workspace; workd(irj)
+                    // untouched.
+                    let mut t = vec![0.0; j];
+                    dgemv_t(n, j, 1.0, v, ldv, &workd[ipj..], 0.0, &mut t);
+                    psum(par, &mut t);
+                    dgemv_n(n, j, -1.0, v, ldv, &t, 1.0, resid);
+                    daxpy(j, 1.0, &t, &mut h[hj..]);
+                } else {
+                    {
+                        let (p, r) = workd.split_at_mut(irj);
+                        dgemv_t(n, j, 1.0, v, ldv, p, 0.0, r);
+                    }
+                    dgemv_n(n, j, -1.0, v, ldv, &workd[irj..], 1.0, resid);
+                    daxpy(j, 1.0, &workd[irj..], &mut h[hj..]);
                 }
-                dgemv_n(n, j, -1.0, v, ldv, &workd[irj..], 1.0, resid);
-                daxpy(j, 1.0, &workd[irj..], &mut h[hj..]);
                 if bmat_g {
                     st.nbx += 1;
                     dcopy(n, resid, &mut workd[irj..]);
@@ -540,7 +554,7 @@ fn dnaitr(
                     dcopy(n, resid, &mut workd[ipj..]);
                 }
                 // 90
-                let rnorm1 = if bmat_g { ddot(n, resid, &workd[ipj..]).abs().sqrt() } else { dnrm2(n, resid) };
+                let rnorm1 = if bmat_g { pddot(par, n, resid, &workd[ipj..]).abs().sqrt() } else { pdnorm2(par, n, resid) };
                 if rnorm1 > c0717() * *rnorm {
                     *rnorm = rnorm1;
                     break;
@@ -581,6 +595,7 @@ fn dnaitr(
 /// (`kev` grows).
 #[allow(clippy::too_many_arguments)]
 fn dnapps(
+    par: Par<'_>,
     arp: &mut Arpack,
     n: usize,
     kev: &mut usize,
@@ -680,7 +695,9 @@ fn dnapps(
                         // Accumulate the rotation in the matrix Q; Q <- Q*G.
                         // The bound reads loop 60's index after it ended
                         // (`DO 70 J = 1, MIN(J+JJ, KPLUSP)`): jend + 1.
-                        for j in 1..=(jend + 1 + jj).min(kplusp) {
+                        // PARPACK's pdnapps bounds it by min(i+jj, kplusp).
+                        let ub = if par.is_some() { (i + jj).min(kplusp) } else { (jend + 1 + jj).min(kplusp) };
+                        for j in 1..=ub {
                             let t = c * q[ix(j, i, ldq)] + s * q[ix(j, i + 1, ldq)];
                             q[ix(j, i + 1, ldq)] = -s * q[ix(j, i, ldq)] + c * q[ix(j, i + 1, ldq)];
                             q[ix(j, i, ldq)] = t;
@@ -835,22 +852,68 @@ pub fn dnaupd(
     workl: &mut [f64],
     info_in: i32,
 ) -> Result<Naupd, String> {
+    naupd(None, op, arp, bmat_g, n, which, nev, tol, resid, ncv, v, ldv, iparam, workd, workl, info_in)
+}
+
+/// PARPACK's `PDNAUPD(comm, ...)`: [`dnaupd`] on this rank's `n` rows of
+/// the vectors, the reductions over `comm` (see [`super::par`]). Collective.
+#[allow(clippy::too_many_arguments)]
+pub fn pdnaupd(
+    comm: &dyn elmer_core::Communicator,
+    op: &mut Op<'_>,
+    arp: &mut Arpack,
+    bmat_g: bool,
+    n: usize,
+    which: NWhich,
+    nev: usize,
+    tol: &mut f64,
+    resid: &mut [f64],
+    ncv: usize,
+    v: &mut [f64],
+    ldv: usize,
+    iparam: [i32; 11],
+    workd: &mut [f64],
+    workl: &mut [f64],
+    info_in: i32,
+) -> Result<Naupd, String> {
+    naupd(Some(comm), op, arp, bmat_g, n, which, nev, tol, resid, ncv, v, ldv, iparam, workd, workl, info_in)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn naupd(
+    par: Par<'_>,
+    op: &mut Op<'_>,
+    arp: &mut Arpack,
+    bmat_g: bool,
+    n: usize,
+    which: NWhich,
+    nev: usize,
+    tol: &mut f64,
+    resid: &mut [f64],
+    ncv: usize,
+    v: &mut [f64],
+    ldv: usize,
+    iparam: [i32; 11],
+    workd: &mut [f64],
+    workl: &mut [f64],
+    info_in: i32,
+) -> Result<Naupd, String> {
     let mut out = Naupd { iparam, ..Default::default() };
     let ishift = iparam[0];
     let mut mxiter = iparam[2];
     let mode = iparam[6];
     let lworkl = 3 * ncv * ncv + 6 * ncv;
-    let ierr = if n == 0 {
+    let ierr = if n == 0 && par.is_none() {
         -1
     } else if nev == 0 {
         -2
-    } else if ncv <= nev + 1 || ncv > n {
+    } else if ncv <= nev + 1 || (ncv > n && par.is_none()) {
         -3
     } else if mxiter <= 0 {
         -4
     } else if workl.len() < lworkl {
         -7
-    } else if !(1..=5).contains(&mode) {
+    } else if !(1..=if par.is_some() { 4 } else { 5 }).contains(&mode) {
         -10
     } else if mode == 1 && bmat_g {
         -11
@@ -897,7 +960,7 @@ pub fn dnaupd(
     let mut nev0 = nev;
     let mut np_ = np;
     let info = dnaup2(
-        op, &mut st, arp, bmat_g, n, which, &mut nev0, &mut np_, *tol, resid, ishift, &mut mxiter, v, ldv, h, ldh, rr,
+        par, op, &mut st, arp, bmat_g, n, which, &mut nev0, &mut np_, *tol, resid, ishift, &mut mxiter, v, ldv, h, ldh, rr,
         ri, bd, q, ldq, wl, workd, info_in,
     )?;
     out.iparam[2] = mxiter;
@@ -914,6 +977,7 @@ pub fn dnaupd(
 /// Returns `info`.
 #[allow(clippy::too_many_arguments)]
 fn dnaup2(
+    par: Par<'_>,
     op: &mut Op<'_>,
     st: &mut Stats,
     arp: &mut Arpack,
@@ -939,7 +1003,7 @@ fn dnaup2(
     workd: &mut [f64],
     info_in: i32,
 ) -> Result<i32, String> {
-    let eps23 = EPS.powf(2.0 / 3.0);
+    let eps23 = eps23(par);
     let nev0 = *nev;
     let np0 = *np;
     let kplusp = *nev + *np;
@@ -951,13 +1015,13 @@ fn dnaup2(
 
     // Get a possibly random starting vector and force it into the range
     // of the operator OP.
-    let (mut rnorm, _) = dgetv0(op, st, arp, bmat_g, initv, n, 1, v, ldv, resid, workd)?;
+    let (mut rnorm, _) = dgetv0(par, op, st, arp, bmat_g, initv, n, 1, v, ldv, resid, workd)?;
     if rnorm == 0.0 {
         // The initial vector is zero. Error exit.
         return Ok(-9);
     }
     // Compute the first NEV steps of the Arnoldi factorization.
-    let r = dnaitr(op, st, arp, bmat_g, n, 0, *nev, resid, &mut rnorm, v, ldv, h, ldh, workd)?;
+    let r = dnaitr(par, op, st, arp, bmat_g, n, 0, *nev, resid, &mut rnorm, v, ldv, h, ldh, workd)?;
     if r > 0 {
         *np = r;
         *mxiter = iter;
@@ -970,7 +1034,7 @@ fn dnaup2(
         // NP since NEV might have been updated by last call to dnapps.
         *np = kplusp - *nev;
         // 20
-        let r = dnaitr(op, st, arp, bmat_g, n, *nev, *np, resid, &mut rnorm, v, ldv, h, ldh, workd)?;
+        let r = dnaitr(par, op, st, arp, bmat_g, n, *nev, *np, resid, &mut rnorm, v, ldv, h, ldh, workd)?;
         if r > 0 {
             *np = r;
             *mxiter = iter;
@@ -1049,16 +1113,18 @@ fn dnaup2(
             dsortc(wprime, true, kplusp, ritzr, ritzi, bounds);
             // Scale the Ritz estimate of each Ritz value by
             // 1 / max(eps23, magnitude of the Ritz value).
-            for j in 0..nev0 {
+            // (PARPACK's pdnaup2 scales and sorts numcnv of them.)
+            let nscale = if par.is_some() { numcnv } else { nev0 };
+            for j in 0..nscale {
                 let temp = eps23.max(dlapy2(ritzr[j], ritzi[j]));
                 bounds[j] /= temp;
             }
             // Sort the Ritz values according to the scaled Ritz estimates.
             // This will push all the converged ones towards the front of
             // ritzr, ritzi, bounds (in the case when NCONV < NEV.)
-            dsortc(NWhich::LR, true, nev0, bounds, ritzr, ritzi);
+            dsortc(NWhich::LR, true, nscale, bounds, ritzr, ritzi);
             // Scale the Ritz estimate back to its original value.
-            for j in 0..nev0 {
+            for j in 0..nscale {
                 let temp = eps23.max(dlapy2(ritzr[j], ritzi[j]));
                 bounds[j] *= temp;
             }
@@ -1098,7 +1164,7 @@ fn dnaup2(
         // is applied to the whole upper Hessenberg matrix H. The first 2*N
         // locations of WORKD are used as workspace.
         let (sr, si): (Vec<f64>, Vec<f64>) = (ritzr[..*np].to_vec(), ritzi[..*np].to_vec());
-        dnapps(arp, n, nev, *np, &sr, &si, v, ldv, h, ldh, resid, q, ldq, workl, workd);
+        dnapps(par, arp, n, nev, *np, &sr, &si, v, ldv, h, ldh, resid, q, ldq, workl, workd);
         // Compute the B-norm of the updated residual. Keep B*RESID in
         // WORKD(1:N) to be used in the first step of the next call to
         // dnaitr.
@@ -1110,6 +1176,6 @@ fn dnaup2(
             dcopy(n, resid, workd);
         }
         // 100
-        rnorm = if bmat_g { ddot(n, resid, workd).abs().sqrt() } else { dnrm2(n, resid) };
+        rnorm = if bmat_g { pddot(par, n, resid, workd).abs().sqrt() } else { pdnorm2(par, n, resid) };
     }
 }
