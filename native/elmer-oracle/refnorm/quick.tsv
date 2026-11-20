@@ -69,11 +69,11 @@ CurvedBndryPFEM	bitwise	1
 CurvedBndryPFEM2	bitwise	1	
 CurvedBoundaryP	bitwise	1	solver 2: norm option show norm index
 CurvedBoundaryPatchH	bitwise	1	
-CutFEMPoisson1	out-of-class	0	solver 1: potential in several result files; solver 2: norm option show norm index
-CutFEMPoisson1Lib	out-of-class	0	solver 1: potential in several result files; solver 2: norm option show norm index
-CutFEMPoisson1LibLim	out-of-class	0	solver 1: potential in several result files; solver 2: norm option show norm index
-CutFEMPoisson2	out-of-class	0	solver 1: potential in several result files; solver 2: norm option show norm index
-CutFEMPoisson3	out-of-class	0	solver 1: potential in several result files; solver 2: norm option show norm index
+CutFEMPoisson1	bitwise	1	solver 1: own file square-tri-cutfem/case.result; solver 2: norm option show norm index
+CutFEMPoisson1Lib	out-of-class	0	solver 1: CutFEM: the cut-mesh solution is not saved; solver 2: norm option show norm index
+CutFEMPoisson1LibLim	out-of-class	0	solver 1: CutFEM: the cut-mesh solution is not saved; solver 2: norm option show norm index
+CutFEMPoisson2	bitwise	1	solver 1: own file square-quad-cutfem/case.result; solver 2: norm option show norm index
+CutFEMPoisson3	bitwise	1	solver 1: own file square-tri-cutfem/case.result; solver 2: norm option show norm index
 DataToField	bitwise	1	
 DataToField2	bitwise	1	
 DefaultIntExtBCs	bitwise	1	
@@ -250,7 +250,7 @@ NormalizeBF	bitwise	1
 NormalizeMaterial	bitwise	1	
 OdeSolver1stOrder	out-of-class	0	solver 1: ode not in any result file
 OdeSolver2ndOrder	out-of-class	0	solver 1: ode not in any result file
-OtherMeshResults	out-of-class	0	solver 1: temperature in several result files; solver 3: norm option show norm
+OtherMeshResults	bitwise	1	solver 1: own file angle/case.result; solver 3: norm option show norm
 OtherMeshResults_np4	out-of-class	0	solver 1: temperature in 2 per-rank result sets; solver 3: norm option show norm
 Outlet2InletBCv2	bitwise	1	
 ParStokes_NormalTangentialBC	bitwise	1	
@@ -326,7 +326,7 @@ ShoeboxStaticShell	bitwise	1	solver 1: deflection (default)
 SlaveSolverSlots	out-of-class	0	solver 2: count not in any result file
 SlaveSolverSlotsScan	bitwise	1	solver 1: count not in any result file
 SolverSpecificMeshes	bitwise	1	
-StatCurr_adaptivity	out-of-class	0	solver 1: potential in several result files
+StatCurr_adaptivity	bitwise	1	solver 1: own file RefinedMesh3/case.result
 StatCurrentVec	bitwise	1	
 StatCurrentVec2	bitwise	2	
 StatCurrentVecAniso	bitwise	1	
@@ -376,12 +376,12 @@ UMAT_linear_isotropic_2D	bitwise	1
 VectorHelmholtzWaveguideNodal	grader-gap-solver-norm	1	solver 1: elfield (default); WARNING:: CompareToReferenceSolution: Solver 1 FAILED:  Norm = 4.44414009E-01  RefNorm = 4.44414009E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!; solver 1: sets its own norm, not validated
 WaveEqu	bitwise	1	
 WeightComputation	out-of-class	0	solver 3: norm option show norm
-a-posteriori-recovery-2D	out-of-class	0	solver 1: temperature in several result files
-adaptivity1	out-of-class	0	solver 1: temperature in several result files
-adaptivity2	out-of-class	0	solver 1: temperature in several result files
-adaptivity3	out-of-class	0	solver 1: flow solution (default) in several result files
-adaptivity4	out-of-class	0	solver 1: displacement in several result files
-adaptivity5	out-of-class	0	solver 1: displacement in several result files
+a-posteriori-recovery-2D	bitwise	1	solver 1: own file RefinedMesh3/case.result
+adaptivity1	bitwise	1	solver 1: own file RefinedMesh3/case.result
+adaptivity2	bitwise	1	solver 1: own file RefinedMesh3/case.result
+adaptivity3	bitwise	1	solver 1: own file RefinedMesh4/case.result; solver 1: flow solution (default)
+adaptivity4	bitwise	1	solver 1: own file RefinedMesh6/case.result
+adaptivity5	bitwise	1	solver 1: own file RefinedMesh6/case.result
 adv_diff1	bitwise	1	
 adv_diff2	bitwise	1	
 amultg2	bitwise	1	
@@ -394,7 +394,7 @@ bodyload	bitwise	1
 buckling	out-of-class	0	solver 2: norm option show norm
 current	bitwise	1	
 current_heat_control	bitwise	1	
-el_adaptivity	out-of-class	0	solver 1: potential in several result files
+el_adaptivity	bitwise	1	solver 1: own file RefinedMesh3/case.result
 elasticity	bitwise	1	
 elasticity_with_springs	bitwise	1	
 elstat_source	bitwise	1	
@@ -423,7 +423,7 @@ mgdyn_nodalforce2d	bitwise	1	solver 3: no explicit Variable; 10 variables of equ
 mgdyn_steady_2ndorder	grader-gap-solver-norm	1	WARNING:: CompareToReferenceSolution: Solver 1 FAILED:  Norm = 1.30579458E-02  RefNorm = 6.21681304E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!; solver 1: sets its own norm, not validated
 mgdyn_steady_piolaversion	out-of-class	0	solver 1: p not in any result file
 mgdyn_thinsheet_harmonic	bitwise	1	
-multimesh	out-of-class	0	solver 3: localt in several result files
+multimesh	bitwise	1	solver 3: own file local/case.result
 normals	out-of-class	0	solver 2: variable option -nooutput
 p-FEM_two_solvers	bitwise	2	
 p-FEM_with_varying_p	bitwise	1	
