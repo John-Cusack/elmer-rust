@@ -559,11 +559,10 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         if axi {
             return Err(unsupported("an edge-element target in axial symmetry"));
         }
-        for k in ["use piola transform", "quadratic approximation"] {
-            if logical(&psp, k) == Some(true) {
-                return Err(unsupported(format!("an edge-element target with '{k}'")));
-            }
+        if logical(&psp, "second kind basis") == Some(true) {
+            return Err(unsupported("an edge-element target with 'second kind basis'"));
         }
+        let piola = crate::piola::is_piola(&psp);
         let bf_potential = match logical(&sp, "impose body force potential") {
             Some(b) => b,
             None => ctx.sim.model.body_forces.iter().any(|b| b.get("electric potential").is_some()),
@@ -571,16 +570,21 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         if bf_potential {
             return Err(unsupported("'Impose Body Force Potential'"));
         }
-        if impose_bf_current && cd.any() {
-            return Err(unsupported("body-force current density in the current density of an edge-element target"));
+        if piola {
+            if vdofs != 1 {
+                return Err(unsupported("a harmonic Piola edge-element target"));
+            }
+            let degree = if logical(&psp, "quadratic approximation") == Some(true) { 2 } else { 1 };
+            Some(EdgeTarget::Piola(degree))
+        } else {
+            let case = crate::Case::from_view(ctx.mesh, &ctx.sim.model);
+            let with_v = vdofs == 2 || crate::steady::static_conductivity(&case, &psp);
+            let lay = crate::layout::AvLayout::build(&case, t.index, with_v)?;
+            if ctx.sim.vars.by_id(pvar).values.len() != vdofs * lay.n() {
+                return Err(SolverError::fatal(CALLER, "the potential has not been solved on the edge layout yet"));
+            }
+            Some(EdgeTarget::Whitney(Box::new(case), lay))
         }
-        let case = crate::Case::from_view(ctx.mesh, &ctx.sim.model);
-        let with_v = vdofs == 2 || crate::steady::static_conductivity(&case, &psp);
-        let lay = crate::layout::AvLayout::build(&case, t.index, with_v)?;
-        if ctx.sim.vars.by_id(pvar).values.len() != vdofs * lay.n() {
-            return Err(SolverError::fatal(CALLER, "the potential has not been solved on the edge layout yet"));
-        }
-        Some((case, lay))
     } else {
         None
     };
@@ -607,16 +611,32 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         let material = bp.as_ref().and_then(|b| b.material).cloned();
         let body_force = bp.as_ref().and_then(|b| b.body_force).cloned();
         omega = angular_frequency(ctx, &psp, e)?.unwrap_or(0.0);
-        // BodyForceCurrDens(3, 1:n), complex.
-        let mut bf_cd = (vec![0.0; n], vec![0.0; n]);
+        // BodyForceCurrDens(3, 1:n), complex: in 3D `GetComplexVector(...,
+        // 'Current Density')` (components `1..3`, `im 1..3`), in 2D the z
+        // component from the scalar.
+        let mut bf_cd: [(Vec<f64>, Vec<f64>); 3] = std::array::from_fn(|_| (vec![0.0; n], vec![0.0; n]));
         if impose_bf_current {
             if let Some(bf) = &body_force {
-                bf_cd.0 = scalar_at_nodes(ctx, bf, "current density", e, n)?;
-                if vdofs == 2 {
-                    bf_cd.1 = scalar_at_nodes(ctx, bf, "current density im", e, n)?;
+                if dim == 3 {
+                    if bf.get("current density").is_some() || bf.get("current density im").is_some() {
+                        return Err(unsupported("a 'Current Density' array in 3D"));
+                    }
+                    for (c, cd_c) in bf_cd.iter_mut().enumerate() {
+                        cd_c.0 = scalar_at_nodes(ctx, bf, &format!("current density {}", c + 1), e, n)?;
+                        if vdofs == 2 {
+                            cd_c.1 = scalar_at_nodes(ctx, bf, &format!("current density im {}", c + 1), e, n)?;
+                        }
+                    }
+                } else {
+                    bf_cd[2].0 = scalar_at_nodes(ctx, bf, "current density", e, n)?;
+                    if vdofs == 2 {
+                        bf_cd[2].1 = scalar_at_nodes(ctx, bf, "current density im", e, n)?;
+                    }
                 }
                 if let Some(mult) = ctx.creal(bf, "current density multiplier")? {
-                    bf_cd.0.iter_mut().chain(bf_cd.1.iter_mut()).for_each(|v| *v *= mult);
+                    for cd_c in bf_cd.iter_mut() {
+                        cd_c.0.iter_mut().chain(cd_c.1.iter_mut()).for_each(|v| *v *= mult);
+                    }
                 }
             }
         }
@@ -655,7 +675,8 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         };
         let (ips, np) = match &edge {
             None => (nodal_points(ctx, pvar, vdofs, &nodes, &xyz, etype, axi, omega, &mut status)?, n),
-            Some((case, lay)) => edge_points(ctx, pvar, vdofs, case, lay, e, omega, &mut status)?,
+            Some(EdgeTarget::Whitney(case, lay)) => edge_points(ctx, pvar, vdofs, case, lay, e, omega, &mut status)?,
+            Some(EdgeTarget::Piola(degree)) => piola_points(ctx, pvar, e, *degree)?,
         };
         for ip in &ips {
             let (s, basis, b, ev, vp_ip) = (ip.s, &ip.basis[..n], ip.b, ip.e, ip.vp);
@@ -667,15 +688,19 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
                 cmat_re[k][k] = c_re_ip;
                 cmat_im[k][k] = c_im_ip;
             }
-            let bf_ip = if impose_bf_current { [dot(&bf_cd.0, basis), dot(&bf_cd.1, basis)] } else { [0.0, 0.0] };
+            let bf_ip: [[f64; 2]; 3] = if impose_bf_current {
+                std::array::from_fn(|l| [dot(&bf_cd[l].0, basis), dot(&bf_cd[l].1, basis)])
+            } else {
+                [[0.0; 2]; 3]
+            };
             // JatIp (the circuit term CC_J is zero without circuits).
             let mut jat = [[0.0f64; 3]; 2];
             for l in 0..3 {
                 if real {
-                    jat[0][l] = dot(&cmat_re[l], &ev[0]) + 0.0 + bf_re(l, bf_ip);
+                    jat[0][l] = dot(&cmat_re[l], &ev[0]) + 0.0 + bf_ip[l][0];
                 } else {
-                    jat[0][l] = dot(&cmat_re[l], &ev[0]) - dot(&cmat_im[l], &ev[1]) + bf_re(l, bf_ip);
-                    jat[1][l] = dot(&cmat_im[l], &ev[0]) + dot(&cmat_re[l], &ev[1]) + bf_im(l, bf_ip);
+                    jat[0][l] = dot(&cmat_re[l], &ev[0]) - dot(&cmat_im[l], &ev[1]) + bf_ip[l][0];
+                    jat[1][l] = dot(&cmat_im[l], &ev[0]) + dot(&cmat_re[l], &ev[1]) + bf_ip[l][1];
                 }
             }
             let joule_from_current = np == 0;
@@ -942,6 +967,14 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
 /// One integration point of the element loop: `s = IP % s * detJ` (times
 /// `x` in axial symmetry), the nodal basis, and `B`, `E` and the vector
 /// potential, real and imaginary parts.
+/// The potential of an edge-element target: the lowest-order Whitney
+/// basis (with its own edge numbering) or the Piola basis of degree 1 or 2
+/// on the framework layout.
+enum EdgeTarget {
+    Whitney(Box<crate::Case>, crate::layout::AvLayout),
+    Piola(u8),
+}
+
 struct Ip {
     s: f64,
     basis: Vec<f64>,
@@ -1111,20 +1144,86 @@ fn edge_points(
     Ok((out, np))
 }
 
-fn bf_re(l: usize, bf: [f64; 2]) -> f64 {
-    if l == 2 {
-        bf[0]
-    } else {
-        0.0
+/// `GaussPointsPBrick(3,3,3)`: the 3-point Gauss rule in each direction,
+/// `u` outermost, `s = (W_i W_j) W_k`.
+fn p_brick_27() -> Result<elmer_fe::quadrature::GaussRule, SolverError> {
+    let g = elmer_fe::quadrature::gauss_points(elmer_core::ElementType(202), Some(3))
+        .map_err(|e| SolverError::fatal(CALLER, e.to_string()))?;
+    let mut r = elmer_fe::quadrature::GaussRule { u: Vec::new(), v: Vec::new(), w: Vec::new(), s: Vec::new() };
+    for i in 0..3 {
+        for j in 0..3 {
+            for k in 0..3 {
+                r.u.push(g.u[i]);
+                r.v.push(g.u[j]);
+                r.w.push(g.u[k]);
+                r.s.push(g.s[i] * g.s[j] * g.s[k]);
+            }
+        }
     }
+    Ok(r)
 }
 
-fn bf_im(l: usize, bf: [f64; 2]) -> f64 {
-    if l == 2 {
-        bf[1]
-    } else {
-        0.0
+/// The edge-element kernel of a steady Piola target (bricks):
+/// `GaussPoints(Element, EdgeBasis=.TRUE., PReferenceElement=.TRUE.,
+/// EdgeBasisDegree)` (`EdgeElementGaussPoints`: `GaussPointsPBrick(3,3,3)`),
+/// `ElementInfo(..., EdgeBasis, RotBasis, USolver=pSolver)` through
+/// [`crate::piola::edge_info`], `B = MATMUL(SOL(np+1:nd), RotWBasis)`,
+/// `E = -grad V` (zero without the nodal V). The target's DOFs are its
+/// framework layout's.
+fn piola_points(ctx: &SolverCtx<'_>, pvar: elmer_solver::VarId, e: ElemId, degree: u8) -> Result<(Vec<Ip>, usize), SolverError> {
+    let el = ctx.mesh.element(e);
+    if el.etype.0 / 100 != 8 {
+        return Err(unsupported(format!("a Piola edge-element target on element type {}", el.etype.0)));
     }
+    let n = el.nodes.len();
+    let target = ctx.sim.slots.iter().position(|s| s.variable == Some(pvar)).and_then(|ix| ctx.sim.slot_dofs(ix));
+    let Some(d) = target else {
+        return Err(SolverError::fatal(CALLER, "the Piola potential has no DOF layout"));
+    };
+    let mut slots = Vec::new();
+    d.element_slots(e, &mut slots);
+    if slots.contains(&elmer_core::NO_DOF) {
+        return Err(SolverError::fatal(CALLER, "a CalcFields element outside the potential's elements"));
+    }
+    let pv = ctx.sim.vars.by_id(pvar);
+    let sol: Vec<f64> = slots.iter().map(|&s| pv.values[s as usize]).collect();
+    let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+    let gindex: Vec<i64> = el.nodes.iter().map(|&k| k as i64 + 1).collect();
+    let rule = p_brick_27()?;
+    let mv = |x: &[f64], m: &[[f64; 3]]| {
+        let mut r = [0.0; 3];
+        for (c, rc) in r.iter_mut().enumerate() {
+            let mut acc = 0.0;
+            for (xi, mi) in x.iter().zip(m) {
+                acc += xi * mi[c];
+            }
+            *rc = acc;
+        }
+        r
+    };
+    let mut out = Vec::with_capacity(rule.len());
+    let mut np = 0;
+    for t in 0..rule.len() {
+        let (ev, basis, dbasis) = crate::piola::edge_info(el.etype, &xyz, &gindex, [rule.u[t], rule.v[t], rule.w[t]], degree)?;
+        np = match sol.len().checked_sub(ev.dofs) {
+            Some(p) if p == 0 || p == n => p,
+            _ => return Err(SolverError::fatal(CALLER, "the potential's element DOFs do not match its basis")),
+        };
+        let s = rule.s[t] * ev.det;
+        let mut b = [[0.0f64; 3]; 2];
+        let mut vp = [[0.0f64; 3]; 2];
+        b[0] = mv(&sol[np..], &ev.curl);
+        vp[0] = mv(&sol[np..], &ev.edge);
+        let mut ef = [[0.0f64; 3]; 2];
+        if np > 0 {
+            let g = mv(&sol[..np], &dbasis[..np]);
+            for c in 0..3 {
+                ef[0][c] = -g[c];
+            }
+        }
+        out.push(Ip { s, basis, b, e: ef, vp });
+    }
+    Ok((out, np))
 }
 
 #[cfg(test)]

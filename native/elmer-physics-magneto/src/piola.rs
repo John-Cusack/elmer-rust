@@ -1,5 +1,6 @@
 //! Steady-state `WhitneyAVSolver` with the Piola-transformed edge basis
-//! (`Use Piola Transform = True`, first order): `DoSolve` through the
+//! of the first kind (`Use Piola Transform = True`, and of degree 2 with
+//! `Quadratic Approximation`): `DoSolve` through the
 //! solver framework, whose `elmer-pdofs` layout of the `Element`
 //! definition (`n:1 e:1 -brick b:3 -quad_face b:2`, or the `n:0` one
 //! without the scalar potential) numbers the nodal, edge, face and bubble
@@ -17,12 +18,15 @@
 //! (`VectorElementEdgeDOFs` / `SolveLocalFaceDOFs`); only zero `{e}` values
 //! are ported, for which both give zero. `ConstrainUnused` follows.
 //!
-//! Refused: the second-order and second-kind bases, the boundary terms of
+//! Bricks only: the 8-node one, and the 27-node one whose geometry and
+//! nodal (scalar potential) basis are its own 27-node functions.
+//!
+//! Refused: the second-kind basis, other element types, the boundary terms of
 //! `LocalMatrixBC` / air gaps / thin lines, coils, velocities, nonlinear
 //! materials and the options [`crate::steady`] refuses.
 
 use elmer_core::{ElemId, ElementType, LocalSystem, ParamMap, Params, Value, NO_DOF};
-use elmer_fe_hp::edge::edge_element_info_nodal;
+use elmer_fe_hp::edge::{edge_element_info_geometry, edge_element_info_nodal};
 use elmer_fe_hp::face::{BRICK_FACE_MAP, TETRA_FACE_MAP};
 use elmer_solver::{SolverCtx, SolverError};
 
@@ -41,13 +45,23 @@ pub fn is_piola(sp: &ParamMap) -> bool {
         .any(|k| sp.logical(k) == Some(true))
 }
 
-/// `WhitneyAVSolver_Init0`'s `Element` for the first-order Piola basis in
-/// steady state.
-pub fn init_element(static_cond: bool) -> &'static str {
-    if static_cond {
-        "n:1 e:1 -brick b:3 -quad_face b:2"
+/// `WhitneyAVSolver_Init0`'s `Element` for the Piola basis of the first
+/// kind (`second_order`: `Quadratic Approximation`) in steady state.
+pub fn init_element(static_cond: bool, second_order: bool) -> &'static str {
+    match (static_cond, second_order) {
+        (true, false) => "n:1 e:1 -brick b:3 -quad_face b:2",
+        (false, false) => "n:0 e:1 -brick b:3 -quad_face b:2",
+        (true, true) => "n:1 e:2 -brick b:6 -prism b:2 -pyramid b:3 -quad_face b:4 -tri_face b:2",
+        (false, true) => "n:0 e:2 -brick b:6 -pyramid b:3 -prism b:2 -quad_face b:4 -tri_face b:2",
+    }
+}
+
+/// `EdgeBasisDegree`: 2 with `Quadratic Approximation`.
+fn degree(sp: &ParamMap) -> u8 {
+    if sp.logical("quadratic approximation") == Some(true) {
+        2
     } else {
-        "n:0 e:1 -brick b:3 -quad_face b:2"
+        1
     }
 }
 
@@ -74,7 +88,7 @@ const BC_TERMS: &[&str] = &[
 
 fn check(ctx: &SolverCtx<'_>, sp: &ParamMap) -> Result<(), SolverError> {
     for k in crate::steady::REFUSED_SOLVER_KEYS {
-        if matches!(*k, "use piola transform") {
+        if matches!(*k, "use piola transform" | "quadratic approximation") {
             continue;
         }
         match sp.get(k) {
@@ -127,18 +141,18 @@ fn check(ctx: &SolverCtx<'_>, sp: &ParamMap) -> Result<(), SolverError> {
     Ok(())
 }
 
-/// `GaussPointsAdapt(EdgeBasis=.TRUE.)` of the first-order Piola basis:
-/// 27 points on the brick (the p-reference brick is the standard one).
-/// Other element types are refused.
+/// `GaussPointsAdapt(EdgeBasis=.TRUE.)` of the Piola basis: 27 points on
+/// the brick for either degree (the p-reference brick is the standard
+/// one). Other element types are refused.
 fn rule(code: u16) -> Result<elmer_fe::quadrature::GaussRule, SolverError> {
     match code {
-        808 => elmer_fe::quadrature::gauss_points(ElementType(808), Some(27)).map_err(|e| SolverError::fatal(CALLER, e.to_string())),
+        808 | 827 => elmer_fe::quadrature::gauss_points(ElementType(808), Some(27)).map_err(|e| SolverError::fatal(CALLER, e.to_string())),
         c => Err(unsupported(format!("element type {c}"))),
     }
 }
 
 /// The bulk element's local system.
-fn local_matrix(ctx: &SolverCtx<'_>, e: ElemId, nd: usize) -> Result<(Local, usize), SolverError> {
+fn local_matrix(ctx: &SolverCtx<'_>, e: ElemId, nd: usize, degree: u8) -> Result<(Local, usize), SolverError> {
     let el = ctx.mesh.element(e);
     let code = el.etype.0;
     let n = el.nodes.len();
@@ -166,8 +180,7 @@ fn local_matrix(ctx: &SolverCtx<'_>, e: ElemId, nd: usize) -> Result<(Local, usi
     let mut np = usize::MAX;
     for t in 0..rule.len() {
         let uvw = [rule.u[t], rule.v[t], rule.w[t]];
-        let (ev, basis, dbasis) =
-            edge_element_info_nodal(el.etype, &xyz, &gindex, uvw, 1, 3).map_err(|m| SolverError::fatal(CALLER, m))?;
+        let (ev, basis, dbasis) = edge_info(el.etype, &xyz, &gindex, uvw, degree)?;
         // np = n * Def_Dofs(family, body, 1).
         np = match nd.checked_sub(ev.dofs) {
             Some(p) if p == 0 || p == n => p,
@@ -178,9 +191,44 @@ fn local_matrix(ctx: &SolverCtx<'_>, e: ElemId, nd: usize) -> Result<(Local, usi
     Ok((loc, np))
 }
 
+/// The edge basis, nodal `Basis` and `dBasisdx` at a point.
+pub(crate) type EdgeInfo = (elmer_fe_hp::edge::EdgeEval, Vec<f64>, Vec<[f64; 3]>);
+
+/// `ElementInfo(..., EdgeBasis, RotBasis, dBasisdx, USolver)` with the Piola
+/// basis: `EdgeElementInfo`, whose nodal basis is the p-reference brick's
+/// for 8 nodes and `NodalBasisFunctions3D` / `NodalFirstDerivatives` for
+/// the 27-node brick (`n > 8`).
+pub(crate) fn edge_info(
+    etype: ElementType,
+    xyz: &[[f64; 3]],
+    gindex: &[i64],
+    uvw: [f64; 3],
+    degree: u8,
+) -> Result<EdgeInfo, SolverError> {
+    let fatal = |m: String| SolverError::fatal(CALLER, m);
+    match etype.0 {
+        827 => {
+            let def = elmer_fe::element_type(827).map_err(|e| fatal(e.to_string()))?;
+            let mut b = vec![0.0; 27];
+            let mut d = vec![[0.0; 3]; 27];
+            elmer_fe::basis::nodal_basis(def, uvw[0], uvw[1], uvw[2], &mut b);
+            elmer_fe::basis::nodal_first_derivatives(def, uvw[0], uvw[1], uvw[2], &mut d);
+            edge_element_info_geometry(ElementType(808), xyz, &gindex[..8], uvw, degree, 3, b, d).map_err(fatal)
+        }
+        _ => edge_element_info_nodal(etype, xyz, gindex, uvw, degree, 3).map_err(fatal),
+    }
+}
+
 /// `DefaultDirichletBCs` for `<var> {e}`: the slots of the boundary face's
 /// edges and face DOFs in the parent, all zero.
-fn edge_dirichlet(ctx: &SolverCtx<'_>, var: &str, n_parent_nodal: &dyn Fn(ElemId) -> usize) -> Result<Vec<(u32, f64)>, SolverError> {
+fn edge_dirichlet(
+    ctx: &SolverCtx<'_>,
+    var: &str,
+    degree: u8,
+    n_parent_nodal: &dyn Fn(ElemId) -> usize,
+) -> Result<Vec<(u32, f64)>, SolverError> {
+    // DOFs per edge and per square face of the first-kind Piola basis.
+    let (edofs, fdofs) = if degree == 2 { (2, 4) } else { (1, 2) };
     let prefix = format!("{var} {{e}}");
     let nb = ctx.mesh.n_bulk();
     let active: std::collections::HashSet<u32> = ctx.active_elements().map(|e| e.0).collect();
@@ -210,10 +258,12 @@ fn edge_dirichlet(ctx: &SolverCtx<'_>, var: &str, n_parent_nodal: &dyn Fn(ElemId
         let bnodes = el.nodes;
         let faces: Vec<Vec<usize>> = match pel.etype.0 {
             504 => TETRA_FACE_MAP.iter().map(|f| f.iter().map(|&k| k - 1).collect()).collect(),
-            808 => BRICK_FACE_MAP.iter().map(|f| f.iter().map(|&k| k - 1).collect()).collect(),
+            808 | 827 => BRICK_FACE_MAP.iter().map(|f| f.iter().map(|&k| k - 1).collect()).collect(),
             c => return Err(unsupported(format!("'{prefix}' on a parent of type {c}"))),
         };
-        let Some(q) = faces.iter().position(|f| f.len() == bnodes.len() && f.iter().all(|&i| bnodes.contains(&pnodes[i]))) else {
+        // The face map holds corners; a quadratic boundary element lists its
+        // corners first.
+        let Some(q) = faces.iter().position(|f| bnodes.len() >= f.len() && f.iter().all(|&i| bnodes[..f.len()].contains(&pnodes[i]))) else {
             continue;
         };
         let emap = edge_map(pel.etype.0 / 100);
@@ -221,13 +271,16 @@ fn edge_dirichlet(ctx: &SolverCtx<'_>, var: &str, n_parent_nodal: &dyn Fn(ElemId
         ctx.element_slots(parent, &mut slots);
         for (l, &[i, j]) in emap.iter().enumerate() {
             if bnodes.contains(&pnodes[i]) && bnodes.contains(&pnodes[j]) {
-                fixed.push(slots[np + l]);
+                fixed.extend_from_slice(&slots[np + edofs * l..np + edofs * (l + 1)]);
             }
         }
-        // First-order Piola: two DOFs on a square face, none on a triangle.
-        if pel.etype.0 == 808 {
-            let first = np + emap.len() + 2 * q;
-            fixed.extend_from_slice(&slots[first..first + 2]);
+        // The square face's own DOFs (a tetrahedron's faces have none in
+        // the first-order basis).
+        if pel.etype.0 / 100 == 8 {
+            let first = np + edofs * emap.len() + fdofs * q;
+            fixed.extend_from_slice(&slots[first..first + fdofs]);
+        } else if degree == 2 {
+            return Err(unsupported("second-order '{e}' conditions on tetrahedra"));
         }
     }
     Ok(fixed.into_iter().filter(|&s| s != NO_DOF).map(|s| (s, 0.0)).collect())
@@ -251,9 +304,10 @@ fn constrain_unused(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
 /// The steady Piola `WhitneyAVSolver`.
 pub fn solve(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
     let sp = ctx.params().clone();
-    if sp.logical("quadratic approximation") == Some(true) || sp.logical("second kind basis") == Some(true) {
-        return Err(unsupported("the second-order and second-kind bases"));
+    if sp.logical("second kind basis") == Some(true) {
+        return Err(unsupported("the second-kind basis"));
     }
+    let degree = degree(&sp);
     check(ctx, &sp)?;
     if ctx.solver_dofs().is_none() {
         return Err(SolverError::fatal(CALLER, "the edge element DOFs (no DofsBackend)"));
@@ -283,14 +337,14 @@ pub fn solve(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
             return Err(SolverError::fatal(CALLER, format!("element {} lacks DOFs", e.0)));
         }
         let nd = slots.len();
-        let (loc, np) = local_matrix(ctx, e, nd)?;
+        let (loc, np) = local_matrix(ctx, e, nd, degree)?;
         nodal.insert(e.0, np);
         let ls = LocalSystem { n: nd, stiff: loc.stiff, mass: None, damp: None, force: loc.force };
         ctx.default_update(&ls, e)?;
     }
     ctx.default_finish_bulk_assembly()?;
     ctx.default_finish_boundary_assembly()?;
-    let fixed = edge_dirichlet(ctx, &var, &|p| nodal.get(&p.0).copied().unwrap_or(0))?;
+    let fixed = edge_dirichlet(ctx, &var, degree, &|p| nodal.get(&p.0).copied().unwrap_or(0))?;
     ctx.default_dirichlet_after(&fixed)?;
     constrain_unused(ctx)?;
     ctx.default_solve()?;
