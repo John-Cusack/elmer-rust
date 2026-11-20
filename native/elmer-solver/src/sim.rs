@@ -123,6 +123,32 @@ pub struct LinearSystem {
 }
 
 /// One `Solver n` section at run time (Elmer `Solver_t`).
+/// `Solver % LocalSystem` (`Local Matrix Storage`): the last local system
+/// of each active bulk element, as the solver assembled it and before
+/// `Matrix Multiplier Name` scales it (`UseLocalMatrixStorage`).
+#[derive(Clone, Debug, Default)]
+pub struct LocalStore {
+    /// Element index -> active index (`Solver % InvActiveElements`).
+    pub inv: std::collections::HashMap<u32, usize>,
+    /// `(K, F)` by active index, `K` row-major.
+    pub systems: Vec<Option<(Vec<f64>, Vec<f64>)>>,
+}
+
+impl LocalStore {
+    pub fn new(active: &[ElemId]) -> Self {
+        LocalStore {
+            inv: active.iter().enumerate().map(|(i, e)| (e.0, i)).collect(),
+            systems: vec![None; active.len()],
+        }
+    }
+
+    /// `GetLocalMatrixStorage`: the stored `(K, F)` of element `e`.
+    pub fn get(&self, e: ElemId) -> Option<(&[f64], &[f64])> {
+        let i = *self.inv.get(&e.0)?;
+        self.systems[i].as_ref().map(|(k, f)| (k.as_slice(), f.as_slice()))
+    }
+}
+
 pub struct SolverSlot {
     /// 1-based Elmer solver id.
     pub id: usize,
@@ -177,6 +203,8 @@ pub struct SolverSlot {
     pub(crate) mg_meshes: Option<Vec<Box<dyn MeshView>>>,
     /// The constraint modes `DefaultDirichletBCs` set up.
     pub(crate) cmodes: Option<crate::constraint_modes::Modes>,
+    /// `Solver % LocalSystem` of `Local Matrix Storage`.
+    pub local_store: Option<LocalStore>,
     /// The child solvers' systems (`CreateChildSolver`).
     pub(crate) children: Vec<crate::child::ChildSystem>,
     /// `Solver % NormalTangential`, set up by `DefaultInitialize`.
@@ -228,6 +256,7 @@ impl SolverSlot {
             lin_converged: true,
             mg_meshes: None,
             cmodes: None,
+            local_store: None,
             children: Vec::new(),
             nt: None,
             block_matrix: false,

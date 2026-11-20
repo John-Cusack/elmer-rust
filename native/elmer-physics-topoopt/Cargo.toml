@@ -1,0 +1,11 @@
+[package]
+name = "elmer-physics-topoopt"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "TopoOpt (SIMP topology optimisation with density, sensitivity and PDE filters) for the Rust-native Elmer rewrite"
+
+[dependencies]
+elmer-core.workspace = true
+elmer-solver = { path = "../elmer-solver" }

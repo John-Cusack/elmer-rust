@@ -154,6 +154,10 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if is(params, elmer_physics_flux::DIVERGENCE_PROCEDURE) {
             elmer_physics_flux::divergence_defaults(params);
         }
+        // `TopoOpt_init0` / `_init`: the elemental topology fields.
+        if is(params, elmer_physics_topoopt::PROCEDURE) {
+            elmer_physics_topoopt::solver_defaults(params);
+        }
         // AddEquationBasics (MainUtils.F90:1231): a legacy `Equation` name
         // gives the `Variable` when there is none, with or without a
         // `Procedure`, and the `Procedure` when there is none.

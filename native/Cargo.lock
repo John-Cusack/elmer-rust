@@ -761,6 +761,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "elmer-physics-topoopt"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-solver",
+]
+
+[[package]]
 name = "elmer-run"
 version = "0.1.0"
 dependencies = [
@@ -788,6 +796,7 @@ dependencies = [
  "elmer-physics-meshtools",
  "elmer-physics-scalar",
  "elmer-physics-thermoelectric",
+ "elmer-physics-topoopt",
  "elmer-savedata",
  "elmer-sif",
  "elmer-solver",
