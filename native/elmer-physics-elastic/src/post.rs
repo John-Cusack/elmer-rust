@@ -70,6 +70,10 @@ pub struct StressPostInput<'a> {
     /// The moduli become `Lame1 = 0`, `Lame2 = E/3` (no plane stress) and the
     /// pressure is taken off the normal stresses.
     pub pressure: Option<&'a [f64]>,
+    /// ElasticSolve's neo-Hookean `Mixed Formulation`: the pressure unknown
+    /// at the nodes, supplied to the material (`Pres = -SUM(p Basis)`), with
+    /// `Lame1 = 0` and no plane stress.
+    pub mixed_pressure: Option<&'a [f64]>,
 }
 
 /// Element mass matrix (`n x n`, row-major) and right-hand sides
@@ -245,7 +249,7 @@ pub fn stress_strain_local_p(
         return Err(StressError::Input(format!("element {} needs {n} nodes and {nd} displacements", inp.etype.0)));
     }
     let dim = if axi { 3 } else { cdim };
-    let plane_stress = inp.plane_stress && !axi && cdim == 2 && inp.pressure.is_none();
+    let plane_stress = inp.plane_stress && !axi && cdim == 2 && inp.pressure.is_none() && inp.mixed_pressure.is_none();
     let ncomp = output_components(cdim);
     let isotropic = matches!(inp.law, ElasticLaw::Isotropic { .. });
     if inp.neo_hookean && !isotropic {
@@ -277,6 +281,8 @@ pub fn stress_strain_local_p(
                 };
                 if inp.pressure.is_some() {
                     (0.0, e / 3.0)
+                } else if inp.mixed_pressure.is_some() {
+                    (0.0, e / (2.0 * (1.0 + nu)))
                 } else {
                     (l1, e / (2.0 * (1.0 + nu)))
                 }
@@ -428,7 +434,10 @@ pub fn stress_strain_local_p(
             // NeoHookeanStress: S = p C^-1 + mu (I - C^-1), C = F^T F over
             // `dim`, p = lambda/2 (J - 1)(J + 1).
             PointLaw::Iso { lame1, lame2 } if inp.neo_hookean => {
-                let pres = lame1 / 2.0 * (det_defg - 1.0) * (det_defg + 1.0);
+                let pres = match inp.mixed_pressure {
+                    Some(pn) => -(0..n).map(|k| pn[k] * bas[k]).sum::<f64>(),
+                    None => lame1 / 2.0 * (det_defg - 1.0) * (det_defg + 1.0),
+                };
                 let mut red = ZERO3;
                 for (i, row) in red.iter_mut().enumerate().take(cdim) {
                     row[i] = 1.0;

@@ -5,7 +5,7 @@
 
 mod support;
 
-use elmer_core::{ElementType, LocalSystem};
+use elmer_core::{ElementType, LocalSystem, Quadrature};
 use elmer_physics_elastic::{CoordSystem, ElasticLaw};
 use elmer_physics_elasticsolve::{elastic_bulk_local, neo_hookean_local, BulkInput, NeoHookeInput};
 use support::{Gauss, P1Basis};
@@ -87,10 +87,41 @@ fn neo(etype: u16, xyz: &[[f64; 3]], cdim: usize, coord: CoordSystem, disp: &[[f
         load: &load,
         inertial: None,
         want_mass: false,
-        np: None,
+        ntot: n,
+        mixed: None,
     };
     let mut out = LocalSystem::zeros(0);
-    neo_hookean_local(&P1Basis, &Gauss, &inp, &mut out).unwrap();
+    neo_hookean_local(&P1Basis, &Gauss.gauss_points(ElementType(etype), None), &inp, &mut out).unwrap();
+    out
+}
+
+/// The neo-Hookean mixed formulation at `u`, `cdim + 1` dofs per node (the
+/// pressure last).
+fn neo_mixed(etype: u16, xyz: &[[f64; 3]], cdim: usize, coord: CoordSystem, u: &[f64]) -> LocalSystem {
+    let n = xyz.len();
+    let (young, poisson, density, load) = (vec![200.0; n], vec![0.3; n], vec![1.0; n], vec![[0.0; 3]; n]);
+    let disp: Vec<[f64; 3]> =
+        u.chunks(cdim + 1).map(|c| std::array::from_fn(|a| if a < cdim { c[a] } else { 0.0 })).collect();
+    let pres: Vec<f64> = u.chunks(cdim + 1).map(|c| c[cdim]).collect();
+    let inp = NeoHookeInput {
+        etype: ElementType(etype),
+        xyz,
+        cdim,
+        coord,
+        plane_stress: false,
+        young: &young,
+        poisson: &poisson,
+        disp: &disp,
+        density: &density,
+        damping: None,
+        load: &load,
+        inertial: None,
+        want_mass: false,
+        ntot: n,
+        mixed: Some(&pres),
+    };
+    let mut out = LocalSystem::zeros(0);
+    neo_hookean_local(&P1Basis, &Gauss.gauss_points(ElementType(etype), None), &inp, &mut out).unwrap();
     out
 }
 
@@ -207,5 +238,43 @@ fn small_strain_stiffness_is_the_linear_one() {
         for (x, y) in lin.stiff.iter().zip(&mine.stiff) {
             assert!((x - y).abs() < 1e-12 * scale, "{etype}: {x} vs {y}");
         }
+    }
+}
+
+#[test]
+fn neo_hookean_mixed_tangent_is_consistent() {
+    for (etype, xyz, cdim, coord) in [
+        (303, TRI.to_vec(), 2, CoordSystem::Cartesian),
+        (404, QUAD.to_vec(), 2, CoordSystem::Cartesian),
+        (404, QUAD.to_vec(), 2, CoordSystem::AxiSymmetric),
+        (808, HEX.to_vec(), 3, CoordSystem::Cartesian),
+    ] {
+        let n = xyz.len();
+        let d = displacement(n, cdim);
+        let u0: Vec<f64> = d
+            .iter()
+            .enumerate()
+            .flat_map(|(k, v)| {
+                let mut c = v[..cdim].to_vec();
+                c.push(0.5 + 0.1 * k as f64);
+                c
+            })
+            .collect();
+        let k = neo_mixed(etype, &xyz, cdim, coord, &u0).stiff;
+        let h = 1e-6;
+        let (mut err, mut scale) = (0.0f64, 0.0f64);
+        for j in 0..u0.len() {
+            let (mut up, mut um) = (u0.clone(), u0.clone());
+            up[j] += h;
+            um[j] -= h;
+            let rp = internal(&neo_mixed(etype, &xyz, cdim, coord, &up), &up);
+            let rm = internal(&neo_mixed(etype, &xyz, cdim, coord, &um), &um);
+            for i in 0..u0.len() {
+                let fd = (rp[i] - rm[i]) / (2.0 * h);
+                err = err.max((fd - k[i * u0.len() + j]).abs());
+                scale = scale.max(k[i * u0.len() + j].abs());
+            }
+        }
+        assert!(err / scale < 1e-6, "{etype} {coord:?}: tangent error {:e}", err / scale);
     }
 }

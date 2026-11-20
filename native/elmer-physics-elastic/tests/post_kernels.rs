@@ -33,6 +33,7 @@ fn post<'a>(law: &'a ElasticLaw, disp: &'a [[f64; 3]]) -> StressPostInput<'a> {
         large_deflection: false,
         neo_hookean: false,
         pressure: None,
+        mixed_pressure: None,
     }
 }
 
