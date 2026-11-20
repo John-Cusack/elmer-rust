@@ -123,6 +123,7 @@ fn run(c: &Case) {
             load: &load,
             pressure_load: if c.pressure != 0.0 { Some(&pr) } else { None },
             stress_load: None,
+            gpa: None,
             strain_load: None,
             temperature: None,
             heat_expansion: None,

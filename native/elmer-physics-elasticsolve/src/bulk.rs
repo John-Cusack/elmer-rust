@@ -44,6 +44,8 @@ pub struct BulkInput<'a> {
     pub pressure_load: Option<&'a [f64]>,
     /// `Stress Load` in Voigt form (xx yy zz xy yz xz).
     pub stress_load: Option<&'a [Voigt6]>,
+    /// `GPA Coeff` at the nodes under `Gravitational Prestress Advection`.
+    pub gpa: Option<&'a [f64]>,
     /// `Strain Load` in Voigt form with engineering shear.
     pub strain_load: Option<&'a [Voigt6]>,
     /// Temperature minus `Reference Temperature`.
@@ -199,6 +201,13 @@ pub fn elastic_bulk_local(
     for (ipt, qp) in points.iter().enumerate() {
         basis.eval(inp.etype, inp.xyz, qp.uvw, &mut be).map_err(ElasticError::Basis)?;
         let bas = &be.basis;
+        let gpa_ip = inp.gpa.map(|g| {
+            let mut acc = 0.0;
+            for k in 0..n {
+                acc += g[k] * bas[k];
+            }
+            acc
+        });
         let db = &be.dbasis_dx;
         let mut s = be.det_j * qp.weight;
         let mut r = 0.0;
@@ -367,6 +376,13 @@ pub fn elastic_bulk_local(
                             db[q][0] * dstress1[j][0] + db[q][1] * dstress1[j][1] + db[q][2] * dstress1[j][2]
                         };
                         out.stiff[k * ndof + cdim * q + j] += v * s;
+                    }
+                }
+                // ElasticSolve.F90:4682: the momentum row coupled to the
+                // vertical displacement.
+                if let Some(g) = gpa_ip {
+                    for q in 0..n {
+                        out.stiff[k * ndof + cdim * q + cdim - 1] += g * db[q][i] * bas[p] * s;
                     }
                 }
             }
