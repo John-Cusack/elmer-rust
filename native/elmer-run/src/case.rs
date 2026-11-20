@@ -1111,6 +1111,14 @@ fn run_case_meshes(
     for p in model.solvers.iter_mut().filter(|p| elmer_physics_magneto::statmag::is_section(p)) {
         elmer_physics_magneto::statmag::init_section(p);
     }
+    for p in model.solvers.iter_mut().filter(|p| elmer_physics_magneto::emwave::is_section(p)) {
+        elmer_physics_magneto::emwave::init_section(p);
+    }
+    for i in 0..model.solvers.len() {
+        if elmer_physics_magneto::emwave::is_calc_section(&model.solvers[i]) {
+            elmer_physics_magneto::emwave::calc_init_section(&mut model.solvers, i);
+        }
+    }
     for p in model.solvers.iter_mut().filter(|p| elmer_physics_magneto::vhnodal::is_section(p)) {
         elmer_physics_magneto::vhnodal::init_section(p);
     }
