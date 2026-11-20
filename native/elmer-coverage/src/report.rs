@@ -295,6 +295,13 @@ const KNOWN_CAUSES: &[(&str, &str)] = &[
          matrix is rounding-chaotic (1.0e-8 against its 1e-8 bar, pristine 5e-10) while the second derivatives are \
          ~1e-15 from exact; port on fm/elmer-lane-integrator-p2nd",
     ),
+    (
+        "StressEigen2_np8",
+        "kept refused (firstmate decision, inbox 024): the golden is a crash. Rank 7 has no Solver 2 (Potential) \
+         elements, and Elmer segfaults there in SaveCurrent (signal 11, test-stderr_8.log) after writing Solver 1's 12 \
+         modes, so case.result.7 stops at 12 steps against 25 elsewhere; the test passes on rank 0's norm. The crash \
+         is not emulated",
+    ),
 ];
 
 fn known_cause(test: &str) -> &'static str {

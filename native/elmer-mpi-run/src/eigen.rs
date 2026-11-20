@@ -17,8 +17,8 @@
 //! `Eigen System Sorting`, and each vector is spread back over the local
 //! dofs (`ParallelUpdateResult`).
 //!
-//! Refused: a partition without the solver's elements (Elmer's
-//! `comm_active` and its result-file layout on that partition).
+//! Refused: a partition without the solver's elements. Elmer crashes
+//! there (see the refusal below), so there is no behaviour to port.
 
 use elmer_core::{CsrMatrix, LinalgError, Logger, ParamMap, Params, SolveStatus};
 use elmer_dist::{dist_solve, DistCsr, DofLayout, Exchange};
@@ -55,15 +55,20 @@ impl ParEigenBackend for ParEigen {
         let layout = ctx.layout_of(k).map_err(dist_err)?;
         let ex: &dyn Exchange = &*ctx.ex;
         // A partition without the solver's elements has no matrix in Elmer
-        // (CreateMatrix finds no rows): it is left out of the solver's
-        // communicator (`comm_active`), keeps no modes, holds the variable
-        // over all its nodes and writes no final save. Not reproduced:
-        // refused on every rank.
+        // (CreateMatrix finds no rows) and is left out of the solver's
+        // communicator (`comm_active`). Elmer then segfaults on that
+        // partition in SaveCurrent, when it saves the solver's eigenvectors,
+        // which were never computed there (StressEigen2_np8: rank 7, signal
+        // 11, after the other solver's modes). Its result file is cut short,
+        // and the test passes only because rank 0's norm is checked. The
+        // crash is not emulated (firstmate decision, inbox 024), so this
+        // refuses on every rank.
         let mut empty = [if k.nrows == 0 { 1.0 } else { 0.0 }];
         ex.max_f64(&mut empty);
         if empty[0] > 0.0 {
             return Err(SolverError::Unsupported(
-                "Eigen Analysis: a partition without the solver's elements (comm_active) in parallel".into(),
+                "Eigen Analysis: a partition without the solver's elements in parallel (Elmer segfaults there in SaveCurrent)"
+                    .into(),
             ));
         }
         // EnforceDirichletConditions zeroed the mass rows of every
