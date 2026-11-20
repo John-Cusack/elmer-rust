@@ -460,9 +460,9 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
 }
 
 /// Whether the section's `Element` (if any) is one a provider evaluates:
-/// the Lagrange `n:1`; `p:1` for ThermoElectricSolver, whose `b:N`
-/// bubbles stay refused (the solver condenses them, while Elmer keeps them
-/// in the global system and its solution norm, the `Reference Norm`); and
+/// the Lagrange `n:1`; `p:1` with or without `b:N` bubbles for
+/// ThermoElectricSolver, which takes them from `elmer-pdofs` and keeps the
+/// bubbles in the global system and its norm as Elmer does (#228); and
 /// any definition for the solvers that read their DOFs from `elmer-pdofs`
 /// (`ctx.solver_dofs()`) and refuse what they do not port: StressSolve
 /// (#206), StatElecSolve (#208), IncompressibleNS (Taylor-Hood), ModelPDE's
@@ -493,8 +493,7 @@ pub fn native_element(params: &ParamMap) -> bool {
     if P_DOFS.iter().any(|(l, n)| lib.eq_ignore_ascii_case(l) && entry.eq_ignore_ascii_case(n)) {
         return true;
     }
-    lib.eq_ignore_ascii_case("thermoelectricsolver")
-        && elmer_physics_thermoelectric::parse_element(e).is_ok_and(|nb| nb == 0)
+    lib.eq_ignore_ascii_case("thermoelectricsolver") && elmer_physics_thermoelectric::parse_element(e).is_ok()
 }
 
 /// `ListGetFun(Simulation, 'Extruded Mesh Density' | '1D Mesh Density', t)`:
