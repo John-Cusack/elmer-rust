@@ -1,7 +1,10 @@
 //! Stress and strain postprocessing of `ElasticSolve.F90` `ComputeStressAndStrain`
 //! (`:5759`): the element contribution to the L2 nodal projection of the
-//! small-strain `Strain` and `Stress` fields, the projection solve, von Mises,
-//! and the principal values.
+//! `Strain` and `Stress` fields, the projection solve, von Mises, and the
+//! principal values. Small strain by default; with `Large Deflection` the
+//! Green-Lagrange strain and the Cauchy stress pushed forward from the
+//! second Piola-Kirchhoff one, for the linear laws and the neo-Hookean
+//! material (`Constitutive.F90` `NeoHookeanStress`).
 //!
 //! Output layout follows `SymTensorOutputComponents` (`Stress.F90:1623`): the
 //! components `(11, 22, 33, 12)` in two dimensions and `(11, 22, 33, 12, 23, 13)`
@@ -58,6 +61,11 @@ pub struct StressPostInput<'a> {
     pub want_strain: bool,
     pub want_stress: bool,
     pub np: Option<usize>,
+    /// ElasticSolve's `Large Deflection`: `DefG = I + Grad`.
+    pub large_deflection: bool,
+    /// ElasticSolve's `Neo-Hookean Material` (isotropic `law` only; no
+    /// thermal strain, no integration-point moduli).
+    pub neo_hookean: bool,
 }
 
 /// Element mass matrix (`n x n`, row-major) and right-hand sides
@@ -82,6 +90,120 @@ fn add_tensor(force: &mut [f64], bas: &[f64], ncomp: usize, w: f64, t: &Tensor3)
     }
 }
 
+/// `LUDecomp` (LinearAlgebra.F90): LU of the leading `n x n` block with
+/// column pivoting by rows, the diagonal replaced by its reciprocal. `None`
+/// on a zero pivot. Index loops as in the Fortran.
+#[allow(clippy::needless_range_loop)]
+fn lu_decomp(a: &mut Tensor3, n: usize) -> Option<[usize; 3]> {
+    let mut pivot = [0usize; 3];
+    for i in 0..n {
+        let mut j = i;
+        for k in i + 1..n {
+            if a[i][k].abs() > a[i][j].abs() {
+                j = k;
+            }
+        }
+        if a[i][j].abs() == 0.0 {
+            return None;
+        }
+        pivot[i] = j;
+        if j != i {
+            for row in a.iter_mut().take(i + 1) {
+                row.swap(i, j);
+            }
+        }
+        for k in i + 1..n {
+            a[i][k] /= a[i][i];
+        }
+        for k in i + 1..n {
+            if j != i {
+                a[k].swap(i, j);
+            }
+            for l in i + 1..n {
+                a[k][l] -= a[k][i] * a[i][l];
+            }
+        }
+    }
+    pivot[n - 1] = n - 1;
+    for i in 0..n {
+        if a[i][i].abs() == 0.0 {
+            return None;
+        }
+        a[i][i] = 1.0 / a[i][i];
+    }
+    Some(pivot)
+}
+
+/// `InvertMatrix( A, n )` (LinearAlgebra.F90): in place, through
+/// [`lu_decomp`], in its operation order.
+fn invert_matrix(a: &mut Tensor3, n: usize) -> Result<(), StressError> {
+    let pivot = lu_decomp(a, n)
+        .ok_or_else(|| StressError::Input("InvertMatrix: inversion needs successful LU-decomposition".into()))?;
+    for i in (0..n.saturating_sub(1)).rev() {
+        for j in (i + 1..n).rev() {
+            let mut s = -a[i][j];
+            for k in i + 1..j {
+                s -= a[i][k] * a[k][j];
+            }
+            a[i][j] = s;
+        }
+    }
+    for i in (0..n.saturating_sub(1)).rev() {
+        for j in (i + 1..n).rev() {
+            let mut s = 0.0;
+            for k in i + 1..=j {
+                s -= a[j][k] * a[k][i];
+            }
+            a[j][i] = a[i][i] * s;
+        }
+    }
+    for i in 0..n {
+        for j in 0..n {
+            let mut s = 0.0;
+            for k in i.max(j)..n {
+                if k != i {
+                    s += a[i][k] * a[k][j];
+                } else {
+                    s += a[k][j];
+                }
+            }
+            a[i][j] = s;
+        }
+    }
+    for i in (0..n).rev() {
+        if pivot[i] != i {
+            a.swap(i, pivot[i]);
+        }
+    }
+    Ok(())
+}
+
+/// Fortran's inlined `MATMUL` of two 3x3 matrices: each entry summed over
+/// `k` in order from zero.
+fn matmul3(a: &Tensor3, b: &Tensor3) -> Tensor3 {
+    let mut c = ZERO3;
+    for i in 0..3 {
+        for j in 0..3 {
+            let mut s = 0.0;
+            for k in 0..3 {
+                s += a[i][k] * b[k][j];
+            }
+            c[i][j] = s;
+        }
+    }
+    c
+}
+
+fn transpose3(a: &Tensor3) -> Tensor3 {
+    let mut t = ZERO3;
+    for i in 0..3 {
+        for j in 0..3 {
+            t[i][j] = a[j][i];
+        }
+    }
+    t
+}
+
 /// Element contribution to the L2 projection of strain and stress.
 pub fn stress_strain_local(
     basis: &dyn ElementBasis,
@@ -104,6 +226,14 @@ pub fn stress_strain_local(
     let plane_stress = inp.plane_stress && !axi && cdim == 2;
     let ncomp = output_components(cdim);
     let isotropic = matches!(inp.law, ElasticLaw::Isotropic { .. });
+    if inp.neo_hookean && !isotropic {
+        return Err(StressError::Unsupported("the neo-Hookean material with an anisotropic Youngs Modulus".into()));
+    }
+    // `DefG`, `DetDefG` and the push-forward: the general path of
+    // ComputeStressAndStrain. Small strain without the neo-Hookean material
+    // keeps the masked form below, which is the same arithmetic with
+    // `DefG = I`.
+    let general = inp.large_deflection || inp.neo_hookean;
 
     // The identity of the state of stress: `ReducedIdentity`.
     let mut ident = [0.0; 3];
@@ -129,7 +259,8 @@ pub fn stress_strain_local(
         ElasticLaw::Anisotropic { .. } => (Vec::new(), Vec::new()),
     };
 
-    let need_heat = inp.temperature.is_some_and(|t| t.iter().any(|x| *x != 0.0))
+    let need_heat = !inp.neo_hookean
+        && inp.temperature.is_some_and(|t| t.iter().any(|x| *x != 0.0))
         && (inp.heat_expansion.is_some() || inp.ip.is_some_and(|p| p.beta.is_some()));
 
     let points = quad.gauss_points(inp.etype, inp.np);
@@ -167,7 +298,8 @@ pub fn stress_strain_local(
                 nu_nodal = (0..n).map(|k| poisson[k] * bas[k]).sum();
                 let mut lame1: f64 = (0..n).map(|k| lame1_n[k] * bas[k]).sum();
                 let mut lame2: f64 = (0..n).map(|k| lame2_n[k] * bas[k]).sum();
-                if let Some(p) = inp.ip.filter(|p| p.young.is_some() || p.poisson.is_some()) {
+                // The at-IP moduli are not read for the neo-Hookean material.
+                if let Some(p) = inp.ip.filter(|p| !inp.neo_hookean && (p.young.is_some() || p.poisson.is_some())) {
                     let ElasticLaw::Isotropic { young, .. } = inp.law else { unreachable!() };
                     let e = p.young.as_ref().map_or_else(|| (0..n).map(|k| young[k] * bas[k]).sum(), |v| v[ipt]);
                     let nu: f64 = p.poisson.as_ref().map_or(nu_nodal, |v| v[ipt]);
@@ -215,6 +347,33 @@ pub fn stress_strain_local(
                 strain[i][j] = (grad[j][i] + grad[i][j]) / 2.0;
             }
         }
+        // DefG = Identity (+ Grad) and its determinant over `dim`.
+        let mut defg = ZERO3;
+        for i in 0..3 {
+            defg[i][i] = ident[i];
+        }
+        if inp.large_deflection {
+            for i in 0..3 {
+                for j in 0..3 {
+                    defg[i][j] += grad[i][j];
+                }
+            }
+            let gtg = matmul3(&transpose3(&grad), &grad);
+            for i in 0..3 {
+                for j in 0..3 {
+                    strain[i][j] += gtg[i][j] / 2.0;
+                }
+            }
+        }
+        let f = &defg;
+        let det_defg = match dim {
+            2 => f[0][0] * f[1][1] - f[0][1] * f[1][0],
+            _ => {
+                f[0][0] * (f[1][1] * f[2][2] - f[1][2] * f[2][1])
+                    + f[0][1] * (f[1][2] * f[2][0] - f[1][0] * f[2][2])
+                    + f[0][2] * (f[1][0] * f[2][1] - f[1][1] * f[2][0])
+            }
+        };
 
         // The elastic strain: thermal part out, before the out-of-plane recovery.
         if need_heat {
@@ -240,6 +399,27 @@ pub fn stress_strain_local(
         }
 
         let s2 = match &law {
+            // NeoHookeanStress: S = p C^-1 + mu (I - C^-1), C = F^T F over
+            // `dim`, p = lambda/2 (J - 1)(J + 1).
+            PointLaw::Iso { lame1, lame2 } if inp.neo_hookean => {
+                let pres = lame1 / 2.0 * (det_defg - 1.0) * (det_defg + 1.0);
+                let mut red = ZERO3;
+                for (i, row) in red.iter_mut().enumerate().take(cdim) {
+                    row[i] = 1.0;
+                }
+                if axi || !plane_stress {
+                    red[2][2] = 1.0;
+                }
+                let mut inv_c = matmul3(&transpose3(&defg), &defg);
+                invert_matrix(&mut inv_c, dim)?;
+                let mut s = ZERO3;
+                for i in 0..3 {
+                    for j in 0..3 {
+                        s[i][j] = pres * inv_c[i][j] + lame2 * (red[i][j] - inv_c[i][j]);
+                    }
+                }
+                s
+            }
             PointLaw::Iso { lame1, lame2 } => {
                 let tr: f64 = (0..dim).map(|i| strain[i][i]).sum();
                 let mut s = ZERO3;
@@ -256,9 +436,20 @@ pub fn stress_strain_local(
         // `DefG` is the identity of the state of stress here; the push-forward
         // only masks the rows and columns it does not carry.
         let mut stress = ZERO3;
-        for i in 0..3 {
-            for j in 0..3 {
-                stress[i][j] = ident[i] * s2[i][j] * ident[j];
+        if general {
+            // Stress = 1/DetDefG * MATMUL( MATMUL(DefG, Stress2), TRANSPOSE(DefG) )
+            let pushed = matmul3(&matmul3(&defg, &s2), &transpose3(&defg));
+            let rdet = 1.0 / det_defg;
+            for i in 0..3 {
+                for j in 0..3 {
+                    stress[i][j] = rdet * pushed[i][j];
+                }
+            }
+        } else {
+            for i in 0..3 {
+                for j in 0..3 {
+                    stress[i][j] = ident[i] * s2[i][j] * ident[j];
+                }
             }
         }
         if let (PointLaw::Aniso { g }, 2, false) = (&law, dim, plane_stress) {

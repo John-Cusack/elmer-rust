@@ -534,6 +534,8 @@ impl StressSolver {
                 want_strain: flags.strain,
                 want_stress: flags.stress,
                 np: None,
+                large_deflection: false,
+                neo_hookean: false,
             };
             let loc = stress_strain_local(&*fe.basis, &*fe.quad, &inp).map_err(|x| SolverError::fatal(CALLER, x.to_string()))?;
             let slots: Vec<Option<usize>> = el
