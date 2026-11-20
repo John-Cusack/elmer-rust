@@ -106,13 +106,18 @@ impl FlowSolver {
 
 /// The `Stabilization Method` FlowSolver resolves (FlowSolve.F90:505-547).
 /// Only `stabilized` is ported.
-fn check_stabilization(p: &ParamMap) -> Result<(), SolverError> {
-    let method = match p.string("stabilization method") {
+/// `StabilizeFlag` of FlowSolve.F90:509-524.
+fn stabilization_method(p: &ParamMap) -> String {
+    match p.string("stabilization method") {
         Some(m) => elmer_core::normalize_key(m),
         None if flag(Some(p), "stabilize") => "stabilized".into(),
         None if flag(Some(p), "bubbles") || p.get("element").is_some() => "bubbles".into(),
         None => "stabilized".into(),
-    };
+    }
+}
+
+fn check_stabilization(p: &ParamMap) -> Result<(), SolverError> {
+    let method = stabilization_method(p);
     match method.as_str() {
         "stabilized" => {
             if flag(Some(p), "bubbles") {
@@ -178,9 +183,6 @@ fn check_body(eq: Option<&ParamMap>, mat: Option<&ParamMap>, bf: Option<&ParamMa
                 return Err(unsupported(what));
             }
         }
-        if has_prefix(b, "angular velocity") {
-            return Err(unsupported("rotating frame (Angular Velocity)"));
-        }
     }
     let _ = eq;
     Ok(())
@@ -204,8 +206,6 @@ fn check_bc(bc: &ParamMap, var_name: &str) -> Result<(), SolverError> {
     for (prefix, what) in [
         ("surface tension", "surface tension"),
         ("periodic bc", "periodic boundary conditions"),
-        ("target coordinates", "point boundary conditions (Target Coordinates)"),
-        ("target nodes", "point boundary conditions (Target Nodes)"),
     ] {
         if has_prefix(bc, prefix) {
             return Err(unsupported(what));
@@ -289,39 +289,18 @@ fn element_dim(family: u16) -> usize {
     }
 }
 
-/// The Dirichlet rows of the solver variable from its component names: for
-/// each boundary element in mesh order, `(row, value)` for every component
-/// its BC sets, a later element overwriting an earlier one
-/// (DefaultDirichletBCs). `noslip` also fixes the velocity components to
-/// zero on `Noslip Wall BC` boundaries, as FlowSolve adds `Velocity i = 0`
-/// to those BCs after its first boundary assembly.
-fn dirichlet_rows(ctx: &SolverCtx<'_>, comps: &[String], dim: usize, noslip: bool) -> Result<Vec<(u32, f64)>, SolverError> {
-    let dofs = comps.len();
-    let mut fixed = std::collections::BTreeMap::new();
-    let mut idx = Vec::new();
-    let bnd: Vec<ElemId> = ctx.boundary_elements().collect();
-    for e in bnd {
-        let bc = ctx.bc_params(e).expect("boundary_elements filters on BC");
-        ctx.element_slots(e, &mut idx);
-        let wall = noslip && flag(Some(bc), "noslip wall bc");
-        for (k, key) in comps.iter().enumerate() {
-            if bc.get(&format!("{key} condition")).is_some() {
-                return Err(unsupported(format!("Dirichlet mask > {key} Condition <")));
-            }
-            let vals = if wall && k < dim {
-                Some(vec![0.0; idx.len()])
-            } else {
-                ctx.real_at_nodes(bc, key, e)?
-            };
-            let Some(vals) = vals else { continue };
-            for (&s, &x) in idx.iter().zip(&vals) {
-                if s != NO_DOF {
-                    fixed.insert(s * dofs as u32 + k as u32, x);
-                }
+/// FlowSolve's noslip wall code (FlowSolve.F90:1416-1433): after the
+/// boundary assembly a `Noslip Wall BC` boundary gets `Velocity i = 0`
+/// (the velocity components of the flow variable) in its section, which
+/// `DefaultDirichletBCs` then applies like any other Dirichlet value.
+fn noslip_walls(ctx: &mut SolverCtx<'_>, comps: &[String], dim: usize) {
+    for bc in ctx.sim.model.boundary_conditions.iter_mut() {
+        if flag(Some(bc), "noslip wall bc") {
+            for key in comps.iter().take(dim) {
+                bc.insert(key, Value::real(0.0));
             }
         }
     }
-    Ok(fixed.into_iter().collect())
 }
 
 /// `AddEquationBasics` (MainUtils.F90:1241, 1827) creates the variable of
@@ -340,12 +319,20 @@ fn navier_stokes_init_value(ctx: &mut SolverCtx<'_>, comps: &[String]) -> Result
     }
     let dofs = comps.len();
     let n = ctx.primary().map_or(0, |f| f.values.len());
+    let perm = ctx.primary().and_then(|f| f.perm.map(|p| p.to_vec()));
     let mut set = vec![false; n];
     let mut slots = Vec::new();
     let elems: Vec<ElemId> = ctx.active_elements().collect();
     for e in elems {
         let Some(ic) = ctx.body_params(e).and_then(|b| b.initial_condition) else { continue };
-        ctx.element_slots(e, &mut slots);
+        // Initial conditions set the nodes only; the edge, face and bubble
+        // dofs of a p element keep the start value.
+        slots.clear();
+        let nodes = ctx.mesh.element(e).nodes;
+        match &perm {
+            Some(p) => slots.extend(nodes.iter().map(|&nn| p.get(nn as usize).copied().unwrap_or(NO_DOF))),
+            None => slots.extend_from_slice(nodes),
+        }
         for (k, key) in comps.iter().enumerate() {
             if ic.get(key).is_some() {
                 for &s in &slots {
@@ -459,6 +446,7 @@ impl Solver for FlowSolver {
             laplace: flag(Some(&p), "laplace discretization"),
         };
         let h_scale = p.real("h scale").unwrap_or(1.0);
+        let stabilize_flag = stabilization_method(&p);
         let long_edge = flag(Some(ctx.simulation_params()), "stabilization use longest element edge");
         let stabilize_mesh = mesh_stabilize(ctx);
         let nonlinear_tol = p.real("nonlinear system convergence tolerance").unwrap_or(0.0);
@@ -528,6 +516,13 @@ impl Solver for FlowSolver {
                 if dofs.contains(&NO_DOF) {
                     return Err(SolverError::fatal(CALLER, format!("active element {} has nodes outside the system", e.0)));
                 }
+                // A p element: NavierStokesCompose(..., Element, n, ...) takes
+                // its n vertex functions, on its own rule; the other dofs get
+                // no bulk contribution.
+                let pe = match ctx.solver_dofs() {
+                    Some(d) => Some(p_parts(d, e, el.etype, el.nodes, &stabilize_flag)?),
+                    None => None,
+                };
                 let values = ctx.primary().expect("checked in init").values;
                 let velocity: Vec<[f64; 3]> = (0..n)
                     .map(|k| std::array::from_fn(|i| if i < dim { values[dofs[k * nsdofs + i] as usize] } else { 0.0 }))
@@ -578,8 +573,15 @@ impl Solver for FlowSolver {
                     discretization: disc,
                     want_mass: transient,
                     np: None,
+                    omega: angular_velocity(bf)?,
                 };
-                flow_bulk_local(basis, quad, &inp, &mut self.local)?;
+                match &pe {
+                    None => flow_bulk_local(basis, quad, &inp, &mut self.local)?,
+                    Some(p) => {
+                        flow_bulk_local(&*p.basis, &FixedRule(p.rule.clone()), &inp, &mut self.local)?;
+                        widen(&mut self.local, p.nd * nsdofs);
+                    }
+                }
                 if transient {
                     ctx.default_first_order_time(&mut self.local, e, dt)?;
                 }
@@ -639,7 +641,16 @@ impl Solver for FlowSolver {
                     parent_center,
                     np: None,
                 };
-                flow_boundary_local(basis, quad, &inp, &mut self.local)?;
+                match ctx.solver_dofs() {
+                    None => flow_boundary_local(basis, quad, &inp, &mut self.local)?,
+                    Some(d) => {
+                        // NavierStokesBoundary: GaussPoints(Element) and the n
+                        // vertex functions of the p boundary element.
+                        let p = p_parts(d, e, el.etype, el.nodes, &stabilize_flag)?;
+                        flow_boundary_local(&*p.basis, &FixedRule(p.rule.clone()), &inp, &mut self.local)?;
+                        widen(&mut self.local, p.nd * nsdofs);
+                    }
+                }
                 ctx.default_update(&self.local, e)?;
             }
 
@@ -647,7 +658,11 @@ impl Solver for FlowSolver {
             // Implicit friction boundaries, on the matrix level.
             set_implicit_friction(ctx, dim)?;
 
-            let fixed = dirichlet_rows(ctx, &comps, dim, true)?;
+            noslip_walls(ctx, &comps, dim);
+            // DefaultDirichletBCs: element values (in BC order with `Set
+            // Dirichlet BCs by BC Numbering`), zero on p edge dofs, then the
+            // point values of `Target Nodes` / `Target Coordinates`.
+            let fixed = ctx.dirichlet_values()?;
             apply_dirichlet(ctx, &fixed)?;
             let norm = ctx.default_solve()?;
 
@@ -803,6 +818,84 @@ fn element_normal(mesh: &dyn MeshView, etype: elmer_core::ElementType, nodes: &[
     };
     let s = n.iter().map(|v| v * v).sum::<f64>().sqrt();
     Ok(n.map(|v| v / s))
+}
+
+/// `Angular Velocity(3)` of the element's body force (FlowSolve.F90:745):
+/// a rotating frame, Cartesian coordinates only (FlowSolve's own Fatal
+/// otherwise; FlowSolve here refuses other coordinate systems anyway).
+fn angular_velocity(bf: Option<&ParamMap>) -> Result<Option<[f64; 3]>, SolverError> {
+    let Some(v) = bf.and_then(|b| b.get("angular velocity")) else { return Ok(None) };
+    match v {
+        Value::Real { data, .. } if data.len() >= 3 => Ok(Some([data[0], data[1], data[2]])),
+        _ => Err(unsupported("Angular Velocity other than three constant reals")),
+    }
+}
+
+/// A p element's basis, rule and dof count.
+struct PParts {
+    basis: Box<dyn ElementBasis + Send + Sync>,
+    rule: Vec<elmer_core::QuadPoint>,
+    nd: usize,
+}
+
+/// The p dofs of element `e` as FlowSolve's `Stabilization Method =
+/// Stabilized` uses them: only the quadrilateral and brick families (and
+/// their boundary lines and quadrilaterals), whose p vertex functions are
+/// the nodal ones on the same reference element, with the nodes in mesh
+/// order.
+fn p_parts(
+    d: &dyn elmer_solver::SolverDofs,
+    e: ElemId,
+    etype: elmer_core::ElementType,
+    nodes: &[u32],
+    method: &str,
+) -> Result<PParts, SolverError> {
+    if method != "stabilized" {
+        return Err(unsupported(format!("p elements with Stabilization Method = {method}")));
+    }
+    if ![2, 4, 8].contains(&etype.family()) {
+        return Err(unsupported(format!("p elements of type {} (only line, quadrilateral, brick)", etype.0)));
+    }
+    if d.element_nodes(e) != nodes {
+        return Err(unsupported("p elements whose dofs reorder the nodes"));
+    }
+    let mut slots = Vec::new();
+    d.element_slots(e, &mut slots);
+    Ok(PParts {
+        basis: d.element_basis(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
+        rule: d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?,
+        nd: slots.len(),
+    })
+}
+
+/// A fixed integration rule (`GaussPoints(Element)` of a p element).
+struct FixedRule(Vec<elmer_core::QuadPoint>);
+
+impl Quadrature for FixedRule {
+    fn gauss_points(&self, _etype: elmer_core::ElementType, _np: Option<usize>) -> Vec<elmer_core::QuadPoint> {
+        self.0.clone()
+    }
+}
+
+/// The local system of the first `local.n` rows widened to `m` with zero
+/// rows and columns (the element's other dofs).
+fn widen(local: &mut LocalSystem, m: usize) {
+    let n = local.n;
+    if m == n {
+        return;
+    }
+    fn grow(a: &[f64], n: usize, m: usize) -> Vec<f64> {
+        let mut out = vec![0.0; m * m];
+        for r in 0..n {
+            out[r * m..r * m + n].copy_from_slice(&a[r * n..r * n + n]);
+        }
+        out
+    }
+    local.stiff = grow(&local.stiff, n, m);
+    local.mass = local.mass.as_deref().map(|a| grow(a, n, m));
+    local.damp = local.damp.as_deref().map(|a| grow(a, n, m));
+    local.force.resize(m, 0.0);
+    local.n = m;
 }
 
 /// `Solver % Variable % NonlinChange` after the last solve.

@@ -53,6 +53,7 @@ fn input<'a>(
         discretization: Discretization::default(),
         want_mass: false,
         np: None,
+        omega: None,
     }
 }
 
