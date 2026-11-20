@@ -88,16 +88,26 @@ impl RankContext {
     }
 
     /// The dof layout of a matrix registered with [`register`](Self::register),
-    /// found by its sparsity pattern. Collective on first use.
+    /// found by its sparsity pattern. Collective on every call (one max
+    /// reduction of a found flag), and again on first use of a matrix.
     pub fn layout_of(&self, a: &CsrMatrix<f64>) -> Result<Rc<DofLayout>, DistError> {
         let found = {
             let m = self.matrices.borrow();
             m.iter().position(|r| r.row_ptr == a.row_ptr && r.col_idx == a.col_idx)
         };
-        let local = |msg: &str| DistError::Local { rank: self.ex.rank(), msg: msg.into() };
+        // Collective, as elmer-dist's `agree`: a rank that does not know the
+        // matrix must not return alone while the others go on into
+        // `DofLayout::new` (or the solve's reductions) and wait for it
+        // forever. Every rank learns that one failed, and all return an error.
+        let mut missing = [if found.is_none() { 1.0 } else { 0.0 }];
+        self.ex.max_f64(&mut missing);
+        let rank = self.ex.rank();
         let Some(i) = found else {
-            return Err(local("a linear system whose matrix the parallel assembly did not create"));
+            return Err(DistError::Local { rank, msg: "a linear system whose matrix the parallel assembly did not create".into() });
         };
+        if missing[0] != 0.0 {
+            return Err(DistError::Remote { rank });
+        }
         if let Some(l) = &self.matrices.borrow()[i].layout {
             return Ok(Rc::clone(l));
         }
@@ -108,5 +118,61 @@ impl RankContext {
         let layout = Rc::new(DofLayout::new(&*self.ex, gid, owner)?);
         self.matrices.borrow_mut()[i].layout = Some(Rc::clone(&layout));
         Ok(layout)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elmer_core::Communicator;
+
+    /// Rank 0 of two; the other rank's contribution to a max reduction is
+    /// `other`. Point-to-point exchange is never reached by these tests.
+    struct TwoRanks {
+        other: f64,
+    }
+
+    impl Communicator for TwoRanks {
+        fn rank(&self) -> usize {
+            0
+        }
+        fn size(&self) -> usize {
+            2
+        }
+        fn sum_f64(&self, buf: &mut [f64]) {
+            buf.iter_mut().for_each(|x| *x += self.other);
+        }
+        fn max_f64(&self, buf: &mut [f64]) {
+            buf.iter_mut().for_each(|x| *x = x.max(self.other));
+        }
+        fn barrier(&self) {}
+    }
+
+    impl Exchange for TwoRanks {
+        fn all_to_all_u64(&self, _send: &[Vec<u64>]) -> Vec<Vec<u64>> {
+            unreachable!("the agreement fails before any exchange")
+        }
+        fn exchange_f64(&self, _send: &[(usize, Vec<f64>)], _recv: &mut [(usize, Vec<f64>)]) {
+            unreachable!("the agreement fails before any exchange")
+        }
+    }
+
+    fn matrix() -> CsrMatrix<f64> {
+        CsrMatrix { nrows: 1, ncols: 1, row_ptr: vec![0, 1], col_idx: vec![0], values: vec![1.0], diag: None }
+    }
+
+    /// The radiation_np2 hang: one rank's matrix was changed outside the
+    /// parallel assembly. Every rank must get an error, not only that one.
+    #[test]
+    fn a_matrix_unknown_on_any_rank_fails_every_rank() {
+        // Unknown here: this rank's own error.
+        let (ctx, _g) = RankContext::install(Box::new(TwoRanks { other: 0.0 }), vec![1], vec![0]);
+        assert!(matches!(ctx.layout_of(&matrix()), Err(DistError::Local { rank: 0, .. })));
+        drop(_g);
+        // Known here but unknown on the other rank: a remote failure, before
+        // the collective DofLayout::new that the other rank would never join.
+        let (ctx, _g) = RankContext::install(Box::new(TwoRanks { other: 1.0 }), vec![1], vec![0]);
+        ctx.register(&[0], 1, &matrix());
+        assert!(matches!(ctx.layout_of(&matrix()), Err(DistError::Remote { rank: 0 })));
     }
 }
