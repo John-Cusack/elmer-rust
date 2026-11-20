@@ -1946,6 +1946,58 @@ impl<'a> SolverCtx<'a> {
     pub fn system_mut(&mut self) -> Option<&mut LinearSystem> {
         self.sim.slots[self.slot].system.as_mut()
     }
+
+    /// `BackRotateNTSystem(Values, Perm, DOFs)`: the solver variable's
+    /// normal-tangential components back to Cartesian ones, for a solver
+    /// that solves its rotated system itself (no-op without n-t
+    /// boundaries).
+    pub fn back_rotate_nt(&mut self) {
+        let slot = &self.sim.slots[self.slot];
+        let (Some(nt), Some(id)) = (slot.nt.clone(), slot.variable) else { return };
+        let dim = self.mesh.dim();
+        let v = self.sim.vars.by_id_mut(id);
+        if let Some(perm) = v.perm.clone() {
+            let dofs = v.dofs;
+            nt.back_rotate(&mut v.values, &perm, dofs, dim);
+        }
+    }
+
+    /// `RowEquilibration(Solver, A, f, Parallel)` (MatrixScaling.F90) on
+    /// the assembled system, serial: each row and its right-hand side
+    /// scaled to unit absolute row sum. Returns `A % DiagScaling`, the
+    /// factors `1 / rowsum` (1 for a row sum not above `TINY`).
+    pub fn row_equilibrate(&mut self) -> Result<Vec<f64>, SolverError> {
+        let sys = self
+            .sim
+            .slots[self.slot]
+            .system
+            .as_mut()
+            .ok_or_else(|| SolverError::fatal("RowEquilibration", "no assembled system"))?;
+        let a = &mut sys.matrix;
+        let mut diag = vec![0.0; a.nrows];
+        for (i, d) in diag.iter_mut().enumerate() {
+            let mut tmp = 0.0;
+            for v in &a.values[a.row_ptr[i]..a.row_ptr[i + 1]] {
+                tmp += v.abs();
+            }
+            *d = tmp;
+        }
+        let norm = diag.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        self.log.info("RowEquilibration", &format!(" Unscaled matrix norm: {norm:>25.17E}"), 5);
+        for d in diag.iter_mut() {
+            *d = if *d > f64::MIN_POSITIVE { 1.0 / *d } else { 1.0 };
+        }
+        for (i, &d) in diag.iter().enumerate() {
+            let (lo, hi) = (a.row_ptr[i], a.row_ptr[i + 1]);
+            for v in &mut a.values[lo..hi] {
+                *v *= d;
+            }
+        }
+        for (f, &d) in sys.rhs.iter_mut().zip(&diag) {
+            *f *= d;
+        }
+        Ok(diag)
+    }
 }
 
 /// What `Linear System Solver = Block` needs beyond the section

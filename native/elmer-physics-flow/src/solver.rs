@@ -39,6 +39,9 @@ pub fn register(registry: &mut SolverRegistry) {
     registry.register("FixTangentVelo", "FixTangentVelo", crate::fix_tangent::factory);
     registry.register("AdvectionReaction", "AdvectionReactionSolver", crate::adv_react::factory);
     registry.register("PoissonDG", "PoissonSolver", crate::poisson_dg::factory);
+    registry.register("ParStokes", "StokesSolver", crate::parstokes::factory);
+    registry.register("VelocityPrecond", "VelocityPrecond", crate::parstokes::velocity_precond_factory);
+    registry.register("PressurePrecond", "PressurePrecond", crate::parstokes::pressure_precond_factory);
 }
 
 /// [`SolverFactory`](elmer_solver::SolverFactory) for [`FlowSolver`]: the
