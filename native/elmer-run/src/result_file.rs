@@ -57,9 +57,12 @@ fn unsupported(model: &Model) -> Option<String> {
         if p.logical("harmonic analysis") == Some(true) {
             return Some("harmonic analysis".into());
         }
+        // A complex eigen system's modes are refused unless its variable
+        // is not saved (`Variable Output = False`): the other fields are
+        // then written once per mode, as the real ones are.
+        let complex_saved = p.logical("linear system complex") == Some(true) && p.logical("variable output") != Some(false);
         if p.logical("eigen analysis") == Some(true)
-            && (p.logical("linear system complex") == Some(true)
-                || sim.string("simulation type").is_some_and(|t| !normalize_key(t).starts_with("steady")))
+            && (complex_saved || sim.string("simulation type").is_some_and(|t| !normalize_key(t).starts_with("steady")))
         {
             return Some("eigen analysis of a complex system or over time steps".into());
         }
