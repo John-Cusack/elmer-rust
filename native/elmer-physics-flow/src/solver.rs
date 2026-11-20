@@ -41,6 +41,8 @@ pub fn register(registry: &mut SolverRegistry) {
     registry.register("PoissonDG", "PoissonSolver", crate::poisson_dg::factory);
     registry.register("ParStokes", "StokesSolver", crate::parstokes::factory);
     registry.register("FreeSurfaceSolver", "FreeSurfaceSolver", crate::fs_solver::factory);
+    registry.register("ReynoldsSolver", "ReynoldsSolver", crate::reynolds::solver_factory);
+    registry.register("ReynoldsSolver", "ReynoldsPostprocess", crate::reynolds::post_factory);
     registry.register("VelocityPrecond", "VelocityPrecond", crate::parstokes::velocity_precond_factory);
     registry.register("PressurePrecond", "PressurePrecond", crate::parstokes::pressure_precond_factory);
 }

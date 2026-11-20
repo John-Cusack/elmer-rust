@@ -96,6 +96,58 @@ fn drop_never_savedata(model: &mut Model) {
 /// completes from the solver's `Equation` name when it has no `Procedure`,
 /// for the ones whose procedure this build has. Others stay without a
 /// procedure and are refused by [`preflight`].
+/// `ReynoldsSolver_init` and `ReynoldsPostprocess_Init`
+/// (ReynoldsSolver.F90:983, :1639): the film pressure variable, and the
+/// postprocessor's `<p> Heating` variable, `-dofs d <p> Force / Flux / Mean
+/// Velocity` exports (`d` = 2 in 1D or for a `Dim` of 2, else 3) and its
+/// linear system defaults.
+fn reynolds_init(params: &mut ParamMap, cdim: usize) {
+    let Some((lib, entry)) = procedure_of(params) else { return };
+    if !lib.eq_ignore_ascii_case("reynoldssolver") {
+        return;
+    }
+    if entry.eq_ignore_ascii_case("reynoldssolver") {
+        if params.get("variable").is_none() {
+            params.insert("Variable", Value::Str("FilmPressure".into()));
+        }
+        return;
+    }
+    if !entry.eq_ignore_ascii_case("reynoldspostprocess") {
+        return;
+    }
+    let pname = params.string("reynolds pressure variable name").unwrap_or("FilmPressure").to_string();
+    if params.logical("calculate heating") == Some(true) {
+        params.insert("Variable", Value::Str(format!("{pname} Heating")));
+    } else if params.get("variable").is_none() {
+        params.insert("Variable", Value::Str("-nooutput ReynoldsPost".into()));
+    }
+    for (flag, dim_key, field) in [
+        ("calculate force", "calculate force dim", "Force"),
+        ("calculate flux", "calculate flux dim", "Flux"),
+        ("calculate mean velocity", "calculate mean velocity dim", "Mean Velocity"),
+    ] {
+        if params.logical(flag) != Some(true) {
+            continue;
+        }
+        let dofs = if cdim == 1 || params.integer(dim_key) == Some(2) { 2 } else { 3 };
+        let k = (1..).find(|k| params.get(&format!("exported variable {k}")).is_none()).expect("a free index");
+        params.insert(&format!("Exported Variable {k}"), Value::Str(format!("-dofs {dofs} {pname} {field}")));
+    }
+    params.insert("Time derivative order", Value::Integer(vec![0]));
+    for (key, value) in [
+        ("linear system solver", Value::Str("Iterative".into())),
+        ("linear system iterative method", Value::Str("cg".into())),
+        ("linear system preconditioning", Value::Str("ILU0".into())),
+        ("linear system max iterations", Value::Integer(vec![500])),
+        ("linear system residual output", Value::Integer(vec![10])),
+        ("linear system convergence tolerance", Value::real(1.0e-10)),
+    ] {
+        if params.get(key).is_none() {
+            params.insert(key, value);
+        }
+    }
+}
+
 fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
     let cdim = coords.dim;
     let transient = model.simulation.string("simulation type").is_some_and(|t| t.eq_ignore_ascii_case("transient"));
@@ -103,6 +155,7 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
     let equations = model.equations.clone();
     let materials = model.materials.clone();
     for params in &mut model.solvers {
+        reynolds_init(params, cdim);
         // `ElasticSolver_Init` (StressSolve delegates to it): without a
         // `Variable`, the displacement of the coordinate dimension.
         let elastic = procedure_of(params).is_some_and(|(lib, entry)| {
