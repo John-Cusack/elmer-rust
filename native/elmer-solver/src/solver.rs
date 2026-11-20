@@ -2246,7 +2246,14 @@ impl<'a> SolverCtx<'a> {
                         "linear constraints on a variable longer than its system".into(),
                     ));
                 }
-                let (a, b) = crate::constraints::collection(&sys.matrix, res.as_deref().unwrap_or(&sys.rhs), c, &slot.asm.constrained, p, log);
+                let (a, b) = if p.logical("eliminate linear constraints") == Some(true) {
+                    if mult.is_some() {
+                        return Err(SolverError::Unsupported("Export Lagrange Multiplier with Eliminate Linear Constraints".into()));
+                    }
+                    crate::constraints::eliminate(&sys.matrix, res.as_deref().unwrap_or(&sys.rhs), c, p, log)?
+                } else {
+                    crate::constraints::collection(&sys.matrix, res.as_deref().unwrap_or(&sys.rhs), c, &slot.asm.constrained, p, log)
+                };
                 let mut x = var.values.clone();
                 x.resize(a.nrows, 0.0);
                 if let Some((_, init)) = &mult {
