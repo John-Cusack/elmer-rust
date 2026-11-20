@@ -187,7 +187,10 @@ impl Solver for TestSolver {
                     }
                     let mx = (0..3).flat_map(|j| (0..3).map(move |k| (j, k))).map(|(j, k)| (from[j][k] - ddb[i][j][k]).abs()).fold(0.0, f64::max);
                     if mx > 1.0e-8 {
-                        return Err(SolverError::fatal(CALLER, format!("ddx did not match (function {})", i + 1)));
+                        return Err(SolverError::fatal(
+                            CALLER,
+                            format!("ddx did not match (element {code}, function {} of {nd}): {:?} vs {:?}", i + 1, from, ddb[i]),
+                        ));
                     }
                 }
                 let (fx, diff, ddiff) = poly(edim, qp, x, y, z);
