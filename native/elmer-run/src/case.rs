@@ -1164,6 +1164,12 @@ fn run_case_meshes(
             om.install();
             Arc::new(om) as Arc<dyn MeshView + Send + Sync>
         }));
+        // `LoadMesh2` of an external mesher's output (`Adaptive Remesh`).
+        let simulation = sim.model.simulation.clone();
+        sim.set_mesh_loader(Box::new(move |dir: &Path| {
+            crate::mesh_db::load(dir, &simulation)
+                .map_err(|e| SolverError::fatal("LoadMesh", format!("{}: {e}", dir.display())))
+        }));
         sim.set_mesh_writer_factory(Box::new(move |name: &str, sim: &elmer_solver::Simulation| {
             let dir = case_dir2.join(name);
             let _ = std::fs::create_dir_all(&dir);

@@ -127,6 +127,7 @@ fn main() -> ExitCode {
             let cfg = runner::Config {
                 exe: std::env::current_exe().expect("current exe"),
                 elmergrid: build.join("elmergrid/src/ElmerGrid"),
+                mesh2d: build.join("meshgen2d/src/Mesh2D"),
                 scratch: args
                     .value("--scratch")
                     .map(PathBuf::from)

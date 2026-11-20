@@ -1,12 +1,13 @@
 //! Adaptive mesh refinement (Adaptive.F90): `RefineMesh` with the a
 //! posteriori residual estimate of `ComputeError` and the internal
-//! splitting of `SplitMesh` (`Adaptive Remesh = False`), moving the run to
-//! the refined mesh through `elmer_solver::remesh`.
+//! splitting of `SplitMesh` (`Adaptive Remesh = False`) or the external
+//! mesher of `External_ReMesh` (`Adaptive Remesh = True`, [`remesh`]),
+//! moving the run to the new mesh through `elmer_solver::remesh`.
 //!
 //! A solver supplies its residuals through [`Estimator`] (HeatSolve's
 //! `HeatSolver_Inside_Residual`, `_Edge_Residual`, `_Boundary_Residual`).
 //!
-//! Refused: `Adaptive Remesh` (MMG or the external mesher), `Flux
+//! Refused: remeshing with MMG or Gmsh, `Flux
 //! Recovery`, coarsening, `Adaptive Pre Smoothing`, outlier fractions and
 //! non-triangular meshes (SplitMesh's own Fatal).
 #![forbid(unsafe_code)]
@@ -14,6 +15,7 @@
 
 pub mod elasticity;
 pub mod mesh;
+pub mod remesh;
 mod split;
 
 use std::sync::Arc;
@@ -88,7 +90,6 @@ fn unsupported(what: &str) -> SolverError {
 /// The keywords of RefineMesh this port does not follow.
 pub fn check_params(p: &ParamMap) -> Result<(), SolverError> {
     for k in [
-        "adaptive remesh",
         "flux recovery",
         "adaptive error histogram",
     ] {
@@ -380,7 +381,30 @@ pub fn refine_mesh(
         }
         store(ctx, &perr_name, prev_nodal.clone());
         store(ctx, "hconvergence", hconv.clone());
-        new_mesh = split::split_mesh(ctx.mesh, depth, &ei, limit, &hconv, mc)?;
+        if p.logical("adaptive remesh") == Some(true) {
+            let temperature = ctx.primary().is_some_and(|f| f.name.eq_ignore_ascii_case("temperature"));
+            remesh::check(&p, ctx.simulation_params(), temperature)?;
+            let case_dir = std::path::PathBuf::from(p.string(OUTPUT_DIRECTORY_KEY).unwrap_or("."));
+            ctx.info(CALLER, "Using file I/O for mesh refinement", 5);
+            let m = remesh::external_remesh(
+                ctx,
+                &remesh::RemeshInput {
+                    hvalue: &hvalue,
+                    nodal_error: &nodal,
+                    h_convergence: &hconv,
+                    error_limit: limit / 3.0,
+                    min_h: p.real("adaptive min h").unwrap_or(0.0),
+                    max_h: p.real("adaptive max h").unwrap_or(0.0),
+                    max_change: mc,
+                    coarsening: p.logical("adaptive coarsening").unwrap_or(true),
+                    depth,
+                    case_dir: &case_dir,
+                },
+            )?;
+            new_mesh = Some(m);
+        } else {
+            new_mesh = split::split_mesh(ctx.mesh, depth, &ei, limit, &hconv, mc)?;
+        }
         // `Hvalue(1:nn) = PrevHValue(1:nn)`.
         store(ctx, "hvalue", prev_h.clone());
         if new_mesh.is_none() {

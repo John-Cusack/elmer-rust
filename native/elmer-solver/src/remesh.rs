@@ -83,6 +83,10 @@ impl MeshView for WithCoords<'_> {
 pub type MeshWriterFactory =
     Box<dyn FnMut(&str, &Simulation) -> Result<Option<Box<dyn SaveCurrent>>, SolverError>>;
 
+/// Reads an Elmer mesh directory the way the runner reads its first mesh
+/// (`LoadMesh2` of `External_ReMesh`).
+pub type MeshLoader = Box<dyn FnMut(&std::path::Path) -> Result<Box<dyn MeshView>, SolverError>>;
+
 /// The run's adaptive-mesh state.
 #[derive(Default)]
 pub struct AdaptiveMeshes {
@@ -96,6 +100,7 @@ pub struct AdaptiveMeshes {
     pub(crate) depth: usize,
     pub(crate) writer: Option<MeshWriterFactory>,
     pub(crate) wrapper: Option<MeshWrapper>,
+    pub(crate) loader: Option<MeshLoader>,
     /// Name of the current mesh, empty for the run's first mesh.
     pub(crate) name: String,
 }
@@ -105,6 +110,11 @@ fn unsupported(what: &str) -> SolverError {
 }
 
 impl Simulation {
+    /// Installs the mesh reader of [`SolverCtx::load_mesh`](crate::SolverCtx::load_mesh).
+    pub fn set_mesh_loader(&mut self, f: MeshLoader) {
+        self.adaptive.loader = Some(f);
+    }
+
     /// Installs the factory of the per-mesh result writers.
     pub fn set_mesh_writer_factory(&mut self, f: MeshWriterFactory) {
         self.adaptive.writer = Some(f);

@@ -501,6 +501,15 @@ impl<'a> SolverCtx<'a> {
     }
 
     /// `Mesh % AdaptiveFinished`: the current mesh needs no more refinement.
+    /// A mesh directory read with the runner's reader (an external
+    /// mesher's output, `External_ReMesh`).
+    pub fn load_mesh(&mut self, dir: &std::path::Path) -> Result<Box<dyn elmer_core::MeshView>, SolverError> {
+        match self.sim.adaptive.loader.as_mut() {
+            Some(l) => l(dir),
+            None => Err(SolverError::NotWired("a mesh reader (Simulation::set_mesh_loader)".into())),
+        }
+    }
+
     pub fn set_adaptive_finished(&mut self, finished: bool) {
         self.sim.adaptive.finished = finished;
     }
