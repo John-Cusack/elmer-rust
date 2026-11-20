@@ -38,9 +38,6 @@ impl TimeBackend for ElmerTime {
     /// `Bossak` (default, `Bossak Alpha` -0.05) or `Generalized-alpha` with
     /// `Generalized-alpha rinf` (InitializeTimestep, SolverBasics.F90:2732).
     fn add_2nd_order_time_terms(&self, local: &mut LocalSystem, t: &TimeTerms<'_>) -> Result<(), SolverError> {
-        if t.params.logical("use global mass matrix") == Some(true) {
-            return Err(SolverError::Unsupported("Use Global Mass Matrix".into()));
-        }
         let scheme = Scheme::from_params(t.params, t.simulation, 2)?;
         let Some((a, b)) = scheme.second_order_params() else {
             return Ok(());

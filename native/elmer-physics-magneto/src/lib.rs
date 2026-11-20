@@ -33,6 +33,7 @@
 pub mod calcfields;
 pub mod calcfields2d;
 pub mod case;
+pub mod emwave;
 pub mod error;
 pub mod harmonic;
 pub mod helmholtz_bem;
