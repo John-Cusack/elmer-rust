@@ -25,7 +25,7 @@ pub fn register(registry: &mut SolverRegistry) {
 }
 
 pub fn factory(_params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
-    Ok(Box::new(ShellSolver))
+    Ok(Box::new(ShellSolver::default()))
 }
 
 fn flag(p: &dyn Params, k: &str) -> bool {
@@ -89,7 +89,135 @@ pub fn solver_defaults(p: &mut ParamMap, simulation: &mut ParamMap) {
     p.insert("Shell Solver", Value::Logical(true));
 }
 
-pub struct ShellSolver;
+/// The `SAVE` state of ShellSolver: `TotalSol` exists from the first
+/// visit on, so later visits move a displaced mesh back first.
+#[derive(Default)]
+pub struct ShellSolver {
+    visited: bool,
+}
+
+/// `GetRealVector( BC, F(1:k,1:n), name, Found )`: the array keyword, or
+/// its components `name 1` ... `name k`, at the element's nodes.
+fn vector_at_nodes(
+    ctx: &SolverCtx<'_>,
+    p: &ParamMap,
+    name: &str,
+    k: usize,
+    e: ElemId,
+) -> Result<Option<Vec<Vec<f64>>>, SolverError> {
+    let n = ctx.mesh.element(e).nodes.len();
+    if p.get(name).is_some() {
+        return Err(unsupported(&format!("{name} as an array keyword")));
+    }
+    let mut out = vec![vec![0.0; n]; k];
+    let mut found = false;
+    for (i, row) in out.iter_mut().enumerate() {
+        if let Some(v) = ctx.real_at_nodes(p, &format!("{name} {}", i + 1), e)? {
+            *row = v;
+            found = true;
+        }
+    }
+    Ok(found.then_some(out))
+}
+
+/// `ShellBoundaryMatrix`: the dead `Resultant Force`, `Resultant Couple`
+/// and `Spring` of an edge (or point) element. Returns the local system and
+/// `RHSForce`, `None` when the boundary has none of them.
+fn boundary_matrix(
+    ctx: &SolverCtx<'_>,
+    e: ElemId,
+    ld: bool,
+    local_sol: &[f64],
+) -> Result<Option<(LocalSystem, Vec<f64>)>, SolverError> {
+    let Some(bc) = ctx.bc_params(e) else {
+        return Ok(None);
+    };
+    let force = vector_at_nodes(ctx, bc, "resultant force", 3, e)?;
+    let couple = vector_at_nodes(ctx, bc, "resultant couple", 3, e)?;
+    let springs = vector_at_nodes(ctx, bc, "spring", 6, e)?;
+    if force.is_none() && couple.is_none() && springs.is_none() {
+        return Ok(None);
+    }
+    if bc.logical("dead loads") == Some(false) && ld {
+        return Err(unsupported("live edge loads (Dead Loads = False)"));
+    }
+    let el = ctx.mesh.element(e);
+    let n = el.nodes.len();
+    let dofs = M * n;
+    let xyz: Vec<V3> = el.nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+    let fe = ctx
+        .sim
+        .backends
+        .fe
+        .as_ref()
+        .ok_or_else(|| SolverError::NotWired("basis and quadrature (elmer-fe)".into()))?;
+    let zero = vec![vec![0.0; n]; 3];
+    let fz = force.unwrap_or_else(|| zero.clone());
+    let cz = couple.unwrap_or(zero);
+    let mut stiff = vec![0.0f64; dofs * dofs];
+    let mut f = vec![0.0f64; dofs];
+    let mut ev = elmer_core::BasisEval::default();
+    for qp in fe.quadrature.gauss_points(el.etype, None) {
+        fe.basis
+            .eval(el.etype, &xyz, qp.uvw, &mut ev)
+            .map_err(|m| SolverError::fatal("ElementInfo", m))?;
+        let b = &ev.basis[..n];
+        let res = |m: &[Vec<f64>]| -> V3 { std::array::from_fn(|k| dot(&m[k], b)) };
+        let (rf, rc) = (res(&fz), res(&cz));
+        let w = qp.weight * ev.det_j;
+        for i in 0..n {
+            for k in 0..3 {
+                f[i * M + k] += w * rf[k] * b[i];
+            }
+            for k in 0..3 {
+                f[i * M + 3 + k] += w * rc[k] * b[i];
+            }
+        }
+        if let Some(sp) = &springs {
+            let spring: [f64; 6] = std::array::from_fn(|k| dot(&sp[k], b));
+            for k in 0..3 {
+                for i in 0..n {
+                    for j in 0..n {
+                        stiff[(i * M + k) * dofs + j * M + k] += spring[k] * b[i] * b[j] * w;
+                        stiff[(i * M + 3 + k) * dofs + j * M + 3 + k] +=
+                            spring[k + 3] * b[i] * b[j] * w;
+                    }
+                }
+            }
+        }
+    }
+    let rhs = f.clone();
+    if ld && springs.is_some() {
+        for i in 0..dofs {
+            let mut s = 0.0;
+            for j in 0..dofs {
+                s += stiff[i * dofs + j] * local_sol[j];
+            }
+            f[i] -= s;
+        }
+    }
+    Ok(Some((
+        LocalSystem {
+            n: dofs,
+            stiff,
+            mass: None,
+            damp: None,
+            force: f,
+        },
+        rhs,
+    )))
+}
+
+/// `DisplaceMesh` by the solver's six components, `sgn` times.
+fn displace(ctx: &SolverCtx<'_>, sgn: f64) {
+    let Some(v) = ctx.primary() else { return };
+    let Some(perm) = v.perm else { return };
+    let coords: Vec<V3> = (0..ctx.mesh.n_nodes() as u32)
+        .map(|i| ctx.mesh.coord(i))
+        .collect();
+    let n = coords.len().min(perm.len());
+    let _ = crate::motion::displace_mesh(&coords, v.values, sgn, &perm[..n], M);
+}
 
 /// `ReadSurfaceDirector`: the unit nodal directors of `mesh.director`
 /// (`k d1 d2 d3` per line, `k` 1-based), by node.
@@ -361,7 +489,6 @@ impl Solver for ShellSolver {
             "eigen analysis",
             "harmonic mode",
             "harmonic analysis",
-            "displace mesh",
             "stability analysis",
             "geometric stiffness",
         ] {
@@ -396,23 +523,6 @@ impl Solver for ShellSolver {
         if ctx.comm.size() > 1 {
             return Err(unsupported("more than one partition"));
         }
-        // ShellBoundaryMatrix: loads on edges.
-        let nb = ctx.mesh.n_bulk();
-        for t in nb..nb + ctx.mesh.n_boundary() {
-            let el = ctx.mesh.element(ElemId(t as u32));
-            if el.etype.0 / 100 > 2 {
-                continue;
-            }
-            if let Some(bc) = ctx.bc_params(ElemId(t as u32)) {
-                if bc.0.keys().any(|k| {
-                    ["force", "load", "couple", "moment", "traction", "pressure"]
-                        .iter()
-                        .any(|w| k.contains(w))
-                }) {
-                    return Err(unsupported("edge loads (ShellBoundaryMatrix)"));
-                }
-            }
-        }
         Ok(())
     }
 
@@ -423,6 +533,14 @@ impl Solver for ShellSolver {
         _transient: bool,
     ) -> Result<(), SolverError> {
         let p = ctx.params().clone();
+        // `Displace Mesh`: back to the reference position from the second
+        // visit on (TotalSol associated).
+        let displace_on = flag(&p, "displace mesh");
+        if self.visited && displace_on {
+            ctx.info(CALLER, "Returning the mesh to its reference position", 4);
+            displace(ctx, -1.0);
+        }
+        self.visited = true;
         let ld = flag(&p, "large deflection");
         let max_iters = if ld {
             p.integer("nonlinear system max iterations")
@@ -562,6 +680,37 @@ impl Solver for ShellSolver {
                 }
             }
             ctx.default_finish_bulk_assembly()?;
+            // BOUNDARY_ASSEMBLY: edges and points whose nodes all have dofs.
+            let nb = ctx.mesh.n_bulk();
+            for t in nb..nb + ctx.mesh.n_boundary() {
+                let e = ElemId(t as u32);
+                let el = ctx.mesh.element(e);
+                if el.etype.0 / 100 > 2 || el.nodes.iter().any(|&k| perm[k as usize] == NO_DOF) {
+                    continue;
+                }
+                let nodes = el.nodes.to_vec();
+                let mut sol = vec![0.0f64; M * nodes.len()];
+                if ld {
+                    for (i, &k) in nodes.iter().enumerate() {
+                        let s = perm[k as usize] as usize;
+                        for c in 0..M {
+                            sol[i * M + c] = total[s * M + c];
+                        }
+                    }
+                }
+                let Some((ls, rhs)) = boundary_matrix(ctx, e, ld, &sol)? else {
+                    continue;
+                };
+                ctx.default_update(&ls, e)?;
+                if ld && iter == 1 {
+                    for (i, &k) in nodes.iter().enumerate() {
+                        let s = perm[k as usize] as usize;
+                        for c in 0..M {
+                            bulk_rhs[s * M + c] += rhs[i * M + c];
+                        }
+                    }
+                }
+            }
             ctx.default_finish_boundary_assembly()?;
             // DefaultDirichletBCs, then DValues - Values: the increment.
             let (values, rows) = ctx.dirichlet_values_with_rows()?;
@@ -628,6 +777,14 @@ impl Solver for ShellSolver {
             if !ld {
                 break;
             }
+        }
+        if displace_on {
+            ctx.info(
+                CALLER,
+                "Displacing the mesh with computed displacement field",
+                4,
+            );
+            displace(ctx, 1.0);
         }
         Ok(())
     }
