@@ -309,22 +309,25 @@ fn refnorm_one(
     if run_dir.exists() {
         return skip("run dir exists; use a fresh out-root");
     }
-    let mut staging = Staging {
-        inject: Some(SifInject { o2: true, ..SifInject::default() }),
-        mkdirs: Vec::new(),
-        refnorms: refnorms.clone(),
+    let run = |run_dir: &Path, refnorms: &[(u32, f64)]| {
+        let mut staging = Staging {
+            inject: Some(SifInject { o2: true, ..SifInject::default() }),
+            mkdirs: Vec::new(),
+            refnorms: refnorms.to_vec(),
+        };
+        // Same in-memory-mesh retry as `capture`.
+        let mut result = run_plan(arm, &spec, &plan, &src, run_dir, &staging);
+        if result.as_ref().is_ok_and(|o| !o.passed) {
+            let missing = missing_output_dirs(run_dir);
+            if !missing.is_empty() && std::fs::remove_dir_all(run_dir).is_ok() {
+                staging.mkdirs = missing;
+                result = run_plan(arm, &spec, &plan, &src, run_dir, &staging);
+            }
+        }
+        result
     };
     let solvers_n = refnorms.len();
-    // Same in-memory-mesh retry as `capture`.
-    let mut result = run_plan(arm, &spec, &plan, &src, &run_dir, &staging);
-    if result.as_ref().is_ok_and(|o| !o.passed) {
-        let missing = missing_output_dirs(&run_dir);
-        if !missing.is_empty() && std::fs::remove_dir_all(&run_dir).is_ok() {
-            staging.mkdirs = missing;
-            result = run_plan(arm, &spec, &plan, &src, &run_dir, &staging);
-        }
-    }
-    match result {
+    match run(&run_dir, &refnorms) {
         Ok(o) if o.passed => (String::from("bitwise"), solvers_n, notes.join("; ")),
         Ok(o) => {
             let failed: Vec<&String> = o.compare_lines.iter().filter(|l| l.contains("FAILED")).collect();
@@ -340,6 +343,23 @@ fn refnorm_one(
                     .iter()
                     .all(|n| solvers.iter().any(|s| s.number == *n && s.self_norm()));
             notes.extend(failed.into_iter().cloned());
+            if self_norm {
+                // The other solvers can still be validated: rerun with the
+                // self-norming ones left at their own sif Reference Norm.
+                let rest: Vec<(u32, f64)> =
+                    refnorms.iter().copied().filter(|(n, _)| !failed_solvers.contains(n)).collect();
+                for n in &failed_solvers {
+                    notes.push(format!("solver {n}: sets its own norm, not validated"));
+                }
+                if !rest.is_empty() {
+                    let retry = out_root.join(format!("{test}.without-self-norm"));
+                    if let Ok(o) = run(&retry, &rest) {
+                        if o.passed {
+                            return (String::from("bitwise"), rest.len(), notes.join("; "));
+                        }
+                    }
+                }
+            }
             let verdict = if self_norm {
                 "grader-gap-solver-norm"
             } else if non_nodal {
