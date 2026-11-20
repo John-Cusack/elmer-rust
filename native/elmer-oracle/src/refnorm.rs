@@ -115,7 +115,7 @@ pub const NO_VARIABLE: &str = "no explicit Variable (legacy or default name)";
 
 /// Keywords that change `ComputeNorm`; their presence takes a solver out
 /// of the validated class.
-const NORM_KEYS: [&str; 7] = [
+const NORM_KEYS: [&str; 8] = [
     // SaveScalars and friends report a chosen scalar as the solver norm.
     "show norm index",
     "show norm",
@@ -124,6 +124,8 @@ const NORM_KEYS: [&str; 7] = [
     "nonlinear system norm components",
     "nonlinear system nodal norm",
     "norm permutation",
+    // Parallel: owned nodes only, a sum the per-rank files do not record.
+    "nonlinear system consistent norm",
 ];
 
 /// The `Reference Norm` solvers of one sif, or why the sif is out of the
