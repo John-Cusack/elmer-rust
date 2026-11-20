@@ -189,7 +189,7 @@ impl Solver for TestSolver {
                     if mx > 1.0e-8 {
                         return Err(SolverError::fatal(
                             CALLER,
-                            format!("ddx did not match (element {code}, function {} of {nd}): {:?} vs {:?}", i + 1, from, ddb[i]),
+                            format!("ddx did not match (element {code}, function {} of {nd}, {} points): {:?} vs {:?}", i + 1, rule.len(), from, ddb[i]),
                         ));
                     }
                 }
