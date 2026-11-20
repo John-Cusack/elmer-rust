@@ -333,6 +333,11 @@ impl PSetup {
         self.layout().element_basis(e.0 as usize)
     }
 
+    /// `Element % DGDOFs` of element `e` (a `d:` definition, else 0).
+    pub fn dg_dofs(&self, e: ElemId) -> usize {
+        self.mesh.elements[e.0 as usize].dg_dofs
+    }
+
     /// `GaussPoints(Element)` of element `e`.
     pub fn gauss_rule(&self, e: ElemId) -> Result<GaussRule, Error> {
         self.layout().gauss_rule(e.0 as usize)

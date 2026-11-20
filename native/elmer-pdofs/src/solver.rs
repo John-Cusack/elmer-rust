@@ -258,15 +258,24 @@ impl DofsBackend for PDofsBackend {
         active: &[ElemId],
         dofs: usize,
     ) -> Option<Result<Box<dyn SolverDofs>, SolverError>> {
-        if solver.logical("discontinuous galerkin") == Some(true) {
-            return Some(
-                crate::dg::DgDofs::build(mesh, model, solver, active).map(|d| Box::new(d) as Box<dyn SolverDofs>),
-            );
-        }
         let other = OtherDefs {
             model,
             id: solver_id,
         };
+        if solver.logical("discontinuous galerkin") == Some(true) {
+            if other.has_p_definitions(solver) {
+                // The p basis and rules of the same definitions; the DG
+                // numbering is DgDofs' (an explicit `d:` sets DGDOFs).
+                let mut nodal = solver.clone();
+                nodal.insert("Discontinuous Galerkin", elmer_core::Value::Logical(false));
+                return Some(self.setup(mesh, &other, &nodal, active, dofs).and_then(|p| {
+                    crate::dg::DgPDofs::build(mesh, model, solver, active, p).map(|d| Box::new(d) as Box<dyn SolverDofs>)
+                }));
+            }
+            return Some(
+                crate::dg::DgDofs::build(mesh, model, solver, active).map(|d| Box::new(d) as Box<dyn SolverDofs>),
+            );
+        }
         if !other.has_p_definitions(solver) {
             return None;
         }
@@ -283,6 +292,17 @@ impl PDofsBackend {
         active: &[ElemId],
         dofs: usize,
     ) -> Result<Box<dyn SolverDofs>, SolverError> {
+        Ok(Box::new(self.setup(mesh, other, solver, active, dofs)?))
+    }
+
+    fn setup(
+        &self,
+        mesh: &dyn MeshView,
+        other: &OtherDefs<'_>,
+        solver: &ParamMap,
+        active: &[ElemId],
+        dofs: usize,
+    ) -> Result<PSetup, SolverError> {
         let model = other.model;
         if model
             .boundary_conditions
@@ -360,7 +380,7 @@ impl PDofsBackend {
             dofs,
         )
         .map_err(unsupported)?;
-        Ok(Box::new(setup))
+        Ok(setup)
     }
 }
 

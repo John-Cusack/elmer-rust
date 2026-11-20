@@ -23,6 +23,7 @@ use elmer_expr::{Udf, UdfRegistry};
 use elmer_solver::solver::procedure_of;
 use elmer_solver::{ElementAssembly, Model, Simulation, SolverFactory, SolverRegistry};
 
+use crate::adv_react_dg_p;
 use crate::benchmark_shell;
 use crate::bentonite;
 use crate::edge_element_test;
@@ -177,6 +178,7 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("SlaveSolverSlots", "CountSolver", "CountSolver", Hook::Solver(count_solver::factory)),
     // The same source as `CountSolver2.F90`.
     ("SlaveSolverSlotsScan", "CountSolver2", "CountSolver", Hook::Solver(count_solver::factory)),
+    ("AdvReactDG_P", "AdvReactDG_P", "AdvectionReactionSolver", Hook::Solver(adv_react_dg_p::factory)),
     // One `BenchmarkShell.F90` in all five shell cases.
     ("p-FEM_two_solvers", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
     ("SD_p-FEM_two_solvers", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
