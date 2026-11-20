@@ -22,30 +22,52 @@ ElasticStabilized) and an MPI variant (AngleMetisLayer_np2). The result is
 **7/7 `tier-a-pass`**. Grading the FMA arm's capture as a candidate gives
 467/467 `tier-a-pass`, as it must, since σ_F is built from that arm.
 
-## The Rust path today: nothing gradable yet
+## The Rust path: 189 serial quick tests graded tier-a-pass
 
-`rust-elmer-run-77e7338.tsv` covers the `elmer-run` binary built from main
-`77e7338` (`ElmerSolver` behaviour with `NativeEngine`, `ELMER_NATIVE=1`,
-no Fortran fallback). It was run on the 163 serial tests that
-`elmer-coverage` reports as matching, plus one replay test. The result is
-**157 `no-candidate-output`, 7 `no-golden-fields`, 0 graded.** Two candidate-side gaps block
-external grading:
+`rust-elmer-run-60d64f8.tsv` grades the `elmer-run` binary built from main
+`60d64f8`. It runs `ElmerSolver`'s process behaviour with `NativeEngine`
+and `SifFrontend`, under `ELMER_NATIVE=1` with `ELMER_FORTRAN_SOLVER`
+unset, so no case can fall back to Fortran. It ran on all 454 serial
+registered quick tests:
 
-1. **The process-boundary binary has no front end.** `elmer-run`'s `main`
-   uses `NativeEngine::default()`, which refuses every case with "no .sif
-   and mesh front end (elmer-sif, elmer-mesh) in this build". The 169
-   matches in `elmer-coverage/COVERAGE.md` come from the in-process
-   harness, which installs `SifFrontend` itself, and from its
-   self-graded `TEST.PASSED`.
-2. **The native engine does not write `Output File`.** It writes no `.result`
-   files, so even with a front end there are no fields for the grader to
-   read. Its VTU output (`Post File`) reaches only 57 of the 163 tests.
+| Verdict | Tests |
+|---|---:|
+| `tier-a-pass` | **189** |
+| `tier-a-FAIL` | 6 |
+| `no-golden-fields` | 15 |
+| `no-candidate-output` (refused, or wrote no result file) | 244 |
 
-These belong to the candidate lanes (S1 front end and output), not the
-oracle. Once the binary writes `Output File` with `Binary Output`, the same
-command grades it with no oracle change:
+Against `elmer-coverage/results.tsv` (main `fc75eec`, in-process harness,
+self-graded `TEST.PASSED` plus its field check):
+- **Every serial coverage match is confirmed by the external grader:**
+  182 `tier-a-pass` and 7 `no-golden-fields` (ElementUnitTest_*,
+  L2ndDerivatives).
+- 5 tests coverage refused and 2 it called mismatches now pass. They are
+  candidate PRs merged after `fc75eec`: NonnewtonianChannelFlow_vec (and
+  its SD_ variant), ThermoElectricBubble(Transient), ElasticConstantSystem,
+  BlockLinElast2bMany and HeatGap.
+- The 5 coverage mismatches still fail (1dtests_MeshLevels,
+  ElasticAnisotropic2D, ElasticStressLoad, ElmerGridExtrudeOffset,
+  bentonite), on the same fields.
+- **ElasticIntegrationOrder:** coverage refused it at `fc75eec`. The binary
+  now runs it, and `displacement 1` is 4.6% off (bar 6.1e-14). Its own
+  `Reference Norm` check fails as well. It is a wrong answer, not a
+  refusal, for the candidate lanes to fix or refuse.
+
+**Test-local fixtures need the ctest directory name.** `elmer-fixtures`
+keys its Rust ports of the D12 test-local plugins by the case
+directory's name, which under ctest is the test's own directory. The
+grader therefore runs the candidate in `<out>/<test>/<test dir>`, with
+`run` linking to it. In a directory named `run`, the 25 fixture cases
+(1dtests, BlockPoisson*, CoupledPoisson*, ModelPDE*, PoissonPFEM, …)
+refused with "procedure not registered".
+
+MPI variants (`_npN`, 28 tests) are not graded here. They need the
+candidate's `elmer-mpi-run` under the arm's `mpiexec`.
 
 ```sh
-scripts/grade-candidate.sh <oracle-bin> <candidate ElmerSolver> \
-  $S/build-release $S/src/fem/tests <golden-root> tolerances.json <out> 8 < tests.txt
+printf '#!/bin/sh\nexec env -u ELMER_FORTRAN_SOLVER ELMER_NATIVE=1 <target>/release/elmer-run "$@"\n' > ElmerSolver-rust
+awk -F'\t' '$3==1 {print $1}' <golden-root>/registry.tsv > serial.txt
+scripts/grade-candidate.sh <oracle-bin> ElmerSolver-rust \
+  $S/build-release $S/src/fem/tests <golden-root> tolerances.json <out> 6 < serial.txt
 ```

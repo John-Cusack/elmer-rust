@@ -1,0 +1,455 @@
+test	verdict	files	mismatches	detail
+1dtests	tier-a-pass	1	0	
+1dtests_MeshLevels	tier-a-FAIL	1	2	1d/case.result: potential step 3: ExceedsTolerance { error: 3.356429008651241e-12, allowed: 2.2204478755300617e-15 }
+AdvDiffFluxes	tier-a-pass	1	0	
+AdvDiffMigration	tier-a-pass	1	0	
+AdvDiffMigrationAbsMass	tier-a-pass	1	0	
+AdvDiffSoret	no-candidate-output	1	1	strip/case.result: no candidate file
+AdvDiffSoretAbsMass	no-candidate-output	1	1	strip/case.result: no candidate file
+AdvReactDB	no-candidate-output	1	1	square/case.result: no candidate file
+AdvReactDBmap	no-candidate-output	1	1	square/case.result: no candidate file
+AdvReactDG	no-candidate-output	1	1	square/case.result: no candidate file
+AdvReactDG_P	no-candidate-output	1	1	square/case.result: no candidate file
+AnalyticalTest	tier-a-pass	1	0	
+AngleMetisLayer	tier-a-pass	1	0	
+BDM2D	no-candidate-output	1	1	square/case.result: no candidate file
+BlockLinElast1	no-candidate-output	1	1	square/case.result: no candidate file
+BlockLinElast2	tier-a-pass	1	0	
+BlockLinElast2b	tier-a-pass	1	0	
+BlockLinElast2bMany	tier-a-pass	1	0	
+BlockPoisson1	tier-a-pass	1	0	
+BlockPoisson2	tier-a-pass	1	0	
+BoundaryFluxes	tier-a-pass	1	0	
+BoundaryFluxes2	tier-a-pass	1	0	
+CapacitanceMatrix	no-candidate-output	1	1	plates/case.result: no candidate file
+CapacitanceMatrix3	no-candidate-output	1	1	plates/case.result: no candidate file
+CapacitanceMatrix4	no-candidate-output	1	1	plates/case.result: no candidate file
+CavityLid	no-candidate-output	1	1	square/case.result: no candidate file
+ChannelFlowCoulomb	no-candidate-output	2	2	rect/case.result: no candidate file; rect/taylorhood.result: no candidate file
+CoilSolver1	no-candidate-output	1	1	Curve/case.result: no candidate file
+CoilSolver2	no-candidate-output	1	1	Curve/case.result: no candidate file
+CoilSolver3	no-candidate-output	1	1	Curve/case.result: no candidate file
+CoilSolver4	no-candidate-output	1	1	Curve/case.result: no candidate file
+CoilSolver5	no-candidate-output	1	1	Curve/case.result: no candidate file
+CoilSolver6	no-candidate-output	1	1	Curve/case.result: no candidate file
+CoilSolverLoop	no-candidate-output	1	1	Loop/case.result: no candidate file
+ComponentResistance	no-candidate-output	1	1	blocks/case.result: no candidate file
+ConstantBCTemperature	tier-a-pass	1	0	
+ConstantUnknownPotStatCurrent	tier-a-pass	1	0	
+ConstantUnknownPotStatCurrent2	tier-a-pass	1	0	
+ContactPatch2D	no-candidate-output	1	1	squares/case.result: no candidate file
+ContactPatch2DIncompressible	no-candidate-output	1	1	squares/case.result: no candidate file
+ContactPatch2Dnt	no-candidate-output	1	1	squares/case.result: no candidate file
+ContactPatch2Dtie	no-candidate-output	1	1	squares/case.result: no candidate file
+CoordinateScaling	tier-a-pass	1	0	
+CoordinateTrans	no-candidate-output	1	1	cylinder/case.result: no candidate file
+CoupledPoisson1	tier-a-pass	1	0	
+CoupledPoisson1b	tier-a-pass	1	0	
+CoupledPoisson3	tier-a-pass	1	0	
+CoupledPoisson4	tier-a-pass	1	0	
+CoupledPoisson5	tier-a-pass	1	0	
+CoupledPoisson6	tier-a-pass	1	0	
+CoupledPoisson7	tier-a-pass	1	0	
+CoupledPoisson8	tier-a-pass	1	0	
+CoupledPoisson9	tier-a-pass	1	0	
+CurvedBndryPFEM	no-candidate-output	1	1	square/case.result: no candidate file
+CurvedBndryPFEM2	no-candidate-output	1	1	square/case.result: no candidate file
+CurvedBoundaryP	no-candidate-output	1	1	circle_in_square/case.result: no candidate file
+CurvedBoundaryPatchH	no-candidate-output	1	1	sinus3d/case.result: no candidate file
+CutFEMPoisson1	no-candidate-output	3	3	square-tri-cutfem/case.result: no candidate file; square-tri-isomesh/case.result: no candidate file; square-tri/case.result: no candidate file
+CutFEMPoisson1Lib	no-candidate-output	2	2	square-tri-isomesh/case.result: no candidate file; square-tri/case.result: no candidate file
+CutFEMPoisson1LibLim	no-candidate-output	2	2	square-tri-isomesh/case.result: no candidate file; square-tri/case.result: no candidate file
+CutFEMPoisson2	no-candidate-output	3	3	square-quad-cutfem/case.result: no candidate file; square-quad-isomesh/case.result: no candidate file; square-quad/case.result: no candidate file
+CutFEMPoisson3	no-candidate-output	3	3	square-tri-cutfem/case.result: no candidate file; square-tri-isomesh/case.result: no candidate file; square-tri/case.result: no candidate file
+DataToField	tier-a-pass	1	0	
+DataToField2	tier-a-pass	1	0	
+DefaultIntExtBCs	tier-a-pass	1	0	
+DgVariable	no-candidate-output	1	1	square/case.result: no candidate file
+DgVariable2	no-candidate-output	1	1	squares/case.result: no candidate file
+DirichletNeumann	tier-a-pass	1	0	
+DirichletNeumannSlave	tier-a-pass	1	0	
+DisContBoundary	tier-a-pass	1	0	
+DisContBoundary3D	tier-a-pass	1	0	
+DisContBoundaryDouble	tier-a-pass	1	0	
+DisContBoundaryDoubleMortar	no-candidate-output	1	1	circle_in_square/case.result: no candidate file
+DisContBoundaryDoubleNames	tier-a-pass	1	0	
+DisContBoundaryFullAngle	tier-a-pass	1	0	
+DisContBoundaryMortarCont	no-candidate-output	1	1	square/case.result: no candidate file
+DisContBoundaryMortarContElim	no-candidate-output	1	1	square/case.result: no candidate file
+DisContBoundaryMortarJump	no-candidate-output	1	1	square/case.result: no candidate file
+DisContBoundaryMortarJumpC	no-candidate-output	1	1	square/case.result: no candidate file
+DisContBoundaryNodalJump	no-candidate-output	1	1	square/case.result: no candidate file
+DisContBoundaryNodalJumpB	no-candidate-output	1	1	square/case.result: no candidate file
+DisContBoundaryNodalProj	no-candidate-output	1	1	square/case.result: no candidate file
+DiscontinuousTempSlabDG	no-candidate-output	1	1	slabs/case.result: no candidate file
+EMWavePiola2D	no-candidate-output	1	1	rectangle/case.result: no candidate file
+EM_port_eigen_unit_voltage	no-candidate-output	1	1	port/case.result: no candidate file
+ElastElstat1DBeam	no-candidate-output	1	1	beam_no_air/case.result: no candidate file
+ElastElstatBeam	no-candidate-output	1	1	beam_in_air/case.result: no candidate file
+ElastPelem2dQuad	no-candidate-output	1	1	angle/case.result: no candidate file
+ElastPelem2dTri	no-candidate-output	1	1	angle/case.result: no candidate file
+ElasticAnisotropic2D	tier-a-FAIL	1	2	square/case.result: stress_xy step 0: ExceedsTolerance { error: 3.2323545846176156e-15, allowed: 2.9747223786127604e-15 }
+ElasticAnisotropic3D	tier-a-pass	1	0	
+ElasticAnisotropicAxi	tier-a-pass	1	0	
+ElasticBlockDamping	tier-a-pass	1	0	
+ElasticBlockDampingAlpha	tier-a-pass	1	0	
+ElasticBlockDampingFirstOrder	tier-a-pass	1	0	
+ElasticBlockInertia	tier-a-pass	1	0	
+ElasticBlockQuasiStationary	no-candidate-output	1	1	cube/case.result: no candidate file
+ElasticBubbleBoundaryRule3D	no-candidate-output	1	1	cube/case.result: no candidate file
+ElasticBuckling	no-candidate-output	1	1	buckling/case.result: no candidate file
+ElasticConstantSystem	tier-a-pass	1	0	
+ElasticConstantSystemFull	no-candidate-output	1	1	square/case.result: no candidate file
+ElasticCylindric	tier-a-pass	1	0	
+ElasticGeomStiff	no-candidate-output	1	1	geomstiff/case.result: no candidate file
+ElasticIncompressible	no-candidate-output	1	1	square/case.result: no candidate file
+ElasticIncompressible3D	no-candidate-output	1	1	cube/case.result: no candidate file
+ElasticIncompressibleP2	no-candidate-output	1	1	square/case.result: no candidate file
+ElasticIntegrationOrder	tier-a-FAIL	1	2	square/case.result: displacement 1 step 0: ExceedsTolerance { error: 0.04633446336152157, allowed: 6.114833077841806e-14 }
+ElasticMaxwellStressLoad	no-candidate-output	1	1	cube/case.result: no candidate file
+ElasticModelLumping	no-candidate-output	1	1	beam3d/case.result: no candidate file
+ElasticModelLumpingFixdisp	no-candidate-output	1	1	beam3d/case.result: no candidate file
+ElasticNeoHookeanCompressible	no-candidate-output	1	1	cube/case.result: no candidate file
+ElasticPrestressAdvection	no-candidate-output	1	1	square/case.result: no candidate file
+ElasticStabilized	no-candidate-output	5	5	cube/hex.result: no candidate file; prismmesh/prism.result: no candidate file; square/quad.result: no candidate file; tetmesh/case.result: no candidate file; trimesh/tri.result: no candidate file
+ElasticStressLoad	tier-a-FAIL	1	4	cube/case.result: stress_xy step 0: ExceedsTolerance { error: 6.337839007866327e-14, allowed: 5.078083642666394e-14 }
+ElasticStressLoadPlane	tier-a-pass	1	0	
+ElasticThermalAnisotropic	tier-a-pass	1	0	
+ElasticThermalBiMetal	tier-a-pass	1	0	
+ElasticTwoInstances	no-candidate-output	1	1	square/case.result: no candidate file
+ElasticTwoInstancesP2	no-candidate-output	1	1	square/case.result: no candidate file
+ElemVariable	tier-a-pass	1	0	
+ElemVariable2	tier-a-pass	1	0	
+ElementUnitTest_edge	no-golden-fields	0	0	
+ElementUnitTest_edge_piola	no-golden-fields	0	0	
+ElementUnitTest_edge_quadratic	no-golden-fields	0	0	
+ElementUnitTest_h1	no-golden-fields	0	0	
+ElementUnitTest_p1	no-golden-fields	0	0	
+ElmerGridConvertComsol	tier-a-pass	1	0	
+ElmerGridConvertFvcom	tier-a-pass	1	0	
+ElmerGridConvertGmshBinary	tier-a-pass	1	0	
+ElmerGridConvertUnv	tier-a-pass	1	0	
+ElmerGridExtrudeHelicity	tier-a-pass	1	0	
+ElmerGridExtrudeMaterial	tier-a-pass	1	0	
+ElmerGridExtrudeMaterial2	tier-a-pass	1	0	
+ElmerGridExtrudeOffset	tier-a-FAIL	1	1	cubes/case.result: temperature step 0: ExceedsTolerance { error: 1.4102198270676752e-13, allowed: 8.419222848165226e-14 }
+ExtrudedMesh	tier-a-pass	1	0	
+ExtrudedMesh2	tier-a-pass	1	0	
+ExtrudedMesh3	tier-a-pass	1	0	
+ExtrudedMesh4	tier-a-pass	1	0	
+ExtrudedMesh6	tier-a-pass	1	0	
+ExtrudedMesh7	tier-a-pass	1	0	
+ExtrudedMesh8	tier-a-pass	1	0	
+ExtrudedMesh9	tier-a-pass	1	0	
+ExtrudedMeshBaseline1	no-candidate-output	1	1	square/case.result: no candidate file
+FaceElement2D_BCs	no-candidate-output	1	1	square/case.result: no candidate file
+FaceElement3D_BCs	no-candidate-output	1	1	cube/case.result: no candidate file
+FacetShell	no-candidate-output	1	1	shell/case.result: no candidate file
+FacetShell2	no-candidate-output	1	1	cylinder/case.result: no candidate file
+FilmFlowLine	no-candidate-output	1	1	line/case.result: no candidate file
+FilmFlowPipe	no-candidate-output	1	1	line/case.result: no candidate file
+FilmFlowPlane	no-candidate-output	1	1	rect/case.result: no candidate file
+FilmFlowPlane2	no-candidate-output	1	1	rect/case.result: no candidate file
+FilmFlowPlane3	no-candidate-output	1	1	rect/case.result: no candidate file
+FilmFlowPlane4	no-candidate-output	1	1	rect/case.result: no candidate file
+FilmFlowPlane5	no-candidate-output	1	1	rect/case.result: no candidate file
+FixPotentialLevels	tier-a-pass	1	0	
+FixTangentVelo	no-candidate-output	2	2	slab/case.result: no candidate file; slab/stabilized.result: no candidate file
+FluxIntegralBCInduction	no-candidate-output	1	1	indmesh/case.result: no candidate file
+FluxIntegralBCTemperature	tier-a-pass	1	0	
+HeatAndDiffusion	tier-a-pass	1	0	
+HeatControl	tier-a-pass	1	0	
+HeatControl2	tier-a-pass	1	0	
+HeatControlExplicit	tier-a-pass	1	0	
+HeatEqExitCondition	tier-a-pass	1	0	
+HeatGap	tier-a-pass	1	0	
+HeatSolveVecCondMatrix	no-golden-fields	0	0	
+HelmholtzBEM	no-candidate-output	1	1	MeshFiles/case.result: no candidate file
+HelmholtzEdge	no-candidate-output	1	1	square/case.result: no candidate file
+HelmholtzFEM	no-candidate-output	1	1	MeshFiles/case.result: no candidate file
+HelmholtzFace	no-candidate-output	1	1	square/case.result: no candidate file
+HelmholtzPlaneWaves	tier-a-pass	1	0	
+HelmholtzPlaneWavesAxis	tier-a-pass	1	0	
+HelmholtzStructure2	no-candidate-output	1	1	angle_in_halfcircle/case.result: no candidate file
+HybridMeshMap	no-candidate-output	1	1	cube/case.result: no candidate file
+IncompressibleNSAxi	tier-a-pass	1	0	
+IncreaseOrderBrick	tier-a-pass	1	0	
+IncreaseOrderPrism	tier-a-pass	1	0	
+IncreaseOrderQuad	tier-a-pass	1	0	
+IncreaseOrderTet	tier-a-pass	1	0	
+IncreaseOrderTri	tier-a-pass	1	0	
+InductionHeating	no-candidate-output	1	1	crucible/case.result: no candidate file
+InductionHeating2	no-candidate-output	1	1	crucible/case.result: no candidate file
+InductionHeating3	no-candidate-output	1	1	crucible/case.result: no candidate file
+InductionHeating4	no-candidate-output	1	1	crucible-bc/case.result: no candidate file
+IntegralConstraintFlow	tier-a-pass	1	0	
+IntegralConstraintPoisson	tier-a-pass	1	0	
+IntegralConstraintPoissonBF	tier-a-pass	1	0	
+IntersectionBCs	no-candidate-output	1	1	cube/case.result: no candidate file
+IntersectionBCs0D	tier-a-pass	1	0	
+IntersectionBody1D	no-candidate-output	1	1	mesh/case.result: no candidate file
+IntersectionBody1Ddiscont	no-candidate-output	1	1	mesh/case.result: no candidate file
+IpVariable	tier-a-pass	1	0	
+IpVariable2	no-candidate-output	1	1	squares/case.result: no candidate file
+IpVariable3	tier-a-pass	1	0	
+IpVariable4	no-candidate-output	1	1	square/case.result: no candidate file
+IsolineGmsh	no-candidate-output	1	1	angle/case.result: no candidate file
+IsosurfaceFixed	no-candidate-output	1	1	angle/case.result: no candidate file
+IsosurfaceLevels	no-candidate-output	1	1	angle/case.result: no candidate file
+JouleHeatToOpenFOAM	no-candidate-output	1	1	wire/case.result: no candidate file
+L2ndDerivatives	no-golden-fields	0	0	
+LinControlCoordDisp	tier-a-pass	1	0	
+LinControlCoordHeat	tier-a-pass	1	0	
+LinControlFourHeaters	tier-a-pass	1	0	
+LinControlLoadDisp	tier-a-pass	1	0	
+LinControlMaxHeat	tier-a-pass	1	0	
+LinearSystemNamespace	tier-a-pass	1	0	
+LinearSystemNamespace2	tier-a-pass	1	0	
+LubricationTunedForce	no-candidate-output	1	1	bump/case.result: no candidate file
+MarchingODE1	no-candidate-output	1	1	rect/case.result: no candidate file
+MarchingODE2	no-candidate-output	1	1	rect/case.result: no candidate file
+MarchingODE3	no-candidate-output	1	1	rect/case.result: no candidate file
+MarchingODE4	no-candidate-output	1	1	rectangles/case.result: no candidate file
+MatDepMat	no-candidate-output	1	1	angle/case.result: no candidate file
+MeshColour	no-golden-fields	0	0	
+MeshLevelsRestart	no-candidate-output	2	2	square/case.result: no candidate file; square/init_bin.result: no candidate file
+MgDynDiscontBCs	no-candidate-output	1	1	cylinder-ok/case.result: no candidate file
+MinimalExample	tier-a-pass	1	0	
+MixedPoisson2D	no-candidate-output	1	1	square/case.result: no candidate file
+MixedPoisson3D	no-candidate-output	1	1	cube/case.result: no candidate file
+MixedPoisson3D_Brick	no-candidate-output	1	1	testcube/case.result: no candidate file
+ModelPDE	tier-a-pass	1	0	
+ModelPDEhandle	tier-a-pass	1	0	
+ModelPDEsplitted	tier-a-pass	1	0	
+MonolithicSlave	tier-a-pass	1	0	
+MonolithicSlave2	tier-a-pass	1	0	
+MortarMixedDimensions	no-candidate-output	1	1	mesh/case.result: no candidate file
+MortarPoisson2D	tier-a-pass	1	0	
+MortarSaveProjection	no-candidate-output	1	1	squares/case.result: no candidate file
+NeoHookean2D	tier-a-pass	1	0	
+NonnewtonianChannelFlow	no-candidate-output	1	1	square/case.result: no candidate file
+NonnewtonianChannelFlow_vec	tier-a-pass	2	0	
+NormalTangentialDisplacement	no-candidate-output	1	1	square/case.result: no candidate file
+NormalTangentialDisplacement2	no-candidate-output	1	1	square/case.result: no candidate file
+NormalizeBC	no-candidate-output	1	1	angle/case.result: no candidate file
+NormalizeBF	no-candidate-output	1	1	angle/case.result: no candidate file
+NormalizeMaterial	no-candidate-output	1	1	angle/case.result: no candidate file
+OdeSolver1stOrder	no-golden-fields	0	0	
+OdeSolver2ndOrder	no-golden-fields	0	0	
+OtherMeshResults	no-candidate-output	2	2	angle/case.result: no candidate file; square/case.result: no candidate file
+Outlet2InletBCv2	no-candidate-output	1	1	beam_b/case.result: no candidate file
+ParStokes_NormalTangentialBC	no-candidate-output	1	1	sinus0/case.result: no candidate file
+ParticleElstat	no-candidate-output	1	1	square/case.result: no candidate file
+ParticleElstatMag	no-candidate-output	1	1	square/case.result: no candidate file
+ParticleFalling	no-candidate-output	1	1	square/case.result: no candidate file
+ParticleFallingPathIntegral	no-candidate-output	1	1	square/case.result: no candidate file
+PerfectGasCompress_vec	no-candidate-output	1	1	PerfectGasCompress_vec/case.result: no candidate file
+PerfectGasCompress_vec_transient	no-candidate-output	1	1	PerfectGasCompress_vec_transient/case.result: no candidate file
+PhaseChange2	no-candidate-output	1	1	PhaseChange/case.result: no candidate file
+PhaseChange3	no-candidate-output	1	1	PhaseChange/case.result: no candidate file
+PhaseChange4	no-candidate-output	1	1	PhaseChange/case.result: no candidate file
+PlatesEigenComplex	no-candidate-output	1	1	plates/case.result: no candidate file
+PoissonBEM	no-candidate-output	1	1	heater/case.result: no candidate file
+PoissonDG	no-candidate-output	1	1	square/case.result: no candidate file
+PoissonML	tier-a-pass	1	0	
+PoissonPFEM	tier-a-pass	1	0	
+PorousPipe	no-candidate-output	1	1	Pipe/case.result: no candidate file
+PredictorCorrector	no-candidate-output	1	1	rectangle/case.result: no candidate file
+ProfileBCTemperature	tier-a-pass	1	0	
+ProfileBCTemperatureRobin	tier-a-pass	1	0	
+Q1Q0	no-candidate-output	1	1	Step/case.result: no candidate file
+QuadraturesBrick	tier-a-pass	1	0	
+QuadraturesWedge	tier-a-pass	1	0	
+RaviartThomas2D	no-candidate-output	1	1	square/case.result: no candidate file
+RaviartThomas3D	no-candidate-output	1	1	cube/case.result: no candidate file
+ResultOutputBCs	tier-a-pass	1	0	
+RigidMeshMapper1	tier-a-pass	1	0	
+RigidMeshMapper2	tier-a-pass	1	0	
+RotatingBCPoisson3DGenericTets	no-candidate-output	1	1	mortar3d/case.result: no candidate file
+RotatingFlow	no-candidate-output	1	1	circle/case.result: no candidate file
+SD_BlockLinElast1	no-candidate-output	1	1	square/case.result: no candidate file
+SD_CapacitanceMatrix3	no-candidate-output	1	1	plates/case.result: no candidate file
+SD_Classical2DShell	no-candidate-output	1	1	eighth/case.result: no candidate file
+SD_CurvedBndryPFEM	no-candidate-output	1	1	square/case.result: no candidate file
+SD_CurvedBndryPFEM2	no-candidate-output	1	1	square/case.result: no candidate file
+SD_ElastPelem2dQuad	no-candidate-output	1	1	angle/case.result: no candidate file
+SD_ElementUnitTest_p1	no-golden-fields	0	0	
+SD_FilmFlowPlane	no-candidate-output	1	1	rect/case.result: no candidate file
+SD_FilmFlowPlane2	no-candidate-output	1	1	rect/case.result: no candidate file
+SD_FilmFlowPlane3	no-candidate-output	1	1	rect/case.result: no candidate file
+SD_ModelPDE	tier-a-pass	1	0	
+SD_ModelPDEsplitted	tier-a-pass	1	0	
+SD_NonnewtonianChannelFlow_vec	tier-a-pass	2	0	
+SD_P2ndDerivatives	no-golden-fields	0	0	
+SD_PoissonPFEM	tier-a-pass	1	0	
+SD_QuadraturesBrick	tier-a-pass	1	0	
+SD_QuadraturesWedge	tier-a-pass	1	0	
+SD_SolverSpecificMeshes	no-candidate-output	2	2	square/case.result: no candidate file; square2/case.result: no candidate file
+SD_Step_stokes_block	no-candidate-output	1	1	Step/case.result: no candidate file
+SD_Step_stokes_vec_blockprec	tier-a-pass	2	0	
+SD_p-FEM_two_solvers	tier-a-pass	1	0	
+SD_p-FEM_with_varying_p	no-candidate-output	1	1	eighth/case.result: no candidate file
+SD_structmap_p2	no-candidate-output	1	1	box/case.result: no candidate file
+SaveDependence	tier-a-pass	1	0	
+SaveDependenceSpline	no-golden-fields	0	0	
+SaveLine	no-candidate-output	1	1	cube/case.result: no candidate file
+SecondOrderEdgeElement2D	no-candidate-output	1	1	square/case.result: no candidate file
+SecondOrderEdgeElement2D_BCs	no-candidate-output	1	1	square/case.result: no candidate file
+SecondOrderEdgeElement3D	no-candidate-output	1	1	cube3/case.result: no candidate file
+SensTemperature	tier-a-pass	1	0	
+Shell_And_Solid	no-candidate-output	1	1	shell_and_solid/case.result: no candidate file
+Shell_And_Solid2	no-candidate-output	1	1	shell_and_solid/case.result: no candidate file
+Shell_Cantilever	no-candidate-output	1	1	strip/case.result: no candidate file
+Shell_PlateCase_Quad	no-candidate-output	1	1	plates/case.result: no candidate file
+Shell_with_Beam_Sections	no-candidate-output	1	1	strip_with_beams/case.result: no candidate file
+ShoeboxStaticPlate	no-candidate-output	1	1	shoebox/case.result: no candidate file
+ShoeboxStaticShell	no-candidate-output	1	1	shoebox/case.result: no candidate file
+SlaveSolverSlots	tier-a-pass	1	0	
+SlaveSolverSlotsScan	tier-a-pass	1	0	
+SolverSpecificMeshes	no-candidate-output	2	2	square/case.result: no candidate file; square2/case.result: no candidate file
+StatCurr_adaptivity	no-candidate-output	4	4	RefinedMesh1/case.result: no candidate file; RefinedMesh2/case.result: no candidate file; RefinedMesh3/case.result: no candidate file; kulma/case.result: no candidate file
+StatCurrentVec	no-candidate-output	1	1	angle/case.result: no candidate file
+StatCurrentVec2	tier-a-pass	1	0	
+StatCurrentVecAniso	tier-a-pass	1	0	
+StatCurrentVecAxi	tier-a-pass	1	0	
+StatCurrentVecFarfield	no-candidate-output	1	1	hole/case.result: no candidate file
+StatCurrentVecResMatrix	no-golden-fields	0	0	
+StatElecVecAxi	tier-a-pass	1	0	
+Step_ns	tier-a-pass	1	0	
+Step_stokes	tier-a-pass	1	0	
+Step_stokes_block	no-candidate-output	1	1	Step/case.result: no candidate file
+Step_stokes_vec_blockprec	tier-a-pass	2	0	
+StlOutput1	no-golden-fields	0	0	
+StokesPFEM	tier-a-pass	1	0	
+StokesProj	tier-a-pass	1	0	
+StokesStabilized	tier-a-pass	6	0	
+StokesUnitElements	tier-a-pass	2	0	
+StrainCalculation01	no-candidate-output	1	1	case.result: no candidate file
+StressAnisotropic2D	no-candidate-output	1	1	square/case.result: no candidate file
+StressConstraintModes	no-candidate-output	1	1	angle/case.result: no candidate file
+StressConstraintModes2	no-candidate-output	1	1	angle/case.result: no candidate file
+StressEigen	no-candidate-output	1	1	angle/case.result: no candidate file
+StressEigen2	no-candidate-output	1	1	angle/case.result: no candidate file
+StressMaxwellStressLoad	no-candidate-output	1	1	cube/case.result: no candidate file
+StressStressLoad	no-candidate-output	1	1	cube/case.result: no candidate file
+SunAngle	no-candidate-output	1	1	square/case.result: no candidate file
+TankAst	tier-a-pass	1	0	
+ThermalBiMetal	tier-a-pass	1	0	
+ThermalBiMetal2	tier-a-pass	1	0	
+ThermalCompress	no-candidate-output	1	1	ThermalCompress/case.result: no candidate file
+ThermalCompress_vec	no-candidate-output	1	1	ThermalCompress_vec/case.result: no candidate file
+ThermalPipe2D	tier-a-pass	1	0	
+ThermoElectric	tier-a-pass	1	0	
+ThermoElectricAnisoBC	tier-a-pass	1	0	
+ThermoElectricBubble	tier-a-pass	1	0	
+ThermoElectricBubbleTransient	tier-a-pass	1	0	
+ThermoElectricStabilize	tier-a-pass	1	0	
+TopoOptElast2DCompMin	no-candidate-output	1	1	rect/case.result: no candidate file
+TopoOptElast2DCompMin2	no-candidate-output	1	1	rect/case.result: no candidate file
+TopoOptForceInverter	no-candidate-output	1	1	square/case.result: no candidate file
+TopoOptHeat2DCompMin2	no-candidate-output	1	1	tree2/case.result: no candidate file
+UMAT_StVenant_2D	no-candidate-output	1	1	beam/case.result: no candidate file
+UMAT_StVenant_axials	no-candidate-output	1	1	tank/case.result: no candidate file
+UMAT_linear_isotropic_2D	no-candidate-output	1	1	beam/case.result: no candidate file
+VectorHelmholtzWaveguideNodal	no-candidate-output	1	1	shoebox_tets/case.result: no candidate file
+WaveEqu	no-candidate-output	1	1	square/case.result: no candidate file
+WeightComputation	no-candidate-output	1	1	angle/case.result: no candidate file
+a-posteriori-recovery-2D	no-candidate-output	4	4	RefinedMesh1/case.result: no candidate file; RefinedMesh2/case.result: no candidate file; RefinedMesh3/case.result: no candidate file; strip/case.result: no candidate file
+adaptivity1	no-candidate-output	4	4	Ldomain/case.result: no candidate file; RefinedMesh1/case.result: no candidate file; RefinedMesh2/case.result: no candidate file; RefinedMesh3/case.result: no candidate file
+adaptivity2	no-candidate-output	4	4	Ldomain/case.result: no candidate file; RefinedMesh1/case.result: no candidate file; RefinedMesh2/case.result: no candidate file; RefinedMesh3/case.result: no candidate file
+adaptivity3	no-candidate-output	5	5	RefinedMesh1/case.result: no candidate file; RefinedMesh2/case.result: no candidate file; RefinedMesh3/case.result: no candidate file; RefinedMesh4/case.result: no candidate file; Step/case.result: no candidate file
+adaptivity4	no-candidate-output	7	7	RefinedMesh1/case.result: no candidate file; RefinedMesh2/case.result: no candidate file; RefinedMesh3/case.result: no candidate file; RefinedMesh4/case.result: no candidate file; RefinedMesh5/case.result: no candidate file; RefinedMesh6/case.result: no candidate file; mesh/case.result: no candidate file
+adaptivity5	no-candidate-output	7	7	RefinedMesh1/case.result: no candidate file; RefinedMesh2/case.result: no candidate file; RefinedMesh3/case.result: no candidate file; RefinedMesh4/case.result: no candidate file; RefinedMesh5/case.result: no candidate file; RefinedMesh6/case.result: no candidate file; mesh/case.result: no candidate file
+adv_diff1	tier-a-pass	1	0	
+adv_diff2	tier-a-pass	1	0	
+amultg2	tier-a-pass	1	0	
+beam-springs	no-candidate-output	1	1	beam3d/case.result: no candidate file
+beam-springs-fixdisp	no-candidate-output	1	1	beam3d/case.result: no candidate file
+beamer3d_box	tier-a-pass	1	0	
+bentonite	tier-a-FAIL	1	3	1d/case.result: bentonite 1 step 0: ExceedsTolerance { error: 1.6225429742166603e-12, allowed: 1.316349920366898e-13 }
+bodydir	no-candidate-output	1	1	test/case.result: no candidate file
+bodyload	tier-a-pass	1	0	
+buckling	no-candidate-output	1	1	buckling/case.result: no candidate file
+current	tier-a-pass	1	0	
+current_heat_control	no-candidate-output	1	1	Step/case.result: no candidate file
+el_adaptivity	no-candidate-output	4	4	RefinedMesh1/case.result: no candidate file; RefinedMesh2/case.result: no candidate file; RefinedMesh3/case.result: no candidate file; kulma/case.result: no candidate file
+elasticity	no-candidate-output	1	1	elasticity/case.result: no candidate file
+elasticity_with_springs	no-candidate-output	1	1	beam/case.result: no candidate file
+elstat_source	tier-a-pass	1	0	
+fluxsolver	tier-a-pass	1	0	
+fluxsolver-multimesh	tier-a-pass	1	0	
+fluxsolver2	tier-a-pass	1	0	
+freesurf_int	no-candidate-output	1	1	Mesh1/case.result: no candidate file
+geomstiff	no-candidate-output	1	1	geomstiff/case.result: no candidate file
+gmultg	tier-a-pass	1	0	
+heateq	tier-a-pass	1	0	
+heateq_bdf2	tier-a-pass	1	0	
+heateq_bdf3	tier-a-pass	1	0	
+heateq_newmark	tier-a-pass	1	0	
+heateq_newmark_global	tier-a-pass	1	0	
+heateq_resmode	tier-a-pass	1	0	
+heateq_spline_table	tier-a-pass	1	0	
+heateq_steady_start	tier-a-pass	1	0	
+linearsolvers	tier-a-pass	1	0	
+linearsolvers_cmplx	tier-a-pass	1	0	
+marangoni	no-candidate-output	1	1	mesh/case.result: no candidate file
+mgdyn2D_pm	no-candidate-output	1	1	square/case.result: no candidate file
+mgdyn_airgap	no-candidate-output	1	1	airgap/case.result: no candidate file
+mgdyn_airgap_harmonic	no-candidate-output	1	1	airgap/case.result: no candidate file
+mgdyn_dg_b_velocity	no-candidate-output	1	1	airgap/case.result: no candidate file
+mgdyn_nodalforce2d	no-candidate-output	1	1	konesec/case.result: no candidate file
+mgdyn_steady_2ndorder	no-candidate-output	1	1	testcube/case.result: no candidate file
+mgdyn_steady_piolaversion	no-candidate-output	1	1	cube/case.result: no candidate file
+mgdyn_thinsheet_harmonic	no-candidate-output	1	1	airgap/case.result: no candidate file
+multimesh	no-candidate-output	3	3	global/case.result: no candidate file; local/case.result: no candidate file; reference/case.result: no candidate file
+normals	no-candidate-output	1	1	angle/case.result: no candidate file
+p-FEM_two_solvers	no-candidate-output	1	1	eighth/case.result: no candidate file
+p-FEM_with_varying_p	no-candidate-output	1	1	eighth/case.result: no candidate file
+passive	tier-a-pass	1	0	
+periodic1	tier-a-pass	1	0	
+periodic2	tier-a-pass	1	0	
+periodic3	tier-a-pass	1	0	
+periodic_homogenize	no-candidate-output	1	1	mesh/case.result: no candidate file
+periodic_nonconforming	tier-a-pass	1	0	
+periodic_offset	tier-a-pass	1	0	
+periodic_offset2	no-candidate-output	1	1	square/case.result: no candidate file
+periodic_rot	no-candidate-output	1	1	case.result: no candidate file
+periodic_threaded	tier-a-pass	1	0	
+piezo	no-candidate-output	1	1	beam/case.result: no candidate file
+plates	no-candidate-output	1	1	plates/case.result: no candidate file
+platesEigen	no-candidate-output	1	1	plates/case.result: no candidate file
+pointdir	tier-a-pass	1	0	
+poisson_steady_conforming	no-candidate-output	1	1	hexwire/case.result: no candidate file
+poisson_steady_conforming_anti	no-candidate-output	1	1	hexwire/case.result: no candidate file
+poisson_transient_conforming_anti	no-candidate-output	1	1	square/case.result: no candidate file
+quadratic_prisms	tier-a-pass	1	0	
+radiation	tier-a-pass	1	0	
+radiation2	tier-a-pass	1	0	
+radiation_bin	tier-a-pass	1	0	
+radiation_dg	no-candidate-output	1	1	radiation/case.result: no candidate file
+radiation_vec	tier-a-pass	1	0	
+radiator3d	tier-a-pass	1	0	
+radiator3d_box	tier-a-pass	1	0	
+radiator3d_symm	tier-a-pass	1	0	
+reload	no-candidate-output	1	1	Step/ad-trans.dat: no candidate file
+reynolds2	no-candidate-output	1	1	cylplate/case.result: no candidate file
+reynolds_flux	no-candidate-output	1	1	rect/case.result: no candidate file
+reynolds_robin	no-candidate-output	1	1	rect/case.result: no candidate file
+rotflow	no-candidate-output	1	1	square/case.result: no candidate file
+savescalars	tier-a-pass	1	0	
+savescalars_boundary	tier-a-pass	1	0	
+savescalars_flux	tier-a-pass	1	0	
+savescalars_many	no-candidate-output	1	1	angle/case.result: no candidate file
+savescalars_mask	tier-a-pass	1	0	
+streamlines	no-candidate-output	1	1	step/case.result: no candidate file
+stress	no-candidate-output	1	1	verkko.gid/case.result: no candidate file
+structmap	tier-a-pass	1	0	
+structmap4	tier-a-pass	1	0	
+structmap5	tier-a-pass	1	0	
+structmap6	no-candidate-output	1	1	layers/case.result: no candidate file
+structmap7	no-candidate-output	1	1	layers/case.result: no candidate file
+structmap8	no-candidate-output	1	1	pilars/case.result: no candidate file
+structmap_meshupdate	no-candidate-output	1	1	box/case.result: no candidate file
+structmap_p2	no-candidate-output	1	1	box/case.result: no candidate file
+tresca	tier-a-pass	1	0	
+wildcardsize	tier-a-pass	1	0	
