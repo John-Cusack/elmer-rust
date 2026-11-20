@@ -13,20 +13,20 @@ use elmer_physics_flow::free_surface;
 use elmer_physics_meshtools::motion::{self, MeshMotion, SharedCoords};
 
 /// `mesh` with its node coordinates in a [`SharedCoords`].
-pub(crate) struct MovableMesh<'a> {
+pub struct MovableMesh<'a> {
     mesh: &'a dyn MeshView,
     coords: Arc<SharedCoords>,
 }
 
 impl<'a> MovableMesh<'a> {
-    pub(crate) fn new(mesh: &'a dyn MeshView) -> Self {
+    pub fn new(mesh: &'a dyn MeshView) -> Self {
         let coords = (0..mesh.n_nodes() as u32).map(|n| mesh.coord(n)).collect();
         MovableMesh { mesh, coords: Arc::new(SharedCoords::new(coords)) }
     }
 
     /// Installs the coordinates as this thread's mesh motion until the
     /// guard drops.
-    pub(crate) fn install(&self) -> MotionGuard {
+    pub fn install(&self) -> MotionGuard {
         let coords: Arc<dyn MeshMotion> = self.coords.clone();
         // FlowSolve's free surfaces move the same coordinates.
         let c = self.coords.clone();
@@ -103,10 +103,13 @@ impl MeshView for OwnedMovableMesh {
     fn element_faces(&self, e: ElemId) -> Option<&[u32]> {
         self.mesh.element_faces(e)
     }
+    fn edge_order(&self) -> Option<&[u64]> {
+        self.mesh.edge_order()
+    }
 }
 
 /// Restores the previously installed mesh motion on drop.
-pub(crate) struct MotionGuard(
+pub struct MotionGuard(
     Option<Arc<dyn MeshMotion>>,
     Option<free_surface::NodeMover>,
     Option<elmer_physics_elastic::motion::NodeMover>,
@@ -148,6 +151,9 @@ impl MeshView for MovableMesh<'_> {
     }
     fn element_faces(&self, e: ElemId) -> Option<&[u32]> {
         self.mesh.element_faces(e)
+    }
+    fn edge_order(&self) -> Option<&[u64]> {
+        self.mesh.edge_order()
     }
 }
 

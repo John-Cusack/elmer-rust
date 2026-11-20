@@ -311,6 +311,10 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
         mesh.set_edge_order(keys);
     }
 
+    // The partition's node coordinates, movable by the solvers that assign
+    // `Mesh % Nodes` (mesh mappers, SunAngle's heights), as the serial run's.
+    let moving = elmer_run::MovableMesh::new(&mesh);
+    let _motion = moving.install();
     elmer_run::elmer_fixtures::registry::init_sections(&fixture_case, &mut model);
     let mut sim = Simulation::new(model);
     sim.set_matc(Rc::new(SifMatc));
@@ -326,7 +330,7 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     });
     sim.backends.dofs = Some(Box::new(elmer_run::elmer_pdofs::PDofsBackend::new().with_matc(degree)));
     sim.backends.nodes = Some(Box::new(ParNodes));
-    elmer_run::elmer_fixtures::registry::install_live(&fixture_case, &mut sim, &mesh);
+    elmer_run::elmer_fixtures::registry::install_live(&fixture_case, &mut sim, &moving);
     if let Some(h) = mesh.halo_elements() {
         sim.set_halo_elements(h.into());
     }
@@ -334,7 +338,7 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     // ConformingEdgePerm of its own partition, as PeriodicPermutation
     // makes them.
     sim.backends.conforming = elmer_run::conforming_map(&sim.model, &mesh, coords.dim, log)?.map(Arc::new);
-    sim.setup(&mesh, &registry, log, comm)?;
+    sim.setup(&moving, &registry, log, comm)?;
     // `InitialPermutation` numbers the nodes of halo elements as well; only
     // the DG numbering follows it here, so a solver numbered by nodes is
     // refused.
@@ -367,7 +371,7 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
             prepare_slot(&mut slot.params);
         }
     }
-    let report = sim.run(&mesh, log, comm)?;
+    let report = sim.run(&moving, log, comm)?;
     let passed = finalize_reference(&sim.reference, &case_dir, log, comm)?;
     let norms = sim
         .slots
