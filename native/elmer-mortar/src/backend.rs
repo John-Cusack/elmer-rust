@@ -12,8 +12,10 @@
 //!   then the Dirichlet values, as `SetDirichletBoundaries` sets the periodic
 //!   rows before `EnforceDirichletConditions`.
 //!
-//! Bulk (`Calculate Loads`) copies are not updated, and a block system whose
-//! size does not match its variable's permutation is refused when periodic.
+//! The solver's bulk (`Calculate Loads`) copy gets Pass 1 too
+//! ([`try_apply_dirichlet_rows_bulk`](AssemblyBackend::try_apply_dirichlet_rows_bulk)).
+//! A block system whose size does not match its variable's permutation is
+//! refused when periodic.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -97,6 +99,13 @@ fn active_mask(mesh: &dyn MeshView, active: &[ElemId]) -> Vec<bool> {
 }
 
 impl AssemblyBackend for PeriodicAssembly {
+    /// The `Periodic BC Offset <var>` of a later `RUN` block, read where
+    /// the constraint rows are built. The pairing and projectors stay (a
+    /// block changing them is refused before the run).
+    fn reload_boundary_conditions(&mut self, bcs: &[ParamMap]) {
+        self.bcs = bcs.to_vec();
+    }
+
     fn build_perm(&self, mesh: &dyn MeshView, active: &[ElemId], optimize_bandwidth: bool) -> Perm {
         let mut params = ParamMap::new();
         params.insert(
@@ -194,6 +203,18 @@ impl AssemblyBackend for PeriodicAssembly {
         fixed: &[(u32, f64)],
         params: &ParamMap,
     ) -> Result<(), SolverError> {
+        self.try_apply_dirichlet_rows_bulk(a, rhs, (None, None), rows, fixed, params)
+    }
+
+    fn try_apply_dirichlet_rows_bulk(
+        &self,
+        a: &mut CsrMatrix<f64>,
+        rhs: &mut [f64],
+        mut bulk: (Option<&mut [f64]>, Option<&mut [f64]>),
+        rows: &[elmer_solver::backend::DirectRow],
+        fixed: &[(u32, f64)],
+        params: &ParamMap,
+    ) -> Result<(), SolverError> {
         if let Some(var) = params.string("variable") {
             let spec = parse_variable_spec(var, params.integer("variable dofs"))?;
             let names = if spec.components.is_empty() {
@@ -233,7 +254,7 @@ impl AssemblyBackend for PeriodicAssembly {
                     set_periodic_boundaries(
                         a,
                         rhs,
-                        (None, None),
+                        (bulk.0.as_deref_mut(), bulk.1.as_deref_mut()),
                         &bcs,
                         &self.projectors,
                         &t,

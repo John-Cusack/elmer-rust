@@ -181,6 +181,11 @@ pub fn set_direct_rows(a: &mut CsrMatrix<f64>, rhs: &mut [f64], rows: &[DirectRo
 /// cycle (swarm plan 4.4) so existing implementations still compile; the
 /// provided methods fall back to them.
 pub trait AssemblyBackend: Send + Sync {
+    /// After a `RUN` block reload: the boundary-condition sections as they
+    /// now read, for a backend that keeps its own copy (the periodic
+    /// assembly's `Periodic BC Offset`). Nothing by default.
+    fn reload_boundary_conditions(&mut self, _bcs: &[ParamMap]) {}
+
     /// The permutation for the nodes of the `active` bulk elements, with
     /// Elmer's `Optimize Bandwidth` decision applied when `optimize_bandwidth`.
     fn build_perm(&self, mesh: &dyn MeshView, active: &[ElemId], optimize_bandwidth: bool) -> Perm;
@@ -247,6 +252,24 @@ pub trait AssemblyBackend: Send + Sync {
     ) -> Result<(), SolverError> {
         set_direct_rows(a, rhs, rows)?;
         self.try_apply_dirichlet(a, rhs, fixed, params)
+    }
+
+    /// [`try_apply_dirichlet_rows`](Self::try_apply_dirichlet_rows) with the
+    /// solver's `(A % BulkValues, A % BulkRHS)` copy (`Calculate Loads`),
+    /// which a backend's own pass updates as it does `a` and `rhs`
+    /// (`SetPeriodicBoundariesPass1` moves the slave rows onto the masters
+    /// in both). The bulk copy is left alone by default.
+    fn try_apply_dirichlet_rows_bulk(
+        &self,
+        a: &mut CsrMatrix<f64>,
+        rhs: &mut [f64],
+        bulk: (Option<&mut [f64]>, Option<&mut [f64]>),
+        rows: &[DirectRow],
+        fixed: &[(u32, f64)],
+        params: &ParamMap,
+    ) -> Result<(), SolverError> {
+        let _ = bulk;
+        self.try_apply_dirichlet_rows(a, rhs, rows, fixed, params)
     }
 
     /// The nodal periodic projectors (`Model % BCs(i) % PMatrix` of
