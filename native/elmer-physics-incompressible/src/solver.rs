@@ -278,21 +278,21 @@ fn check_solver_params(p: &ParamMap, pdofs: bool) -> Result<(), SolverError> {
     Ok(())
 }
 
-/// The point counts `GaussPointsAdapt` takes from the solver section for
-/// bulk elements: `Element Integration Points` (one count per element
-/// family, `ParseElementalGaussRules`) over `Number of Integration Points`.
-/// Zero leaves the element its own rule.
+/// The rule `GaussPointsAdapt` takes from the solver section for bulk
+/// elements: `Element Integration Points` (one count per element family,
+/// `ParseElementalGaussRules`) over `Number of Integration Points`, and
+/// without a count `Bulk Relative Integration Order` over `Relative
+/// Integration Order`. Zero leaves the element its own rule.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct IntegrationPoints {
     base: usize,
     family: [usize; 9],
+    rel: i32,
 }
 
 impl IntegrationPoints {
     fn from_params(p: &ParamMap) -> Result<Self, SolverError> {
         for (key, what) in [
-            ("relative integration order", "Relative Integration Order"),
-            ("bulk relative integration order", "Bulk Relative Integration Order"),
             ("element relative integration order", "Element Relative Integration Order"),
             ("adaptive integration variable", "adaptive integration"),
         ] {
@@ -300,8 +300,16 @@ impl IntegrationPoints {
                 return Err(unsupported(what));
             }
         }
+        if has_prefix(p, "bulk gauss:") {
+            return Err(unsupported("the \"bulk gauss:\" namespace of integration rules"));
+        }
+        let rel = match p.get("bulk relative integration order") {
+            Some(_) => p.integer("bulk relative integration order"),
+            None => p.integer("relative integration order"),
+        };
         let mut out = Self {
             base: p.integer("number of integration points").filter(|&n| n > 0).map_or(0, |n| n as usize),
+            rel: rel.unwrap_or(0),
             ..Self::default()
         };
         if let Some(def) = p.string("element integration points") {
@@ -326,6 +334,59 @@ impl IntegrationPoints {
             _ => self.base,
         };
         (n > 0).then_some(n)
+    }
+
+    /// `GaussPoints(Element, RelOrder = rel)` of a nodal element when no
+    /// count applies: `GaussPoints0` / `GaussPoints2` of elements.def.
+    fn nodal_rule(&self, etype: elmer_core::ElementType) -> Result<Option<Vec<elmer_core::QuadPoint>>, SolverError> {
+        if self.rel == 0 || self.for_type(etype).is_some() {
+            return Ok(None);
+        }
+        let rule = elmer_fe::gauss_points_rel(etype, self.rel).map_err(|e| SolverError::fatal("GaussPoints", e.to_string()))?;
+        Ok(Some(rule.points()))
+    }
+
+    /// The point count `GaussPoints(Element, RelOrder = rel)` gives a p
+    /// element whose own rule has `n` points: `p1d = NINT(n ** (1/dim)) +
+    /// rel` points per direction, a serendipity quadrilateral's tensor count
+    /// then mapped to its economic one. Only the tensor families (line,
+    /// quadrilateral, brick) are ported, which take the same rule for that
+    /// count as for `np` points; the others do not.
+    fn p_count(&self, etype: elmer_core::ElementType, n: usize, serendipity: bool) -> Result<Option<usize>, SolverError> {
+        if self.rel == 0 || self.for_type(etype).is_some() {
+            return Ok(None);
+        }
+        let dim = match etype.family() {
+            2 => 1,
+            4 => 2,
+            8 => 3,
+            _ => {
+                return Err(unsupported(format!(
+                    "Relative Integration Order on p elements of type {} (simplices, pyramids, prisms)",
+                    etype.0
+                )))
+            }
+        };
+        let p1d = (n as f64).powf(1.0 / dim as f64).round() as i32 + self.rel;
+        if p1d < 1 {
+            return Err(SolverError::fatal("GaussPoints", "Number of integration points must remain positive!"));
+        }
+        let n = (p1d as usize).pow(dim);
+        if serendipity && etype.family() == 4 {
+            // A tensor product rule mapped to the corresponding economic one.
+            let economic = match n {
+                9 => 8,
+                16 => 12,
+                25 => 20,
+                36 => 25,
+                49 => 36,
+                64 => 45,
+                81 => 60,
+                n => n,
+            };
+            return Ok(Some(economic));
+        }
+        Ok(Some(n))
     }
 }
 
@@ -358,10 +419,11 @@ fn check_body(mat: Option<&ParamMap>, _bf: Option<&ParamMap>) -> Result<(), Solv
                 )));
             }
             // Fatal in the pristine solver ("Parameter > Basis < is required").
-            for key in ["nominal shear rate", "yasuda exponent"] {
-                if m.get(key).is_some() {
-                    return Err(unsupported(format!("{key} of a Viscosity Model")));
-                }
+            if m.get("yasuda exponent").is_some() {
+                return Err(unsupported("yasuda exponent of a Viscosity Model"));
+            }
+            if v != "power law" && m.get("nominal shear rate").is_some() {
+                return Err(unsupported(format!("nominal shear rate of Viscosity Model = {v}")));
             }
         } else if m.get("viscosity model").is_some() {
             return Err(unsupported("Viscosity Model given as other than a string"));
@@ -418,6 +480,10 @@ fn viscosity_model(ctx: &SolverCtx<'_>, m: &ParamMap, e: ElemId) -> Result<Optio
             exponent: c("viscosity exponent")?,
             critical: match m.get("critical shear rate") {
                 Some(_) => Some(c("critical shear rate")?),
+                None => None,
+            },
+            nominal: match m.get("nominal shear rate") {
+                Some(_) => Some(c("nominal shear rate")?),
                 None => None,
             },
         },
@@ -567,16 +633,29 @@ fn reorder<T: Copy>(values: Vec<T>, mesh_nodes: &[u32], nodes: &[u32]) -> Vec<T>
         .collect()
 }
 
-fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId, np: Option<usize>) -> Result<PElement, SolverError> {
+fn p_element(
+    d: &dyn elmer_solver::SolverDofs,
+    e: ElemId,
+    etype: elmer_core::ElementType,
+    rules: &IntegrationPoints,
+    serendipity: bool,
+) -> Result<PElement, SolverError> {
     let mut slots = Vec::new();
     d.element_slots(e, &mut slots);
+    let gauss = |m| SolverError::fatal("GaussPoints", m);
+    let rule = match rules.for_type(etype) {
+        Some(np) => d.element_rule_np(e, np).map_err(gauss)?,
+        None => {
+            let own = d.element_rule(e).map_err(gauss)?;
+            match rules.p_count(etype, own.len(), serendipity)? {
+                Some(np) => d.element_rule_np(e, np).map_err(gauss)?,
+                None => own,
+            }
+        }
+    };
     Ok(PElement {
         basis: d.element_basis(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
-        rule: match np {
-            Some(np) => d.element_rule_np(e, np),
-            None => d.element_rule(e),
-        }
-        .map_err(|m| SolverError::fatal("GaussPoints", m))?,
+        rule,
         nodes: d.element_nodes(e),
         nd: slots.len(),
         nb: d.local_bubbles(e),
@@ -813,6 +892,8 @@ impl Solver for IncompressibleNsSolver {
             .string("coordinate system")
             .is_some_and(|s| elmer_core::normalize_key(s) == "axi symmetric");
         let rule_np = IntegrationPoints::from_params(&p)?;
+        // `PDefs % Serendipity`: `Serendipity P Elements`, default true.
+        let serendipity = ctx.simulation_params().logical("serendipity p elements").unwrap_or(true);
 
         let max_iter = p.integer("nonlinear system max iterations").unwrap_or(1);
         let mut min_iter = p.integer("nonlinear system min iterations").unwrap_or(1);
@@ -867,7 +948,7 @@ impl Solver for IncompressibleNsSolver {
                 let el = ctx.mesh.element(e);
                 let n = el.nodes.len();
                 let pe = match ctx.solver_dofs() {
-                    Some(d) => Some(p_element(d, e, rule_np.for_type(el.etype))?),
+                    Some(d) => Some(p_element(d, e, el.etype, &rule_np, serendipity)?),
                     None => None,
                 };
                 let nf = pe.as_ref().map_or(n, |p| p.nd + p.nb);
@@ -1049,7 +1130,10 @@ impl Solver for IncompressibleNsSolver {
                 let want_schur = block_prec.then_some((nd, &mut pressure_mass));
                 match &pe {
                     None => {
-                        let points = quad.gauss_points(el.etype, inp.np);
+                        let points = match rule_np.nodal_rule(el.etype)? {
+                            Some(points) => points,
+                            None => quad.gauss_points(el.etype, inp.np),
+                        };
                         let local = &mut self.local;
                         incompressible_bulk_local_full(basis, &points, n, &inp, local, want_sums, want_schur)?
                     }

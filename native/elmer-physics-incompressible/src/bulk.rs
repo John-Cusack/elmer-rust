@@ -116,8 +116,8 @@ pub struct Boussinesq<'a> {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ViscosityModel {
     /// `power law`: `mu0 ss^((n - 1) / 2)`, `ss` at least `Critical Shear
-    /// Rate` squared.
-    PowerLaw { exponent: f64, critical: Option<f64> },
+    /// Rate` squared, divided by `Nominal Shear Rate^(n - 1)` when given.
+    PowerLaw { exponent: f64, critical: Option<f64>, nominal: Option<f64> },
     /// `carreau`: `mu0 + d (1 + c^2 ss)^((n - 1) / 2)`.
     Carreau { difference: f64, exponent: f64, transition: f64 },
     /// `cross`: `mu0 + d / (1 + c ss^(n / 2))`.
@@ -192,13 +192,14 @@ impl ViscosityModel {
     pub fn derivative(&self, mu0: f64, ss: f64) -> f64 {
         match *self {
             ViscosityModel::Glen(g) => g.at(ss, 0.0, 1.0).1,
-            ViscosityModel::PowerLaw { exponent, critical } => {
+            ViscosityModel::PowerLaw { exponent, critical, nominal } => {
                 let ss = critical.map_or(ss, |c| ss.max(c * c));
-                if ss != 0.0 {
+                let der = if ss != 0.0 {
                     mu0 * (exponent - 1.0) / 2.0 * ss.powf((exponent - 1.0) / 2.0 - 1.0)
                 } else {
                     0.0
-                }
+                };
+                nominal.map_or(der, |c4| der / c4.powf(exponent - 1.0))
             }
             ViscosityModel::Carreau { difference, exponent, transition } => {
                 let c2 = transition * transition;
@@ -229,9 +230,10 @@ impl ViscosityModel {
     pub fn viscosity(&self, mu0: f64, ss: f64) -> f64 {
         match *self {
             ViscosityModel::Glen(g) => g.at(ss, 0.0, 1.0).0,
-            ViscosityModel::PowerLaw { exponent, critical } => {
+            ViscosityModel::PowerLaw { exponent, critical, nominal } => {
                 let ss = critical.map_or(ss, |c| ss.max(c * c));
-                mu0 * ss.powf((exponent - 1.0) / 2.0)
+                let mu = mu0 * ss.powf((exponent - 1.0) / 2.0);
+                nominal.map_or(mu, |c4| mu / c4.powf(exponent - 1.0))
             }
             ViscosityModel::Carreau { difference, exponent, transition } => {
                 mu0 + difference * (1.0 + transition * transition * ss).powf((exponent - 1.0) / 2.0)

@@ -247,3 +247,42 @@ fn transient_tri_matches_elmer() {
     let sim = run(model(simulation, solver, material(1.0, 0.1), None, step_bcs(&mesh)), &mesh).unwrap();
     compare("transient_tri", &sim, &mesh, 0.74655001e-1, 1e-7, 1e-8);
 }
+
+/// The flow solution of `stokes_quad` (`StokesStabilized/quad.sif`) with
+/// extra solver keywords.
+fn stokes_quad_with(extra: &[(&str, Value)]) -> Vec<f64> {
+    let mesh = TestMesh::read(&data("stokes_quad"), 2);
+    let mut keys = vec![
+        ("Pressure Stabilization", logical(true)),
+        ("Stokes Flow", logical(true)),
+        ("Nonlinear System Max Iterations", ints(&[1])),
+        ("Nonlinear System Convergence Tolerance", real(1.0e-3)),
+    ];
+    keys.extend(extra.iter().cloned());
+    let solver = ns_solver(&keys);
+    let sim = run(model(steady("Cartesian 2D"), solver, material(1.0, 1.0e3), None, step_bcs(&mesh)), &mesh).unwrap();
+    sim.vars.get("flow solution").unwrap().values.to_vec()
+}
+
+/// `Relative Integration Order` on nodal quadrilaterals picks `GaussPoints2`
+/// (`GaussPoints0`) of elements.def, 9 (1) points: the solution of that
+/// `Number of Integration Points` (to round-off: the test quadrature is not
+/// elmer-fe's), which still wins over it.
+#[test]
+fn relative_integration_order_on_nodal_quads() {
+    let close = |a: &[f64], b: &[f64]| {
+        let scale = b.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+        a.iter().zip(b).all(|(x, y)| (x - y).abs() <= 1e-12 * scale)
+    };
+    let default = stokes_quad_with(&[]);
+    let plus = stokes_quad_with(&[("Relative Integration Order", ints(&[1]))]);
+    assert!(close(&plus, &stokes_quad_with(&[("Number of Integration Points", ints(&[9]))])));
+    // 2x2 and 3x3 points are both exact on these rectangles; one point is not.
+    let minus = stokes_quad_with(&[("Relative Integration Order", ints(&[-1]))]);
+    assert!(close(&minus, &stokes_quad_with(&[("Number of Integration Points", ints(&[1]))])));
+    assert!(!close(&minus, &default));
+    let bulk = stokes_quad_with(&[("Relative Integration Order", ints(&[-1])), ("Bulk Relative Integration Order", ints(&[1]))]);
+    assert_eq!(bulk, plus);
+    let np = stokes_quad_with(&[("Relative Integration Order", ints(&[1])), ("Number of Integration Points", ints(&[4]))]);
+    assert!(close(&np, &default));
+}
