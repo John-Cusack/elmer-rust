@@ -26,43 +26,6 @@ struct TestSolver {
     layout: Option<Box<dyn SolverDofs>>,
 }
 
-/// `InvertMatrix` of a row-major `n x n` matrix by Gauss-Jordan with
-/// partial pivoting.
-fn invert(a: &mut [f64], n: usize) -> Result<(), SolverError> {
-    let mut inv = vec![0.0; n * n];
-    for i in 0..n {
-        inv[i * n + i] = 1.0;
-    }
-    for c in 0..n {
-        let piv = (c..n).max_by(|&x, &y| a[x * n + c].abs().total_cmp(&a[y * n + c].abs())).unwrap_or(c);
-        if a[piv * n + c] == 0.0 {
-            return Err(SolverError::fatal("InvertMatrix", "singular matrix"));
-        }
-        for j in 0..n {
-            a.swap(c * n + j, piv * n + j);
-            inv.swap(c * n + j, piv * n + j);
-        }
-        let d = a[c * n + c];
-        for j in 0..n {
-            a[c * n + j] /= d;
-            inv[c * n + j] /= d;
-        }
-        for i in 0..n {
-            if i != c {
-                let f = a[i * n + c];
-                if f != 0.0 {
-                    for j in 0..n {
-                        a[i * n + j] -= f * a[c * n + j];
-                        inv[i * n + j] -= f * inv[c * n + j];
-                    }
-                }
-            }
-        }
-    }
-    a.copy_from_slice(&inv);
-    Ok(())
-}
-
 /// `CheckValue(f1, f2, eps, str)`.
 fn check(f1: f64, f2: f64, eps: f64, what: &str) -> Result<(), SolverError> {
     if (f1 - f2).abs() < 1.0e-12 {
@@ -197,7 +160,9 @@ impl Solver for TestSolver {
                     force[p] += w * ev.basis[p] * fx;
                 }
             }
-            invert(&mut stiff, nd)?;
+            // InvertMatrix (LinearAlgebra.F90): column-major, and the mass
+            // matrix is symmetric.
+            elmer_fe::invert_matrix(&mut stiff, nd).ok_or_else(|| SolverError::fatal("InvertMatrix", "singular matrix"))?;
             let f: Vec<f64> = (0..nd).map(|i| (0..nd).fold(0.0, |a, j| a + stiff[i * nd + j] * force[j])).collect();
             // dx(i, :, c) = STIFF^-1 dNodal(i, :, c).
             let mut dxp = vec![[0.0f64; 3]; nd * nd];
