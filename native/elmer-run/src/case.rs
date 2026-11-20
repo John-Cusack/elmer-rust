@@ -464,8 +464,9 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 13] = [
+    const P_DOFS: [(&str, &str); 14] = [
         ("benchmarkshell", "shellsolver"),
+        ("flowsolve", "flowsolver"),
         ("heatsolve", "heatsolver"),
         ("incompressiblens", "incompressiblenssolver"),
         ("incompressiblensvec", "incompressiblenssolver"),
