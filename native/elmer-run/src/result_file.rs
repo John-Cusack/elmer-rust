@@ -9,7 +9,8 @@
 //! of an identical previous Perm, or `0` for none) and its values in Perm
 //! order, native-endian.
 //!
-//! Only the plain variant is written: one mesh, serial, binary.
+//! Only the plain variant is written: one mesh, binary. In parallel each
+//! rank writes its own piece, `<Output File>.<rank>` (ModelDescription.F90:3894).
 //! Other settings leave the file unwritten with a warning, as before.
 
 use std::fs::OpenOptions;
@@ -24,12 +25,9 @@ use elmer_solver::{Model, SaveCurrent, Simulation, SolverError};
 const CALLER: &str = "SaveResult";
 
 /// Why `Output File` is left unwritten, if it is.
-fn unsupported(model: &Model, ranks: usize) -> Option<String> {
+fn unsupported(model: &Model) -> Option<String> {
     let sim = &model.simulation;
     let flag = |k: &str| sim.logical(k) == Some(true);
-    if ranks > 1 {
-        return Some("in parallel".into());
-    }
     if sim.logical("binary output") != Some(true) {
         return Some("ASCII output (Binary Output = False)".into());
     }
@@ -62,14 +60,17 @@ fn unsupported(model: &Model, ranks: usize) -> Option<String> {
     None
 }
 
-/// The `Output File` writer of a case, or `None` when the case names none
-/// or one this writer does not produce (with a warning saying why).
-pub(crate) fn writer(model: &Model, mesh_dir: &std::path::Path, ranks: usize, log: &dyn Logger) -> Option<ResultWriter> {
+/// The `Output File` writer of rank `rank` of `ranks`, or `None` when the
+/// case names none or one this writer does not produce (with a warning
+/// saying why). In parallel the file name gets `.<rank>`, as `SaveResult`
+/// does for `ParEnv % PEs > 1`.
+pub fn writer(model: &Model, mesh_dir: &std::path::Path, rank: usize, ranks: usize, log: &dyn Logger) -> Option<ResultWriter> {
     let name = model.simulation.string("output file")?;
-    if let Some(why) = unsupported(model, ranks) {
+    if let Some(why) = unsupported(model) {
         log.warn(CALLER, &format!("Output File {name} is not written: {why}"));
         return None;
     }
+    let name = if ranks > 1 { format!("{name}.{rank}") } else { name.to_string() };
     Some(ResultWriter {
         path: mesh_dir.join(name),
         save_global: model.simulation.logical("output global variables") == Some(true),
@@ -77,7 +78,8 @@ pub(crate) fn writer(model: &Model, mesh_dir: &std::path::Path, ranks: usize, lo
     })
 }
 
-pub(crate) struct ResultWriter {
+/// [`SaveCurrent`] writing one rank's `Output File`.
+pub struct ResultWriter {
     path: PathBuf,
     save_global: bool,
     saves_done: i32,
@@ -321,7 +323,7 @@ mod tests {
         sim.vars.set_scalar("timestep", 1.0);
         sim.vars.set_scalar("time", 1.0);
         let mesh = elmer_mesh_levels::Mesh { dim: 2, coords: vec![[0.0; 3]; 3], elements: Vec::new(), n_bulk: 0 };
-        let mut w = writer(&sim.model, &dir, 1, &NullLogger).unwrap();
+        let mut w = writer(&sim.model, &dir, 0, 1, &NullLogger).unwrap();
         w.save(&sim, &mesh, &NullLogger).unwrap();
 
         let got = std::fs::read(dir.join("case.result")).unwrap();

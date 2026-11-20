@@ -127,6 +127,11 @@ fn run_mpi(cfg: &Config, mpi_run: &Path, dir: &Path, sif: &str, np: u32) -> Chil
     let (Ok(out), Ok(err)) = (fs::File::create(&out_path), fs::File::create(&err_path)) else {
         return fail("cannot create mpirun output files".into());
     };
+    // The O2 `Output File`, for the field check, as the serial child's
+    // front end adds it; `elmer-mpi-run` reads the sif itself.
+    if let Err(e) = crate::fields::inject_sif(&dir.join(sif), startinfo(dir).as_deref()) {
+        return fail(format!("inject Output File into {sif}: {e}"));
+    }
     let passed = dir.join(format!("TEST.PASSED_{np}"));
     let _ = fs::remove_file(&passed);
     let mut cmd = Command::new("nice");

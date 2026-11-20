@@ -71,7 +71,7 @@ fn preflight(model: &Model, registry: &elmer_solver::SolverRegistry) -> Result<(
     // The solver sections go to the Simulation as given; the parallel
     // switches are applied once the variables exist (`prepare_slot`).
     crate::levels::splits(sim, &model.boundary_conditions)?;
-    for key in ["post file", "output file", "coordinate transformation", "extruded mesh levels"] {
+    for key in ["post file", "coordinate transformation", "extruded mesh levels"] {
         if sim.get(key).is_some() {
             return Err(unsupported(format!("Simulation {key} in parallel")));
         }
@@ -183,7 +183,6 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     }
     let coords = elmer_run::coordinate_system(&model, &mesh)?;
     elmer_run::install_fe(coords.dim)?;
-    let n_ghost = mesh.n_ghost();
     let (ctx, _guard) = RankContext::install(ex, mesh.node_gids().to_vec(), mesh.node_owners().to_vec());
     let comm: &dyn Communicator = &*ctx.ex;
 
@@ -192,10 +191,14 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     sim.backends.assembly = Some(Box::new(ParAssembly));
     sim.backends.linear = linear_registry();
     sim.setup(&mesh, &registry, log, comm)?;
+    if let Some(writer) = elmer_run::result_file::writer(&sim.model, &loaded.mesh_dir, rank, np, log) {
+        sim.set_save_current(Box::new(writer));
+    }
+    sim.set_node_owned(mesh.owned_nodes().into());
     for slot in &mut sim.slots {
-        let Some(v) = slot.variable else { continue };
-        let dofs = sim.vars.by_id(v).dofs;
-        prepare_slot(&mut slot.params, dofs, n_ghost)?;
+        if slot.variable.is_some() {
+            prepare_slot(&mut slot.params);
+        }
     }
     let report = sim.run(&mesh, log, comm)?;
     let passed = finalize_reference(&sim.reference, &case_dir, log, comm)?;

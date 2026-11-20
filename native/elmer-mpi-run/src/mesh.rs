@@ -2,13 +2,9 @@
 //! [`MeshView`] the solver assembles on, with the global id and owner of
 //! every local node.
 //!
-//! Local nodes are renumbered so that the nodes another rank owns come
-//! first and the owned ones last, each group in partition-file order (the
-//! first rank in a node's `part.K.shared` list owns it). The
-//! owned nodes are then the tail `n_ghost..` of the node range, which is
-//! what lets [`crate::backend`] express Elmer's consistent parallel norm
-//! (`Nonlinear System Consistent Norm`) through `elmer-solver`'s `Norm
-//! Permutation`.
+//! Local nodes keep their partition-file order, as Elmer reads them, so the
+//! bandwidth optimisation gives Elmer's per-partition `Perm`. The first rank
+//! in a node's `part.K.shared` list owns it ([`ParMesh::owned_nodes`]).
 
 use std::path::Path;
 
@@ -32,12 +28,11 @@ pub struct ParMesh {
     /// Ranks holding each node; the first owns it.
     node_parts: Vec<Vec<usize>>,
     node_owner: Vec<usize>,
-    n_ghost: usize,
     elems: Vec<Elem>,
     n_bulk: usize,
 }
 
-/// Node data in any order, before [`ParMesh::new`] puts the ghosts first.
+/// Node data in local order.
 pub(crate) struct Nodes {
     pub(crate) coords: Vec<[f64; 3]>,
     pub(crate) gid: Vec<u64>,
@@ -45,32 +40,17 @@ pub(crate) struct Nodes {
 }
 
 impl ParMesh {
-    /// Renumbers `nodes` ghosts first, owned last (each group in the given
-    /// order) and the element node lists with them.
-    pub(crate) fn new(rank: usize, n_parts: usize, dim: usize, nodes: Nodes, mut elems: Vec<Elem>, n_bulk: usize) -> Self {
-        let n = nodes.gid.len();
-        let owner = |i: usize| nodes.parts[i][0];
-        let mut order: Vec<usize> = (0..n).filter(|&i| owner(i) != rank).collect();
-        let n_ghost = order.len();
-        order.extend((0..n).filter(|&i| owner(i) == rank));
-        let mut new_of = vec![0u32; n];
-        for (k, &i) in order.iter().enumerate() {
-            new_of[i] = k as u32;
-        }
-        for e in &mut elems {
-            for v in &mut e.nodes {
-                *v = new_of[*v as usize];
-            }
-        }
+    /// One rank's mesh over `nodes` in their given order.
+    pub(crate) fn new(rank: usize, n_parts: usize, dim: usize, nodes: Nodes, elems: Vec<Elem>, n_bulk: usize) -> Self {
+        let node_owner = nodes.parts.iter().map(|p| p[0]).collect();
         ParMesh {
             rank,
             n_parts,
             dim,
-            coords: order.iter().map(|&i| nodes.coords[i]).collect(),
-            node_gid: order.iter().map(|&i| nodes.gid[i]).collect(),
-            node_parts: order.iter().map(|&i| nodes.parts[i].clone()).collect(),
-            node_owner: order.iter().map(|&i| owner(i)).collect(),
-            n_ghost,
+            coords: nodes.coords,
+            node_gid: nodes.gid,
+            node_parts: nodes.parts,
+            node_owner,
             elems,
             n_bulk,
         }
@@ -148,9 +128,9 @@ impl ParMesh {
         &self.node_parts
     }
 
-    /// Nodes `0..n_ghost` are owned by other ranks, the rest by this one.
-    pub fn n_ghost(&self) -> usize {
-        self.n_ghost
+    /// Whether this rank owns each local node.
+    pub fn owned_nodes(&self) -> Vec<bool> {
+        self.node_owner.iter().map(|&o| o == self.rank).collect()
     }
 
     /// Bulk and boundary element types present.
@@ -204,22 +184,21 @@ mod tests {
     }
 
     #[test]
-    fn owned_nodes_are_numbered_last() {
+    fn nodes_keep_the_partition_file_order() {
         for rank in 0..3 {
             let part = PartitionMesh::read(&fixture(), rank, 3).unwrap();
             let mesh = ParMesh::from_partition(&part, 1.0);
-            let k = mesh.n_ghost();
-            assert_eq!(mesh.n_nodes() - k, part.n_owned_nodes());
-            assert!(mesh.node_owners()[..k].iter().all(|&o| o != rank));
-            assert!(mesh.node_owners()[k..].iter().all(|&o| o == rank));
-            // Same elements over the same global nodes and coordinates.
+            let owned = mesh.owned_nodes();
+            assert_eq!(owned.iter().filter(|&&o| o).count(), part.n_owned_nodes());
+            assert_eq!(mesh.node_gids(), part.node_gids());
+            for (i, &o) in owned.iter().enumerate() {
+                assert_eq!(o, mesh.node_owners()[i] == rank);
+                assert_eq!(part.coord(i as u32), mesh.coord(i as u32));
+            }
+            // The same elements over the same nodes.
             for e in 0..part.n_bulk() + part.n_boundary() {
                 let (a, b) = (part.element(ElemId(e as u32)), mesh.element(ElemId(e as u32)));
-                assert_eq!((a.etype, a.tag, a.parents), (b.etype, b.tag, b.parents));
-                for (&i, &j) in a.nodes.iter().zip(b.nodes) {
-                    assert_eq!(part.node_gids()[i as usize], mesh.node_gids()[j as usize]);
-                    assert_eq!(part.coord(i), mesh.coord(j));
-                }
+                assert_eq!((a.etype, a.tag, a.parents, a.nodes), (b.etype, b.tag, b.parents, b.nodes));
             }
         }
     }

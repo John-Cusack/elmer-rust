@@ -310,6 +310,8 @@ pub struct Simulation {
     pub(crate) keywords_normalized: bool,
     /// The `Output File` writer ([`Simulation::set_save_current`]).
     save_current: Option<Box<dyn SaveCurrent>>,
+    /// Whether this rank owns each mesh node ([`Simulation::set_node_owned`]).
+    node_owned: Option<Arc<[bool]>>,
 }
 
 /// `SaveCurrent` (ElmerSolver.F90:3700): the `Output File` writer, called
@@ -369,12 +371,21 @@ impl Simulation {
             flux_shared_warned: false,
             keywords_normalized: false,
             save_current: None,
+            node_owned: None,
         }
     }
 
     /// Installs the `Output File` writer for this and later runs.
     pub fn set_save_current(&mut self, writer: Box<dyn SaveCurrent>) {
         self.save_current = Some(writer);
+    }
+
+    /// Node ownership in a partitioned run: `owned[i]` when this rank owns
+    /// mesh node `i` (`ParallelInfo % NeighbourList(i) % Neighbours(1) ==
+    /// MyPE`). `Nonlinear System Consistent Norm` then counts each shared
+    /// dof once, on its owner (`ComputeNorm`, SolverBasics.F90:3216).
+    pub fn set_node_owned(&mut self, owned: Arc<[bool]>) {
+        self.node_owned = Some(owned);
     }
 
     /// The live model view for user functions that read node coordinates,
@@ -1089,6 +1100,7 @@ impl Simulation {
             matrix: sys.map(|s| &s.matrix),
             rhs: sys.map(|s| s.rhs.as_slice()),
             n_nodes: mesh.n_nodes(),
+            node_owned: self.node_owned.as_deref(),
             log,
             comm,
         };
