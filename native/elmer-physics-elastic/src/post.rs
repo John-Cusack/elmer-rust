@@ -696,6 +696,8 @@ pub fn tresca(w: &[f64; 3]) -> f64 {
 
 /// The solve of the stress projection, as `NodalProjectorSolve` does it:
 /// with the section's own linear system (its `StressTemp` solver).
+// One per postprocessing call, so the variants' sizes do not matter.
+#[allow(clippy::large_enum_variant)]
 pub enum Projector {
     Direct(Box<dyn elmer_core::DirectSolver<f64> + Send>),
     /// An iterative solve goes through SolveSystem, as `DefaultSolve` of the

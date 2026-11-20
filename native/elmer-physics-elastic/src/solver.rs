@@ -158,12 +158,13 @@ impl PostFlags {
 fn post_flags(ctx: &SolverCtx<'_>) -> PostFlags {
     let p = ctx.params();
     let masked = ctx.sim.model.equations.iter().any(|e| flag(Some(e), "calculate stresses"));
-    // StressSolver_Init (StressSolve.F90:352-357): the angle needs the
-    // principal stresses, and those the stress components.
+    // StressSolve delegates to ElasticSolve, whose _Init (ElasticSolve.F90:
+    // 193-197) has the angle need the principal values; those go with the
+    // stress and strain components the sif asks for.
     let angle = flag(Some(p), "calculate pangle");
     let principal = flag(Some(p), "calculate principal") || angle;
     PostFlags {
-        stress: flag(Some(p), "calculate stresses") || masked || principal,
+        stress: flag(Some(p), "calculate stresses") || masked,
         strain: flag(Some(p), "calculate strains"),
         principal,
         angle,
