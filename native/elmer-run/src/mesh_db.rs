@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use elmer_core::{ElemId, ElementRef, ElementType, MeshView, ParamMap, Params};
+use elmer_core::{ElemId, ElementRef, ElementType, MeshView, ParamMap, Params, Value};
 
 struct Elem {
     etype: ElementType,
@@ -116,6 +116,48 @@ pub fn load(dir: &Path, simulation: &ParamMap) -> Result<Box<dyn MeshView>, Stri
         Some(_) => simulation.real("coordinate scaling").ok_or("Coordinate Scaling is not a constant")?,
     };
     let mut mesh = FileMesh::read(dir, 3, scale)?;
+    // `MapCoordinates` (MeshLoad.F90:558): `Coordinate Mapping` permutes
+    // the coordinate arrays.
+    if let Some(Value::Integer(m)) = simulation.get("coordinate mapping") {
+        let mut sorted = m.clone();
+        sorted.sort_unstable();
+        if sorted != [1, 2, 3] {
+            return Err(format!("Inconsistent Coordinate Mapping: {m:?}"));
+        }
+        if m[..] != [1, 2, 3] {
+            if scale != 1.0 {
+                return Err("Coordinate Mapping with Coordinate Scaling".into());
+            }
+            for c in &mut mesh.coords {
+                let o = *c;
+                *c = [o[m[0] as usize - 1], o[m[1] as usize - 1], o[m[2] as usize - 1]];
+            }
+        }
+    }
+    // `CoordinateTransformation(..., IrreversibleTransformation = .TRUE.)`
+    // (MeshTransform.F90:1114) of `Coordinate Transformation`: the nodes
+    // themselves become the transformed ones.
+    if let Some(t) = simulation.string("coordinate transformation") {
+        let coeff = if simulation.logical("coordinate transformation use degrees") == Some(true) {
+            180.0 / std::f64::consts::PI
+        } else {
+            1.0
+        };
+        let rad0 = simulation.real("coordinate transformation radius").unwrap_or(0.0);
+        let mode = match elmer_core::normalize_key(t).as_str() {
+            "cartesian to polar" | "cartesian to cylindrical" => 1,
+            "polar to cartesian" | "cylindrical to cartesian" => -1,
+            other => return Err(format!("Unknown transformation: {other}")),
+        };
+        for c in &mut mesh.coords {
+            let r0 = *c;
+            *c = if mode == 1 {
+                [rad0 + (r0[0].powi(2) + r0[1].powi(2)).sqrt(), coeff * r0[1].atan2(r0[0]), r0[2]]
+            } else {
+                [(r0[1] / coeff).cos() * (r0[0] + rad0), (r0[1] / coeff).sin() * (r0[0] + rad0), r0[2]]
+            };
+        }
+    }
     // The mesh dimension (Elmer's `Mesh % MaxDim`, inherited by a plain
     // "cartesian" coordinate system) from the bulk elements.
     mesh.dim = match mesh.elems[..mesh.n_bulk].iter().map(|e| e.etype.family()).max() {
