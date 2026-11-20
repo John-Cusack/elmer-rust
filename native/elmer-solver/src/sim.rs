@@ -931,13 +931,34 @@ impl Simulation {
                 } else {
                     [None, None]
                 };
+                // ElmerSolver.F90:1958-1979: a DG variable takes the node's
+                // DG index in the left parent, else in the right one.
+                let dg_slots: Option<Vec<Option<usize>>> = if self.vars.by_id(id).kind == FieldKind::Dg {
+                    let ix = self.dg_indexes.as_ref().ok_or_else(|| {
+                        SolverError::fatal("SetInitialConditions", "a DG variable without the mesh's DG indexes")
+                    })?;
+                    let v = self.vars.by_id(id);
+                    let through = |p: Option<ElemId>, n: u32| -> Option<usize> {
+                        let p = p?;
+                        let pos = mesh.element(p).nodes.iter().position(|&m| m == n)?;
+                        let d = *ix.index.get(p.0 as usize)?.get(pos)?;
+                        (d != NO_DOF).then(|| v.slot(d)).flatten()
+                    };
+                    Some(el.nodes.iter().map(|&n| through(el.parents[0], n).or_else(|| through(el.parents[1], n))).collect())
+                } else {
+                    None
+                };
                 let v = self.vars.by_id_mut(id);
                 let (stride, offset) = match comp {
                     Some(c) => (dofs, c),
                     None => (1, 0),
                 };
                 for (j, &n) in el.nodes.iter().enumerate() {
-                    let Some(s) = v.slot(n) else { continue };
+                    let s = match &dg_slots {
+                        Some(d) => d[j],
+                        None => v.slot(n),
+                    };
+                    let Some(s) = s else { continue };
                     let k = s * stride + offset;
                     v.values[k] = xs[j];
                     if let Some(vel) = &rates[0] {
@@ -1039,13 +1060,34 @@ impl Simulation {
                 slot.conforming_flip = crate::conforming::apply_conforming(&mut perm, map);
             }
         }
+        // A DG solver: its variable lives on the mesh's DG indexes
+        // (`Variable_on_nodes_on_elements`), made at mesh load.
+        let dg = layout.as_ref().and_then(|d| d.dg_layout().cloned());
+        let kind = if dg.is_some() { FieldKind::Dg } else { FieldKind::Nodal };
+        if let Some(ix) = dg {
+            if self.dg_indexes.is_none() {
+                self.dg_indexes = Some(ix);
+            }
+        }
         slot.dofs = layout;
         let perm_arc: Arc<[u32]> = perm.perm.into();
         let mut values = vec![0.0; perm.n_slots * spec.dofs];
         if apply_ics {
-            self.apply_initial_conditions(slot, spec, mesh, &perm_arc, &mut values)?;
+            if kind == FieldKind::Dg {
+                let names = std::iter::once(&spec.name).chain(&spec.components);
+                let given = names.into_iter().any(|n| self.model.initial_conditions.iter().any(|ic| ic.get(n).is_some()));
+                let used = self.model.bodies.iter().any(|b| b.integer("initial condition").is_some());
+                if given && used {
+                    return Err(SolverError::Unsupported(format!(
+                        "Solver {}: initial conditions of the DG variable {}",
+                        slot.id, spec.name
+                    )));
+                }
+            } else {
+                self.apply_initial_conditions(slot, spec, mesh, &perm_arc, &mut values)?;
+            }
         }
-        let mut v = Variable::new(&spec.name, FieldKind::Nodal, spec.dofs, Some(perm_arc.clone()), values);
+        let mut v = Variable::new(&spec.name, kind, spec.dofs, Some(perm_arc.clone()), values);
         v.output = spec.output;
         if slot.time_order > 0 {
             // MainUtils.F90:2510-2517: seven columns for a second-order equation.

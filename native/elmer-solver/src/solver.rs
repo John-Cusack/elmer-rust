@@ -659,6 +659,28 @@ impl<'a> SolverCtx<'a> {
     }
 
     /// `DefaultUpdateEquations`: add a local system at element `e`'s dofs.
+    /// `UpdateGlobalEquations(Solver % Matrix, STIFF, rhs, FORCE, n, 1,
+    /// Indexes)` with the slots given: `local` is added at rows and columns
+    /// `slots` (a DG solver's boundary and jump terms, assembled at DG
+    /// indexes the element itself does not own).
+    pub fn update_global_equations(&mut self, local: &LocalSystem, slots: &[u32]) -> Result<(), SolverError> {
+        if local.n != slots.len() {
+            return Err(SolverError::fatal("UpdateGlobalEquations", "local system and index list sizes differ"));
+        }
+        let sim = &mut *self.sim;
+        let backend = sim
+            .backends
+            .assembly
+            .as_ref()
+            .ok_or_else(|| SolverError::NotWired("assembly backend (elmer-assembly)".into()))?;
+        let sys = sim.slots[self.slot]
+            .system
+            .as_mut()
+            .ok_or_else(|| SolverError::fatal("UpdateGlobalEquations", "call default_initialize first"))?;
+        backend.add_local(&mut sys.matrix, &mut sys.rhs, slots, local);
+        Ok(())
+    }
+
     pub fn default_update(&mut self, local: &LocalSystem, e: ElemId) -> Result<(), SolverError> {
         // UpdateGlobalEquations: a passive element adds nothing.
         if self.is_passive(e)? {
@@ -857,6 +879,17 @@ impl<'a> SolverCtx<'a> {
                 raw.get(s as usize).copied().filter(|&i| i != NO_DOF).and_then(|i| v.slot(i))
             }
         };
+        // A DG solver (BoundaryConditionUtils.F90:611): the boundary node's
+        // value goes to the DG index of that node in the element's left
+        // parent.
+        let dg = layout.filter(|_| own).and_then(|d| d.dg_layout());
+        let node_slot = |e: ElemId, n: u32| -> Option<usize> {
+            let Some(ix) = dg else { return v.slot(n) };
+            let left = self.mesh.element(e).parents[0]?;
+            let pos = self.mesh.element(left).nodes.iter().position(|&m| m == n)?;
+            let d = *ix.index.get(left.0 as usize)?.get(pos)?;
+            (d != NO_DOF).then(|| v.slot(d)).flatten()
+        };
         let mut extra = Vec::new();
         let order = self.dirichlet_element_order()?;
         let nt = self.sim.slots[self.slot].nt.as_ref().filter(|_| own);
@@ -889,6 +922,11 @@ impl<'a> SolverCtx<'a> {
                     }
                     None => {}
                 }
+                if dg.is_some() && matches!(bc.get(key), Some(Value::Dependent(_))) {
+                    return Err(SolverError::Unsupported(format!(
+                        "DG Dirichlet value > {key} < that is not a constant (ListGetReal at DG indexes)"
+                    )));
+                }
                 let Some(vals) = self.real_at_nodes(bc, key, e)? else { continue };
                 let nodes = self.mesh.element(e).nodes;
                 let check_nt = nt.is_some_and(|nt| {
@@ -896,7 +934,7 @@ impl<'a> SolverCtx<'a> {
                         && nodes.iter().any(|&n| nt.reorder.get(n as usize).is_some_and(|&r| r > 0))
                 });
                 for (&n, &x) in nodes.iter().zip(&vals) {
-                    let Some(s) = v.slot(n) else { continue };
+                    let Some(s) = node_slot(e, n) else { continue };
                     let m = nt.map_or(0, |nt| nt.reorder.get(n as usize).copied().unwrap_or(0)) as usize;
                     match nt {
                         Some(nt) if m > 0 && check_nt => {
@@ -926,6 +964,13 @@ impl<'a> SolverCtx<'a> {
                     }
                 }
             }
+        }
+        if dg.is_some()
+            && self.sim.model.boundary_conditions.iter().any(|bc| {
+                keys.iter().any(|(_, key)| bc.get(key).is_some()) && self.target_nodes(bc).is_some()
+            })
+        {
+            return Err(SolverError::Unsupported("point Dirichlet values (Target Nodes) of a DG solver".into()));
         }
         // SetDirichletBoundaries' point values (BoundaryConditionUtils.F90:803):
         // a condition with `Target Nodes` (or `Target Coordinates`) sets the

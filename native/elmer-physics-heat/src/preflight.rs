@@ -48,8 +48,6 @@ const fn flag(key: &'static str, reason: &'static str) -> Rule {
 }
 
 const SOLVER: &[Rule] = &[
-    flag("Discontinuous Galerkin", "DG heat is not implemented"),
-    flag("DG Reduced Basis", "DG heat is not implemented"),
     flag("Radiosity Model", "radiation is not implemented"),
     flag("Spectral Model", "radiation is not implemented"),
     flag(
@@ -172,6 +170,22 @@ pub(crate) fn stabilized(solver: &dyn Params) -> bool {
 pub fn check_supported(sections: &HeatSections<'_>) -> Result<(), HeatError> {
     let legacy = sections.solver.logical("Legacy Assembly") == Some(true);
     scan(sections.solver, "solver", SOLVER)?;
+    let dg = sections.solver.logical("Discontinuous Galerkin") == Some(true);
+    let db = sections.solver.logical("DG Reduced Basis") == Some(true);
+    if (dg || db) && legacy {
+        return Err(HeatError::Unsupported {
+            section: "solver",
+            keyword: "Discontinuous Galerkin".into(),
+            reason: "DG heat with the legacy assembly is not implemented",
+        });
+    }
+    if db && !dg {
+        return Err(HeatError::Unsupported {
+            section: "solver",
+            keyword: "DG Reduced Basis".into(),
+            reason: "a reduced basis without Discontinuous Galerkin is not implemented",
+        });
+    }
     if legacy {
         // HeatSolveLegacy: "For radiative point sources use HeatSolveVec".
         let radiators = sections.solver.get("Radiator Coordinates").is_some()
@@ -235,12 +249,13 @@ pub fn check_supported(sections: &HeatSections<'_>) -> Result<(), HeatError> {
     for bc in &sections.boundaries {
         scan(*bc, "boundary condition", BOUNDARY)?;
         check_radiation(*bc, legacy)?;
-        // HeatSolver_init: a gap needs DG; the legacy assembly has its own.
-        if !legacy && bc.get("Heat Gap").is_some() {
+        // HeatSolver_init: a gap needs DG (Fatal otherwise); the legacy
+        // assembly has its own.
+        if !legacy && !dg && bc.get("Heat Gap").is_some() {
             return Err(HeatError::Unsupported {
                 section: "boundary condition",
                 keyword: "Heat Gap".into(),
-                reason: "DG heat gap is not implemented",
+                reason: "Keyword supported only with DG active",
             });
         }
     }

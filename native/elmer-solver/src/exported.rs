@@ -133,6 +133,50 @@ impl DgIndexes {
         }
         DgIndexes { index, count: next as usize }
     }
+
+    /// The DG indexes `NonNodalElements` (MeshLoad.F90:986-1190) makes when
+    /// a solver is DG: the bulk elements' nodes in element order; a
+    /// boundary element gets its parent's indexes only when some material
+    /// has `DG Parent Material` (`InheritDG`), from the first parent (left,
+    /// then right) whose material sets it true, or its only parent. Other
+    /// boundary elements have none ([`NO_DOF`]).
+    pub fn for_dg_solver(mesh: &dyn MeshView, model: &crate::Model) -> Result<Self, SolverError> {
+        let mut ix = DgIndexes::create(mesh);
+        let nb = mesh.n_bulk();
+        let inherit = model.materials.iter().any(|m| m.get("dg parent material").is_some());
+        let parent_flag = |p: ElemId| -> bool {
+            model
+                .body_of_tag(mesh.element(p).tag)
+                .and_then(|b| model.bodies.get(b - 1))
+                .and_then(|b| b.integer("material"))
+                .filter(|&m| m >= 1)
+                .and_then(|m| model.materials.get(m as usize - 1))
+                .and_then(|m| m.logical("dg parent material"))
+                .unwrap_or(false)
+        };
+        for t in nb..nb + mesh.n_boundary() {
+            let el = mesh.element(ElemId(t as u32));
+            let mut idx = vec![NO_DOF; el.nodes.len()];
+            if inherit {
+                let parents: Vec<ElemId> = el.parents.iter().flatten().copied().collect();
+                let parent = match parents.as_slice() {
+                    [] => return Err(SolverError::fatal("NonnodalElements", "Cannot define DG indexes for BC!")),
+                    [p] => *p,
+                    _ => *parents.iter().find(|&&p| parent_flag(p)).ok_or_else(|| {
+                        SolverError::fatal("NonnodalElements", "Cannot define DG indexes for internal BC!")
+                    })?,
+                };
+                let pnodes = mesh.element(parent).nodes;
+                for (i, n) in el.nodes.iter().enumerate() {
+                    if let Some(j) = pnodes.iter().position(|m| m == n) {
+                        idx[i] = ix.index[parent.0 as usize][j];
+                    }
+                }
+            }
+            ix.index[t] = idx;
+        }
+        Ok(ix)
+    }
 }
 
 /// `CreateDGPerm(Solver, DGPerm, DGCount[, MaskName, SecName])`: DG index ->
@@ -170,6 +214,70 @@ pub(crate) fn dg_perm(
         n += 1;
     }
     Ok((perm, n as usize))
+}
+
+/// Local edges (1-based end nodes) of a 2D element, as `FindMeshEdges2D`
+/// visits them.
+fn edges_2d(code: u16) -> Option<&'static [[usize; 2]]> {
+    match code / 100 {
+        3 => Some(&[[1, 2], [2, 3], [3, 1]]),
+        4 => Some(&[[1, 2], [2, 3], [3, 4], [4, 1]]),
+        _ => None,
+    }
+}
+
+/// Local faces (1-based nodes) of a 3D element, as `FindMeshFaces3D`
+/// visits them.
+fn faces_3d(code: u16) -> Option<&'static [&'static [usize]]> {
+    match code / 100 {
+        5 => Some(&[&[1, 2, 3], &[1, 2, 4], &[2, 3, 4], &[3, 1, 4]]),
+        7 => Some(&[&[1, 2, 3], &[4, 5, 6], &[1, 2, 5, 4], &[3, 2, 5, 6], &[3, 1, 4, 6]]),
+        8 => Some(&[&[1, 2, 3, 4], &[5, 6, 7, 8], &[1, 2, 6, 5], &[2, 3, 7, 6], &[3, 4, 8, 7], &[4, 1, 5, 8]]),
+        _ => None,
+    }
+}
+
+/// The interfaces of the bulk elements in first-visit order (`Mesh %
+/// Edges` in 2D, `Mesh % Faces` in 3D): `(left, right)` element pairs for
+/// those with two bulk parents. Left is the first element visiting it.
+pub fn dg_interfaces(mesh: &dyn MeshView) -> Result<Vec<(ElemId, ElemId, Vec<u32>)>, SolverError> {
+    let dim = mesh.dim();
+    let mut seen: std::collections::HashMap<Vec<u32>, usize> = std::collections::HashMap::new();
+    let mut out: Vec<(ElemId, Option<ElemId>, Vec<u32>)> = Vec::new();
+    for t in 0..mesh.n_bulk() {
+        let el = mesh.element(ElemId(t as u32));
+        let code = el.etype.0;
+        let locals: Vec<Vec<usize>> = if dim == 2 {
+            edges_2d(code)
+                .ok_or_else(|| SolverError::Unsupported(format!("DG interfaces of element type {code}")))?
+                .iter()
+                .map(|e| e.to_vec())
+                .collect()
+        } else {
+            faces_3d(code)
+                .ok_or_else(|| SolverError::Unsupported(format!("DG interfaces of element type {code}")))?
+                .iter()
+                .map(|f| f.to_vec())
+                .collect()
+        };
+        for local in locals {
+            let nodes: Vec<u32> = local.iter().map(|&k| el.nodes[k - 1]).collect();
+            let mut key = nodes.clone();
+            key.sort_unstable();
+            match seen.get(&key) {
+                Some(&i) => {
+                    if out[i].1.is_none() {
+                        out[i].1 = Some(ElemId(t as u32));
+                    }
+                }
+                None => {
+                    seen.insert(key, out.len());
+                    out.push((ElemId(t as u32), None, nodes));
+                }
+            }
+        }
+    }
+    Ok(out.into_iter().filter_map(|(l, r, n)| r.map(|r| (l, r, n))).collect())
 }
 
 /// `InvActiveElements`: element -> 0-based position among the solver's
