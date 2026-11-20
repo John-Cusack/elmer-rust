@@ -1132,6 +1132,12 @@ fn run_case_meshes(
         let case_dir2 = case_dir.clone();
         let log_level = log;
         let _ = log_level;
+        // `Displace Mesh` and the mesh mappers move the mesh the run is on.
+        sim.set_mesh_wrapper(Box::new(|m| {
+            let om = crate::motion::OwnedMovableMesh::new(m);
+            om.install();
+            Arc::new(om) as Arc<dyn MeshView + Send + Sync>
+        }));
         sim.set_mesh_writer_factory(Box::new(move |name: &str, sim: &elmer_solver::Simulation| {
             let dir = case_dir2.join(name);
             let _ = std::fs::create_dir_all(&dir);

@@ -1805,9 +1805,6 @@ impl Solver for ElasticSolver {
             if model.neo_hookean || self.umat.is_some() || p.get("umat subroutine").is_some() {
                 ctx.info("ElasticSolver", "Adaptive Mesh Refinement is not available", 4);
             } else if p.logical("library adaptivity") != Some(true) {
-                if displace {
-                    return Err(unsupported("adaptive mesh refinement with Displace Mesh"));
-                }
                 let ld = p.logical("large deflection").unwrap_or(true);
                 elmer_adaptive::elasticity::ElasticityEstimator::check(ctx)?;
                 let mut est = elmer_adaptive::elasticity::ElasticityEstimator { large_deflection: ld };

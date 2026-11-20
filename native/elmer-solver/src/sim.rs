@@ -2398,12 +2398,13 @@ impl Simulation {
                 // RefineMesh's new mesh: the results above were the old
                 // mesh's; the run goes on with the new one.
                 if let Some(change) = self.adaptive.pending.take() {
-                    self.swap_mesh(mesh, &*change.mesh, log, comm)?;
+                    let new_mesh = self.wrap_mesh(change.mesh.clone());
+                    self.swap_mesh(mesh, &*new_mesh, log, comm)?;
                     self.adaptive.depth += 1;
                     self.adaptive.finished = false;
                     self.adaptive.name = change.name.clone();
                     self.mesh_writer(&change.name)?;
-                    current = Some(change.mesh);
+                    current = Some(new_mesh);
                 }
                 let held2 = current.clone();
                 let mesh: &dyn MeshView = match &held2 {
