@@ -29,7 +29,6 @@ pub mod boundary;
 pub mod bulk;
 pub mod error;
 mod law;
-mod lumping;
 pub mod neohooke;
 mod props;
 pub mod solver;

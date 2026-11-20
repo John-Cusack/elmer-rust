@@ -17,7 +17,7 @@ use elmer_core::{BasisEval, ElemId, ElementBasis, Params, Quadrature, Value};
 use elmer_solver::fortran_fmt::es;
 use elmer_solver::{SolverCtx, SolverError};
 
-use crate::boundary::node_uvw;
+use crate::nodes::node_uvw;
 
 const CALLER: &str = "ModelLumping";
 
@@ -121,7 +121,7 @@ fn invert_matrix(a: &mut [[f64; 6]; 6], n: usize) -> Result<(), SolverError> {
 }
 
 /// `ModelLumping_t`: kept across the six cases.
-pub(crate) struct Lump {
+pub struct Lump {
     area: f64,
     center: [f64; 3],
     moments: [[f64; 3]; 3],
@@ -141,7 +141,7 @@ fn lumping_boundary(ctx: &SolverCtx<'_>) -> Vec<ElemId> {
 
 impl Lump {
     /// `ModelLumpingInit`: the boundary geometry and the rigid-body mass.
-    pub(crate) fn init(ctx: &mut SolverCtx<'_>, basis: &dyn ElementBasis, quad: &dyn Quadrature) -> Result<Self, SolverError> {
+    pub fn init(ctx: &mut SolverCtx<'_>, basis: &dyn ElementBasis, quad: &dyn Quadrature) -> Result<Self, SolverError> {
         let p = ctx.params();
         let fix_displacement = p.logical("fix displacement").unwrap_or(true);
         let file = p.string("model lumping filename").unwrap_or("Kmat.dat").trim_matches('"').to_string();
@@ -294,7 +294,7 @@ impl Lump {
 
     /// `ModelLumpingLoads`: the boundary load of `case` at the nodes `xyz`
     /// of one lumping boundary element (replaces its surface load).
-    pub(crate) fn loads(&self, case: usize, xyz: &[[f64; 3]]) -> Vec<[f64; 3]> {
+    pub fn loads(&self, case: usize, xyz: &[[f64; 3]]) -> Vec<[f64; 3]> {
         let n = xyz.len();
         let mut f = vec![[0.0; 3]; n];
         if case <= 3 {
@@ -335,7 +335,7 @@ impl Lump {
     /// `ModelLumpingDisplacements`: the prescribed displacement of `case` on
     /// the lumping boundary, as `(dof, value)` for `DefaultDirichletBCs` to
     /// override where the sif's own conditions speak.
-    pub(crate) fn displacements(&self, ctx: &SolverCtx<'_>, case: usize) -> Result<Vec<(u32, f64)>, SolverError> {
+    pub fn displacements(&self, ctx: &SolverCtx<'_>, case: usize) -> Result<Vec<(u32, f64)>, SolverError> {
         let f = ctx.primary().ok_or_else(|| fatal("solver has no displacement variable"))?;
         let (perm, dofs) = (f.perm.ok_or_else(|| fatal("displacement has no permutation"))?, f.dofs);
         let dx = 1.0e-2 * self.area.sqrt();
@@ -378,7 +378,7 @@ impl Lump {
 
     /// `ModelLumpingSprings`: one row or column of the spring matrix from
     /// `case`; after the sixth, write it out.
-    pub(crate) fn springs(
+    pub fn springs(
         &mut self,
         ctx: &SolverCtx<'_>,
         basis: &dyn ElementBasis,
