@@ -97,7 +97,6 @@ const BOUNDARY: &[Rule] = &[
         "Infinity BC Temperature",
         "far-field condition is not implemented",
     ),
-    present("Phase Change", "phase change is not implemented"),
     present("Temperature Nitsche", "weak conditions are not implemented"),
 ];
 
@@ -114,6 +113,25 @@ fn scan(params: &dyn Params, section: &'static str, rules: &[Rule]) -> Result<()
                 reason: r.reason,
             });
         }
+    }
+    Ok(())
+}
+
+/// The BC `Phase Change` flag adds `L rho (n . Phase Velocity)` to the heat
+/// flux (HeatSolve.F90's `PhaseChangeBC`), which is exactly zero without
+/// `Phase Velocity i`: then the flag only marks the interface for another
+/// solver (SteadyPhaseChange, whose `MeltingHeat` gives the flux), and the
+/// assembly is unchanged. With a velocity the term is not implemented.
+fn check_phase_change_bc(bc: &dyn Params) -> Result<(), HeatError> {
+    if bc.logical("phase change") != Some(true) {
+        return Ok(());
+    }
+    if let Some(i) = (1..=3).find(|i| bc.get(&format!("phase velocity {i}")).is_some()) {
+        return Err(HeatError::Unsupported {
+            section: "boundary condition",
+            keyword: format!("Phase Velocity {i}"),
+            reason: "the phase change interface flux is not implemented",
+        });
     }
     Ok(())
 }
@@ -244,6 +262,7 @@ pub fn check_supported(sections: &HeatSections<'_>) -> Result<(), HeatError> {
     }
     for bc in &sections.boundaries {
         scan(*bc, "boundary condition", BOUNDARY)?;
+        check_phase_change_bc(*bc)?;
         check_radiation(*bc, legacy)?;
         // HeatSolver_init: a gap needs DG (Fatal otherwise); the legacy
         // assembly has its own.

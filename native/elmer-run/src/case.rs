@@ -55,6 +55,7 @@ pub fn legacy_procedure(equation: &str) -> Option<(&'static str, &'static str)> 
         "heat equation" => Some(("HeatSolve", "HeatSolver")),
         "stress analysis" => Some(("StressSolve", "StressSolver")),
         "navier-stokes" => Some(("FlowSolve", "FlowSolver")),
+        "mesh update" => Some(("MeshSolve", "MeshSolver")),
         _ => None,
     }
 }
@@ -316,6 +317,14 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
                 ("Temperature", 1, "HeatSolve HeatSolver")
             }
             Some("stress analysis") => ("Displacement", cdim, "StressSolve StressSolver"),
+            // `-dofs dim Mesh Velocity` is exported in a transient run.
+            Some("mesh update") => {
+                if transient {
+                    let k = (1..).find(|k| params.get(&format!("exported variable {k}")).is_none()).expect("a free index");
+                    params.insert(&format!("Exported Variable {k}"), Value::Str(format!("-dofs {cdim} Mesh Velocity")));
+                }
+                ("Mesh Update", cdim, "MeshSolve MeshSolver")
+            }
             // `dofs` is reset to 1: the components are in the name. The 1e-6
             // start value is applied by elmer-physics-flow.
             Some("navier-stokes") => {

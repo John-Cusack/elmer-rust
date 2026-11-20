@@ -3,7 +3,9 @@
 //! `StructuredMeshMapper` (StructuredMeshMapper.F90) and
 //! `StructuredProjectToPlane` (StructuredProjectToPlane.F90), and
 //! `MarchingODESolver` (MarchingODESolver.F90), which marches an ODE along
-//! the same extruded structure.
+//! the same extruded structure; `SteadyPhaseChange`
+//! (SteadyPhaseChange.F90), which moves a solid-liquid interface onto the
+//! melting-point isotherm.
 //!
 //! [`register`] binds them to their `Procedure = "Lib" "Entry"` names.
 #![forbid(unsafe_code)]
@@ -14,6 +16,7 @@ mod checksum;
 mod marching;
 pub mod mesh_solve;
 pub mod motion;
+mod phase_change;
 mod project;
 mod rigid;
 mod structure;
@@ -34,6 +37,7 @@ pub fn register(registry: &mut SolverRegistry) {
     registry.register("MeshChecksum", "MeshChecksum", checksum::factory);
     registry.register("MarchingODESolver", "MarchingODESolver", marching::factory);
     registry.register("MeshSolve", "MeshSolver", mesh_solve::factory);
+    registry.register("SteadyPhaseChange", "SteadyPhaseChange", phase_change::factory);
     registry.register("RigidMeshMapper", "RigidMeshMapper", rigid::factory);
     registry.register(
         "StructuredProjectToPlane",
