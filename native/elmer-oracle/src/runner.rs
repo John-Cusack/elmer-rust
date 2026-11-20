@@ -449,7 +449,7 @@ pub struct RunOutcome {
 /// needs a `file`-typed keyword, and logicals need the `Logical` word.
 /// `Linear System Save Prefix` is deliberately absent: it is not a
 /// declared keyword and the parser rejects it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct SifInject {
     /// Append `Output File` + `Binary Output` to the Simulation section.
     pub o2: bool,
@@ -467,6 +467,10 @@ pub struct SifInject {
     /// which `SaveResult` skips by default. For the refnorm golden of
     /// solvers whose `Variable` is `-global`.
     pub globals: bool,
+    /// `Reference Norm Tolerance` written with each override: 0 (bitwise)
+    /// except for the printed-precision class, which checks a SaveScalars
+    /// norm known only to 13 digits.
+    pub refnorm_tol: f64,
 }
 
 impl SifInject {
@@ -736,6 +740,15 @@ fn inject_text_with(text: &str, inj: &SifInject, result_name: &str, refnorms: &[
     rebuilt
 }
 
+/// `0` for the bitwise class, else the tolerance in exponent form.
+fn tol_text(tol: f64) -> String {
+    if tol == 0.0 {
+        String::from("0")
+    } else {
+        format!("{tol:e}")
+    }
+}
+
 fn inject_text_single(text: &str, inj: &SifInject, result_name: &str, refnorms: &[(u32, f64)]) -> String {
     let mut out = String::new();
     let mut section = String::new();
@@ -779,7 +792,7 @@ fn inject_text_single(text: &str, inj: &SifInject, result_name: &str, refnorms: 
                 "  Reference Norm = Real {}\n",
                 crate::norm::format_grader_norm(*value)
             ));
-            out.push_str("  Reference Norm Tolerance = Real 0\n");
+            out.push_str(&format!("  Reference Norm Tolerance = Real {}\n", tol_text(inj.refnorm_tol)));
         }
         if inj.o2m && is_solver && !has_save {
             out.push_str("  Linear System Save = Logical True\n");
@@ -845,8 +858,9 @@ fn inject_text_single(text: &str, inj: &SifInject, result_name: &str, refnorms: 
         rebuilt.insert(
             at + 1,
             format!(
-                "Solver {n} :: Reference Norm = Real {}\nSolver {n} :: Reference Norm Tolerance = Real 0",
-                crate::norm::format_grader_norm(*value)
+                "Solver {n} :: Reference Norm = Real {}\nSolver {n} :: Reference Norm Tolerance = Real {}",
+                crate::norm::format_grader_norm(*value),
+                tol_text(inj.refnorm_tol)
             ),
         );
         out = rebuilt.join("\n");
@@ -1486,7 +1500,7 @@ mod tests {
     #[test]
     fn max_output_raises_never_lowers() {
         let sif = "Simulation\n  Max Output Level = 3\nEnd\n";
-        let inj = SifInject { o2: false, o2m: false, max_output: Some(5), per_run: false, globals: false };
+        let inj = SifInject { o2: false, o2m: false, max_output: Some(5), per_run: false, globals: false, refnorm_tol: 0.0 };
         let once = inject_text(sif, &inj, "case.result");
         assert!(once.contains("Max Output Level = 5"));
         assert_eq!(inject_text(&once, &inj, "case.result"), once);
@@ -1524,7 +1538,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut sif = b"! Bj\xf6rn's case\nSimulation\n  Simulation Type = Steady\nEnd\n".to_vec();
         std::fs::write(dir.join("case.sif"), &sif).unwrap();
-        let inj = SifInject { o2: true, o2m: false, max_output: None, per_run: false, globals: false };
+        let inj = SifInject { o2: true, o2m: false, max_output: None, per_run: false, globals: false, refnorm_tol: 0.0 };
         inject_sif(&dir, &inj).unwrap();
         let out = std::fs::read(dir.join("case.sif")).unwrap();
         let tail = b"  Output File = \"case.result\"\n  Binary Output = Logical True\nEnd\n";
@@ -1537,7 +1551,7 @@ mod tests {
     #[test]
     fn table_end_does_not_close_the_section() {
         let sif = "Simulation\n  Density = Variable Coordinate 1\n    Real\n      0 1\n      1 2\n    End\n  Max Output Level = 5\nEnd\n";
-        let inj = SifInject { o2: true, o2m: false, max_output: None, per_run: false, globals: false };
+        let inj = SifInject { o2: true, o2m: false, max_output: None, per_run: false, globals: false, refnorm_tol: 0.0 };
         let out = inject_text(sif, &inj, "case.result");
         let table_end = out.find("    End\n").unwrap();
         let output = out.find("Output File").unwrap();
@@ -1552,7 +1566,7 @@ mod tests {
     #[test]
     fn directives_and_comments_do_not_hide_sections() {
         let sif = "Check Keywords \"Warn\"\n\nHeader :: Mesh DB \".\" \"square\"\n\nSimulation\n! Output File = \"old.dat\"\n! Max Output Level = 3\n  Max Output Level = 4\nEnd\n/*\nSolver 9\nEnd\n*/\nSolver 1 :: Reference Norm = 1.0\nRUN\n";
-        let inj = SifInject { o2: true, o2m: true, max_output: Some(5), per_run: false, globals: false };
+        let inj = SifInject { o2: true, o2m: true, max_output: Some(5), per_run: false, globals: false, refnorm_tol: 0.0 };
         let out = inject_text(sif, &inj, "case.result");
         assert!(out.contains("  Output File = \"case.result\"\n"), "{out}");
         assert!(out.contains("! Max Output Level = 3\n"), "comment rewritten: {out}");
@@ -1664,7 +1678,7 @@ mod tests {
     #[test]
     fn injection_targets_sections_and_is_idempotent() {
         let sif = "Header\n  Mesh DB = \".\" \"m\"\nEnd\n\nSimulation\n  Simulation Type = \"Steady State\"\nEnd\n\nSolver 1\n  Equation = \"Heat Equation\"\nEnd\n";
-        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false, globals: false };
+        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false, globals: false, refnorm_tol: 0.0 };
         let once = inject_text(sif, &inj, "case.result");
         assert!(once.contains("Output File = \"case.result\""));
         assert!(once.contains("Binary Output = Logical True"));
@@ -1682,7 +1696,7 @@ mod tests {
     #[test]
     fn injection_skips_files_without_target_sections() {
         let sif = "Header\n  Mesh DB = \".\" \"m\"\nEnd\n";
-        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false, globals: false };
+        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false, globals: false, refnorm_tol: 0.0 };
         assert_eq!(inject_text(sif, &inj, "case.result"), sif);
     }
 
@@ -1692,9 +1706,9 @@ mod tests {
         // section; a bare word like RUN must not eat them (HeatControl2
         // lost its Reference Norm this way and graded vacuous).
         let sif = "Solver 1\n  Equation = \"Heat Equation\"\nEnd\n\nSolver 1 :: Reference Norm = 428.79\nRUN\n";
-        let idle = SifInject { o2: false, o2m: false, max_output: None, per_run: false, globals: false };
+        let idle = SifInject { o2: false, o2m: false, max_output: None, per_run: false, globals: false, refnorm_tol: 0.0 };
         assert_eq!(inject_text(sif, &idle, "case.result"), sif);
-        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false, globals: false };
+        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false, globals: false, refnorm_tol: 0.0 };
         let once = inject_text(sif, &inj, "case.result");
         assert!(once.contains("Solver 1 :: Reference Norm = 428.79"));
         assert!(once.contains("\nRUN\n"));
