@@ -4,7 +4,7 @@
 
 use crate::config::{IterMethodsConfig, PseudoComplex, RobustConfig};
 use crate::ops::{axmy, axpy, check_dims, diverged, dot, nrm2, pcond, residual};
-use crate::rng::Rng;
+use crate::rng;
 use crate::scalar::IterScalar;
 use crate::{finish, History, StopFn};
 use elmer_core::{
@@ -95,22 +95,24 @@ impl<T: IterScalar> IterativeSolver<T> for Idrs<T> {
             (Vec::new(), Vec::new())
         };
 
-        // Shadow space P: random, then orthonormalised.
-        let mut rng = Rng::new(cfg.random_seed);
+        // Shadow space P: `RANDOM_NUMBER(P)` from the run's stream, then
+        // orthonormalised.
         let mut p = vec![vec![T::zero(); n]; s];
-        for col in p.iter_mut() {
-            for e in col.iter_mut() {
-                *e = T::from_parts(rng.uniform(), 0.0);
-            }
-        }
-        if cplx {
-            // P = Pr + i*Pi, with Pi drawn after all of Pr.
+        rng::with_stream(cfg.random_seed, |rng| {
             for col in p.iter_mut() {
                 for e in col.iter_mut() {
-                    *e = T::from_parts(e.re(), rng.uniform());
+                    *e = T::from_parts(rng.uniform(), 0.0);
                 }
             }
-        }
+            if cplx {
+                // P = Pr + i*Pi, with Pi drawn after all of Pr.
+                for col in p.iter_mut() {
+                    for e in col.iter_mut() {
+                        *e = T::from_parts(e.re(), rng.uniform());
+                    }
+                }
+            }
+        });
         for j in 0..s {
             for k in 0..j {
                 let alpha = dot(comm, &p[k], &p[j]);

@@ -8,9 +8,14 @@
 //! writes the seed words into that state XORed with fixed scrambling keys,
 //! and `RANDOM_NUMBER` keeps the top 53 bits of each output (`rnumber_8`).
 //!
-//! Fortran's generator is global: the stream carries on from one IDR(s)
-//! solve to the next. Here every solve restarts it from the seed, so a run's
-//! first IDR(s) solve sees exactly Elmer's shadow space and later ones do not.
+//! Fortran's generator is global: ElmerSolver seeds it once and the stream
+//! carries on from one IDR(s) solve to the next, so the n-th solve of a run
+//! gets the n-th block of draws. The stream here is kept per thread
+//! (libgfortran's is too): [`initialize_random_seed`] restarts it, which
+//! `elmer-solver` does when a simulation is set up, and a thread that draws
+//! before anything seeded it starts from the solver's `Random Number Seed`.
+
+use std::cell::RefCell;
 
 /// `xor_keys` of libgfortran's `random.c` (`scramble_seed`).
 const XOR_KEYS: [u64; 4] = [
@@ -55,6 +60,23 @@ impl Rng {
     }
 }
 
+thread_local! {
+    static STREAM: RefCell<Option<Rng>> = const { RefCell::new(None) };
+}
+
+/// `InitializeRandomSeed` (ElmerSolver.F90:874): restarts this thread's
+/// `RANDOM_NUMBER` stream from `seed` (`Simulation: Random Number Seed`,
+/// 314159265 when not given).
+pub fn initialize_random_seed(seed: i32) {
+    STREAM.with(|s| *s.borrow_mut() = Some(Rng::new(u64::from(seed as u32))));
+}
+
+/// Runs `f` on this thread's stream, seeding it from `seed` first if
+/// nothing has.
+pub(crate) fn with_stream<R>(seed: u64, f: impl FnOnce(&mut Rng) -> R) -> R {
+    STREAM.with(|s| f(s.borrow_mut().get_or_insert_with(|| Rng::new(seed))))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,5 +99,16 @@ mod tests {
         for w in want {
             assert_eq!(r.uniform().to_bits(), w);
         }
+    }
+
+    #[test]
+    fn the_stream_carries_on_until_reseeded() {
+        initialize_random_seed(314_159_265);
+        let first = with_stream(1, |r| r.uniform());
+        assert_eq!(first.to_bits(), 0x3FC2_7402_B4E2_E778);
+        // Not the seed of `with_stream`: the stream is already seeded.
+        assert_eq!(with_stream(1, |r| r.uniform()).to_bits(), 0x3FE3_5088_1025_97B0);
+        initialize_random_seed(314_159_265);
+        assert_eq!(with_stream(1, |r| r.uniform()), first);
     }
 }
