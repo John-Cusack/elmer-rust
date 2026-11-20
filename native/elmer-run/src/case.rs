@@ -99,6 +99,7 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
     let cdim = coords.dim;
     let transient = model.simulation.string("simulation type").is_some_and(|t| t.eq_ignore_ascii_case("transient"));
     let serendipity = model.simulation.logical("serendipity p elements").unwrap_or(true);
+    let equations = model.equations.clone();
     for params in &mut model.solvers {
         // `ElasticSolver_Init` (StressSolve delegates to it): without a
         // `Variable`, the displacement of the coordinate dimension.
@@ -118,6 +119,11 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         });
         if heat && params.get("variable").is_none() {
             params.insert("Variable", Value::Str("Temperature".into()));
+        }
+        // `HeatSolver_Init0` / `_Init`: the residual-free bubble element of
+        // unstabilized convection.
+        if heat {
+            elmer_physics_heat::solver_defaults(params, &equations, serendipity, transient);
         }
         // `IncompressibleNSSolver_Init0` / `_Init` (IncompressibleNS.F90):
         // the `Variable`, `Element` and discretisation defaults.
@@ -468,7 +474,8 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
 /// bubbles in the global system and its norm as Elmer does (#228); and
 /// any definition for the solvers that read their DOFs from `elmer-pdofs`
 /// (`ctx.solver_dofs()`) and refuse what they do not port: StressSolve
-/// (#206), StatElecSolve (#208), IncompressibleNS (Taylor-Hood), ModelPDE's
+/// (#206), StatElecSolve (#208), IncompressibleNS (Taylor-Hood), HeatSolve
+/// (its residual-free bubble; nothing beyond `p:1`), ModelPDE's
 /// AdvDiffSolver and the test-local `Poisson` / `PoissonML`
 /// `PoissonSolver`, `ModelPDEsplitted`, `SingleElements`, `BenchmarkShell`
 /// and `Stokes1` ports.
@@ -479,8 +486,9 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 12] = [
+    const P_DOFS: [(&str, &str); 13] = [
         ("benchmarkshell", "shellsolver"),
+        ("heatsolve", "heatsolver"),
         ("incompressiblens", "incompressiblenssolver"),
         ("incompressiblensvec", "incompressiblenssolver"),
         ("statelecsolve", "statelecsolver"),

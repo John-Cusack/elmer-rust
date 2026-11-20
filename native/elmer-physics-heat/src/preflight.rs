@@ -48,7 +48,6 @@ const fn flag(key: &'static str, reason: &'static str) -> Rule {
 }
 
 const SOLVER: &[Rule] = &[
-    flag("Bubbles", "bubble degrees of freedom are not implemented"),
     flag("Discontinuous Galerkin", "DG heat is not implemented"),
     flag("DG Reduced Basis", "DG heat is not implemented"),
     flag("Radiosity Model", "radiation is not implemented"),
@@ -172,8 +171,9 @@ pub(crate) fn stabilized(solver: &dyn Params) -> bool {
 
 /// Fails with the first unsupported keyword found in `sections`.
 ///
-/// Convection is allowed only with SUPG (`Stabilize = True`): without it
-/// Elmer adds a residual-free bubble, which this crate does not implement.
+/// Without SUPG (`Stabilize = True`) convection takes Elmer's residual-free
+/// bubble: the p element [`crate::solver_defaults`] adds, condensed by the
+/// solver. The legacy assembly's own bubble is not implemented.
 pub fn check_supported(sections: &HeatSections<'_>) -> Result<(), HeatError> {
     let legacy = sections.solver.logical("Legacy Assembly") == Some(true);
     scan(sections.solver, "solver", SOLVER)?;
@@ -197,12 +197,12 @@ pub fn check_supported(sections: &HeatSections<'_>) -> Result<(), HeatError> {
             match c.to_ascii_lowercase().as_str() {
                 "none" => {}
                 "constant" | "computed" => {
-                    if !stabilized(sections.solver) {
+                    if legacy && !stabilized(sections.solver) {
                         return Err(HeatError::Unsupported {
                             section: "solver",
                             keyword: "Stabilize".into(),
-                            reason: "convection without SUPG needs a residual-free bubble, \
-                                     which is not implemented",
+                            reason: "the legacy assembly's convection without SUPG \
+                                     (its residual-free bubble) is not implemented",
                         });
                     }
                 }

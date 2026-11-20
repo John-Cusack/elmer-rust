@@ -106,10 +106,14 @@ fn legacy_assembly_allows_idealized_radiation_and_smart_heater() {
 }
 
 #[test]
-fn convection_needs_supg() {
+fn convection_without_supg_needs_the_default_assembly() {
+    // The default assembly takes the residual-free bubble element.
     let mut s = solver();
     let mut eq = ParamMap::new();
     eq.insert("Convection", Value::Str("Computed".into()));
+    check_supported(&sections(&s, Some(&eq), None, vec![])).unwrap();
+    // The legacy assembly's bubble is not implemented: only SUPG.
+    s.insert("Legacy Assembly", Value::Logical(true));
     assert_eq!(
         keyword(check_supported(&sections(&s, Some(&eq), None, vec![])).unwrap_err()),
         "Stabilize"

@@ -4,9 +4,15 @@
 
 use std::sync::OnceLock;
 
-use elmer_core::{ElemId, ElementBasis, LocalSystem, ParamMap, Params, Quadrature, Value, NO_DOF};
+use std::collections::BTreeMap;
+
+use elmer_core::{
+    ElemId, ElementBasis, ElementType, LocalSystem, ParamMap, Params, QuadPoint, Quadrature, Value,
+    NO_DOF,
+};
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
+use crate::condense::{condensate_p, condensate_p_transient};
 use crate::material::{
     Conductivity, HeatBcAtNodes, HeatBoundaryConfig, HeatBulkConfig, Stabilization,
 };
@@ -63,6 +69,12 @@ pub struct HeatSolver {
     diffuse: Option<Option<DiffuseGray>>,
     /// The point radiators, likewise.
     radiators: Option<Option<Radiators>>,
+    /// The condensed bubble values per bulk element (`BubbleValues`), and
+    /// those of the previous timestep (`BubblePrevValues`).
+    bubbles: BTreeMap<u32, Vec<f64>>,
+    bubbles_prev: BTreeMap<u32, Vec<f64>>,
+    /// The timestep `bubbles_prev` was shifted at (`BubbleTimestep`).
+    bubble_step: Option<i64>,
 }
 
 impl HeatSolver {
@@ -73,6 +85,9 @@ impl HeatSolver {
             local: LocalSystem::zeros(0),
             diffuse: None,
             radiators: None,
+            bubbles: BTreeMap::new(),
+            bubbles_prev: BTreeMap::new(),
+            bubble_step: None,
         }
     }
 }
@@ -438,6 +453,143 @@ pub(crate) fn axisymmetric(ctx: &SolverCtx<'_>) -> Result<bool, SolverError> {
     }
 }
 
+/// The keywords `HeatSolver_Init0` and `HeatSolver_Init` (HeatSolve.F90)
+/// add to the solver section (`ListAddNew*`: a keyword already there wins).
+/// The `Element` must be in the section before the mesh and the solver
+/// variable are created, so a caller building the model calls this before
+/// [`Simulation::setup`](elmer_solver::Simulation::setup).
+///
+/// Without `Legacy Assembly`, convection (`Convection` or `Draw Velocity` in
+/// any equation) or `Bubbles = True` makes the element a p element with
+/// residual-free bubbles, condensed locally, unless the solver is
+/// stabilized (`Stabilize`), when Elmer gives it `Element = n:1`, the nodal
+/// element this crate uses anyway. A transient run with condensed bubbles
+/// takes two nonlinear iterations.
+pub fn solver_defaults(
+    p: &mut ParamMap,
+    equations: &[ParamMap],
+    serendipity: bool,
+    transient: bool,
+) {
+    if p.logical("Legacy Assembly") == Some(true) {
+        return;
+    }
+    let convection = equations
+        .iter()
+        .any(|e| e.get("Convection").is_some() || e.get("Draw Velocity").is_some());
+    if (convection || p.logical("Bubbles") == Some(true))
+        && p.get("Element").is_none()
+        && !stabilized(&*p)
+    {
+        p.insert("Element", Value::Str(bubble_element(serendipity).into()));
+        add_new(p, "Bubbles in Global System", Value::Logical(false));
+    }
+    let bubbles = p.string("Element").is_some_and(|e| e.contains("b:"));
+    if bubbles && transient && p.logical("Bubbles in Global System") != Some(true) {
+        add_new(
+            p,
+            "Nonlinear System Min Iterations",
+            Value::Integer(vec![2]),
+        );
+        add_new(
+            p,
+            "Nonlinear System Max Iterations",
+            Value::Integer(vec![2]),
+        );
+    }
+}
+
+/// The `Element` `HeatSolver_Init0` adds for a residual-free bubble.
+fn bubble_element(serendipity: bool) -> &'static str {
+    if serendipity {
+        "p:1 -tri b:1 -tetra b:1 -quad b:3 -brick b:4 -prism b:4 -pyramid b:4"
+    } else {
+        "p:1 -tri b:1 -tetra b:1 -quad b:4 -brick b:8 -prism b:4 -pyramid b:4"
+    }
+}
+
+fn add_new(p: &mut ParamMap, key: &str, v: Value) {
+    if p.get(key).is_none() {
+        p.insert(key, v);
+    }
+}
+
+/// A p element of the solver's dofs: `ElementInfoVec`'s basis,
+/// `GaussPointsAdapt`'s rule, `GetElementNOFDOFs` (retained) and
+/// `GetElementNOFBDOFs` (condensed bubbles).
+struct PElement {
+    basis: Box<dyn ElementBasis + Send + Sync>,
+    rule: FixedRule,
+    nd: usize,
+    nb: usize,
+}
+
+fn p_element(ctx: &SolverCtx<'_>, e: ElemId) -> Result<Option<PElement>, SolverError> {
+    let Some(d) = ctx.solver_dofs() else {
+        return Ok(None);
+    };
+    if d.element_nodes(e) != ctx.mesh.element(e).nodes {
+        return Err(SolverError::Unsupported(
+            "HeatSolver: a p element whose basis reorders its nodes".into(),
+        ));
+    }
+    let mut slots = Vec::new();
+    d.element_slots(e, &mut slots);
+    if slots.len() != ctx.mesh.element(e).nodes.len() {
+        return Err(SolverError::Unsupported(
+            "HeatSolver: p elements beyond p:1 (edge and face dofs)".into(),
+        ));
+    }
+    Ok(Some(PElement {
+        basis: d
+            .element_basis(e)
+            .map_err(|m| SolverError::fatal("ElementInfoVec", m))?,
+        rule: FixedRule(
+            d.element_rule(e)
+                .map_err(|m| SolverError::fatal("GaussPoints", m))?,
+        ),
+        nd: slots.len(),
+        nb: d.local_bubbles(e),
+    }))
+}
+
+/// One element's integration rule as a [`Quadrature`].
+struct FixedRule(Vec<QuadPoint>);
+
+impl Quadrature for FixedRule {
+    fn gauss_points(&self, _: ElementType, _: Option<usize>) -> Vec<QuadPoint> {
+        self.0.clone()
+    }
+}
+
+/// `Default1stOrderTimeBubble`: a condensed bubble's history is BDF(1).
+fn check_bubble_time_integration(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
+    let method = ctx
+        .params()
+        .string("Timestepping Method")
+        .or_else(|| ctx.simulation_params().string("Timestepping Method"))
+        .map(elmer_core::normalize_key);
+    let order = ctx
+        .params()
+        .integer("BDF Order")
+        .or_else(|| ctx.simulation_params().integer("BDF Order"))
+        .unwrap_or(1);
+    let method_ok = method
+        .as_deref()
+        .is_none_or(|m| m == "implicit euler" || m == "bdf");
+    if order != 1 || !method_ok {
+        return Err(SolverError::fatal(
+            "Default1stOrderTime",
+            format!(
+                "a locally condensed bubble only supports Implicit Euler / BDF order 1, got \
+                 Timestepping Method = {:?}, order {order}",
+                method.unwrap_or_default()
+            ),
+        ));
+    }
+    Ok(())
+}
+
 impl Solver for HeatSolver {
     /// Refuses every keyword in the sections this solver reads that the
     /// kernels would otherwise ignore (see [`check_supported`]).
@@ -470,6 +622,32 @@ impl Solver for HeatSolver {
                 boundaries: bcs.clone(),
             };
             check_supported(&sections)?;
+        }
+        // The bubble element of `HeatSolver_Init0` (see [`solver_defaults`])
+        // must have been added before the solver's dofs were numbered.
+        let legacy = ctx.params().logical("Legacy Assembly") == Some(true);
+        let convection = ctx
+            .sim
+            .model
+            .equations
+            .iter()
+            .any(|e| e.get("Convection").is_some() || e.get("Draw Velocity").is_some())
+            || ctx.params().logical("Bubbles") == Some(true);
+        if legacy && ctx.solver_dofs().is_some() {
+            return Err(SolverError::Unsupported(
+                "HeatSolver: Legacy Assembly with a p element (Element)".into(),
+            ));
+        }
+        if !legacy
+            && convection
+            && ctx.params().get("Element").is_none()
+            && !stabilized(ctx.params())
+        {
+            return Err(SolverError::fatal(
+                "HeatSolver_Init0",
+                "convection without SUPG needs the residual-free bubble element; \
+                 call elmer_physics_heat::solver_defaults before the setup",
+            ));
         }
         // `AddEquationBasics` computes the Gebhart factors of a `Radiation
         // Solver` before the permutation (MainUtils.F90:1712-1721), so the
@@ -518,6 +696,16 @@ impl Solver for HeatSolver {
         let mut bulk_cfg = HeatBulkConfig::new(dim);
         bulk_cfg.axisymmetric = axisym;
         bulk_cfg.transient = transient;
+        // DefaultBubbleHistoryUpdate: the bubbles of the last solve become
+        // the previous timestep's, once per timestep.
+        if transient {
+            let step = ctx.scalar("timestep").map_or(-1, |t| t.round() as i64);
+            if self.bubble_step != Some(step) {
+                self.bubbles_prev = self.bubbles.clone();
+                self.bubble_step = Some(step);
+            }
+        }
+        let var_name = ctx.variable_name().unwrap_or_default().to_string();
         let bnd_cfg = HeatBoundaryConfig {
             axisymmetric: axisym,
             quad_points: None,
@@ -577,17 +765,49 @@ impl Solver for HeatSolver {
                 } else {
                     Stabilization::None
                 };
+                let pe = p_element(ctx, e)?;
+                let (nd, nb) = pe.as_ref().map_or((n, 0), |p| (p.nd, p.nb));
+                bulk_cfg.extra_functions = nd + nb - n;
+                let (basis, quad): (&dyn ElementBasis, &dyn Quadrature) = match &pe {
+                    Some(p) => (&*p.basis, &p.rule),
+                    None => (&*self.basis, &*self.quad),
+                };
                 heat_bulk_local_vec(
-                    &*self.basis,
-                    &*self.quad,
+                    basis,
+                    quad,
                     el.etype,
                     &xyz,
                     &mat,
                     &bulk_cfg,
                     &mut self.local,
                 )?;
-                if transient {
-                    ctx.default_first_order_time(&mut self.local, e, dt)?;
+                if transient && nb > 0 {
+                    // Default1stOrderTime with Nb: implicit Euler on the
+                    // whole element, the bubbles' previous values from the
+                    // history, then CondensatePTransient.
+                    check_bubble_time_integration(ctx)?;
+                    ctx.element_dofs(e, &mut dofs);
+                    let var = ctx.sim.vars.get(&var_name).ok_or_else(|| {
+                        SolverError::fatal(CALLER, "the solver variable is missing")
+                    })?;
+                    let Some(prev) = var.prev_values.first() else {
+                        return Err(SolverError::fatal(
+                            CALLER,
+                            "transient run without a previous timestep",
+                        ));
+                    };
+                    let xprev: Vec<f64> = dofs.iter().map(|&d| prev[d as usize]).collect();
+                    let x: Vec<f64> = dofs.iter().map(|&d| var.values[d as usize]).collect();
+                    let zero = vec![0.0; nb];
+                    let bprev = self.bubbles_prev.get(&e.0).unwrap_or(&zero);
+                    let cur =
+                        condensate_p_transient(&mut self.local, nd, nb, dt, &xprev, &x, bprev)?;
+                    self.bubbles.insert(e.0, cur);
+                } else {
+                    if transient {
+                        ctx.default_first_order_time(&mut self.local, e, dt)?;
+                    }
+                    condensate_p(&mut self.local, nd, nb)?;
                 }
                 ctx.default_update(&self.local, e)?;
             }

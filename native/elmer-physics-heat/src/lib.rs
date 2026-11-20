@@ -40,6 +40,7 @@
 mod boundary;
 mod bulk;
 mod bulk_vec;
+mod condense;
 mod error;
 mod legacy;
 mod legacy_compose;
@@ -59,4 +60,4 @@ pub use material::{
     HeatBulkConfig, HeatMaterialAtNodes, Stabilization,
 };
 pub use preflight::{check_supported, HeatSections, PROCEDURE};
-pub use solver::{factory, install_fe, register, FeProvider, HeatSolver};
+pub use solver::{factory, install_fe, register, solver_defaults, FeProvider, HeatSolver};

@@ -32,7 +32,9 @@ impl Conductivity {
 
 /// How convection is stabilised. Elmer picks SUPG when the solver has
 /// `Stabilize = True` (or `Stabilization Method = stabilized`) and a
-/// residual-free bubble otherwise; the bubble path is not implemented here.
+/// residual-free bubble otherwise: then the element is a p element with
+/// bubble functions ([`HeatBulkConfig::extra_functions`]) and no
+/// stabilization term, and the solver condenses the bubbles.
 #[derive(Copy, Clone, Debug, PartialEq, Default)]
 pub enum Stabilization {
     /// Plain Galerkin weighting. Elmer never runs this on convected elements
@@ -58,10 +60,16 @@ pub struct HeatBulkConfig {
     pub stabilization: Stabilization,
     /// Requested Gauss points, or `None` for the element default.
     pub quad_points: Option<usize>,
+    /// Basis functions after the element's nodal ones: a p element's edge,
+    /// face and bubble functions (`nd - n` of `LocalMatrixVec`). Only
+    /// [`crate::heat_bulk_local_vec`] takes them; the local system then has
+    /// `n + extra_functions` rows, and the nodal inputs are interpolated
+    /// with the first `n` functions.
+    pub extra_functions: usize,
 }
 
 impl HeatBulkConfig {
-    /// Steady, Cartesian, unstabilised.
+    /// Steady, Cartesian, unstabilised, nodal.
     pub fn new(dim: usize) -> Self {
         Self {
             dim,
@@ -69,6 +77,7 @@ impl HeatBulkConfig {
             transient: false,
             stabilization: Stabilization::None,
             quad_points: None,
+            extra_functions: 0,
         }
     }
 }
