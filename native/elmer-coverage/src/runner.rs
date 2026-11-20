@@ -76,6 +76,11 @@ fn run_child(cfg: &Config, dir: &Path, sif: &str, recipe: &Recipe, static_only: 
         .stdin(Stdio::null())
         .stdout(out)
         .stderr(err);
+    // The test ran `ViewFactors` before the solver (elmer-physics-heat
+    // radiation.rs: the factors then come from the unmodified mesh).
+    if recipe.steps.iter().any(|s| matches!(s, Step::ViewFactors)) {
+        cmd.env("ELMER_VIEWFACTORS_PRESTEP", "1");
+    }
     if static_only {
         cmd.arg("--static");
     }

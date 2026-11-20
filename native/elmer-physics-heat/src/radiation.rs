@@ -181,13 +181,40 @@ impl DiffuseGray {
         };
         let max_body = radiating.iter().map(|&e| body_of(e)).max().unwrap_or(1);
 
+        // RadiationFactors rewrites `mesh.nodes` as `(i7,i3,3f20.12)` for the
+        // `ViewFactors` program (`Update Factors Geometry`, default on when
+        // it computes the factors), which reloads the mesh from it: the
+        // view factors see the coordinates rounded to 12 decimals.
+        // A `ViewFactors` run before the solver (`ELMER_VIEWFACTORS_PRESTEP`,
+        // which elmer-coverage sets for such a test) leaves the factors file
+        // in place: RadiationFactors then neither computes nor rewrites.
+        let prestep = std::env::var_os("ELMER_VIEWFACTORS_PRESTEP").is_some();
+        let update_geometry = !prestep
+            && ctx.params().logical("Update Factors Geometry").unwrap_or(true)
+            && ctx.params().logical("Viewfactor Rigid Mesh Mapping") != Some(true);
+        if update_geometry && ctx.simulation_params().get("Coordinate Scaling").is_some() {
+            return Err(unsupported("Coordinate Scaling with diffuse gray radiation"));
+        }
+        let vf_coord = |n: u32| -> Result<[f64; 3], SolverError> {
+            let x = ctx.mesh.coord(n);
+            if !update_geometry {
+                return Ok(x);
+            }
+            let mut r = [0.0; 3];
+            for (d, v) in x.iter().enumerate() {
+                if v.abs() >= 1.0e7 {
+                    return Err(unsupported("coordinates too large for the f20.12 mesh.nodes rewrite"));
+                }
+                r[d] = format!("{v:.12}").parse().expect("a formatted number");
+            }
+            Ok(r)
+        };
         let n_nodes = ctx.mesh.n_nodes();
-        let coord: Vec<f64> = (0..n_nodes as u32)
-            .flat_map(|n| {
-                let x = ctx.mesh.coord(n);
-                [x[0], x[1]]
-            })
-            .collect();
+        let mut coord: Vec<f64> = Vec::with_capacity(2 * n_nodes);
+        for n in 0..n_nodes as u32 {
+            let x = vf_coord(n)?;
+            coord.extend([x[0], x[1]]);
+        }
         let divide = ctx
             .params()
             .integer("Viewfactor divide")
@@ -217,7 +244,11 @@ impl DiffuseGray {
                 continue;
             }
             let mut surf = Vec::with_capacity(2 * n);
+            // `ViewFactors`' areas (rewritten coordinates) normalise the
+            // factors; RadiationFactors' own (`ElementArea` on the mesh)
+            // scale them.
             let mut areas = Vec::with_capacity(n);
+            let mut vf_areas = Vec::with_capacity(n);
             let mut open = false;
             for &e in &surfaces {
                 let el = ctx.mesh.element(e);
@@ -231,7 +262,8 @@ impl DiffuseGray {
                     .expect("radiating elements have a condition");
                 open |= bc.logical("Radiation Boundary Open") == Some(true);
                 let (n1, n2) = (el.nodes[0], el.nodes[1]);
-                let (a, b) = (ctx.mesh.coord(n1), ctx.mesh.coord(n2));
+                let (a, b) = (vf_coord(n1)?, vf_coord(n2)?);
+                let (ea, eb) = (ctx.mesh.coord(n1), ctx.mesh.coord(n2));
                 let left = parent_info(ctx, el.parents[0], el.nodes);
                 let right = parent_info(ctx, el.parents[1], el.nodes);
                 let target = bc
@@ -252,11 +284,13 @@ impl DiffuseGray {
                     surf.extend([n1 as usize, n2 as usize]);
                 }
                 let len = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
-                areas.push(len * (a[0] + b[0]).abs() / 2.0);
+                vf_areas.push(len * (a[0] + b[0]).abs() / 2.0);
+                let len = ((ea[0] - eb[0]).powi(2) + (ea[1] - eb[1]).powi(2)).sqrt();
+                areas.push(len * (ea[0] + eb[0]).abs() / 2.0);
             }
 
             let mut vf = view_factors_axis(&surf, &coord, divide, combine);
-            normalize_factors(&mut vf, &areas, open);
+            normalize_factors(&mut vf, &vf_areas, open);
             let rows = saved_rows(&vf, n, n, min_vf, single);
 
             let max_area = areas.iter().copied().fold(f64::MIN, f64::max);
