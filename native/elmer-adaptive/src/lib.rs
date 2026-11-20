@@ -385,7 +385,11 @@ pub fn refine_mesh(
         if p.logical("adaptive remesh") == Some(true) {
             let temperature = ctx.primary().is_some_and(|f| f.name.eq_ignore_ascii_case("temperature"));
             remesh::check(&p, ctx.simulation_params(), temperature)?;
-            let case_dir = std::path::PathBuf::from(p.string(OUTPUT_DIRECTORY_KEY).unwrap_or("."));
+            // The case directory of a bare `case.sif` is "": the working one.
+            let case_dir = match p.string(OUTPUT_DIRECTORY_KEY).filter(|d| !d.is_empty()) {
+                Some(d) => std::path::PathBuf::from(d),
+                None => std::path::PathBuf::from("."),
+            };
             ctx.info(CALLER, "Using file I/O for mesh refinement", 5);
             let m = remesh::external_remesh(
                 ctx,
