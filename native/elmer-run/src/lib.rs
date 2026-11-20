@@ -47,7 +47,7 @@ pub mod output;
 pub mod sif;
 pub mod unported;
 
-pub use case::{conforming_map, fixture_case, run_case, run_case_with, Case, Outcome, RunEnv};
+pub use case::{conforming_map, fixture_case, lumped_matrix_inits, run_case, run_case_with, Case, Outcome, RunEnv};
 /// The test-local plugin ports, for runners built on this crate.
 pub use elmer_fixtures;
 /// The p and DG dofs backend, for the partitioned runner.

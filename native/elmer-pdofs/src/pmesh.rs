@@ -347,6 +347,9 @@ pub struct PMesh {
     pub max_bdofs: usize,
     pub max_element_dofs: usize,
     pub max_element_nodes: usize,
+    /// [`MeshView::edge_order`] of a partitioned mesh: `SParEdgeNumbering`'s
+    /// global numbers, by which `ElmerSolver_mpi` sorts `Mesh % Edges`.
+    pub edge_keys: Option<Vec<u64>>,
 }
 
 impl PMesh {
@@ -430,6 +433,7 @@ impl PMesh {
             max_bdofs: 0,
             max_element_dofs: 0,
             max_element_nodes: 0,
+            edge_keys: mesh.edge_order().map(<[u64]>::to_vec),
         };
         pm.non_nodal_elements(solvers, max_defs, opts)?;
         Ok(pm)
@@ -774,6 +778,23 @@ impl PMesh {
                 }
             }
             self.elements[i].edges = idx;
+        }
+        // A partitioned mesh's edge table in global edge order
+        // (`SParEdgeNumbering`).
+        if let Some(keys) = self.edge_keys.as_ref().filter(|k| k.len() == edges.len()) {
+            let mut order: Vec<usize> = (0..edges.len()).collect();
+            order.sort_by_key(|&i| keys[i]);
+            let mut new_index = vec![0u32; edges.len()];
+            for (k, &i) in order.iter().enumerate() {
+                new_index[i] = k as u32;
+            }
+            let mut slots: Vec<Option<MeshEdge>> = edges.into_iter().map(Some).collect();
+            edges = order.iter().map(|&i| slots[i].take().expect("a permutation")).collect();
+            for el in &mut self.elements {
+                for e in &mut el.edges {
+                    *e = new_index[*e as usize];
+                }
+            }
         }
         self.edges = edges;
     }
