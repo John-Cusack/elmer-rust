@@ -365,24 +365,90 @@ impl Blocks {
 
 /// `LinearForms_UdotV`: `G(p, q) += sum_t U(t, p) V(t, q) w(t) [alpha(t)]`.
 fn udotv(g: &mut [f64], n: usize, ngp: usize, u: &[f64], v: &[f64], w: &[f64], alpha: Option<&[f64]>) {
-    for t in 0..ngp {
-        let a = alpha.map_or(1.0, |a| a[t]);
-        for p in 0..n {
+    udotv_strided(g, n, n, ngp, u, v, w, alpha)
+}
+
+/// `VECTOR_BLOCK_LENGTH` and `VECTOR_SMALL_THRESH` of Types.F90: the
+/// LinearForms routines take the integration points in blocks of 128 and
+/// sum a block of fewer than 9 point by point, a larger one through BLAS.
+const VECTOR_BLOCK_LENGTH: usize = 128;
+const VECTOR_SMALL_THRESH: usize = 9;
+
+/// [`udotv`] on the first `n` of `stride` functions per point
+/// (`LinearForms_UdotV(m, n, ...)` on a basis array of more columns). A
+/// small block adds `U(l,i) V(l,j) w(l) [alpha(l)]` point by point; a large
+/// one forms `wrk(l,j) = w(l) [alpha(l)] V(l,j)` and adds, through the
+/// reference BLAS `DGEMM('T','N')` the golden build links, the sum over
+/// the block `TEMP = sum_l U(l,i) wrk(l,j)` to `G(i,j)`.
+#[allow(clippy::too_many_arguments)]
+fn udotv_strided(
+    g: &mut [f64],
+    n: usize,
+    stride: usize,
+    ngp: usize,
+    u: &[f64],
+    v: &[f64],
+    w: &[f64],
+    alpha: Option<&[f64]>,
+) {
+    let mut wrk = vec![0.0; VECTOR_BLOCK_LENGTH.min(ngp) * n];
+    for ii in (0..ngp).step_by(VECTOR_BLOCK_LENGTH) {
+        let iin = (ii + VECTOR_BLOCK_LENGTH).min(ngp);
+        if iin - ii < VECTOR_SMALL_THRESH {
+            for t in ii..iin {
+                for p in 0..n {
+                    for q in 0..n {
+                        g[p * n + q] += match alpha {
+                            None => u[t * stride + p] * v[t * stride + q] * w[t],
+                            Some(a) => u[t * stride + p] * v[t * stride + q] * w[t] * a[t],
+                        };
+                    }
+                }
+            }
+            continue;
+        }
+        for (l, t) in (ii..iin).enumerate() {
+            let wt = match alpha {
+                None => w[t],
+                Some(a) => w[t] * a[t],
+            };
             for q in 0..n {
-                g[p * n + q] += match alpha {
-                    None => u[t * n + p] * v[t * n + q] * w[t],
-                    Some(_) => u[t * n + p] * v[t * n + q] * w[t] * a,
-                };
+                wrk[l * n + q] = wt * v[t * stride + q];
+            }
+        }
+        for q in 0..n {
+            for p in 0..n {
+                let mut temp = 0.0;
+                for (l, t) in (ii..iin).enumerate() {
+                    temp += u[t * stride + p] * wrk[l * n + q];
+                }
+                g[p * n + q] += temp;
             }
         }
     }
 }
 
-/// `LinearForms_UdotF`: `F(p) += sum_t U(t, p) f(t) w(t)`.
+/// `LinearForms_UdotF`: `F(p) += sum_t U(t, p) f(t) w(t)`, a block of 9
+/// points or more as `wrk(l) = w(l) f(l)` through the reference BLAS
+/// `DGEMV('T')`: `F(p) += sum_l U(l, p) wrk(l)`.
 fn udotf(out: &mut [f64], n: usize, ngp: usize, u: &[f64], w: &[f64], f: &[f64]) {
-    for t in 0..ngp {
-        for p in 0..n {
-            out[p] += u[t * n + p] * f[t] * w[t];
+    for ii in (0..ngp).step_by(VECTOR_BLOCK_LENGTH) {
+        let iin = (ii + VECTOR_BLOCK_LENGTH).min(ngp);
+        if iin - ii < VECTOR_SMALL_THRESH {
+            for t in ii..iin {
+                for p in 0..n {
+                    out[p] += u[t * n + p] * f[t] * w[t];
+                }
+            }
+            continue;
+        }
+        let wrk: Vec<f64> = (ii..iin).map(|t| w[t] * f[t]).collect();
+        for (p, o) in out.iter_mut().enumerate().take(n) {
+            let mut temp = 0.0;
+            for (l, t) in (ii..iin).enumerate() {
+                temp += u[t * n + p] * wrk[l];
+            }
+            *o += temp;
         }
     }
 }
@@ -937,16 +1003,9 @@ pub fn incompressible_bulk_local_full(
         }
         pm.clear();
         pm.resize(snd * snd, 0.0);
-        for t in 0..ngp {
-            let w = -1.0 / mu[t] * detj[t];
-            let b = &bas[t * nf..t * nf + snd];
-            // LinearForms_UdotU's order: u(p) v(q) w.
-            for i in 0..snd {
-                for j in 0..snd {
-                    pm[i * snd + j] += b[i] * b[j] * w;
-                }
-            }
-        }
+        // LinearForms_UdotU of the first nd functions.
+        let w: Vec<f64> = (0..ngp).map(|t| -1.0 / mu[t] * detj[t]).collect();
+        udotv_strided(pm, snd, nf, ngp, &bas, &bas, &w, None);
     }
 
     out.n = nd;
