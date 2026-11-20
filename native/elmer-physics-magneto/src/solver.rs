@@ -60,9 +60,9 @@ pub fn whitney_kind(params: &ParamMap) -> Option<bool> {
 /// for the lowest-order (non-Piola) Whitney basis when the section gives
 /// none: `n:1 e:1`, or `n:0 e:1` in steady state without `Static
 /// Conductivity` (explicit, else set by a velocity body force or an
-/// `Electric Current Density` BC). With `Use Piola Transform` alone (steady
-/// state, no Lagrange gauge) the first-order Piola one of
-/// [`crate::piola::init_element`]. Sections with the options that pick
+/// `Electric Current Density` BC). With `Use Piola Transform` or
+/// `Quadratic Approximation` (steady state, no Lagrange gauge) the Piola
+/// one of [`crate::piola::init_element`]. Sections with the options that pick
 /// other bases are left alone (the solvers refuse them).
 pub fn whitney_init_section(params: &mut ParamMap, body_forces: &[ParamMap], bcs: &[ParamMap]) {
     let Some(harmonic) = whitney_kind(params) else { return };
@@ -75,12 +75,13 @@ pub fn whitney_init_section(params: &mut ParamMap, body_forces: &[ParamMap], bcs
             || bcs.iter().any(|b| prefix(b, "electric current density"))
     });
     let on = |k: &str| params.logical(k) == Some(true);
-    if on("use tree gauge") || on("quadratic approximation") || on("second kind basis") {
+    if on("use tree gauge") || on("second kind basis") {
         return;
     }
-    if on("use piola transform") {
+    if on("use piola transform") || on("quadratic approximation") {
         if !harmonic && !on("use lagrange gauge") {
-            params.insert("Element", Value::Str(crate::piola::init_element(static_cond).into()));
+            let e = crate::piola::init_element(static_cond, on("quadratic approximation"));
+            params.insert("Element", Value::Str(e.into()));
         }
         return;
     }
