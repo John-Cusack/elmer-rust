@@ -1,5 +1,13 @@
 //! Tiny dense helpers for the BiCGStab(l) polynomial step: LU with partial
 //! pivoting (`dgetrf`/`dgetrs`, `zgetrf`/`zgetrs`) on matrices of order l-1.
+//!
+//! The rounding follows reference LAPACK (pristine links the system netlib
+//! 3.12 `liblapack`/`libblas`). `dgetrf` hands small matrices to the
+//! recursive `dgetrf2`, which for these orders is right-looking elimination
+//! that scales the pivot column by `ONE / pivot` (`DSCAL`, division only
+//! below `SFMIN`). `dgetrs` is `DLASWP` and two column-oriented `DTRSM`s.
+//! Order l-1 <= 2 (polynomial degree up to 3) rounds the same either way
+//! for the solve; the reciprocal matters from order 2 on.
 
 use crate::scalar::IterScalar;
 
@@ -30,8 +38,16 @@ pub(crate) fn lu_factor<T: IterScalar>(a: &mut [Vec<T>]) -> Vec<usize> {
         }
         let d = a[k][k];
         if cabs1(d) != 0.0 {
-            for i in k + 1..m {
-                a[i][k] = a[i][k] / d;
+            // dgetrf2: DSCAL by ONE / A(1,1) when ABS(A(1,1)) >= SFMIN.
+            if d.abs() >= f64::MIN_POSITIVE {
+                let rcp = T::one() / d;
+                for i in k + 1..m {
+                    a[i][k] = a[i][k] * rcp;
+                }
+            } else {
+                for i in k + 1..m {
+                    a[i][k] = a[i][k] / d;
+                }
             }
         }
         for i in k + 1..m {
@@ -51,16 +67,24 @@ pub(crate) fn lu_solve<T: IterScalar>(a: &[Vec<T>], piv: &[usize], rhs: &mut [T]
     for k in 0..m {
         rhs.swap(k, piv[k]);
     }
-    for i in 0..m {
-        for j in 0..i {
-            rhs[i] = rhs[i] - a[i][j] * rhs[j];
+    // DTRSM('L','L','N','U'): column k is subtracted from the rows below.
+    for k in 0..m {
+        let bk = rhs[k];
+        if bk != T::zero() {
+            for i in k + 1..m {
+                rhs[i] = rhs[i] - bk * a[i][k];
+            }
         }
     }
-    for i in (0..m).rev() {
-        for j in i + 1..m {
-            rhs[i] = rhs[i] - a[i][j] * rhs[j];
+    // DTRSM('L','U','N','N'): from the last column back.
+    for k in (0..m).rev() {
+        if rhs[k] != T::zero() {
+            rhs[k] = rhs[k] / a[k][k];
+            let bk = rhs[k];
+            for i in 0..k {
+                rhs[i] = rhs[i] - bk * a[i][k];
+            }
         }
-        rhs[i] = rhs[i] / a[i][i];
     }
 }
 
@@ -86,6 +110,41 @@ mod tests {
             let s: f64 = (0..3).map(|j| a0[i][j] * x[j]).sum();
             assert!((s - rhs[i]).abs() < 1e-12, "row {i}: {s} vs {}", rhs[i]);
         }
+    }
+
+    /// Reference LAPACK's rounding: `ONE / pivot` scaling and the
+    /// column-oriented upper solve, written out for a 3x3 without pivoting.
+    #[test]
+    fn rounds_as_reference_lapack() {
+        let a0: Vec<Vec<f64>> = vec![
+            vec![3.9, -0.8, -0.6],
+            vec![0.3, 0.9, 0.2],
+            vec![-0.2, 1.0, -0.9],
+        ];
+        // Division and row-oriented substitution give different last bits.
+        let b0 = [-1.26, -2.13, -2.29];
+        // dgetrf2 / DTRSM by hand.
+        let r = 1.0 / a0[0][0];
+        let (l10, l20) = (a0[1][0] * r, a0[2][0] * r);
+        let u11 = a0[1][1] - l10 * a0[0][1];
+        let u12 = a0[1][2] - l10 * a0[0][2];
+        let a21 = a0[2][1] - l20 * a0[0][1];
+        let u22i = a0[2][2] - l20 * a0[0][2];
+        assert!(u11.abs() >= a21.abs(), "no second pivot swap");
+        let l21 = a21 * (1.0 / u11);
+        let u22 = u22i - l21 * u12;
+        let y1 = b0[1] - b0[0] * l10;
+        let y2 = (b0[2] - b0[0] * l20) - y1 * l21;
+        let x2 = y2 / u22;
+        let x1 = (y1 - x2 * u12) / u11;
+        let x0 = ((b0[0] - x2 * a0[0][2]) - x1 * a0[0][1]) / a0[0][0];
+
+        let mut a = a0.clone();
+        let piv = lu_factor(&mut a);
+        assert_eq!(piv, vec![0, 1, 2]);
+        let mut x = b0.to_vec();
+        lu_solve(&a, &piv, &mut x);
+        assert_eq!(x, vec![x0, x1, x2]);
     }
 
     #[test]
