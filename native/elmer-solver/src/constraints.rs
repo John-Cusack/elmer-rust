@@ -427,7 +427,6 @@ pub(crate) fn generate(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
 pub(crate) fn refuse_options(p: &ParamMap) -> Result<(), SolverError> {
     for k in [
         "no explicit constrained matrix",
-        "eliminate linear constraints",
         "constraint scaling",
         "use tree gauge",
         "restricted system norm",
@@ -565,6 +564,196 @@ pub(crate) fn collection(
     (out, rhs)
 }
 
+/// SolveWithLinearRestriction with `Eliminate Linear Constraints`
+/// (SolveCore.F90:5939-5948, `EliminateLinearRestriction` at :5179): the
+/// collection matrix is the stiffness matrix alone (its rows added last to
+/// first, as `AddToMatrixElement` does into the list matrix), each
+/// constraint's slave dof row replaced by the constraint equation, the
+/// Lagrange multipliers eliminated into the master rows and, with
+/// `Eliminate Slave`, the slave dofs substituted out of the other rows. The
+/// list matrix keeps zero entries; so do these rows. Refused: `Eliminate
+/// From Master`, a recursive elimination (a constraint with more than one
+/// slave dof) and constraint rows without a slave dof.
+pub(crate) fn eliminate(
+    a: &CsrMatrix<f64>,
+    b: &[f64],
+    c: &ConstraintMatrix,
+    p: &ParamMap,
+    log: &dyn Logger,
+) -> Result<(CsrMatrix<f64>, Vec<f64>), SolverError> {
+    const CALLER: &str = "EliminateLinearRestriction";
+    const AEPS: f64 = 10.0 * f64::EPSILON;
+    let tiny = f64::MIN_POSITIVE;
+    if p.logical("eliminate from master") == Some(true) {
+        return Err(SolverError::Unsupported("Eliminate From Master".into()));
+    }
+    let eliminate_slave = p.logical("eliminate slave") == Some(true);
+    let (n, m) = (a.nrows, c.matrix.nrows);
+    let r = &c.matrix;
+    // `TValues` would be the dual projector's; without one (and so also
+    // with `Use Transpose Values`) the constraint's own values.
+    let tvals = &r.values;
+    log.info(CALLER, "Eliminating Constraints from CollectionMatrix", 12);
+    let mut lmat: Vec<BTreeMap<u32, f64>> = vec![BTreeMap::new(); n];
+    let mut cvec = vec![0.0; n];
+    for i in (0..n).rev() {
+        for j in (a.row_ptr[i]..a.row_ptr[i + 1]).rev() {
+            *lmat[i].entry(a.col_idx[j]).or_insert(0.0) += a.values[j];
+        }
+        cvec[i] += b[i];
+    }
+    // Diagonal entries of the constraints: SlavePerm (dof -> 1-based row).
+    let mut slave_perm = vec![0usize; n];
+    let mut slave_iperm = vec![usize::MAX; m];
+    let mut slave_diag = vec![0.0f64; m];
+    let mut master_diag = vec![0.0f64; m];
+    for i in 0..m {
+        let raw = c.inv_perm.get(i).copied().unwrap_or(NO_DOF);
+        if raw == NO_DOF {
+            return Err(SolverError::Unsupported(format!("{CALLER}: constraint row {} without a slave dof", i + 1)));
+        }
+        let dof = raw as usize % n;
+        slave_perm[dof] = i + 1;
+        slave_iperm[i] = dof;
+        for j in r.row_ptr[i]..r.row_ptr[i + 1] {
+            let k = r.col_idx[j] as usize;
+            let val = tvals[j];
+            if k >= n {
+                continue;
+            }
+            if k == raw as usize {
+                if val.abs() > slave_diag[i].abs() {
+                    slave_diag[i] = val;
+                }
+            } else if val.abs() > master_diag[i].abs() {
+                master_diag[i] = val;
+            }
+        }
+        if slave_diag[i].abs() < tiny || master_diag[i].abs() < tiny {
+            log.warn(CALLER, &format!("Diagvals too small: {} {} {}", i + 1, slave_diag[i], master_diag[i]));
+        }
+    }
+    log.info(CALLER, "Eliminating from slave", 15);
+    log.info(CALLER, "Deleting rows from equation to be eliminated", 15);
+    for &i in &slave_iperm {
+        lmat[i].clear();
+    }
+    log.info(CALLER, "Copying rows from constraint matrix to eliminate dofs", 15);
+    for (mm, &i) in slave_iperm.iter().enumerate() {
+        for l in (r.row_ptr[mm]..r.row_ptr[mm + 1]).rev() {
+            let j = r.col_idx[l];
+            if j as usize >= n {
+                continue;
+            }
+            *lmat[i].entry(j).or_insert(0.0) += r.values[l];
+        }
+        cvec[i] = c.rhs[mm];
+    }
+    // A constraint coupling more than one slave dof needs the recursive
+    // elimination (`Recursive elimination round`).
+    let mut q = 0;
+    for i in (0..m).rev() {
+        q = (r.row_ptr[i]..r.row_ptr[i + 1])
+            .rev()
+            .filter(|&j| {
+                let k = r.col_idx[j] as usize;
+                k < n && slave_perm[k] > 0 && tvals[j].abs() > AEPS
+            })
+            .count();
+        if q > 1 {
+            break;
+        }
+    }
+    if q > 1 {
+        return Err(SolverError::Unsupported(format!("{CALLER}: recursive elimination")));
+    }
+    log.info(CALLER, "Eliminating Lagrange Coefficients", 15);
+    for mm in 0..m {
+        let i = slave_iperm[mm];
+        if slave_diag[mm].abs() < tiny {
+            log.warn(CALLER, &format!("UseDiag too small: {} {}", mm + 1, slave_diag[mm]));
+            continue;
+        }
+        for j in r.row_ptr[mm]..r.row_ptr[mm + 1] {
+            let mut k = r.col_idx[j] as usize;
+            if k < n {
+                if slave_perm[k] != 0 {
+                    continue;
+                }
+            } else {
+                k = slave_iperm[k - n];
+            }
+            let scl = -tvals[j] / slave_diag[mm];
+            for l in (a.row_ptr[i]..a.row_ptr[i + 1]).rev() {
+                *lmat[k].entry(a.col_idx[l]).or_insert(0.0) += scl * a.values[l];
+            }
+            cvec[k] += scl * b[i];
+        }
+    }
+    if eliminate_slave {
+        log.info(CALLER, "Eliminate slave dofs using constraint equations", 15);
+        let mut tmat: Vec<BTreeMap<u32, f64>> = vec![BTreeMap::new(); n];
+        for i in 0..n {
+            if slave_perm[i] != 0 {
+                continue;
+            }
+            let cols: Vec<u32> = lmat[i].keys().copied().collect();
+            for col in cols {
+                let j = slave_perm[col as usize];
+                if j == 0 {
+                    continue;
+                }
+                let j = j - 1;
+                if slave_diag[j].abs() < tiny {
+                    log.warn(CALLER, &format!("SlaveDiag too small: {} {}", j + 1, slave_diag[j]));
+                    continue;
+                }
+                let v = lmat[i][&col];
+                let scl = -v / slave_diag[j];
+                lmat[i].insert(col, 0.0);
+                let k = slave_iperm[j];
+                let row_k: Vec<(u32, f64)> = lmat[k].iter().rev().map(|(&c, &v)| (c, v)).collect();
+                for (l, vp) in row_k {
+                    if l as usize != slave_iperm[j] {
+                        *tmat[i].entry(l).or_insert(0.0) += scl * vp;
+                    }
+                }
+                cvec[i] += scl * cvec[k];
+            }
+        }
+        for i in (0..n).rev() {
+            for (&col, &v) in tmat[i].iter().rev() {
+                *lmat[i].entry(col).or_insert(0.0) += v;
+            }
+        }
+    }
+    log.info(CALLER, "Finished Eliminating Restrictions", 12);
+    let mut out = CsrMatrix { nrows: n, ncols: n, row_ptr: vec![0], col_idx: Vec::new(), values: Vec::new(), diag: None };
+    let mut diag = Vec::with_capacity(n);
+    for (i, row) in lmat.into_iter().enumerate() {
+        let mut d = None;
+        for (col, v) in row {
+            if col as usize == i {
+                d = Some(out.values.len());
+            }
+            out.col_idx.push(col);
+            out.values.push(v);
+        }
+        diag.push(d);
+        out.row_ptr.push(out.values.len());
+    }
+    out.diag = diag.into_iter().collect();
+    log.info(
+        "SolveWithLinearRestriction",
+        &format!(
+            "Collection matrix increased with 0 rows and {} non-zeros",
+            i2s(out.values.len() as i64 - a.values.len() as i64)
+        ),
+        8,
+    );
+    Ok((out, cvec))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -579,6 +768,57 @@ mod tests {
             m.row_ptr.push(m.values.len());
         }
         m
+    }
+
+    /// Solves a small dense system (Gaussian elimination with pivoting).
+    fn dense_solve(m: &CsrMatrix<f64>, b: &[f64]) -> Vec<f64> {
+        let n = m.nrows;
+        let mut a = vec![vec![0.0; n + 1]; n];
+        for i in 0..n {
+            for j in m.row_ptr[i]..m.row_ptr[i + 1] {
+                a[i][m.col_idx[j] as usize] += m.values[j];
+            }
+            a[i][n] = b[i];
+        }
+        for c in 0..n {
+            let p = (c..n).max_by(|&x, &y| a[x][c].abs().total_cmp(&a[y][c].abs())).unwrap();
+            a.swap(c, p);
+            for r in 0..n {
+                if r != c {
+                    let f = a[r][c] / a[c][c];
+                    for k in c..=n {
+                        a[r][k] -= f * a[c][k];
+                    }
+                }
+            }
+        }
+        (0..n).map(|i| a[i][n] / a[i][i]).collect()
+    }
+
+    /// `EliminateLinearRestriction` of `u2 - u0 = 0` (slave dof 2) gives the
+    /// solution of the saddle-point system, with and without `Eliminate
+    /// Slave`; the slave row becomes the constraint and, with `Eliminate
+    /// Slave`, column 2 is emptied (kept as a zero entry) elsewhere.
+    #[test]
+    fn eliminated_system_solves_the_constrained_problem() {
+        let a = csr(&[&[(0, 2.0), (1, -1.0)], &[(0, -1.0), (1, 2.0), (2, -1.0)], &[(1, -1.0), (2, 2.0)]], 3);
+        let b = [1.0, 0.0, 0.0];
+        let c = ConstraintMatrix { matrix: csr(&[&[(2, 1.0), (0, -1.0)]], 3), rhs: vec![0.0], inv_perm: vec![2] };
+        let log = elmer_core::NullLogger;
+        for slave in [false, true] {
+            let mut p = ParamMap::new();
+            p.insert("eliminate slave", elmer_core::Value::Logical(slave));
+            let (m, r) = eliminate(&a, &b, &c, &p, &log).unwrap();
+            assert_eq!(m.nrows, 3);
+            let x = dense_solve(&m, &r);
+            for v in x {
+                assert!((v - 0.5).abs() < 1e-14, "{v}");
+            }
+            if slave {
+                let row0: Vec<(u32, f64)> = (m.row_ptr[0]..m.row_ptr[1]).map(|j| (m.col_idx[j], m.values[j])).collect();
+                assert!(row0.contains(&(2, 0.0)), "{row0:?}");
+            }
+        }
     }
 
     /// A row whose `InvPerm` is a Dirichlet dof plus the matrix size (the
