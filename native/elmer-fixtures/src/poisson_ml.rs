@@ -99,7 +99,7 @@ fn nodal(ctx: &SolverCtx<'_>, list: Option<&ParamMap>, key: &str, e: ElemId, ord
 }
 
 /// gfortran's `Ew.d` (`0.ddddE+xx`).
-fn fortran_e(x: f64, w: usize, d: usize) -> String {
+pub(crate) fn fortran_e(x: f64, w: usize, d: usize) -> String {
     if x == 0.0 {
         return format!("{:>w$}", format!("0.{}E+00", "0".repeat(d)));
     }

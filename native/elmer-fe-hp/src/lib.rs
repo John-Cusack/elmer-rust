@@ -7,6 +7,7 @@
 
 pub mod brick;
 pub mod edge;
+pub mod face;
 pub mod legendre;
 pub mod line;
 pub mod maps;
