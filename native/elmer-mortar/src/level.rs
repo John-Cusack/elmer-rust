@@ -233,6 +233,171 @@ pub fn radial_interface_meshes(b1: &mut InterfaceMesh, b2: &mut InterfaceMesh, l
     }
 }
 
+/// `RotationalInterfaceMeshes` (MortarUtils.F90:7272), not cylindrical:
+/// each mesh to `(phi, z, r)` with `phi` in degrees, relative to `Cylinder
+/// Center` and in the frame of `Cylinder Normal` when given, the slave one
+/// offset by `Rotational Projector Angle Offset` (or the boundary's `Mesh
+/// Rotate 3`). A mesh crossing 180 degrees is moved to a continuous angle
+/// range; one covering all four quadrants is a full circle. A constant `z`
+/// is flattened. Returns the radius (the slave's largest), whether the
+/// interface is a full circle and, if not, the number of periods (given, or
+/// `360 / dfii` of the master when that is an integer). The Fortran also
+/// stores `Rotor Radius` and `Rotor Periods` in the Simulation section; they
+/// are not kept here.
+pub fn rotational_interface_meshes(
+    b1: &mut InterfaceMesh,
+    b2: &mut InterfaceMesh,
+    bc: &dyn Params,
+    simulation: &dyn Params,
+    log: &dyn Logger,
+) -> Result<(f64, bool, Option<i32>), MortarError> {
+    const CALLER: &str = "RotationalInterfaceMeshes";
+    let rad2deg = 180.0 / std::f64::consts::PI;
+    if flag(bc, "rotational projector center fit") && bc.get("cylinder center x").is_none() {
+        return Err(MortarError::Unsupported("Rotational Projector Center Fit (CylinderFit)".into()));
+    }
+    let comp = |k: &str| bc.real(k);
+    let cx = [comp("cylinder center x"), comp("cylinder center y"), comp("cylinder center z")];
+    let got_center = cx.iter().any(Option::is_some);
+    let x0 = cx.map(|v| v.unwrap_or(0.0));
+    let nx = [comp("cylinder normal x"), comp("cylinder normal y"), comp("cylinder normal z")];
+    let got_normal = nx.iter().any(Option::is_some);
+    let normal = nx.map(|v| v.unwrap_or(0.0));
+    let (t1, t2) = if got_normal { elmer_solver::tangent_directions(normal) } else { ([0.0; 3], [0.0; 3]) };
+    let dot = |a: &[f64; 3], b: &[f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let es = |v: f64| elmer_solver::fortran_fmt::es(v, 12, 3);
+    let mut full_circle = false;
+    let mut ext = [[[0.0f64; 3]; 2]; 2];
+    for (k, m) in [&mut *b1, &mut *b2].into_iter().enumerate() {
+        let mut offset = None;
+        if k == 0 {
+            offset = bc.real("rotational projector angle offset").or_else(|| bc.real("mesh rotate 3"));
+            if offset.is_some() && simulation.logical("rotate in radians") == Some(true) {
+                offset = offset.map(|d| d * rad2deg);
+            }
+        }
+        let which = if k == 0 { "this" } else { "target" };
+        log.info(CALLER, &format!("Initial extrema for {which} boundary (x,y,z)"), 8);
+        for i in 0..3 {
+            let mn = m.coords.iter().map(|c| c[i]).fold(f64::INFINITY, f64::min);
+            let mx = m.coords.iter().map(|c| c[i]).fold(f64::NEG_INFINITY, f64::max);
+            log.info(CALLER, &format!("Coordinate {}: {}{}", i + 1, es(mn), es(mx)), 8);
+        }
+        for c in m.coords.iter_mut() {
+            let mut x = *c;
+            if got_center {
+                for a in 0..3 {
+                    x[a] -= x0[a];
+                }
+            }
+            if got_normal {
+                let t = x;
+                x = [dot(&t1, &t), dot(&t2, &t), dot(&normal, &t)];
+            }
+            let mut alpha = rad2deg * x[1].atan2(x[0]);
+            let rad = (x[0] * x[0] + x[1] * x[1]).sqrt();
+            if let Some(d) = offset {
+                alpha = (alpha + d).rem_euclid(360.0);
+                if alpha > 180.0 {
+                    alpha -= 360.0;
+                }
+            }
+            *c = [alpha, x[2], rad];
+        }
+        let (mut hit0, mut hit90, mut hit180, mut hit270) = (false, false, false, false);
+        for e in 0..m.n_bulk() {
+            let el = m.element(ElemId(e as u32));
+            let fmin = el.nodes.iter().map(|&n| m.coords[n as usize][0]).fold(f64::INFINITY, f64::min);
+            let fmax = el.nodes.iter().map(|&n| m.coords[n as usize][0]).fold(f64::NEG_INFINITY, f64::max);
+            if fmax - fmin > 180.0 {
+                hit180 = true;
+            } else {
+                hit0 |= fmax >= 0.0 && fmin <= 0.0;
+                hit90 |= fmax >= 90.0 && fmin <= 90.0;
+                hit270 |= fmax >= -90.0 && fmin <= -90.0;
+            }
+        }
+        full_circle = hit0 && hit90 && hit180 && hit270;
+        if full_circle {
+            log.info(CALLER, "Cylindrical interface seems to be a full circle", 6);
+        } else if hit180 {
+            let fii = if !hit0 {
+                0.0
+            } else if !hit270 {
+                -90.0
+            } else if !hit90 {
+                90.0
+            } else {
+                0.0
+            };
+            for c in m.coords.iter_mut() {
+                if c[0] < fii {
+                    c[0] += 360.0;
+                }
+            }
+        }
+        log.info(CALLER, &format!("Transformed extrema for {which} boundary (phi,z,r)"), 8);
+        for i in 0..3 {
+            let mn = m.coords.iter().map(|c| c[i]).fold(f64::INFINITY, f64::min);
+            let mx = m.coords.iter().map(|c| c[i]).fold(f64::NEG_INFINITY, f64::max);
+            ext[k][0][i] = mn;
+            ext[k][1][i] = mx;
+            log.info(CALLER, &format!("Coordinate {}: {}{}", i + 1, es(mn), es(mx)), 8);
+        }
+        if ext[k][0][2] < f64::EPSILON {
+            return Err(MortarError::Fatal(format!("{CALLER}: Radius cannot be almost zero!")));
+        }
+    }
+    let eps_rad = 1.0e-3;
+    let radius = ext[0][1][2];
+    let err1 = (ext[0][1][2] - ext[0][0][2]) / radius;
+    let err2 = (ext[1][1][2] - ext[1][0][2]) / radius;
+    log.info(CALLER, &format!("Radius of the rotational interface:{}", es(radius)), 8);
+    log.info(CALLER, &format!("Discrepancy from constant radius for Mesh1:{}", es(err1)), 8);
+    if err1 > eps_rad {
+        log.warn(CALLER, "Discrepancy of radius is rather large!");
+    }
+    log.info(CALLER, &format!("Discrepancy from constant radius for Mesh2:{}", es(err2)), 8);
+    if err2 > eps_rad {
+        log.warn(CALLER, "Discrepancy of radius is rather large!");
+    }
+    let e1 = (ext[0][1][1] - ext[0][0][1]) / radius;
+    let e2 = (ext[1][1][1] - ext[1][0][1]) / radius;
+    if e1 < eps_rad && e2 < eps_rad {
+        log.info(CALLER, "The effective interface meshes are 1D", 8);
+        for c in b1.coords.iter_mut().chain(b2.coords.iter_mut()) {
+            c[1] = 0.0;
+        }
+    } else {
+        log.info(CALLER, "The effective interface meshes are 2D", 8);
+    }
+    if full_circle {
+        return Ok((radius, true, None));
+    }
+    let dfii1 = ext[0][1][0] - ext[0][0][0];
+    let dfii2 = ext[1][1][0] - ext[1][0][0];
+    log.info(CALLER, &format!("This boundary dfii:  {}", es(dfii1)), 8);
+    log.info(CALLER, &format!("Target boundary dfii:  {}", es(dfii2)), 8);
+    log.info(CALLER, &format!("Discrepancy in dfii:{}", es(2.0 * (dfii1 - dfii2).abs() / (dfii1 + dfii2))), 8);
+    let nsym = 360.0 / dfii2;
+    let periods = match bc.integer("rotational projector periods") {
+        Some(i) => {
+            log.info(CALLER, &format!("Using enforced number of periods: {i}"), 8);
+            log.info(CALLER, &format!("Suggested number of periods:{}", es(nsym)), 8);
+            i
+        }
+        None => {
+            log.info(CALLER, &format!("Suggested sections in target:{}", es(nsym)), 8);
+            if (nsym - nsym.round()).abs() < 0.01 || nsym < 1.5 {
+                nsym.round() as i32
+            } else {
+                return Err(MortarError::Fatal(format!("{CALLER}: Check your settings, this cannot be periodic!")));
+            }
+        }
+    };
+    Ok((radius, false, Some(periods)))
+}
+
 /// What `LevelProjector` reads besides the meshes.
 pub struct LevelOptions<'a> {
     pub bc: &'a dyn Params,
@@ -246,6 +411,13 @@ pub struct LevelOptions<'a> {
     pub coord_dim: usize,
     /// `NodeScale` (`Mortar BC Scaling`, else -1 for the anti projectors).
     pub node_scale: f64,
+    /// `Repeating`, `AntiRepeating`, `FullCircle` and `Radius` of
+    /// `PeriodicProjector`, and the rotational interface's number of periods.
+    pub repeating: bool,
+    pub anti_repeating: bool,
+    pub full_circle: bool,
+    pub radius: f64,
+    pub periods: Option<i32>,
 }
 
 /// `LevelProjector( BMesh1, BMesh2, .FALSE., .FALSE., .FALSE., 1, DoNodes,
@@ -289,8 +461,20 @@ pub fn level_projector(
         log.warn(CALLER, "Enforcing 1D integration for 1D boundary elements in 3D mesh!");
         mesh_dim = 2;
     }
-    if mesh_dim != 2 {
-        return Err(MortarError::Unsupported("the level projector of a 3D mesh (AddProjectorWeakGeneric)".into()));
+    let rotational = flag(bc, "rotational projector") || flag(bc, "anti rotational projector");
+    if mesh_dim != 2 && mesh_dim != 3 {
+        return Err(MortarError::Unsupported(format!("the level projector of a {mesh_dim}D mesh")));
+    }
+    if mesh_dim == 2 && (o.repeating || o.full_circle || rotational) {
+        return Err(MortarError::Unsupported("a repeating or rotational level projector of a 2D mesh".into()));
+    }
+    if mesh_dim == 3 {
+        if bc.integer("axial projector periods").is_some_and(|n| n > 1) {
+            return Err(MortarError::Unsupported("Axial Projector Periods".into()));
+        }
+        if flag(bc, "projector symmetry x") || flag(bc, "projector symmetry y") {
+            return Err(MortarError::Unsupported("Projector Symmetry".into()));
+        }
     }
 
     // NodePerm: slave nodes, less those on the master side.
@@ -326,7 +510,48 @@ pub fn level_projector(
     let mut inv_perm = vec![elmer_core::NO_DOF; m];
     let mut list: Vec<BTreeMap<u32, f64>> = vec![BTreeMap::new(); m];
 
-    weak_1d(b1, b2, o, node_coeff, max_distance, &node_perm, &mut inv_perm, &mut list, log)?;
+    if mesh_dim == 2 {
+        weak_1d(b1, b2, o, node_coeff, max_distance, &node_perm, &mut inv_perm, &mut list, log)?;
+    } else {
+        // XTol and YTol from the master's extent, before a rotational
+        // interface's XRange becomes the period.
+        let ext = |a: usize| {
+            let mx = b2.coords.iter().map(|c| c[a]).fold(f64::NEG_INFINITY, f64::max);
+            let mn = b2.coords.iter().map(|c| c[a]).fold(f64::INFINITY, f64::min);
+            mx - mn
+        };
+        let (mut xrange, yrange) = (ext(0), ext(1));
+        let rel_tol_y = 1.0e-4;
+        let rel_tol_x = if o.full_circle || o.repeating { 1.0e-6 } else { rel_tol_y };
+        let (ytol, xtol) = (rel_tol_y * yrange, rel_tol_x * xrange);
+        let arc_coeff = if rotational { (2.0 * std::f64::consts::PI * o.radius) / 360.0 } else { 1.0 };
+        if rotational {
+            xrange = if o.full_circle {
+                360.0
+            } else {
+                let p = o.periods.ok_or_else(|| {
+                    MortarError::Fatal("LevelProjector: Rotational Projector requires > Rotational Projector Periods <".into())
+                })?;
+                360.0 / p.max(1) as f64
+            };
+        }
+        let setup = crate::generic::GenericSetup {
+            node_coeff,
+            node_scale: o.node_scale,
+            max_distance,
+            arc_coeff,
+            xtol,
+            ytol,
+            xrange,
+            rel_tol_y,
+            repeating: o.repeating,
+            anti_repeating: o.anti_repeating,
+            full_circle: o.full_circle,
+            gauss_points: bc.integer("mortar bc gauss points").map(|n| n.max(1) as usize),
+            coord_dim: o.coord_dim,
+        };
+        crate::generic::weak_generic(b1, b2, &setup, &node_perm, &mut inv_perm, &mut list, log)?;
+    }
 
     let unset = inv_perm.iter().filter(|&&p| p == elmer_core::NO_DOF).count();
     if unset > 0 {

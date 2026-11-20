@@ -55,6 +55,7 @@ pub mod conforming;
 pub mod constrain;
 pub mod constraint;
 pub mod contact;
+mod generic;
 pub mod interface;
 pub mod level;
 pub mod overlay;
