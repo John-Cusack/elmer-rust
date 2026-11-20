@@ -48,6 +48,13 @@ pub trait SolverDofs: Send + Sync {
     fn boundary_extra_slots(&self, e: ElemId, out: &mut Vec<u32>);
     /// `ElementInfo` of element `e`.
     fn element_basis(&self, e: ElemId) -> Result<Box<dyn ElementBasis + Send + Sync>, String>;
+    /// [`Self::element_basis`] evaluated as the scalar `ElementInfo` does,
+    /// for a solver whose Fortran calls `ElementInfo` (not
+    /// `ElementInfoVec`) and needs its rounding (elmer-fe-hp `scalar.rs`).
+    /// The default is [`Self::element_basis`].
+    fn element_basis_scalar(&self, e: ElemId) -> Result<Box<dyn ElementBasis + Send + Sync>, String> {
+        self.element_basis(e)
+    }
     /// `GaussPoints(Element)` of element `e`.
     fn element_rule(&self, e: ElemId) -> Result<Vec<QuadPoint>, String>;
     /// `GaussPoints(Element, np)`: the `np`-point rule of element `e` on its
