@@ -34,7 +34,6 @@ const SIMULATION: &[Rule] = &[];
 const SOLVER: &[Rule] = &[
     present("Mesh", "solver-specific meshes are not implemented"),
     flag("Apply Conforming BCs", "conforming BCs are not implemented"),
-    present("Namespace", "solver keyword namespaces are not implemented"),
     flag("Adaptive Mesh Refinement", "mesh refinement is not implemented"),
 ];
 
