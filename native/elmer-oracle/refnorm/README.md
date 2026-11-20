@@ -139,7 +139,7 @@ Each test is listed under the first reason in its row.
 
 | Reason | Tests |
 |---|---:|
-| `Show Norm` / `Show Norm Index` (a SaveScalars value is the norm) | 28 |
+| `Show Norm Index` / `Show Norm Name` (a SaveScalars value is the norm; see below) | 28 |
 | no `Variable`: several saved variables of its equation | 10 |
 | no `Variable`: no saved variable of its equation | 10 |
 | variable not in any result file (edge fields, a coupled vector Elmer does not output, matrix-only tests) | 6 |
@@ -150,6 +150,17 @@ Each test is listed under the first reason in its row.
 | CutFEM: the cut-mesh solution is not saved (library CutFEM) | 2 |
 | other (`-nooutput`, several solver runs, a multi-RUN sif with no field solver, an MPI variable in two per-rank result sets) | 4 |
 | non-nodal unknowns | 1 |
+
+**Why the SaveScalars norms stay out.** With `Show Norm Index` (or
+`Name`), SaveScalars sets its solver's norm to one of its computed values
+(`SaveScalars.F90`, `Norm = Values(NormInd)`). That value lives in a
+`-nooutput -global` variable, so no result file holds it. It reaches disk
+only as text: in the scalars file at `ES22.12E3`, 13 significant digits,
+when the sif gives a `Filename`; and in the log at 8 digits. Of the 35
+rows that use it, 22 write no scalars file at all. A bitwise check is
+impossible, and a 13-digit one would test SaveScalars' formatting rather
+than the capture. (`Show Norm = True`, which many of these sifs also set,
+is read by no Elmer solver.)
 
 So item 4 is **not** done for every captured test. The validated class
 covers 390 of the 482 quick tests. Widening it further means the
