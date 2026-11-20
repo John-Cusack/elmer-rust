@@ -403,6 +403,7 @@ fn stat_current_kernel_stiffness_mass_and_robin() {
         current_density: Some(vec![1.0; 2]),
         external_conductivity: Some(vec![6.0; 2]),
         external_potential: Some(vec![2.0; 2]),
+        ..Default::default()
     };
     stat_current_boundary_local(
         &TestBasis,

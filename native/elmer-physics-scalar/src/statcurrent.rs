@@ -60,6 +60,13 @@ pub struct StatCurrentBcAtNodes {
     pub external_conductivity: Option<Vec<f64>>,
     /// `External Potential`.
     pub external_potential: Option<Vec<f64>>,
+    /// `Farfield Potential`: the Robin condition of a far field, `C =
+    /// (x . n) / (x . x)` at each point with the external value the
+    /// farfield potential; replaces the `External Conductivity` one.
+    pub farfield_potential: Option<Vec<f64>>,
+    /// The outward unit normal at each quadrature point (`NormalVector(...,
+    /// .TRUE.)`), needed with `farfield_potential`.
+    pub ip_normals: Option<Vec<[f64; 3]>>,
 }
 
 fn weight(axisymmetric: bool, w: f64, phi: &[f64], xyz: &[[f64; 3]]) -> f64 {
@@ -140,9 +147,9 @@ pub fn stat_current_bulk_local(
 
 /// Boundary element matrices of `LocalMatrixBC` (StatCurrentSolve.F90:721)
 /// for the given current density and the Robin condition `C (u - u_ext)`:
-/// `stiff += w C phi_q phi_p`, `force += w (J + C u_ext) phi_p`. `Farfield
-/// Potential` is not here: it needs the outward normal, which the element
-/// basis does not provide.
+/// `stiff += w C phi_q phi_p`, `force += w (J + C u_ext) phi_p`; with
+/// `Farfield Potential`, `C = (x . n) / (x . x)` from the point and the
+/// given outward normal, and `u_ext` the farfield potential.
 pub fn stat_current_boundary_local(
     basis: &dyn ElementBasis,
     quad: &dyn Quadrature,
@@ -156,6 +163,7 @@ pub fn stat_current_boundary_local(
     check_opt("current density", n, &bc.current_density)?;
     check_opt("external conductivity", n, &bc.external_conductivity)?;
     check_opt("external potential", n, &bc.external_potential)?;
+    check_opt("farfield potential", n, &bc.farfield_potential)?;
     out.n = n;
     out.stiff.clear();
     out.stiff.resize(n * n, 0.0);
@@ -168,8 +176,11 @@ pub fn stat_current_boundary_local(
     if ips.is_empty() {
         return Err(ScalarError::NoQuadrature(etype.0));
     }
+    if bc.farfield_potential.is_some() && bc.ip_normals.as_ref().is_none_or(|v| v.len() != ips.len()) {
+        return Err(ScalarError::Invalid("Farfield Potential needs a normal at each quadrature point".into()));
+    }
     let mut be = BasisEval::default();
-    for qp in &ips {
+    for (t, qp) in ips.iter().enumerate() {
         basis
             .eval(etype, xyz, qp.uvw, &mut be)
             .map_err(ScalarError::Basis)?;
@@ -182,12 +193,27 @@ pub fn stat_current_boundary_local(
                 out.force[p] += w * f * phi[p];
             }
         }
-        if let Some(c) = &bc.external_conductivity {
-            let c = interp(phi, c);
-            let ext = bc
-                .external_potential
-                .as_deref()
-                .map_or(0.0, |e| interp(phi, e));
+        let robin = if let Some(ff) = &bc.farfield_potential {
+            let ext = interp(phi, ff);
+            let nrm = bc.ip_normals.as_ref().expect("checked above")[t];
+            let mut c = [0.0; 3];
+            for (a, ca) in c.iter_mut().enumerate() {
+                let mut s = 0.0;
+                for i in 0..n {
+                    s += xyz[i][a] * phi[i];
+                }
+                *ca = s;
+            }
+            let cn = c[0] * nrm[0] + c[1] * nrm[1] + c[2] * nrm[2];
+            let cc = c[0] * c[0] + c[1] * c[1] + c[2] * c[2];
+            Some((cn / cc, ext))
+        } else {
+            bc.external_conductivity.as_ref().map(|c| {
+                let ext = bc.external_potential.as_deref().map_or(0.0, |e| interp(phi, e));
+                (interp(phi, c), ext)
+            })
+        };
+        if let Some((c, ext)) = robin {
             for p in 0..n {
                 for q in 0..n {
                     out.stiff[p * n + q] += w * c * phi[q] * phi[p];
