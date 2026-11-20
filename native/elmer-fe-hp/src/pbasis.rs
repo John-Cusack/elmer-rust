@@ -648,12 +648,16 @@ impl ElementBasis for PElementBasis {
             3 | 4 => 2,
             _ => 3,
         };
-        // dx(j,l) = sum_k dL(k,l) * xyz(k,j), nodal functions only.
+        // dx(j,l) = sum_k dL(k,l) * xyz(k,j) over `MIN(SIZE(Nodes % x),
+        // ndof)` functions (ElementMetricVec): the nodal ones, and the p
+        // dofs too when their coordinates are given (a p mesh's `Mesh %
+        // Nodes` past the nodes, e.g. from `Follow P Curvature`).
+        let ng = nodal_xyz.len().clamp(nn, nb);
         let mut dx = [[0.0f64; 3]; 3];
         for l in 0..dim {
             for j in 0..3 {
                 let mut acc = 0.0;
-                for k in 0..nn {
+                for k in 0..ng {
                     acc += grad[k][l] * nodal_xyz[k][j];
                 }
                 dx[j][l] = acc;

@@ -15,7 +15,14 @@
 //! A node is then projected onto the plane and lifted by the patch height
 //! there (`PatchElementApply`).
 //!
-//! Refused: the circle, cylinder, sphere, torus and function boundaries.
+//! `Follow Circle Boundary` (2D boundaries) fits a circle (`CylinderFit`,
+//! GeometryFitting.F90:68, kept in the BC as `Cylinder Center` and
+//! `Cylinder Radius`, or taken from them) through three boundary nodes: the
+//! extremes along the tangent `Tangent1` of the z axis and the node farthest
+//! from both; each node is then scaled radially onto it.
+//!
+//! Refused: the cylinder, sphere, torus and function boundaries, and circles
+//! on 3D boundaries.
 
 use elmer_core::{ElementBasis, MeshView, ParamMap, Params, Value};
 use elmer_mesh_levels::Mesh as LevelsMesh;
@@ -243,7 +250,11 @@ pub(crate) fn follow_curved_boundary(mesh: &mut LevelsMesh, model: &mut Model) -
     }
     for b in 0..model.boundary_conditions.len() {
         let bc = &model.boundary_conditions[b];
-        for mode in ["follow circle boundary", "follow cylinder boundary", "follow sphere boundary", "follow function boundary", "follow toroid boundary"] {
+        if bc.logical("follow circle boundary") == Some(true) {
+            follow_circle(mesh, model, b + 1)?;
+            continue;
+        }
+        for mode in ["follow cylinder boundary", "follow sphere boundary", "follow function boundary", "follow toroid boundary"] {
             if bc.logical(mode) == Some(true) {
                 return Err(SolverError::Unsupported(format!("Boundary Condition {}: {mode}", b + 1)));
             }
@@ -277,6 +288,113 @@ pub(crate) fn follow_curved_boundary(mesh: &mut LevelsMesh, model: &mut Model) -
                 mesh.coords[j] = patch.apply(mesh.coords[j])?;
             }
         }
+    }
+    Ok(())
+}
+
+/// `Det3x3` (LinearAlgebra.F90:883), `a[row][col]`.
+fn det3x3(a: [[f64; 3]; 3]) -> f64 {
+    a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0])
+        + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0])
+}
+
+/// `TangentDirections(Normal, Tangent1, Tangent2)` (ElementUtils.F90:2634).
+fn tangent_directions(n: [f64; 3]) -> ([f64; 3], [f64; 3]) {
+    let mut t1 = if n[0].abs() <= n[2].abs() && n[1].abs() <= n[2].abs() { [0.0, -n[2], n[1]] } else { [-n[1], n[0], 0.0] };
+    let s = dot(t1, t1).sqrt();
+    t1 = t1.map(|c| c / s);
+    let mut t2 = [n[1] * t1[2] - n[2] * t1[1], n[2] * t1[0] - n[0] * t1[2], n[0] * t1[1] - n[1] * t1[0]];
+    let s = dot(t2, t2).sqrt();
+    t2 = t2.map(|c| c / s);
+    (t1, t2)
+}
+
+/// `CylinderFit(Mesh, BC, bc, 2, FitParams)` then `SetCurvedBoundary` in
+/// mode 1 (circle).
+fn follow_circle(mesh: &mut LevelsMesh, model: &mut Model, bc: usize) -> Result<(), SolverError> {
+    let x = &mesh.coords;
+    // cdim from the first element of the BC.
+    let Some(first) = bc_elements(mesh, model, bc).next() else { return Ok(()) };
+    if first.etype.0 >= 300 {
+        return Err(SolverError::Unsupported(format!("Boundary Condition {bc}: Follow Circle Boundary on a 3D boundary")));
+    }
+    let mut active = vec![false; x.len()];
+    for el in bc_elements(mesh, model, bc) {
+        for &k in &el.nodes {
+            active[k as usize] = true;
+        }
+    }
+    let params = &model.boundary_conditions[bc - 1];
+    let center = reals(params, "cylinder center");
+    let radius = params.real("cylinder radius");
+    let (orig, rad) = match (center, radius) {
+        (Some(c), Some(r)) if c.len() >= 2 => ([c[0], c[1]], r),
+        _ => {
+            let axis = [0.0, 0.0, 1.0];
+            let (t1, t2) = tangent_directions(axis);
+            let (mut min_d, mut max_d) = (f64::MAX, -f64::MAX);
+            let mut ind = [0usize; 3];
+            for (i, p) in x.iter().enumerate() {
+                if !active[i] {
+                    continue;
+                }
+                let d1 = dot(t1, *p);
+                if d1 < min_d {
+                    min_d = d1;
+                    ind[0] = i;
+                }
+                if d1 > max_d {
+                    max_d = d1;
+                    ind[1] = i;
+                }
+            }
+            let mut cc = [[0.0f64; 3]; 3];
+            for j in 0..2 {
+                let p = x[ind[j]];
+                cc[j] = [dot(t1, p), dot(t2, p), dot(axis, p)];
+            }
+            let mut maxdist = 0.0;
+            for (i, p) in x.iter().enumerate() {
+                if !active[i] {
+                    continue;
+                }
+                let (d1, d2) = (dot(t1, *p), dot(t2, *p));
+                let mut mind = f64::MAX;
+                for c in cc.iter().take(2) {
+                    mind = mind.min((d1 - c[0]).powi(2) + (d2 - c[1]).powi(2));
+                }
+                if maxdist < mind {
+                    maxdist = mind;
+                    ind[2] = i;
+                }
+            }
+            let p = x[ind[2]];
+            cc[2] = [dot(t1, p), dot(t2, p), dot(axis, p)];
+            let sq = |k: usize| cc[k][0] * cc[k][0] + cc[k][1] * cc[k][1];
+            let m11 = det3x3(std::array::from_fn(|k| [cc[k][0], cc[k][1], 1.0]));
+            let m12 = det3x3(std::array::from_fn(|k| [sq(k), cc[k][1], 1.0]));
+            let m13 = det3x3(std::array::from_fn(|k| [sq(k), cc[k][0], 1.0]));
+            let m14 = det3x3(std::array::from_fn(|k| [sq(k), cc[k][0], cc[k][1]]));
+            if m11.abs() < f64::EPSILON {
+                return Err(SolverError::fatal("CylinderFit", "Points cannot be an a circle"));
+            }
+            let x0 = 0.5 * m12 / m11;
+            let y0 = -0.5 * m13 / m11;
+            let rad = (x0 * x0 + y0 * y0 + m14 / m11).sqrt();
+            let c: [f64; 3] = std::array::from_fn(|a| x0 * t1[a] + y0 * t2[a]);
+            let bcp = &mut model.boundary_conditions[bc - 1];
+            bcp.insert("Cylinder Center", column(&c));
+            bcp.insert("Cylinder Radius", Value::Real { rows: 1, cols: 1, data: vec![rad] });
+            ([c[0], c[1]], rad)
+        }
+    };
+    for (j, p) in mesh.coords.iter_mut().enumerate() {
+        if !active[j] {
+            continue;
+        }
+        let c = [p[0] - orig[0], p[1] - orig[1]];
+        let rat = rad / (c[0] * c[0] + c[1] * c[1]).sqrt();
+        *p = [rat * c[0] + orig[0], rat * c[1] + orig[1], p[2]];
     }
     Ok(())
 }

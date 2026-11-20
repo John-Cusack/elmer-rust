@@ -35,11 +35,6 @@ const SIMULATION: &[Rule] = &[];
 
 /// Read by the solver's own procedure; skipped for `Exec Solver = Never`.
 const SOLVER: &[Rule] = &[
-    // The p-element coordinates fitted to a curved boundary
-    // (`Follow P Curvature`) are not computed: CurvedBoundaryP misses its
-    // SaveScalars norm (7.697 vs 8.172), which the pristine solver
-    // reproduces to all digits without the keyword.
-    flag("Follow P Curvature", "curved p-element boundaries are not implemented"),
     flag("Adaptive Mesh Refinement", "mesh refinement is not implemented"),
 ];
 

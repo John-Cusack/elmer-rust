@@ -445,6 +445,12 @@ impl<'a> SolverCtx<'a> {
         }
     }
 
+    /// The coordinates of this solver's p dof slots past the nodes, when
+    /// `Follow P Curvature` set them.
+    pub fn p_geometry(&self) -> Option<&std::collections::BTreeMap<u32, [f64; 3]>> {
+        self.sim.slots[self.slot].p_geometry.as_ref()
+    }
+
     /// The simulation's fields as `elmer-expr` reads them.
     pub fn fields(&self) -> crate::expr::SimFields<'_> {
         crate::expr::SimFields {

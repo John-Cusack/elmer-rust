@@ -219,6 +219,10 @@ pub struct SolverSlot {
     pub(crate) mg_meshes: Option<Vec<Box<dyn MeshView>>>,
     /// The constraint modes `DefaultDirichletBCs` set up.
     pub(crate) cmodes: Option<crate::constraint_modes::Modes>,
+    /// The coordinates of p dof slots beyond the nodes (`Mesh % Nodes` of a
+    /// p mesh past `NumberOfNodes`, zero unless set), fitted to a curved
+    /// boundary by `Follow P Curvature` ([`crate::follow_p::follow_p_curvature`]).
+    pub p_geometry: Option<std::collections::BTreeMap<u32, [f64; 3]>>,
     /// The CutFEM state of a `CutFEM` solver (`CutFEMUtils` module data).
     pub(crate) cutfem: Option<Box<crate::cutfem::CutFemRun>>,
     /// `Var % Upper/LowerLimitActive` of `Apply Limiter`.
@@ -287,6 +291,7 @@ impl SolverSlot {
             lin_converged: true,
             mg_meshes: None,
             cmodes: None,
+            p_geometry: None,
             cutfem: None,
             limiter: None,
             local_store: None,
