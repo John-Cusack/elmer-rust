@@ -241,8 +241,10 @@ fn registered_source_uses_the_case_tolerance_and_is_a_fresh_instance() {
 fn unported_cases_and_plugins_are_not_found() {
     let m = Arc::new(TestModel::line(&XS));
     let reg = UdfRegistry::new();
-    assert_eq!(registry::install("BDM2D", m.clone(), &reg), 0);
+    assert_eq!(registry::install("SolverSpecificMeshes", m.clone(), &reg), 0);
     assert!(reg.is_empty());
+    // The 2D mixed Poisson tests' `Source.F90`.
+    assert_eq!(registry::procedures("BDM2D"), vec![("Source", "SourceFun")]);
     assert!(registry::lookup("1dtests", "Poisson", "PoissonSolver", m.clone()).is_none());
     assert!(registry::lookup("1dtests", "Source", "source", m).is_some(), "entry names are case-insensitive");
     assert_eq!(registry::procedures("AdvDiffFCT"), vec![("InitDist", "InitDist")]);

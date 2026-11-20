@@ -172,6 +172,11 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if is(params, elmer_physics_shell::PROCEDURE) {
             elmer_physics_shell::solver_defaults(params, &mut model.simulation);
         }
+        // `MixedPoisson_Init0`: the face element, the global bubbles and the
+        // exported potential and flux.
+        if is(params, elmer_pdofs::mixed_poisson::PROCEDURE) {
+            elmer_pdofs::mixed_poisson::solver_defaults(params, model.simulation.string("coordinate system"));
+        }
         // `TopoOpt_init0` / `_init`: the elemental topology fields.
         if is(params, elmer_physics_topoopt::PROCEDURE) {
             elmer_physics_topoopt::solver_defaults(params);
@@ -548,7 +553,7 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 18] = [
+    const P_DOFS: [(&str, &str); 19] = [
         ("benchmarkshell", "shellsolver"),
         ("elasticsolve", "elasticsolver"),
         ("filmflowsolver", "filmflowsolver"),
@@ -567,6 +572,7 @@ pub fn native_element(params: &ParamMap) -> bool {
         ("modelpde", "advdiffsolver"),
         ("modelpdesplitted", "advdiffsolver"),
         ("singleelements", "singleelements"),
+        ("modelmixedpoisson", "mixedpoisson"),
     ];
     if P_DOFS.iter().any(|(l, n)| lib.eq_ignore_ascii_case(l) && entry.eq_ignore_ascii_case(n)) {
         return true;

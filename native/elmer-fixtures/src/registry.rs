@@ -31,6 +31,7 @@ use crate::model_pde_handle;
 use crate::model_pde_splitted;
 use crate::poisson_ml;
 use crate::poisson_solver;
+use crate::compute_error;
 use crate::count_solver;
 use crate::single_edge_elements;
 use crate::single_elements;
@@ -38,7 +39,7 @@ use crate::q1q0;
 use crate::stokes_pfem;
 use crate::stokes_proj;
 use crate::tresca;
-use crate::udf::{init_dist_fn, my_source_fn, stdout_sink, AlternatingSource, OneDSource, OneDTolerances};
+use crate::udf::{init_dist_fn, mixed_source_2d_fn, my_source_fn, stdout_sink, AlternatingSource, OneDSource, OneDTolerances};
 use crate::ModelView;
 
 type Build = fn(Arc<dyn ModelView>) -> Udf;
@@ -58,6 +59,11 @@ fn source_case(case: &str) -> &str {
 const FIXTURES: &[(&str, &str, &str, Build)] = &[
     ("ConstantParamFunc", "MySource", "MySource", |_| Udf::Node(my_source_fn())),
     ("AdvDiffFCT", "InitDist", "InitDist", |m| Udf::Node(init_dist_fn(m))),
+    // `Source.F90` of the 2D mixed Poisson tests: zero, and the source of
+    // the manufactured `u = 16 (x - x^2)(y - y^2)`.
+    ("MixedPoisson2D", "Source", "SourceFun", |_| Udf::Node(Arc::new(|_, _| 0.0))),
+    ("RaviartThomas2D", "Source", "SourceFun", |m| Udf::Node(mixed_source_2d_fn(m))),
+    ("BDM2D", "Source", "SourceFun", |m| Udf::Node(mixed_source_2d_fn(m))),
     ("1dtests", "Source", "Source", |m| {
         Udf::Node(OneDSource::new(m, OneDTolerances::ONE_D_TESTS).into_fn())
     }),
@@ -174,6 +180,8 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
         "SingleEdgeElements",
         Hook::Solver(single_edge_elements::factory),
     ),
+    ("RaviartThomas2D", "ComputeError", "IntegrateError", Hook::Solver(compute_error::factory)),
+    ("BDM2D", "ComputeError", "IntegrateError", Hook::Solver(compute_error::factory)),
     // `PoissonPFEM/Poisson.f90` on p-elements, ported in `elmer-pdofs`.
     ("PoissonPFEM", "Poisson", "PoissonSolver", Hook::Solver(elmer_pdofs::solver::poisson_pfem)),
     // The same source up to blank lines.

@@ -62,6 +62,19 @@ pub fn init_dist_fn(model: Arc<dyn ModelView>) -> NodeFn {
     })
 }
 
+/// `SourceFun` of `RaviartThomas2D/Source.F90` and `BDM2D/Source.F90` at
+/// node `n`: `f = 32 (yq - yq**2 + xq - xq**2)`.
+pub fn mixed_source_2d_fn(model: Arc<dyn ModelView>) -> NodeFn {
+    Arc::new(move |node, _t| {
+        if node == u32::MAX {
+            panic!("SourceFun: called at an integration point; the Fortran indexes Mesh % Nodes % x(n)");
+        }
+        let c = model.coord(node);
+        let (xq, yq) = (c[0], c[1]);
+        32.0 * (yq - yq * yq + xq - xq * xq)
+    })
+}
+
 /// Tolerances `1dtests/Source.f90` and `1dtests_MeshLevels/Source.f90`
 /// check the polynomial steps against; they are the only difference between
 /// the two sources.
