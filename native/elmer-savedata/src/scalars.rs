@@ -21,7 +21,7 @@ use crate::integrals::{
     vector_statistics, BulkRequest, Fe,
 };
 use crate::plan::{parse_operator, MaskKind, OperKind, PseudoNorm, ScalarPlan};
-use crate::view::{component_name, resolve, Resolved};
+use crate::view::{component_name, resolve, resolve_values, Resolved};
 
 const CALLER: &str = "SaveScalars";
 
@@ -211,7 +211,9 @@ impl SaveScalars {
             let mut have_var = false;
             if got_var {
                 let name = list.variable_name.clone();
-                match resolve(&ctx.sim.vars, &name)? {
+                // Existence only: an operator that needs a nodal field refuses
+                // an elemental or Gauss-point one when it resolves it.
+                match resolve_values(&ctx.sim.vars, &name)? {
                     Some(Resolved::Global(id)) => {
                         old_var = Some(name.clone());
                         old_variable_name = name.clone();
@@ -318,7 +320,7 @@ impl SaveScalars {
                 }
                 OperKind::Statistic | OperKind::Deviation => {
                     let val = {
-                        let view = match resolve(&ctx.sim.vars, &variable)? {
+                        let view = match resolve_values(&ctx.sim.vars, &variable)? {
                             Some(Resolved::Field(v)) => v,
                             Some(Resolved::Components { first, .. }) => first,
                             _ => return Err(SolverError::Unsupported(format!("SaveScalars: {} of a global variable", op.oper))),
