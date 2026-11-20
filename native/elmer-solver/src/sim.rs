@@ -167,6 +167,8 @@ pub struct SolverSlot {
     pub(crate) mg_meshes: Option<Vec<Box<dyn MeshView>>>,
     /// The constraint modes `DefaultDirichletBCs` set up.
     pub(crate) cmodes: Option<crate::constraint_modes::Modes>,
+    /// The child solvers' systems (`CreateChildSolver`).
+    pub(crate) children: Vec<crate::child::ChildSystem>,
 }
 
 impl SolverSlot {
@@ -200,6 +202,7 @@ impl SolverSlot {
             lin_converged: true,
             mg_meshes: None,
             cmodes: None,
+            children: Vec::new(),
         })
     }
 

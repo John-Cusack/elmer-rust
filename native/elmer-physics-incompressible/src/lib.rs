@@ -16,10 +16,13 @@
 //! trait; [`register`] binds it to `Procedure = "IncompressibleNS"
 //! "IncompressibleNSSolver"` and `"IncompressibleNSVec" ...`.
 //!
-//! Non-newtonian and
-//! turbulent viscosity, cylindric coordinates,
-//! friction and wall-law boundaries and the block preconditioner are
-//! refused, not approximated.
+//! With `Block Preconditioner` the pressure block of the block solver's
+//! preconditioner, the `-1 / mu` weighted pressure mass matrix, is assembled
+//! into the `schur` child solver (`CreateChildSolver`) and named by `Block
+//! Matrix Schur Variable`.
+//!
+//! Turbulent viscosity, cylindric coordinates,
+//! friction and wall-law boundaries are refused, not approximated.
 #![forbid(unsafe_code)]
 
 pub mod boundary;
@@ -32,7 +35,7 @@ pub use boundary::{
     IncompressibleBoundaryInput, SlipSums,
 };
 pub use bulk::{
-    incompressible_bulk_local, incompressible_bulk_local_sums, incompressible_bulk_local_with, lcondensate,
+    incompressible_bulk_local, incompressible_bulk_local_full, incompressible_bulk_local_sums, incompressible_bulk_local_with, lcondensate,
     lcondensate_bdf1, pin_pressure, Boussinesq, Compressibility, CompressModel, GlenFields, GlenParams, HMode,
     IncompressibleBulkInput, PressureStab, ViscosityModel, ViscositySums,
 };
