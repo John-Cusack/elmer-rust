@@ -96,9 +96,10 @@ pub(crate) fn element_perm(mesh: &dyn MeshView, slot: &SolverSlot) -> (Vec<u32>,
     (perm, slot.active.len())
 }
 
-/// `CreateIpPerm`: the offset of each element's Gauss points (the default
-/// rule of an active element, or `Gauss Points on Ip Variables`), one entry
-/// more than the bulk and boundary elements.
+/// `CreateIpPerm`: the offset of each element's Gauss points (`Gauss Points
+/// on Ip Variables`, or the solver's rule of an active nodal element as
+/// `GaussPointsAdapt` gives it), one entry more than the bulk and boundary
+/// elements.
 pub(crate) fn ip_perm(
     sim: &Simulation,
     mesh: &dyn MeshView,
@@ -111,6 +112,24 @@ pub(crate) fn ip_perm(
         .as_ref()
         .ok_or_else(|| SolverError::NotWired("basis and quadrature for IP variables (elmer-fe)".into()))?;
     let n_ip = slot.params.integer("gauss points on ip variables").filter(|&n| n > 0);
+    // Without it, `GaussPointsAdapt(Element)` of the solver: `Number of
+    // Integration Points`, else `Bulk Relative Integration Order` over
+    // `Relative Integration Order`.
+    for (key, what) in [
+        ("element integration points", "Element Integration Points"),
+        ("element relative integration order", "Element Relative Integration Order"),
+        ("adaptive integration variable", "adaptive integration"),
+    ] {
+        if n_ip.is_none() && slot.params.get(key).is_some() {
+            return Err(SolverError::Unsupported(format!("IP variables with {what}")));
+        }
+    }
+    let np = slot.params.integer("number of integration points").filter(|&n| n > 0).map(|n| n as usize);
+    let rel = match slot.params.get("bulk relative integration order") {
+        Some(_) => slot.params.integer("bulk relative integration order"),
+        None => slot.params.integer("relative integration order"),
+    }
+    .unwrap_or(0);
     let n = mesh.n_bulk() + mesh.n_boundary();
     let mut active = vec![false; n];
     for e in &slot.active {
@@ -125,9 +144,20 @@ pub(crate) fn ip_perm(
                 None => true,
             };
         if on {
-            count += match n_ip {
-                Some(k) => k as u32,
-                None => fe.quadrature.gauss_points(mesh.element(ElemId(t as u32)).etype, None).len() as u32,
+            let etype = mesh.element(ElemId(t as u32)).etype;
+            count += match (n_ip, np) {
+                (Some(k), _) => k as u32,
+                (None, Some(_)) => fe.quadrature.gauss_points(etype, np).len() as u32,
+                (None, None) => fe
+                    .quadrature
+                    .gauss_points_rel(etype, rel)
+                    .ok_or_else(|| {
+                        SolverError::fatal(
+                            "GaussPoints",
+                            format!("Relative Integration Order = {rel} but a non-p element only has rules for {{-1,0,1}}"),
+                        )
+                    })?
+                    .len() as u32,
             };
         }
         offsets[t + 1] = count;

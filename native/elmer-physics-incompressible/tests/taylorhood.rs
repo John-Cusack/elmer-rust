@@ -758,3 +758,71 @@ fn boussinesq_matches_elmer() {
     ]);
     compressible_cavity_with("boussinesq_quad", material, true, 0.004364993253222428);
 }
+
+/// `visc_powerlaw` with `Viscosity` / `Shearrate` given as exported
+/// variables of the solver (`-elem`, `-ip`): EffectiveViscosityVec fills
+/// them whenever they exist, an elemental one with the mean over the
+/// element's integration points, an IP one with the point values. The IP
+/// table counts the points `GaussPointsAdapt` gives the element, so with
+/// `Relative Integration Order = 1` each element has its `GaussPoints2`.
+fn exported_viscosity(exports: &[&str], rel: i32) -> Simulation {
+    let mesh = TestMesh::read(&data("visc_powerlaw"), 2);
+    let mut keys = vec![
+        ("Pressure Stabilization", Value::Logical(true)),
+        ("Pressure Stabilization Element Size", st("longest edge")),
+        ("Nonlinear System Max Iterations", ints(&[5])),
+        ("Nonlinear System Convergence Tolerance", real(1.0e-10)),
+        ("Relative Integration Order", ints(&[rel])),
+    ];
+    let names: Vec<String> = (1..=exports.len()).map(|k| format!("Exported Variable {k}")).collect();
+    for (k, x) in names.iter().zip(exports) {
+        keys.push((k.as_str(), st(x)));
+    }
+    let mut solver = ns_solver(&keys);
+    solver_defaults(&mut solver, 2, false);
+    let material = sec(&[
+        ("Density", real(1.0)),
+        ("Viscosity", real(0.1)),
+        ("Viscosity Model", st("power law")),
+        ("Viscosity Exponent", real(0.7)),
+        ("Critical Shear Rate", real(0.05)),
+    ]);
+    let m = model_of(steady("Cartesian 2D"), solver, material, step(&mesh).0);
+    let mut reg = SolverRegistry::new();
+    register(&mut reg);
+    let mut sim = Simulation::new(m);
+    sim.backends.fe = Some(elmer_solver::FeBackend {
+        basis: Box::new(elmer_fe::LagrangeBasis::new(2)),
+        quadrature: Box::new(elmer_fe::ElmerQuadrature),
+    });
+    sim.setup(&mesh, &reg, &NullLogger, &SerialComm).unwrap();
+    sim.run(&mesh, &NullLogger, &SerialComm).unwrap();
+    sim
+}
+
+#[test]
+fn elemental_and_ip_viscosity_exports() {
+    for rel in [0, 1] {
+        let elem = exported_viscosity(&["-elem Viscosity", "-ip Shearrate"], rel);
+        let ip = exported_viscosity(&["-ip Viscosity"], rel);
+        let (ev, iv) = (elem.vars.get("viscosity").unwrap(), ip.vars.get("viscosity").unwrap());
+        let (ep, offsets) = (ev.perm.as_deref().unwrap(), iv.perm.as_deref().unwrap());
+        let shear = elem.vars.get("shearrate").unwrap();
+        assert_eq!(shear.perm.as_deref(), Some(offsets), "rel {rel}: one IP table");
+        let mut checked = 0;
+        for (e, &k) in ep.iter().enumerate() {
+            if k == elmer_core::NO_DOF {
+                continue;
+            }
+            let pts = &iv.values[offsets[e] as usize..offsets[e + 1] as usize];
+            let want = elmer_fe::gauss_points_rel(elmer_core::ElementType(303), rel).unwrap().points().len();
+            assert_eq!(pts.len(), want, "rel {rel}: points of element {e}");
+            let mean = pts.iter().sum::<f64>() / pts.len() as f64;
+            assert_eq!(ev.values[k as usize], mean, "rel {rel}: element {e}");
+            assert!(mean > 0.0);
+            checked += 1;
+        }
+        assert!(checked > 100, "rel {rel}: {checked} elements");
+        assert!(shear.values.iter().any(|&s| s > 0.0), "rel {rel}: shear rate saved");
+    }
+}

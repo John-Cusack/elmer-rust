@@ -63,6 +63,11 @@ element integrals) with no mass flux.
   `Relative Temperature` with `Glen Enhancement Factor`), as in
   `EffectiveViscosityVec`: the viscosity at the points from the previous
   iterate's shear rate, and with Newton its derivative in the Jacobian.
+- `Viscosity` / `Shearrate` fields, wherever such a variable exists (`Save
+  Viscosity`, or an `Exported Variable` that is nodal, `-elem` or `-ip`):
+  filled by EffectiveViscosityVec with a viscosity model, nodal ones as
+  below, an elemental one with the mean over the element's integration
+  points, an IP one with the point values.
 - `Save Viscosity`: the exported `Viscosity` (nodal average weighted by the
   hidden `Viscosity Weight`) and `Shearrate` (the nodal integral of the
   squared shear rate, which the Fortran leaves unnormalized) of the last

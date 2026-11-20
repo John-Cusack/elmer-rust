@@ -5,7 +5,7 @@
 
 use std::sync::OnceLock;
 
-use elmer_core::{ElemId, ElementBasis, LocalSystem, ParamMap, Params, Quadrature, Value, NO_DOF};
+use elmer_core::{ElemId, ElementBasis, FieldKind, LocalSystem, ParamMap, Params, Quadrature, Value, NO_DOF};
 use elmer_solver::sim::parse_variable_spec;
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
@@ -103,6 +103,113 @@ const SAVED_VISCOSITY: [&str; 3] = ["viscosity", "shearrate", "viscosity weight"
 /// `Save Slip`'s nodal fields (`Slip Coefficient`, `Slip Speed`, `Slip
 /// Weight`), the same way on the boundary.
 const SAVED_SLIP: [&str; 3] = ["slip coefficient", "slip speed", "slip weight"];
+
+/// The `Viscosity` / `Shearrate` fields EffectiveViscosityVec fills, by
+/// their kind, wherever such a variable exists (`Save Viscosity` creates
+/// nodal ones; an `Exported Variable` may be elemental or on integration
+/// points), and whether a nodal one comes with `Viscosity Weight`.
+struct ViscFields {
+    viscosity: Option<FieldKind>,
+    shear_rate: Option<FieldKind>,
+    weight: bool,
+}
+
+impl ViscFields {
+    fn of(ctx: &SolverCtx<'_>) -> Result<Self, SolverError> {
+        let kind = |name: &str| -> Result<Option<FieldKind>, SolverError> {
+            match ctx.variable(name).map(|v| (v.kind, v.dofs)) {
+                None => Ok(None),
+                Some((k @ (FieldKind::Nodal | FieldKind::Elemental | FieldKind::Ip), 1)) => Ok(Some(k)),
+                Some((k, d)) => Err(SolverError::fatal(
+                    CALLER,
+                    format!("Invalid field type for \"{name}\"! ({k:?}, {d} dofs)"),
+                )),
+            }
+        };
+        let (viscosity, shear_rate) = (kind(SAVED_VISCOSITY[0])?, kind(SAVED_VISCOSITY[1])?);
+        let nodal = [viscosity, shear_rate].contains(&Some(FieldKind::Nodal));
+        let weight = nodal
+            && match ctx.variable(SAVED_VISCOSITY[2]) {
+                None => false,
+                Some(w) if w.kind == FieldKind::Nodal => true,
+                Some(_) => return Err(SolverError::fatal(CALLER, "Invalid field type for \"Viscosity Weight\"!")),
+            };
+        if weight && viscosity.is_some_and(|k| k != FieldKind::Nodal) {
+            return Err(unsupported("Viscosity Weight with a non-nodal Viscosity field"));
+        }
+        Ok(Self { viscosity, shear_rate, weight })
+    }
+
+    fn any(&self) -> bool {
+        self.viscosity.is_some() || self.shear_rate.is_some()
+    }
+
+    /// The fields zeroed at the start of each assembly.
+    fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
+        [self.viscosity.is_some(), self.shear_rate.is_some(), self.weight]
+            .into_iter()
+            .zip(SAVED_VISCOSITY)
+            .filter(|(on, _)| *on)
+            .map(|(_, n)| n)
+    }
+}
+
+/// EffectiveViscosityVec's save of element `e`: nodal fields get the
+/// integrals against the nodal functions (and the weight), an elemental
+/// field the mean over the integration points, an integration point field
+/// the values at the points (its slice must have as many). Nothing without
+/// a `Viscosity Model`.
+fn save_viscosity_fields(
+    ctx: &mut SolverCtx<'_>,
+    fields: &ViscFields,
+    sums: &ViscositySums,
+    nodes: &[u32],
+    e: ElemId,
+) -> Result<(), SolverError> {
+    if sums.viscosity_points.is_empty() {
+        return Ok(());
+    }
+    let ngp = sums.viscosity_points.len();
+    let saves = [
+        (fields.viscosity, SAVED_VISCOSITY[0], &sums.viscosity, &sums.viscosity_points, "Viscosity"),
+        (fields.shear_rate, SAVED_VISCOSITY[1], &sums.shear_rate, &sums.shear_rate_points, "Shearrate"),
+        (fields.weight.then_some(FieldKind::Nodal), SAVED_VISCOSITY[2], &sums.weight, &Vec::new(), ""),
+    ];
+    for (kind, name, nodal, points, what) in saves {
+        let Some(kind) = kind else { continue };
+        let Some(v) = ctx.variable_mut(name) else { continue };
+        match kind {
+            FieldKind::Nodal => {
+                for (&node, x) in nodes.iter().zip(nodal.iter()) {
+                    let k = v.perm.map_or(node, |p| p[node as usize]);
+                    if k != NO_DOF {
+                        v.values[k as usize] += x;
+                    }
+                }
+            }
+            FieldKind::Elemental => {
+                let k = v.perm.map_or(e.0, |p| p.get(e.0 as usize).copied().unwrap_or(NO_DOF));
+                if k == NO_DOF {
+                    return Err(SolverError::fatal(CALLER, format!("element {} has no \"{what}\" value", e.0)));
+                }
+                v.values[k as usize] = points.iter().sum::<f64>() / ngp as f64;
+            }
+            FieldKind::Ip => {
+                let p = v.perm.ok_or_else(|| SolverError::fatal(CALLER, format!("\"{what}\" has no IP table")))?;
+                let (a, b) = (p[e.0 as usize] as usize, p[e.0 as usize + 1] as usize);
+                if b - a != ngp {
+                    return Err(SolverError::fatal(
+                        CALLER,
+                        format!("Expected {} gauss point for \"{what}\" got {ngp}", b - a),
+                    ));
+                }
+                v.values[a..b].copy_from_slice(points);
+            }
+            _ => unreachable!("checked in ViscFields::of"),
+        }
+    }
+    Ok(())
+}
 
 fn add_new(p: &mut ParamMap, key: &str, v: Value) {
     if p.get(key).is_none() {
@@ -885,7 +992,7 @@ impl Solver for IncompressibleNsSolver {
             None => HMode::Default,
         };
         let long_edge = flag(ctx.simulation_params(), "stabilization use longest element edge");
-        let save_viscosity = flag(&p, "save viscosity");
+        let visc_fields = ViscFields::of(ctx)?;
         let save_slip = flag(&p, "save slip");
         let axisymmetric = ctx
             .simulation_params()
@@ -936,8 +1043,14 @@ impl Solver for IncompressibleNsSolver {
             if block_prec {
                 ctx.child_initialize(SCHUR, 1)?;
             }
-            let saved = [(save_viscosity, SAVED_VISCOSITY), (save_slip, SAVED_SLIP)];
-            for name in saved.into_iter().filter(|(on, _)| *on).flat_map(|(_, names)| names) {
+            // EffectiveViscosityVec zeroes the `Viscosity` / `Shearrate` fields
+            // that exist (and `Viscosity Weight` with a nodal one of them);
+            // the slip fields go with `Save Slip`.
+            let mut zeroed: Vec<&str> = visc_fields.names().collect();
+            if save_slip {
+                zeroed.extend(SAVED_SLIP);
+            }
+            for name in zeroed {
                 if let Some(v) = ctx.variable_mut(name) {
                     v.values.iter_mut().for_each(|x| *x = 0.0);
                 }
@@ -1125,7 +1238,7 @@ impl Solver for IncompressibleNsSolver {
                     }),
                 };
                 let mut sums = ViscositySums::default();
-                let want_sums = save_viscosity.then_some(&mut sums);
+                let want_sums = visc_fields.any().then_some(&mut sums);
                 let nd = pe.as_ref().map_or(n, |p| p.nd);
                 let want_schur = block_prec.then_some((nd, &mut pressure_mass));
                 match &pe {
@@ -1166,17 +1279,8 @@ impl Solver for IncompressibleNsSolver {
                         }
                     }
                 }
-                if save_viscosity {
-                    let sums = [&sums.viscosity, &sums.shear_rate, &sums.weight];
-                    for (name, vals) in SAVED_VISCOSITY.into_iter().zip(sums) {
-                        let Some(v) = ctx.variable_mut(name) else { continue };
-                        for (&node, x) in nodes.iter().zip(vals.iter()) {
-                            let k = v.perm.map_or(node, |p| p[node as usize]);
-                            if k != NO_DOF {
-                                v.values[k as usize] += x;
-                            }
-                        }
-                    }
+                if visc_fields.any() {
+                    save_viscosity_fields(ctx, &visc_fields, &sums, nodes, e)?;
                 }
                 if transient && !stokes && pe.as_ref().is_none_or(|p| p.nb == 0) {
                     ctx.default_first_order_time(&mut self.local, e, dt)?;
@@ -1304,7 +1408,7 @@ impl Solver for IncompressibleNsSolver {
         let normalized =
             [("slip weight", "slip coefficient"), ("slip weight", "slip speed"), ("viscosity weight", "viscosity")];
         for (wname, name) in normalized {
-            let on = if wname == "slip weight" { save_slip } else { save_viscosity };
+            let on = if wname == "slip weight" { save_slip } else { visc_fields.weight };
             if !on {
                 continue;
             }

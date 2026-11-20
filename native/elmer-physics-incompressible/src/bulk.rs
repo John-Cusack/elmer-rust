@@ -425,6 +425,11 @@ pub struct ViscositySums {
     pub viscosity: Vec<f64>,
     pub shear_rate: Vec<f64>,
     pub weight: Vec<f64>,
+    /// The effective viscosity and the squared shear rate `ss` at each
+    /// integration point (empty without a `Viscosity Model`), for the
+    /// elemental and integration point `Viscosity` / `Shearrate` fields.
+    pub viscosity_points: Vec<f64>,
+    pub shear_rate_points: Vec<f64>,
 }
 
 /// [`incompressible_bulk_local_with`], also filling `sums` when given.
@@ -567,6 +572,8 @@ pub fn incompressible_bulk_local_full(
         sm.viscosity = vec![0.0; n];
         sm.shear_rate = vec![0.0; n];
         sm.weight = vec![0.0; n];
+        sm.viscosity_points = if has { mu.clone() } else { Vec::new() };
+        sm.shear_rate_points = if has { ss_at.clone() } else { Vec::new() };
         if has {
             for i in 0..n {
                 for t in 0..ngp {
