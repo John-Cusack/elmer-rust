@@ -66,6 +66,10 @@ pub struct StressPostInput<'a> {
     /// ElasticSolve's `Neo-Hookean Material` (isotropic `law` only; no
     /// thermal strain, no integration-point moduli).
     pub neo_hookean: bool,
+    /// ElasticSolve's `Incompressible`: the pressure unknown at the nodes.
+    /// The moduli become `Lame1 = 0`, `Lame2 = E/3` (no plane stress) and the
+    /// pressure is taken off the normal stresses.
+    pub pressure: Option<&'a [f64]>,
 }
 
 /// Element mass matrix (`n x n`, row-major) and right-hand sides
@@ -238,7 +242,7 @@ pub fn stress_strain_local_p(
         return Err(StressError::Input(format!("element {} needs {n} nodes and {nd} displacements", inp.etype.0)));
     }
     let dim = if axi { 3 } else { cdim };
-    let plane_stress = inp.plane_stress && !axi && cdim == 2;
+    let plane_stress = inp.plane_stress && !axi && cdim == 2 && inp.pressure.is_none();
     let ncomp = output_components(cdim);
     let isotropic = matches!(inp.law, ElasticLaw::Isotropic { .. });
     if inp.neo_hookean && !isotropic {
@@ -268,7 +272,11 @@ pub fn stress_strain_local_p(
                 } else {
                     e * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
                 };
-                (l1, e / (2.0 * (1.0 + nu)))
+                if inp.pressure.is_some() {
+                    (0.0, e / 3.0)
+                } else {
+                    (l1, e / (2.0 * (1.0 + nu)))
+                }
             })
             .unzip(),
         ElasticLaw::Anisotropic { .. } => (Vec::new(), Vec::new()),
@@ -448,6 +456,14 @@ pub fn stress_strain_local_p(
             }
             PointLaw::Aniso { .. } => law.stress(dim, false, &strain),
         };
+        // `Stress2(i,i) = Stress2(i,i) - Pressure`, the nodal interpolation.
+        let mut s2 = s2;
+        if let Some(pn) = inp.pressure {
+            let pres: f64 = (0..n).map(|k| pn[k] * bas[k]).sum();
+            for (i, row) in s2.iter_mut().enumerate().take(cdim) {
+                row[i] -= pres;
+            }
+        }
         // `DefG` is the identity of the state of stress here; the push-forward
         // only masks the rows and columns it does not carry.
         let mut stress = ZERO3;
@@ -645,4 +661,62 @@ pub fn tresca(w: &[f64; 3]) -> f64 {
     let m = (w[0] - w[1]) / 2.0;
     let m = m.max((w[1] - w[2]) / 2.0);
     m.max((w[0] - w[2]) / 2.0)
+}
+
+/// The solve of the stress projection. On p elements it is
+/// `NodalProjectorSolve`'s, with the section's own linear system (its
+/// `StressTemp` solver); the nodal projection keeps [`MassSystem::solve`].
+pub enum Projector<'m> {
+    Cg(&'m MassSystem),
+    Direct(Box<dyn elmer_core::DirectSolver<f64> + Send>),
+    Iterative(
+        Box<dyn elmer_core::IterativeSolver<f64> + Send>,
+        Box<dyn elmer_core::Preconditioner<f64> + Send>,
+        elmer_core::CsrMatrix<f64>,
+    ),
+}
+
+impl<'m> Projector<'m> {
+    /// The projector of `mass` for the running solver; `p_elements` selects
+    /// the section's linear system.
+    pub fn new(
+        ctx: &elmer_solver::SolverCtx<'_>,
+        mass: &'m MassSystem,
+        p_elements: bool,
+    ) -> Result<Self, elmer_solver::SolverError> {
+        if !p_elements {
+            return Ok(Projector::Cg(mass));
+        }
+        let a = mass.to_csr();
+        let params = ctx.params().clone();
+        Ok(match ctx.sim.backends.linear.select_for(&params, &a, ctx.log)? {
+            elmer_solver::backend::LinearSolverChoice::Direct(mut d) => {
+                d.factor(&a).map_err(|e| elmer_solver::SolverError::fatal("NodalProjectorSolve", e.to_string()))?;
+                Projector::Direct(d)
+            }
+            elmer_solver::backend::LinearSolverChoice::Iterative { solver, precond } => {
+                let m: Box<dyn elmer_core::Preconditioner<f64> + Send> = match precond {
+                    Some(f) => f(&params, &a)?,
+                    None => Box::new(elmer_core::IdentityPrecond),
+                };
+                Projector::Iterative(solver, m, a)
+            }
+        })
+    }
+
+    /// `x = M^-1 b`.
+    pub fn solve(&mut self, comm: &dyn elmer_core::Communicator, b: &[f64], x: &mut [f64]) -> Result<(), elmer_solver::SolverError> {
+        let fatal = |e: String| elmer_solver::SolverError::fatal("NodalProjectorSolve", e);
+        match self {
+            Projector::Cg(m) => m.solve(b, x).map(|_| ()).map_err(|e| fatal(e.to_string())),
+            Projector::Direct(d) => {
+                x.copy_from_slice(b);
+                d.solve_in_place(x).map_err(|e| fatal(e.to_string()))
+            }
+            Projector::Iterative(s, m, a) => {
+                x.iter_mut().for_each(|v| *v = 0.0);
+                s.solve(&*a, &**m, b, x, comm).map(|_| ()).map_err(elmer_solver::SolverError::from)
+            }
+        }
+    }
 }

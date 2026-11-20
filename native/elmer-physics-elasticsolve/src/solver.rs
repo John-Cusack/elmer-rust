@@ -15,8 +15,8 @@ use elmer_physics_elastic::{diagonal_c, CoordSystem, ElasticLaw, IpProps, Spring
 use elmer_solver::sim::VarSpec;
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry, Variable};
 
-use crate::boundary::{elastic_boundary_local, node_uvw, BoundaryInput, ParentInput};
-use crate::bulk::{elastic_bulk_local, BulkInput};
+use crate::boundary::{elastic_boundary_local, elastic_boundary_local_p, node_uvw, BoundaryInput, ParentInput};
+use crate::bulk::{elastic_bulk_local, elastic_bulk_local_p, BulkInput};
 use crate::law::Voigt6;
 use crate::neohooke::{neo_hookean_local, NeoHookeInput};
 use crate::props;
@@ -125,6 +125,8 @@ struct Model {
     neo_hookean: bool,
     /// `Elasticity Solver Linear`: assemble at zero displacement.
     linear_model: bool,
+    /// `Incompressible`: the linear mixed formulation (`LinearIncompressible`).
+    incompressible: bool,
 }
 
 fn model_of(p: &ParamMap) -> Model {
@@ -132,6 +134,7 @@ fn model_of(p: &ParamMap) -> Model {
         large: p.logical("large deflection").unwrap_or(true),
         neo_hookean: flag(Some(p), "neo-hookean material"),
         linear_model: flag(Some(p), "elasticity solver linear"),
+        incompressible: flag(Some(p), "incompressible"),
     }
 }
 
@@ -139,7 +142,6 @@ fn model_of(p: &ParamMap) -> Model {
 fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
     for (key, what) in [
         ("mixed formulation", "mixed (pressure) formulation"),
-        ("incompressible", "incompressible formulation"),
         ("harmonic analysis", "harmonic analysis"),
         ("harmonic mode", "harmonic analysis"),
         ("calculate pangle", "principal angle postprocessing"),
@@ -576,16 +578,48 @@ impl ElasticSolver {
             let el = ctx.mesh.element(e);
             let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
             let d = self.element_data(ctx, e, cdim, model, temp_ref)?;
-            let disp: Vec<[f64; 3]> = el
-                .nodes
-                .iter()
-                .map(|&n| match disp_perm.get(n as usize) {
-                    Some(&s) if s != elmer_core::NO_DOF => {
-                        std::array::from_fn(|a| if a < dofs.min(3) { disp_vals[s as usize * dofs + a] } else { 0.0 })
+            // The dof slots: the nodes' through the permutation, or the p
+            // element's (`GetElementDOFs`), with its scalar basis and rule.
+            let pe = match ctx.solver_dofs() {
+                Some(dd) => {
+                    if dd.element_nodes(e) != el.nodes {
+                        return Err(unsupported("p elements whose basis reorders the nodes"));
                     }
-                    _ => [0.0; 3],
+                    let mut s = Vec::new();
+                    dd.element_slots(e, &mut s);
+                    let slots: Vec<Option<usize>> =
+                        s.into_iter().map(|s| (s != elmer_core::NO_DOF).then_some(s as usize)).collect();
+                    Some((
+                        slots,
+                        dd.element_basis_scalar(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
+                        dd.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?,
+                    ))
+                }
+                None => None,
+            };
+            let slots: Vec<Option<usize>> = match &pe {
+                Some(p) => p.0.clone(),
+                None => el
+                    .nodes
+                    .iter()
+                    .map(|&n| disp_perm.get(n as usize).copied().filter(|&s| s != elmer_core::NO_DOF).map(|s| s as usize))
+                    .collect(),
+            };
+            let cd = if model.incompressible { cdim } else { dofs.min(3) };
+            let disp: Vec<[f64; 3]> = slots
+                .iter()
+                .map(|s| match s {
+                    Some(s) => std::array::from_fn(|a| if a < cd { disp_vals[s * dofs + a] } else { 0.0 }),
+                    None => [0.0; 3],
                 })
                 .collect();
+            // `Pressure = SUM(LocalDisplacement(DOFs,1:n) * Basis(1:n))`.
+            let pressure: Option<Vec<f64>> = model.incompressible.then(|| {
+                slots[..el.nodes.len()].iter().map(|s| s.map_or(0.0, |s| disp_vals[s * dofs + cdim])).collect()
+            });
+            if pe.is_some() && d.ip.is_some() {
+                return Err(unsupported("material values at integration points in p-element stress postprocessing"));
+            }
             let inp = StressPostInput {
                 etype: el.etype,
                 xyz: &xyz,
@@ -602,13 +636,18 @@ impl ElasticSolver {
                 np: rel_np(&*fe.quad, el.etype, RelOrders::of(ctx.params()).bulk)?,
                 large_deflection: model.large,
                 neo_hookean: model.neo_hookean,
+                pressure: pressure.as_deref(),
             };
-            let loc = stress_strain_local(&*fe.basis, &*fe.quad, &inp).map_err(|x| fatal(x.to_string()))?;
-            let slots: Vec<Option<usize>> = el
-                .nodes
-                .iter()
-                .map(|&n| disp_perm.get(n as usize).copied().filter(|&s| s != elmer_core::NO_DOF).map(|s| s as usize))
-                .collect();
+            let loc = match &pe {
+                Some((sl, basis, rule)) => {
+                    if inp.np.is_some() {
+                        return Err(unsupported("a relative integration order on p elements"));
+                    }
+                    post::stress_strain_local_p(&**basis, rule, sl.len(), &inp)
+                }
+                None => stress_strain_local(&*fe.basis, &*fe.quad, &inp),
+            }
+            .map_err(|x| fatal(x.to_string()))?;
             mass.add(&slots, &loc.mass);
             for (p, s) in slots.iter().enumerate() {
                 let Some(s) = s else { continue };
@@ -623,7 +662,9 @@ impl ElasticSolver {
             }
         }
 
-        let project = |f: &[f64]| -> Result<Vec<f64>, SolverError> {
+        let mut projector = post::Projector::new(ctx, &mass, ctx.solver_dofs().is_some())?;
+        let comm = ctx.comm;
+        let mut project = |f: &[f64]| -> Result<Vec<f64>, SolverError> {
             let mut out = vec![0.0; nslots * ncomp];
             let mut b = vec![0.0; nslots];
             let mut x = vec![0.0; nslots];
@@ -631,7 +672,7 @@ impl ElasticSolver {
                 for s in 0..nslots {
                     b[s] = f[ncomp * s + k];
                 }
-                mass.solve(&b, &mut x).map_err(|e| fatal(e.to_string()))?;
+                projector.solve(comm, &b, &mut x)?;
                 for s in 0..nslots {
                     out[ncomp * s + k] = x[s];
                 }
@@ -704,7 +745,26 @@ impl Solver for ElasticSolver {
         check_solver_params(ctx.params())?;
         let dim = ctx.mesh.dim();
         let dofs = ctx.primary().map(|f| f.dofs);
-        if dofs != Some(dim) {
+        let model = model_of(ctx.params());
+        // ElasticSolve.F90:728-750: the checks of "Incompressible".
+        if model.incompressible {
+            if model.neo_hookean {
+                return Err(fatal("\"Incompressible\" is the linear mixed formulation and cannot be combined with a neo-Hookean material"));
+            }
+            if dofs != Some(dim + 1) {
+                return Err(fatal("\"Incompressible\" needs one more variable DOF than there are dimensions"));
+            }
+            if model.large {
+                return Err(fatal("\"Incompressible\" is a small strain formulation: set \"Large Deflection = False\""));
+            }
+            // ElasticSolver_Init: `Element Integration Points` for the MINI
+            // element on triangles, tetrahedra and prisms; not ported.
+            let bubbles = ctx.params().string("element").is_some_and(|s| s.contains("b:"));
+            let mesh = ctx.mesh;
+            if bubbles && (0..mesh.n_bulk() as u32).any(|e| matches!(mesh.element(ElemId(e)).etype.0 / 100, 3 | 5 | 7)) {
+                return Err(unsupported("\"Incompressible\" with bubbles on triangles, tetrahedra or prisms (Element Integration Points)"));
+            }
+        } else if dofs != Some(dim) {
             return Err(fatal(format!("'Variable DOFs' must equal the coordinate dimension {dim}, got {dofs:?}")));
         }
         // ElasticSolver_Init: the time derivative order is two unless the sif says otherwise.
@@ -875,12 +935,42 @@ impl Solver for ElasticSolver {
                 let el = ctx.mesh.element(e);
                 let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
                 let d = self.element_data(ctx, e, cdim, model, &temp_ref)?;
-                let plane_stress = flag(ctx.body_params(e).and_then(|b| b.equation), "plane stress");
-                let disp = if model.linear_model {
-                    vec![[0.0; 3]; el.nodes.len()]
-                } else {
-                    local_displacement(&field, el.nodes, cdim)
+                // ElasticSolve.F90:2080: "Incompressible" overrides "Plane Stress".
+                let plane_stress = flag(ctx.body_params(e).and_then(|b| b.equation), "plane stress") && !model.incompressible;
+                // A p element: its dofs (`GetElementDOFs`, bubbles in the
+                // global system), the scalar `ElementInfo` and its rule.
+                let pe = match ctx.solver_dofs() {
+                    Some(dd) => {
+                        let mut slots = Vec::new();
+                        dd.element_slots(e, &mut slots);
+                        if dd.element_nodes(e) != el.nodes {
+                            return Err(unsupported("p elements whose basis reorders the nodes"));
+                        }
+                        Some((
+                            slots,
+                            dd.element_basis_scalar(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
+                            dd.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?,
+                        ))
+                    }
+                    None => None,
                 };
+                let disp = match &pe {
+                    _ if model.linear_model => vec![[0.0; 3]; pe.as_ref().map_or(el.nodes.len(), |p| p.0.len())],
+                    Some((slots, _, _)) => slots
+                        .iter()
+                        .map(|&s| {
+                            if s == elmer_core::NO_DOF {
+                                [0.0; 3]
+                            } else {
+                                std::array::from_fn(|a| if a < cdim { field.values[s as usize * field.dofs + a] } else { 0.0 })
+                            }
+                        })
+                        .collect(),
+                    None => local_displacement(&field, el.nodes, cdim),
+                };
+                if pe.is_some() && (model.neo_hookean || d.ip.is_some()) {
+                    return Err(unsupported("p elements with the neo-Hookean material or properties at integration points"));
+                }
                 let fe = self.fe();
                 let mut local = LocalSystem::zeros(0);
                 if model.neo_hookean {
@@ -932,8 +1022,18 @@ impl Solver for ElasticSolver {
                         np: bulk_np,
                         ip: d.ip.as_ref(),
                         geometric: geometric_active.then_some(stability),
+                        incompressible: model.incompressible,
                     };
-                    elastic_bulk_local(&*fe.basis, &*fe.quad, &inp, &mut local).map_err(|x| fatal(x.to_string()))?;
+                    match &pe {
+                        Some((slots, basis, rule)) => {
+                            if bulk_np.is_some() {
+                                return Err(unsupported("a relative integration order on p elements"));
+                            }
+                            elastic_bulk_local_p(&**basis, rule, slots.len(), &inp, &mut local)
+                        }
+                        None => elastic_bulk_local(&*fe.basis, &*fe.quad, &inp, &mut local),
+                    }
+                    .map_err(|x| fatal(x.to_string()))?;
                 }
                 if transient {
                     let nn = local.n * local.n;
@@ -1081,6 +1181,33 @@ impl Solver for ElasticSolver {
                     (None, Some(r)) => r,
                     (None, None) => return Err(fatal(format!("boundary element {} has no parent", e.0))),
                 };
+                // A p boundary element: its dofs, the scalar `ElementInfo` and
+                // rule, and its nodes in the parent edge's order
+                // (`AssignLocalNumber`), the nodal data following them.
+                let pb = match ctx.solver_dofs() {
+                    Some(dd) => {
+                        let mut slots = Vec::new();
+                        dd.element_slots(e, &mut slots);
+                        Some((
+                            slots.len(),
+                            dd.element_nodes(e),
+                            dd.element_basis_scalar(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
+                            dd.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?,
+                        ))
+                    }
+                    None => None,
+                };
+                let bnodes: Vec<u32> = pb.as_ref().map_or_else(|| el.nodes.to_vec(), |p| p.1.clone());
+                if bnodes != el.nodes {
+                    let at: Vec<usize> = bnodes
+                        .iter()
+                        .map(|b| el.nodes.iter().position(|m| m == b).ok_or_else(|| fatal("p boundary nodes differ from the mesh's")))
+                        .collect::<Result<_, _>>()?;
+                    traction = at.iter().map(|&k| traction[k]).collect();
+                    beta = beta.map(|v| at.iter().map(|&k| v[k]).collect());
+                    spring_normal = spring_normal.map(|v| at.iter().map(|&k| v[k]).collect());
+                    spring_tensor = spring_tensor.map(|v| at.iter().map(|&k| v[k]).collect());
+                }
                 let pel = ctx.mesh.element(parent);
                 let pxyz: Vec<[f64; 3]> = pel.nodes.iter().map(|&nn| ctx.mesh.coord(nn)).collect();
                 let pdisp = if model.linear_model {
@@ -1089,8 +1216,7 @@ impl Solver for ElasticSolver {
                     local_displacement(&field, pel.nodes, cdim)
                 };
                 let table = node_uvw(pel.etype).ok_or_else(|| unsupported(&format!("parent element type {}", pel.etype.0)))?;
-                let node_local: Vec<[f64; 3]> = el
-                    .nodes
+                let node_local: Vec<[f64; 3]> = bnodes
                     .iter()
                     .map(|bn| {
                         pel.nodes
@@ -1102,7 +1228,7 @@ impl Solver for ElasticSolver {
                     .collect::<Result<_, _>>()?;
                 let fe = self.fe();
                 let center = parent_center(&*fe.basis, &pxyz, pel.etype)?;
-                let bxyz: Vec<[f64; 3]> = el.nodes.iter().map(|&nn| ctx.mesh.coord(nn)).collect();
+                let bxyz: Vec<[f64; 3]> = bnodes.iter().map(|&nn| ctx.mesh.coord(nn)).collect();
                 let nt = beta.unwrap_or_else(|| vec![0.0; n]);
                 let spring = if let Some(sn) = &spring_normal {
                     Spring::Normal(sn)
@@ -1123,9 +1249,19 @@ impl Solver for ElasticSolver {
                     spring,
                     parent: ParentInput { etype: pel.etype, xyz: &pxyz, disp: &pdisp, node_uvw: &node_local, center },
                     np: rel_np(&*fe.quad, ElementType(el.etype.0), RelOrders::of(ctx.params()).bc)?,
+                    stride: field.dofs,
                 };
                 let mut local = LocalSystem::zeros(0);
-                elastic_boundary_local(&*fe.basis, &*fe.quad, &inp, &mut local).map_err(|x| fatal(x.to_string()))?;
+                match &pb {
+                    Some((ntot, _, basis, rule)) => {
+                        if inp.np.is_some() {
+                            return Err(unsupported("a relative integration order on p boundary elements"));
+                        }
+                        elastic_boundary_local_p(&**basis, rule, *ntot, &inp, &mut local)
+                    }
+                    None => elastic_boundary_local(&*fe.basis, &*fe.quad, &inp, &mut local),
+                }
+                .map_err(|x| fatal(x.to_string()))?;
                 if transient {
                     local.mass = Some(vec![0.0; local.n * local.n]);
                     if second_order {

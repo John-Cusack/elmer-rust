@@ -107,6 +107,14 @@ fn boundary_elements(mesh: &dyn MeshView) -> impl Iterator<Item = ElemId> {
 /// boundary elements (a boundary element counts only through a BC's
 /// `Body Id`; otherwise its body id is 0 and it is inactive).
 pub fn initial_permutation(mesh: &dyn MeshView, active: &dyn Fn(ElemId) -> bool) -> Perm {
+    initial_permutation_ndeg(mesh, active, mesh.n_nodes())
+}
+
+/// [`initial_permutation`] with Elmer's permutation size `Ndeg`
+/// (AddEquationBasics): on a mesh carrying p dofs of another solver it
+/// exceeds the node count, and `CreateMatrix` keeps the element order even
+/// when every node is used (`k == SIZE(Perm)` is false).
+pub fn initial_permutation_ndeg(mesh: &dyn MeshView, active: &dyn Fn(ElemId) -> bool, ndeg: usize) -> Perm {
     let n_nodes = mesh.n_nodes();
     let mut perm = vec![NO_DOF; n_nodes];
     let mut k = 0u32;
@@ -133,7 +141,7 @@ pub fn initial_permutation(mesh: &dyn MeshView, active: &dyn Fn(ElemId) -> bool)
     }
     // CreateMatrix: when every slot is used Elmer discards the element
     // order and takes the identity.
-    if k as usize == n_nodes {
+    if k as usize == n_nodes && ndeg == n_nodes {
         for (i, p) in perm.iter_mut().enumerate() {
             *p = i as u32;
         }
@@ -207,7 +215,17 @@ pub fn build_perm_with(
     active: &dyn Fn(ElemId) -> bool,
     opts: PermOptions,
 ) -> (Perm, BandwidthReport) {
-    let init = initial_permutation(mesh, active);
+    build_perm_with_ndeg(mesh, active, opts, mesh.n_nodes())
+}
+
+/// [`build_perm_with`] from [`initial_permutation_ndeg`].
+pub fn build_perm_with_ndeg(
+    mesh: &dyn MeshView,
+    active: &dyn Fn(ElemId) -> bool,
+    opts: PermOptions,
+    ndeg: usize,
+) -> (Perm, BandwidthReport) {
+    let init = initial_permutation_ndeg(mesh, active, ndeg);
     let list = list_matrix(mesh, active, &init);
     let (perm, report, _) = optimize(init, &list, opts);
     (perm, report)

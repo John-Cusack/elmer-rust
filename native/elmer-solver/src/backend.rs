@@ -84,6 +84,12 @@ pub trait SolverDofs: Send + Sync {
     fn n_edges(&self) -> usize {
         0
     }
+    /// The parts of Elmer's `Ndeg` beyond the nodes that this layout gives
+    /// the mesh: `MaxBDOFs * NumberOfBulkElements`, and `MaxEDOFs *
+    /// NumberOfEdges + MaxFDOFs * NumberOfFaces`.
+    fn ndeg_parts(&self) -> (usize, usize) {
+        (0, 0)
+    }
     /// `isActivePElement(Element, Solver)`. The default is `false`.
     fn is_p_element(&self, e: ElemId) -> bool {
         let _ = e;
@@ -182,6 +188,13 @@ pub trait AssemblyBackend: Send + Sync {
     /// [`build_perm`](Self::build_perm) from the solver section: `Optimize
     /// Bandwidth` (default true) and, where supported, `Optimize Bandwidth
     /// Use Always`.
+    /// [`Self::build_perm_for`] with Elmer's permutation size `Ndeg` when it
+    /// exceeds the node count (p dofs of other solvers on the mesh). The
+    /// default ignores it.
+    fn build_perm_ndeg(&self, mesh: &dyn MeshView, active: &[ElemId], params: &ParamMap, _ndeg: usize) -> Result<Perm, SolverError> {
+        self.build_perm_for(mesh, active, params)
+    }
+
     fn build_perm_for(&self, mesh: &dyn MeshView, active: &[ElemId], params: &ParamMap) -> Result<Perm, SolverError> {
         use elmer_core::Params;
         if params.logical("optimize bandwidth use always") == Some(true) {

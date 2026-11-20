@@ -388,6 +388,9 @@ pub struct Simulation {
     /// `Element % DGIndexes` of the mesh, once a DG variable asked for them
     /// ([`crate::exported::DgIndexes`]).
     pub dg_indexes: Option<crate::exported::DgIndexes>,
+    /// The mesh-wide p dofs of the p solvers ([`SolverDofs::ndeg_parts`],
+    /// their maxima): what makes a nodal solver's `Ndeg` exceed the nodes.
+    pub(crate) p_ndeg_parts: Option<(usize, usize)>,
 }
 
 /// `SaveCurrent` (ElmerSolver.F90:3700): the `Output File` writer, called
@@ -451,7 +454,46 @@ impl Simulation {
             save_current: None,
             node_owned: None,
             arpack: Default::default(),
+            p_ndeg_parts: None,
         }
+    }
+
+    /// `Ndeg` of a nodal solver (AddEquationBasics, MainUtils.F90:1657-1712):
+    /// the nodes, the mesh's bubbles when the solver keeps bubbles in the
+    /// global system (`SetGlobalBubblesFlag`), and the edge and face dofs.
+    /// The p layouts of the other solvers are built once to find them.
+    fn nodal_ndeg(&mut self, mesh: &dyn MeshView, slot: &SolverSlot) -> Result<usize, SolverError> {
+        if self.p_ndeg_parts.is_none() {
+            let mut parts = (0, 0);
+            if let Some(b) = &self.backends.dofs {
+                let nb = mesh.n_bulk();
+                for (j, params) in self.model.solvers.iter().enumerate() {
+                    if j + 1 == slot.id || params.logical("discontinuous galerkin") == Some(true) {
+                        continue;
+                    }
+                    let active: Vec<ElemId> = (0..(nb + mesh.n_boundary()) as u32)
+                        .map(ElemId)
+                        .filter(|&e| {
+                            let tag = mesh.element(e).tag;
+                            let body = if (e.0 as usize) < nb { self.model.body_of_tag(tag) } else { self.model.boundary_body(tag) };
+                            body.is_some_and(|bd| self.model.solver_active_on_body(j + 1, bd))
+                        })
+                        .collect();
+                    let dofs = params.integer("variable dofs").unwrap_or(1).max(1) as usize;
+                    if let Some(d) = b.for_solver_id(mesh, &self.model, j + 1, params, &active, dofs) {
+                        let (bub, ef) = d?.ndeg_parts();
+                        parts = (parts.0.max(bub), parts.1.max(ef));
+                    }
+                }
+            }
+            self.p_ndeg_parts = Some(parts);
+        }
+        let (bub, ef) = self.p_ndeg_parts.unwrap_or((0, 0));
+        let p = &slot.params;
+        let gb = p
+            .logical("bubbles in global system")
+            .unwrap_or_else(|| p.string("element").is_some_and(|s| s.contains("p:") || s.contains("b:")));
+        Ok(mesh.n_nodes() + if gb { bub } else { 0 } + ef)
     }
 
     /// Installs the `Output File` writer for this and later runs.
@@ -1083,7 +1125,15 @@ impl Simulation {
             (Some(d), _) => d.perm(),
             // CreateMatrix: no bandwidth optimisation for conforming BCs.
             (None, Some(b)) if conforming => b.build_perm(mesh, &slot.active, false),
-            (None, Some(b)) => b.build_perm_for(mesh, &slot.active, &slot.params)?,
+            (None, Some(_)) => {
+                let ndeg = self.nodal_ndeg(mesh, slot)?;
+                let b = self.backends.assembly.as_ref().expect("matched above");
+                if ndeg > mesh.n_nodes() {
+                    b.build_perm_ndeg(mesh, &slot.active, &slot.params, ndeg)?
+                } else {
+                    b.build_perm_for(mesh, &slot.active, &slot.params)?
+                }
+            }
             (None, None) => node_order_perm(mesh, &slot.active),
         };
         let mut perm = perm;

@@ -114,6 +114,15 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
             params.insert("Variable", Value::Str("Displacement".into()));
             params.insert("Variable Dofs", Value::Integer(vec![cdim as i32]));
         }
+        // ElasticSolve.F90:180: `ListAddNewLogical('Bubbles in Global
+        // System', .TRUE.)`, which also sizes a nodal instance's permutation
+        // for the mesh's bubbles (AddEquationBasics).
+        let elasticsolve = procedure_of(params).is_some_and(|(lib, entry)| {
+            lib.eq_ignore_ascii_case("elasticsolve") && entry.eq_ignore_ascii_case("elasticsolver")
+        });
+        if elasticsolve && params.get("bubbles in global system").is_none() {
+            params.insert("Bubbles in Global System", Value::Logical(true));
+        }
         // `HeatSolver_init` (HeatSolve.F90:167): `Variable = Temperature`.
         let heat = procedure_of(params).is_some_and(|(lib, entry)| {
             lib.eq_ignore_ascii_case("heatsolve") && entry.eq_ignore_ascii_case("heatsolver")
@@ -539,8 +548,9 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 17] = [
+    const P_DOFS: [(&str, &str); 18] = [
         ("benchmarkshell", "shellsolver"),
+        ("elasticsolve", "elasticsolver"),
         ("filmflowsolver", "filmflowsolver"),
         ("flowsolve", "flowsolver"),
         ("heatsolve", "heatsolver"),

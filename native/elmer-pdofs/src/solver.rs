@@ -86,6 +86,12 @@ impl SolverDofs for PSetup {
         self.mesh.edges.len()
     }
 
+    fn ndeg_parts(&self) -> (usize, usize) {
+        let m = &self.mesh;
+        let bdofs = m.elements[..m.n_bulk].iter().map(|e| e.bdofs).max().unwrap_or(0);
+        (bdofs * m.n_bulk, m.max_edge_dofs * m.edges.len() + m.max_face_dofs * m.n_faces)
+    }
+
     /// The p basis of an active p element; for any other element (a
     /// boundary element without a p parent, say) `ElementInfo`'s nodal
     /// Lagrange basis, as Elmer evaluates it there.

@@ -79,6 +79,9 @@ pub struct StressBulkInput<'a> {
     /// The geometric stiffness of the prestressed state (the second pass of
     /// `Geometric Stiffness` / `Stability Analysis`).
     pub geometric: Option<Geometric<'a>>,
+    /// StressSolve's `Incompressible`: a pressure unknown after the `cdim`
+    /// displacement components of each dof (`ndim = dim + 1`).
+    pub incompressible: bool,
 }
 
 /// The geometric stiffness term of ElasticSolve's `LocalMatrix`
@@ -198,6 +201,9 @@ fn bulk_impl(
         return Err(StressError::Unsupported(format!(
             "coordinate system dimension {cdim}"
         )));
+    }
+    if inp.incompressible {
+        return incompressible_impl(basis, points, nd, inp, out);
     }
     if axi && cdim != 2 {
         return Err(StressError::Unsupported(
@@ -549,6 +555,96 @@ fn bulk_impl(
                     }
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+/// `StressCompose` with `Incompressible` (Stress.F90:572-740): for each
+/// pair of basis functions `A(i,i) += Y/3 dq.dp`, `A(i,j) += Y/3 dq_i dp_j`
+/// and the pressure couplings `A(i,ndim) -= N_q dp_i`, `A(ndim,i) -=
+/// dq_i N_p`; the loads as without it. The pressure lives on the nodal
+/// functions: higher pressure dofs are eliminated with a unit diagonal,
+/// and `STIFF = (STIFF + STIFF^T)/2`. Isotropic, Cartesian, without thermal
+/// or prestress loads, mass or `GPA`.
+fn incompressible_impl(
+    basis: &dyn ElementBasis,
+    points: &[QuadPoint],
+    nd: usize,
+    inp: &StressBulkInput<'_>,
+    out: &mut LocalSystem,
+) -> Result<(), StressError> {
+    let n = inp.etype.n_nodes();
+    let cdim = inp.cdim;
+    let ElasticLaw::Isotropic { young, .. } = inp.law else {
+        return Err(StressError::Unsupported("\"Incompressible\" with an anisotropic material".into()));
+    };
+    let unsupported = inp.coord == CoordSystem::AxiSymmetric
+        || inp.want_mass
+        || inp.gpa.is_some()
+        || inp.ip.is_some()
+        || inp.stress_load.is_some()
+        || inp.strain_load.is_some()
+        || inp.temperature.is_some_and(|t| t.iter().any(|x| *x != 0.0));
+    if unsupported {
+        return Err(StressError::Unsupported(
+            "\"Incompressible\" with axial symmetry, mass, GPA, integration point data, prestress or thermal loads".into(),
+        ));
+    }
+    if inp.xyz.len() != n || inp.load.len() != n || young.len() != n {
+        return Err(StressError::Input(format!("element {} needs {n} nodal values", inp.etype.0)));
+    }
+    let ndim = cdim + 1;
+    let ndof = nd * ndim;
+    *out = LocalSystem::zeros(ndof);
+    let mut be = BasisEval::default();
+    for qp in points {
+        basis.eval(inp.etype, inp.xyz, qp.uvw, &mut be).map_err(StressError::Basis)?;
+        let bas = &be.basis;
+        let db = &be.dbasis_dx;
+        let s = be.det_j * qp.weight;
+        let y: f64 = (0..n).map(|k| bas[k] * young[k]).sum();
+        let mut force = [0.0; 3];
+        for (i, f) in force.iter_mut().enumerate().take(cdim) {
+            *f = (0..n).map(|k| inp.load[k][i] * bas[k]).sum();
+        }
+        let pressure: f64 = inp.pressure_load.map_or(0.0, |p| (0..n).map(|k| p[k] * bas[k]).sum());
+        for p in 0..nd {
+            for q in 0..nd {
+                let mut a = [[0.0; 4]; 4];
+                for i in 0..cdim {
+                    for j in 0..cdim {
+                        a[i][i] += y / 3.0 * db[q][j] * db[p][j];
+                        a[i][j] += y / 3.0 * db[q][i] * db[p][j];
+                    }
+                    a[i][cdim] -= bas[q] * db[p][i];
+                    a[cdim][i] -= db[q][i] * bas[p];
+                }
+                for (i, row) in a.iter().enumerate().take(ndim) {
+                    for (j, v) in row.iter().enumerate().take(ndim) {
+                        out.stiff[(ndim * p + i) * ndof + ndim * q + j] += s * v;
+                    }
+                }
+            }
+            for i in 0..cdim {
+                out.force[ndim * p + i] += s * (force[i] * bas[p] + pressure * db[p][i]);
+            }
+        }
+    }
+    for p in n..nd {
+        let j = ndim * p + cdim;
+        out.force[j] = 0.0;
+        for k in 0..ndof {
+            out.stiff[j * ndof + k] = 0.0;
+            out.stiff[k * ndof + j] = 0.0;
+        }
+        out.stiff[j * ndof + j] = 1.0;
+    }
+    for i in 0..ndof {
+        for j in i + 1..ndof {
+            let v = (out.stiff[i * ndof + j] + out.stiff[j * ndof + i]) / 2.0;
+            out.stiff[i * ndof + j] = v;
+            out.stiff[j * ndof + i] = v;
         }
     }
     Ok(())
