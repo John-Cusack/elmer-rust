@@ -8,20 +8,24 @@
 mod support;
 
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::cell::Cell;
 
 use elmer_core::SerialComm;
 use elmer_solver::{Simulation, Solver, SolverCtx, SolverError, SolverRegistry};
 use support::{sif_model, Capture};
 
-/// The active elements of the last visit.
-static ACTIVE: AtomicUsize = AtomicUsize::new(usize::MAX);
+thread_local! {
+    /// The active elements of the last visit. Per thread: the tests run in
+    /// parallel, each solver on its own test's thread, and a shared counter
+    /// let one test read the other's count.
+    static ACTIVE: Cell<usize> = const { Cell::new(usize::MAX) };
+}
 
 struct Count;
 
 impl Solver for Count {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
-        ACTIVE.store(ctx.active_elements().count(), Ordering::SeqCst);
+        ACTIVE.with(|a| a.set(ctx.active_elements().count()));
         Ok(())
     }
 }
@@ -37,14 +41,14 @@ fn run(defaults: bool) -> (usize, Simulation, Capture) {
     if defaults {
         model.add_default_sections();
     }
-    ACTIVE.store(usize::MAX, Ordering::SeqCst);
+    ACTIVE.with(|a| a.set(usize::MAX));
     let mut reg = SolverRegistry::new();
     reg.register("L2ndDerivativesTest", "TestSolver", count);
     let log = Capture::default();
     let mut sim = Simulation::new(model);
     sim.setup(&mesh, &reg, &log, &SerialComm).unwrap();
     sim.run(&mesh, &log, &SerialComm).unwrap();
-    (ACTIVE.load(Ordering::SeqCst), sim, log)
+    (ACTIVE.with(Cell::get), sim, log)
 }
 
 #[test]
