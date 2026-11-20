@@ -241,7 +241,45 @@ pub fn run_limited(mut cmd: Command, limit: Duration) -> io::Result<(Option<i32>
 /// Copies the test into `scratch/<name>` (configured build files first,
 /// then whatever the source directory has that the build copy lacks) and
 /// runs its ElmerGrid steps with the pristine binary, serially at nice 10.
+/// The file that marks a scratch directory as elmer-coverage's own: only
+/// in such a directory are per-test directories deleted.
+pub const SCRATCH_MARKER: &str = ".elmer-coverage-scratch";
+
+/// Takes `scratch` as the run's scratch directory: one that does not exist
+/// is created, an empty one adopted, and either gets [`SCRATCH_MARKER`]. A
+/// non-empty directory without the marker was not created by elmer-coverage
+/// and is refused, so nothing in it is ever deleted.
+pub fn prepare_scratch(scratch: &Path) -> Result<(), String> {
+    let marker = scratch.join(SCRATCH_MARKER);
+    if marker.is_file() {
+        return Ok(());
+    }
+    if scratch.exists() {
+        let empty = fs::read_dir(scratch).map_err(|e| format!("scratch {}: {e}", scratch.display()))?.next().is_none();
+        if !empty {
+            return Err(format!(
+                "scratch {} exists, is not empty and was not created by elmer-coverage (no {SCRATCH_MARKER}); pass a new or empty --scratch",
+                scratch.display()
+            ));
+        }
+    } else {
+        fs::create_dir_all(scratch).map_err(|e| format!("scratch {}: {e}", scratch.display()))?;
+    }
+    fs::write(&marker, "elmer-coverage scratch: per-test directories here are deleted and recreated\n")
+        .map_err(|e| format!("scratch {}: {e}", marker.display()))
+}
+
+/// Whether `scratch` carries [`SCRATCH_MARKER`] (see [`prepare_scratch`]).
+pub fn owns_scratch(scratch: &Path) -> bool {
+    scratch.join(SCRATCH_MARKER).is_file()
+}
+
+/// Stages `test` in `scratch/<name>`, replacing an earlier copy. Refuses
+/// a scratch that [`prepare_scratch`] did not take.
 pub fn stage(test: &QuickTest, steps: &[Step], scratch: &Path, elmergrid: &Path) -> Result<PathBuf, String> {
+    if !owns_scratch(scratch) {
+        return Err(format!("scratch {} is not an elmer-coverage scratch (no {SCRATCH_MARKER})", scratch.display()));
+    }
     let dir = scratch.join(&test.name);
     let _ = fs::remove_dir_all(&dir);
     copy_tree(&test.work_dir, &dir, true, true).map_err(|e| format!("copy {}: {e}", test.work_dir.display()))?;
@@ -267,6 +305,45 @@ pub fn stage(test: &QuickTest, steps: &[Step], scratch: &Path, elmergrid: &Path)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("elmer-coverage-test-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        d
+    }
+
+    /// A non-empty directory elmer-coverage did not create is refused and
+    /// left alone, staging into it included; a new or empty one is taken
+    /// and marked.
+    #[test]
+    fn foreign_scratch_is_never_cleaned() {
+        let foreign = tmp("foreign");
+        fs::create_dir_all(foreign.join("SomeTest")).unwrap();
+        fs::write(foreign.join("SomeTest/keep.txt"), "old lane data").unwrap();
+        assert!(prepare_scratch(&foreign).is_err());
+        assert!(!owns_scratch(&foreign));
+        let test = QuickTest {
+            name: "SomeTest".into(),
+            work_dir: foreign.join("nowhere"),
+            source_dir: foreign.join("nowhere"),
+            nprocs: 1,
+            labels: vec![],
+        };
+        assert!(stage(&test, &[], &foreign, Path::new("ElmerGrid")).is_err());
+        assert_eq!(fs::read_to_string(foreign.join("SomeTest/keep.txt")).unwrap(), "old lane data");
+
+        let fresh = tmp("fresh");
+        prepare_scratch(&fresh).unwrap();
+        assert!(owns_scratch(&fresh));
+        prepare_scratch(&fresh).unwrap();
+        let empty = tmp("empty");
+        fs::create_dir_all(&empty).unwrap();
+        prepare_scratch(&empty).unwrap();
+        assert!(owns_scratch(&empty));
+        for d in [foreign, fresh, empty] {
+            fs::remove_dir_all(d).unwrap();
+        }
+    }
 
     #[test]
     fn elmergrid_and_run() {
