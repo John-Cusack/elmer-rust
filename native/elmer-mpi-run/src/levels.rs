@@ -10,7 +10,9 @@
 //! face, which both sides recognise by the sorted global ids of the parent
 //! nodes. The lowest holding rank owns the node. New global ids continue
 //! after the largest old one: owners number their new nodes in local order,
-//! rank by rank, and send the ids to the other holders.
+//! rank by rank, and send the ids to the other holders. Each rank then puts
+//! its new nodes in the order of their global ids, as SParGlobalNumbering
+//! does.
 
 use std::collections::HashMap;
 
@@ -226,15 +228,35 @@ pub fn split(mesh: &ParMesh, ex: &dyn Exchange) -> Result<ParMesh, SolverError> 
         return Err(SolverError::fatal("SParEdgeNumbering", missing.unwrap_or_else(|| "another rank lost a new node".into())));
     }
 
+    // SParGlobalNumbering ends by putting the new nodes in the order of
+    // their global ids (`SortI` of `GlobalDOFs(n:)` and `SwapNodes`), the
+    // elements following them (`Reorder`).
+    let n_old = gids.len();
+    let mut order: Vec<usize> = (0..new_gid.len()).collect();
+    order.sort_by_key(|&k| new_gid[k]);
+    let mut position = vec![0usize; new_gid.len()];
+    for (pos, &k) in order.iter().enumerate() {
+        position[k] = pos;
+    }
+    let renumber = |n: u32| -> u32 {
+        let n = n as usize;
+        if n < n_old {
+            n as u32
+        } else {
+            (n_old + position[n - n_old]) as u32
+        }
+    };
+    let coords: Vec<[f64; 3]> =
+        new.coords[..n_old].iter().copied().chain(order.iter().map(|&k| new.coords[n_old + k])).collect();
     let nodes = Nodes {
-        coords: new.coords.clone(),
-        gid: gids.iter().copied().chain(new_gid).collect(),
-        parts: holders.iter().cloned().chain(node_parts).collect(),
+        coords,
+        gid: gids.iter().copied().chain(order.iter().map(|&k| new_gid[k])).collect(),
+        parts: holders.iter().cloned().chain(order.iter().map(|&k| node_parts[k].clone())).collect(),
     };
     let elems = new
         .elements
         .iter()
-        .map(|e| Elem { etype: e.etype, nodes: e.nodes.clone(), tag: e.tag, parents: e.parents })
+        .map(|e| Elem { etype: e.etype, nodes: e.nodes.iter().map(|&n| renumber(n)).collect(), tag: e.tag, parents: e.parents })
         .collect();
     Ok(ParMesh::new(me, mesh.n_parts(), new.dim, nodes, elems, new.n_bulk))
 }
