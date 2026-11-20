@@ -15,9 +15,15 @@
 //! stored as `res: <var> lumped matrix norm` and its entries as `res: CMF i
 //! j`.
 //!
+//! With `Constraint Modes Analysis Frozen` the solve is the standard one
+//! and, from `DefaultFinish`, the linearized modes of the frozen state are
+//! solved with `Constraint Modes Rhs` loads (the mode direction times the
+//! boundary's basis integrals), one per boundary with a `Constraint Mode
+//! Direction` (`SingleMode`).
+//!
 //! Refused: modes set by `mode <n>: <component>` conditions, the `rhs`,
-//! `EM Wave` and `Coils` variants,
-//! `Constraint Modes Single` and mode directions, complex systems, modes over
+//! `Single` and mode directions without `Frozen` (and `Frozen` without
+//! `rhs`), the `EM Wave` and `Coils` variants, complex systems, modes over
 //! body forces or components, the external loops (`Nonlinear System`,
 //! `Steady State` and `Run Control Constraint Modes`), linkage, writing the
 //! lumped matrix to a file, symmetric Dirichlet elimination and p elements.
@@ -40,6 +46,12 @@ const CALLER: &str = "SetConstraintModesBoundaries";
 pub(crate) struct Modes {
     pub index: Vec<i32>,
     pub count: usize,
+    /// `ConstraintModesWeights` of `Constraint Modes Rhs`: each mode's load,
+    /// the mode direction times the boundary's basis integrals.
+    pub weights: Vec<f64>,
+    /// `Constraint Modes Analysis Frozen`: the solve is the standard one and
+    /// the modes are solved by [`frozen_modes`] from `DefaultFinish`.
+    pub frozen: bool,
 }
 
 /// A solver's "compute a lumped matrix" flag, which its `_init` expands
@@ -141,13 +153,31 @@ pub fn constraint_modes_lumping(ctx: &mut SolverCtx<'_>, l: &Lumping) {
     lumping_init(&mut sim.slots[ctx.slot].params, &mut model.boundary_conditions, &mut model.body_forces, l);
 }
 
+/// `Constraint Modes Analysis Frozen`: ConstraintModesDriver returns at
+/// once (`FrozenMode`), so the system is solved as it is and the modes stay
+/// the zeros `SetConstraintModesBoundaries` allocated.
+fn frozen(ctx: &SolverCtx<'_>) -> bool {
+    ctx.params().logical("constraint modes analysis frozen") == Some(true)
+}
+
 fn refuse(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
     let p = ctx.params();
+    // The rhs modes (`ConstraintModesWeights` as the load) and the single
+    // modes with their directions only matter to a driver that runs.
+    if !frozen(ctx) {
+        for k in ["constraint modes rhs", "constraint modes single"] {
+            if p.logical(k) == Some(true) {
+                return Err(SolverError::Unsupported(format!("Constraint Modes Analysis with {k}")));
+            }
+        }
+        let m = &ctx.sim.model;
+        if m.boundary_conditions.iter().chain(&m.body_forces).any(|b| b.get("constraint mode direction").is_some()) {
+            return Err(SolverError::Unsupported("Constraint Mode Direction".into()));
+        }
+    }
     for k in [
-        "constraint modes rhs",
         "constraint modes em wave",
         "constraint modes coils",
-        "constraint modes single",
         "nonlinear system constraint modes",
         "steady state constraint modes",
         "run control constraint modes",
@@ -169,9 +199,6 @@ fn refuse(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
     // Lumped modes set by `mode <n>: <component>` boundary conditions.
     if m.boundary_conditions.iter().any(|b| b.0.keys().any(|k| k.starts_with("mode "))) {
         return Err(SolverError::Unsupported("constraint modes set by mode <n>: boundary conditions".into()));
-    }
-    if m.boundary_conditions.iter().chain(&m.body_forces).any(|b| b.get("constraint mode direction").is_some()) {
-        return Err(SolverError::Unsupported("Constraint Mode Direction".into()));
     }
     if p.get("nonlinear post solvers").is_some() {
         return Err(SolverError::Unsupported("Constraint Modes Analysis with Nonlinear Post Solvers".into()));
@@ -238,7 +265,19 @@ pub(crate) fn set_boundaries(ctx: &mut SolverCtx<'_>, fixed: &mut BTreeMap<u32, 
     // `Ignore Constraint Modes p` then leaves the p dofs out (`nb = n`).
     let have_p = ctx.mesh.n_bulk() > 0 && ctx.solver_dofs().is_some_and(|d| d.is_p_element(elmer_core::ElemId(0)));
     let ignore_p = have_p && ctx.params().logical("ignore constraint modes p") == Some(true);
+    // `SingleMode` (`Constraint Modes Single`, else any `Constraint Mode
+    // Direction`): one mode per boundary for all components.
+    let single = match ctx.params().logical("constraint modes single") {
+        Some(s) => s,
+        None => {
+            let m = &ctx.sim.model;
+            m.boundary_conditions.iter().any(|b| b.get("constraint mode direction").is_some())
+        }
+    };
+    let rhs_mode = ctx.params().logical("constraint modes rhs") == Some(true);
     let mut index = vec![0i32; nrows];
+    let mut weights = if rhs_mode { vec![0.0; nrows] } else { Vec::new() };
+    let mut ev = elmer_core::BasisEval::default();
     let (nb, nt) = (ctx.mesh.n_bulk(), ctx.mesh.n_bulk() + ctx.mesh.n_boundary());
     // BCMode: the boundary elements; BFMode: every bulk element, active
     // or not, through its body's `Body Force`.
@@ -262,6 +301,32 @@ pub(crate) fn set_boundaries(ctx: &mut SolverCtx<'_>, fixed: &mut BTreeMap<u32, 
         if k == 0 {
             continue;
         }
+        if rhs_mode {
+            // ModeDir(1:ndofs) from `Constraint Mode Direction`, else ones;
+            // the weights get ModeDir(k) * s * Basis at the element's nodes.
+            let entity = if bc_mode { &ctx.sim.model.boundary_conditions[ent - 1] } else { &ctx.sim.model.body_forces[ent - 1] };
+            let mut dir = vec![1.0; dofs];
+            if let Some(Value::Real { data, .. }) = entity.get("constraint mode direction") {
+                for (d, &x) in dir.iter_mut().zip(data) {
+                    *d = x;
+                }
+            }
+            let fe = ctx.sim.backends.fe.as_ref().ok_or_else(|| SolverError::NotWired("basis and quadrature for Constraint Modes Rhs".into()))?;
+            let el = ctx.mesh.element(e);
+            let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+            for qp in fe.quadrature.gauss_points(el.etype, None) {
+                fe.basis.eval(el.etype, &xyz, qp.uvw, &mut ev).map_err(|m| SolverError::fatal(CALLER, m))?;
+                let s = qp.weight * ev.det_j;
+                for c in 0..dofs {
+                    for (i, &nd) in el.nodes.iter().enumerate() {
+                        let p = perm.get(nd as usize).copied().unwrap_or(elmer_core::NO_DOF);
+                        if p != elmer_core::NO_DOF {
+                            weights[dofs * p as usize + c] += dir[c] * s * ev.basis[i];
+                        }
+                    }
+                }
+            }
+        }
         // `Perm(Indexes(1:nb))` of `mGetElementDOFs`: the nodes, then any
         // p dofs of the element.
         let nodes = ctx.mesh.element(e).nodes;
@@ -282,7 +347,7 @@ pub(crate) fn set_boundaries(ctx: &mut SolverCtx<'_>, fixed: &mut BTreeMap<u32, 
                 continue;
             }
             for c in 0..dofs {
-                index[dofs * s as usize + c] = dofs as i32 * (k - 1) + c as i32 + 1;
+                index[dofs * s as usize + c] = if single { k } else { dofs as i32 * (k - 1) + c as i32 + 1 };
             }
         }
     }
@@ -306,7 +371,11 @@ pub(crate) fn set_boundaries(ctx: &mut SolverCtx<'_>, fixed: &mut BTreeMap<u32, 
     // Lumped: a mode per boundary and component; otherwise every mode dof
     // is a mode of its own, in row order.
     let count = if ctx.params().logical("constraint modes lumped") == Some(true) {
-        dofs as i32 * active
+        if single {
+            active
+        } else {
+            dofs as i32 * active
+        }
     } else {
         let mut count = 0;
         for v in index.iter_mut().filter(|v| **v > 0) {
@@ -316,13 +385,76 @@ pub(crate) fn set_boundaries(ctx: &mut SolverCtx<'_>, fixed: &mut BTreeMap<u32, 
         ctx.info(CALLER, &format!("Number of active constraint modes: {}", i2s(i64::from(count))), 7);
         count
     };
-    for (r, &k) in index.iter().enumerate() {
-        if k != 0 {
-            fixed.insert(r as u32, 0.0);
+    // Rhs modes are loads, not constraints.
+    if !rhs_mode {
+        for (r, &k) in index.iter().enumerate() {
+            if k != 0 {
+                fixed.insert(r as u32, 0.0);
+            }
         }
     }
-    ctx.sim.slots[ctx.slot].cmodes = Some(Modes { index, count: count as usize });
+    // `Var % ConstraintModes`, allocated and zeroed (no external loop).
+    ctx.sim.vars.by_id_mut(id).constraint_modes = vec![vec![0.0; nrows]; count as usize];
+    let frozen = frozen(ctx);
+    ctx.sim.slots[ctx.slot].cmodes = Some(Modes { index, count: count as usize, weights, frozen });
     Ok(())
+}
+
+/// DefUtils.F90:4234 (`DefaultFinish`): a frozen state's linearized
+/// constraint modes, on the last system with a zero right-hand side,
+/// `Skip Compute Nonlinear Change`, the solution and right-hand side kept.
+/// Each rhs mode loads its dofs with the weights (SolveCore.F90:4161-4171),
+/// is solved, stored as `Var % ConstraintModes(m, :)` and unloaded.
+pub(crate) fn frozen_modes(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+    const DRIVER: &str = "ConstraintModesDriver";
+    let Some(modes) = ctx.sim.slots[ctx.slot].cmodes.clone().filter(|m| m.frozen && m.count > 0) else {
+        return Ok(());
+    };
+    if modes.weights.is_empty() {
+        return Err(SolverError::Unsupported("Constraint Modes Analysis Frozen without Constraint Modes Rhs".into()));
+    }
+    let id = ctx.sim.slots[ctx.slot].variable.ok_or_else(|| SolverError::fatal(DRIVER, "solver has no variable"))?;
+    let saved_x = ctx.sim.vars.by_id(id).values.clone();
+    let saved_b = {
+        let sys = ctx.sim.slots[ctx.slot].system.as_mut().ok_or_else(|| SolverError::fatal(DRIVER, "no assembled system"))?;
+        let b = sys.rhs.clone();
+        sys.rhs.iter_mut().for_each(|x| *x = 0.0);
+        b
+    };
+    let params = &mut ctx.sim.slots[ctx.slot].params;
+    params.insert("Skip Compute Nonlinear Change", Value::Logical(true));
+    params.insert("Skip Zero Rhs Test", Value::Logical(true));
+    let set = |ctx: &mut SolverCtx<'_>, m: i32, load: bool| {
+        if let Some(sys) = ctx.sim.slots[ctx.slot].system.as_mut() {
+            for (r, &k) in modes.index.iter().enumerate() {
+                if k == m {
+                    sys.rhs[r] = if load { modes.weights[r] } else { 0.0 };
+                }
+            }
+        }
+    };
+    let mut r = Ok(());
+    for m in 1..=modes.count as i32 {
+        ctx.info(DRIVER, &format!("Setting up constrained mode: {}", i2s(i64::from(m))), 6);
+        set(ctx, m, true);
+        if let Err(e) = ctx.solve_system() {
+            r = Err(e);
+            break;
+        }
+        ctx.info(DRIVER, &format!("Mode {} computed, doing some postprocessing", i2s(i64::from(m))), 10);
+        set(ctx, m, false);
+        let v = ctx.sim.vars.by_id_mut(id);
+        let x = v.values.clone();
+        v.constraint_modes[m as usize - 1] = x;
+    }
+    let params = &mut ctx.sim.slots[ctx.slot].params;
+    params.insert("Skip Compute Nonlinear Change", Value::Logical(false));
+    params.insert("Skip Zero Rhs Test", Value::Logical(false));
+    if let Some(sys) = ctx.sim.slots[ctx.slot].system.as_mut() {
+        sys.rhs = saved_b;
+    }
+    ctx.sim.vars.by_id_mut(id).values = saved_x;
+    r
 }
 
 /// The `ConstraintModesDriver` loop: mode `m` moves the one from mode

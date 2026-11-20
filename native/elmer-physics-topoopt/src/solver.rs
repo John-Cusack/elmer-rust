@@ -424,9 +424,6 @@ impl Solver for TopoOpt {
         if p.integer("periodic physsolver").unwrap_or(0) > 1 {
             return Err(unsupported("Periodic PhysSolver"));
         }
-        if p.integer("no modes").unwrap_or(0) > 0 {
-            return Err(unsupported("constraint modes (No Modes)"));
-        }
         if ctx
             .simulation_params()
             .integer("periodic timesteps")
@@ -497,6 +494,16 @@ impl TopoOpt {
             let u = ctx.sim.vars.by_id(slot.variable.expect("checked"));
             let uperm = u.perm.as_deref().expect("nodal");
             let dofs = st.dofs;
+            // `No Modes`, else the physics variable's number of constraint
+            // modes: the compliance is then taken against the modes
+            // (`GetLocalConsmode`), summed over them.
+            let no_modes = match ctx.params().integer("no modes") {
+                Some(k) => k.max(0) as usize,
+                None => u.constraint_modes.len(),
+            };
+            if no_modes > u.constraint_modes.len() {
+                return Err(SolverError::fatal(CALLER, "No Modes exceeds the constraint modes of the physics variable"));
+            }
             let elems: Vec<ElemId> = ctx.active_elements().collect();
             for &e in &elems {
                 let nodes = ctx.mesh.element(e).nodes;
@@ -518,12 +525,30 @@ impl TopoOpt {
                     }
                 }
                 let mut sum = 0.0;
-                for i in 0..m {
-                    let mut act = 0.0;
-                    for j in 0..m {
-                        act += k[i * m + j] * sol[j];
+                if no_modes == 0 {
+                    for i in 0..m {
+                        let mut act = 0.0;
+                        for j in 0..m {
+                            act += k[i * m + j] * sol[j];
+                        }
+                        sum += sol[i] * act;
                     }
-                    sum += sol[i] * act;
+                } else {
+                    // local_act = MATMUL(Stiff, local_sol).
+                    let act: Vec<f64> = (0..m).map(|i| (0..m).fold(0.0, |s, j| s + k[i * m + j] * sol[j])).collect();
+                    for mode in &u.constraint_modes[..no_modes] {
+                        let mut local = vec![0.0; m];
+                        for (i, &nd) in nodes.iter().enumerate() {
+                            let s = uperm[nd as usize];
+                            if s == NO_DOF {
+                                continue;
+                            }
+                            for d in 0..dofs {
+                                local[i * dofs + d] = mode[s as usize * dofs + d];
+                            }
+                        }
+                        sum += (0..m).fold(0.0, |s, i| s + local[i] * act[i]);
+                    }
                 }
                 ce[eperm[e.0 as usize] as usize] = sum;
             }

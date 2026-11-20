@@ -1283,6 +1283,7 @@ impl Solver for StressSolver {
         if displace {
             Self::displace_mesh(ctx, 1.0)?;
         }
-        Ok(())
+        // StressSolve.F90:1138.
+        ctx.default_finish()
     }
 }

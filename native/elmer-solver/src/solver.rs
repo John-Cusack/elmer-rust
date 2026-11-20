@@ -639,6 +639,8 @@ impl<'a> SolverCtx<'a> {
             return Err(SolverError::Unsupported("Solve Adjoint Equation".into()));
         }
         self.sim.slots[self.slot].finished = true;
+        // DefUtils.F90:4234: the frozen state's constraint modes.
+        crate::constraint_modes::frozen_modes(self)?;
         let (mesh, log, comm) = (self.mesh, self.log, self.comm);
         self.sim.run_slave_solvers(self.slot, "Post Solvers", mesh, log, comm)?;
         self.sim.publish_live();
@@ -2203,7 +2205,7 @@ impl<'a> SolverCtx<'a> {
         if self.params().logical("monolithic slave") == Some(true) {
             return crate::monolithic::solve_merged(self);
         }
-        if let Some(modes) = self.sim.slots[self.slot].cmodes.clone() {
+        if let Some(modes) = self.sim.slots[self.slot].cmodes.clone().filter(|m| !m.frozen) {
             return crate::constraint_modes::solve_modes(self, modes);
         }
         // SolveSystem's eigen branch (SolveCore.F90:1410): no ComputeChange.
