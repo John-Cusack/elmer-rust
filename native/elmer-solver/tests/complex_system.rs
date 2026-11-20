@@ -68,14 +68,20 @@ fn helmholtz_complex_bicgstab_diagonal() {
 
 #[test]
 fn complex_dispatch_refuses_what_is_not_ported() {
-    // BiCGStab(2) runs on the real system but IterSolve remaps it to
-    // BiCGStab(l) for a complex one, which is refused here.
+    // BiCGStab(2) runs on the real system, and IterSolve remaps it to
+    // BiCGStab(l) for a complex one, which runs too.
     let m = [("Linear System Iterative Method", Value::Str("bicgstab2".into()))];
     assert!(run("iterative.sif", &m).is_ok());
     let mut c = m.to_vec();
     c.push(("Linear System Complex", Value::Logical(true)));
+    assert!(run("iterative.sif", &c).is_ok());
+    // The stationary methods have no complex version here.
+    let c = [
+        ("Linear System Iterative Method", Value::Str("sgs".into())),
+        ("Linear System Complex", Value::Logical(true)),
+    ];
     let err = run("iterative.sif", &c).err().expect("refused");
-    assert!(err.to_string().contains("bicgstab2"), "{err}");
+    assert!(err.to_string().contains("sgs"), "{err}");
     let err = run("direct.sif", &[
         ("Linear System Complex", Value::Logical(true)),
         ("Linear System Direct Method", Value::Str("cholmod".into())),
