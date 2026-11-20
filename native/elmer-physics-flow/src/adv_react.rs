@@ -15,11 +15,15 @@
 //!
 //! The velocity is the material's `Convection Velocity i` (`Convection =
 //! constant` in the equation) or `none`. Ported for 2D meshes on the DG
-//! layout of `elmer-pdofs` (`DG Reduced Basis`). Refused: `computed`
-//! convection, a mesh velocity, `Limit Solution`, `Calculate Nodal
-//! Average`, transient runs, 3D.
+//! layouts of `elmer-pdofs`. `Calculate Nodal Average` adds the nodal
+//! `<var>_nodal` and, after each solve, sets it to the mean of the DG
+//! values at each node (`AdvectionReactionSolver_post`). Refused:
+//! `computed` convection, a mesh velocity, `Limit Solution`, transient
+//! runs, 3D.
 
-use elmer_core::{BasisEval, ElemId, ElementType, LocalSystem, ParamMap, Params, Value, NO_DOF};
+use std::sync::Arc;
+
+use elmer_core::{BasisEval, ElemId, ElementType, FieldKind, LocalSystem, ParamMap, Params, Value, NO_DOF};
 use elmer_solver::expr::eval_at_nodes_with;
 use elmer_solver::{Solver, SolverCtx, SolverError};
 
@@ -69,6 +73,49 @@ fn velocity(ctx: &SolverCtx<'_>, parent: ElemId, nodes: &[u32]) -> Result<Vec<[f
     Ok(v)
 }
 
+/// `AdvectionReactionSolver_post`: `<var>_nodal` (or `Nodal Result`) as
+/// the mean of the DG values at each node, over the active elements.
+fn nodal_average(ctx: &mut SolverCtx<'_>, var: &str) -> Result<(), SolverError> {
+    let target = [format!("{var}_nodal"), "nodal result".to_string()]
+        .into_iter()
+        .find(|n| ctx.variable(n).is_some());
+    let Some(target) = target else { return Ok(()) };
+    let (sperm, svals) = {
+        let v = ctx.primary().ok_or_else(|| SolverError::fatal(CALLER, "no variable"))?;
+        (v.perm.map(|p| p.to_vec()), v.values.to_vec())
+    };
+    let ix = ctx.solver_dofs().and_then(|d| d.dg_layout()).cloned().ok_or_else(|| SolverError::fatal(CALLER, "no DG layout"))?;
+    let tperm = ctx.variable(&target).and_then(|v| v.perm.map(|p| p.to_vec())).ok_or_else(|| SolverError::fatal(CALLER, "nodal average without a Perm"))?;
+    let n = ctx.variable(&target).map_or(0, |v| v.values.len());
+    let mut sum = vec![0.0; n];
+    let mut cnt = vec![0u32; n];
+    let elems: Vec<ElemId> = ctx.active_elements().collect();
+    for e in elems {
+        for (i, &node) in ctx.mesh.element(e).nodes.iter().enumerate() {
+            let d = ix.index[e.0 as usize][i];
+            let j = match &sperm {
+                Some(p) if d != NO_DOF => p[d as usize],
+                _ => NO_DOF,
+            };
+            if j == NO_DOF {
+                continue;
+            }
+            let k = tperm[node as usize];
+            if k == NO_DOF {
+                continue;
+            }
+            sum[k as usize] += svals[j as usize];
+            cnt[k as usize] += 1;
+        }
+    }
+    if let Some(v) = ctx.variable_mut(&target) {
+        for (i, x) in v.values.iter_mut().enumerate() {
+            *x = if cnt[i] > 0 { sum[i] / f64::from(cnt[i]) } else { 0.0 };
+        }
+    }
+    Ok(())
+}
+
 /// `FindParentUVW`: the parent's reference coordinates at a point of
 /// `face` (whose basis values there are `fb`).
 fn parent_uvw(face: &[u32], parent: &[u32], ptype: ElementType, fb: &[f64]) -> Result<[f64; 3], SolverError> {
@@ -103,11 +150,35 @@ impl Solver for AdvectionReaction {
     /// `AdvectionReactionSolver_init`: `Discontinuous Galerkin = True`.
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         let p = ctx.params();
-        if p.logical("calculate nodal average") == Some(true) {
-            return Err(unsupported("Calculate Nodal Average (the _post solver)"));
-        }
         if p.logical("discontinuous galerkin") != Some(true) {
             return Err(unsupported("a run without Discontinuous Galerkin = True in the sif (the init adds it)"));
+        }
+        if p.logical("calculate nodal average") == Some(true) {
+            // `Exported Variable = -nodal <var>_nodal` (CreateNodalPerm: the
+            // nodes of the active elements in node order).
+            let name = format!("{}_nodal", ctx.variable_name().unwrap_or("tracer"));
+            if ctx.variable(&name).is_none() {
+                let mut mark = vec![false; ctx.mesh.n_nodes()];
+                for e in ctx.active_elements() {
+                    for &k in ctx.mesh.element(e).nodes {
+                        mark[k as usize] = true;
+                    }
+                }
+                let mut j = 0u32;
+                let perm: Vec<u32> = mark
+                    .iter()
+                    .map(|&m| {
+                        if m {
+                            j += 1;
+                            j - 1
+                        } else {
+                            NO_DOF
+                        }
+                    })
+                    .collect();
+                let v = elmer_solver::Variable::new(&name, FieldKind::Nodal, 1, Some(Arc::from(perm)), vec![0.0; j as usize]);
+                ctx.sim.vars.add(v)?;
+            }
         }
         Ok(())
     }
@@ -310,6 +381,9 @@ impl Solver for AdvectionReaction {
             if converged {
                 break;
             }
+        }
+        if p.logical("calculate nodal average") == Some(true) {
+            nodal_average(ctx, &name)?;
         }
         Ok(())
     }

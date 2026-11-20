@@ -241,6 +241,14 @@ fn faces_3d(code: u16) -> Option<&'static [&'static [usize]]> {
 /// Edges` in 2D, `Mesh % Faces` in 3D): `(left, right)` element pairs for
 /// those with two bulk parents. Left is the first element visiting it.
 pub fn dg_interfaces(mesh: &dyn MeshView) -> Result<Vec<(ElemId, ElemId, Vec<u32>)>, SolverError> {
+    Ok(dg_edges(mesh)?.into_iter().filter_map(|(l, r, n)| r.map(|r| (l, r, n))).collect())
+}
+
+/// Every edge (2D) or face (3D) of the bulk elements in first-visit order
+/// (`Mesh % Edges` / `Mesh % Faces`), with its left (first visiting) and,
+/// for an interior one, right parent.
+#[allow(clippy::type_complexity)]
+pub fn dg_edges(mesh: &dyn MeshView) -> Result<Vec<(ElemId, Option<ElemId>, Vec<u32>)>, SolverError> {
     let dim = mesh.dim();
     let mut seen: std::collections::HashMap<Vec<u32>, usize> = std::collections::HashMap::new();
     let mut out: Vec<(ElemId, Option<ElemId>, Vec<u32>)> = Vec::new();
@@ -277,7 +285,7 @@ pub fn dg_interfaces(mesh: &dyn MeshView) -> Result<Vec<(ElemId, ElemId, Vec<u32
             }
         }
     }
-    Ok(out.into_iter().filter_map(|(l, r, n)| r.map(|r| (l, r, n))).collect())
+    Ok(out)
 }
 
 /// `InvActiveElements`: element -> 0-based position among the solver's

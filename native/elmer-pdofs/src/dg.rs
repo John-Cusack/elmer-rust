@@ -10,8 +10,13 @@
 //! elements, the edges (2D) or faces (3D) between bodies, and with `DG
 //! Indirect Connections` the row structures of the dofs paired across those
 //! interfaces exchanged (`List_ExchangeRowStructure`). Elmer does not
-//! optimise the bandwidth of a reduced basis. A DG solver without `DG
-//! Reduced Basis` is refused.
+//! optimise the bandwidth of a reduced basis.
+//!
+//! Without `DG Reduced Basis` every DG index is its own dof, numbered over
+//! the edges (faces) in mesh order, the left then the right parent's
+//! indexes at first sight (InitialPermutation's DG branch), and the
+//! pattern couples both parents of every edge. Bandwidth optimisation of
+//! that numbering is refused (`Optimize Bandwidth = False` is required).
 
 use elmer_assembly::{initialize_matrix, ListMatrix};
 use elmer_core::{CsrMatrix, ElemId, ElementBasis, MeshView, ParamMap, Params, QuadPoint, Quadrature, Value, NO_DOF};
@@ -43,9 +48,10 @@ impl DgDofs {
     /// `CreateMatrix` of a DG solver whose active bulk elements are
     /// `active`.
     pub fn build(mesh: &dyn MeshView, model: &Model, solver: &ParamMap, active: &[ElemId]) -> Result<Self, SolverError> {
-        if solver.logical("dg reduced basis") != Some(true) {
+        let reduced = solver.logical("dg reduced basis") == Some(true);
+        if !reduced && solver.logical("optimize bandwidth") != Some(false) {
             return Err(SolverError::Unsupported(
-                "Discontinuous Galerkin without DG Reduced Basis (one dof per element node)".into(),
+                "Discontinuous Galerkin without DG Reduced Basis and with Optimize Bandwidth (Cuthill-McKee of DG dofs)".into(),
             ));
         }
         let ix = DgIndexes::for_dg_solver(mesh, model)?;
@@ -75,7 +81,24 @@ impl DgDofs {
         let mut perm = vec![0u32; ix.count];
         let mut node_index = vec![0u32; mesh.n_nodes()];
         let mut k = 0u32;
-        for group0 in 1..=max_group {
+        let edges = elmer_solver::dg_edges(mesh)?;
+        if !reduced {
+            for (l, r, _) in &edges {
+                for p in std::iter::once(*l).chain(*r) {
+                    let t = p.0 as usize;
+                    if !is_active[t] {
+                        continue;
+                    }
+                    for &d in &ix.index[t] {
+                        if perm[d as usize] == 0 {
+                            k += 1;
+                            perm[d as usize] = k;
+                        }
+                    }
+                }
+            }
+        }
+        for group0 in (1..=max_group).filter(|_| reduced) {
             match &slave {
                 Some(s) if group0 == 2 => {
                     for t in 0..nb {
@@ -131,9 +154,20 @@ impl DgDofs {
         for t in (0..nb).filter(|&t| is_active[t]) {
             add(&mut list, &ix.index[t]);
         }
-        let indirect = solver.logical("dg indirect connections") == Some(true);
+        if !reduced {
+            for (l, r, _) in &edges {
+                let mut both: Vec<u32> = Vec::new();
+                for p in std::iter::once(*l).chain(*r) {
+                    if is_active[p.0 as usize] {
+                        both.extend_from_slice(&ix.index[p.0 as usize]);
+                    }
+                }
+                add(&mut list, &both);
+            }
+        }
+        let indirect = reduced && solver.logical("dg indirect connections") == Some(true);
         let mut pairs = vec![u32::MAX; n_slots];
-        for (l, r, _) in elmer_solver::dg_interfaces(mesh)? {
+        for (l, r, _) in elmer_solver::dg_interfaces(mesh)?.into_iter().filter(|_| reduced) {
             let (lt, rt) = (l.0 as usize, r.0 as usize);
             if !is_active[lt] || !is_active[rt] || body(lt) == body(rt) {
                 continue;

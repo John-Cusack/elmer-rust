@@ -37,7 +37,7 @@ mod control;
 pub mod coupled;
 pub mod error;
 mod exported;
-pub use exported::{dg_interfaces, DgIndexes};
+pub use exported::{dg_edges, dg_interfaces, DgIndexes};
 mod global_time;
 pub mod expr;
 pub mod fortran_fmt;
