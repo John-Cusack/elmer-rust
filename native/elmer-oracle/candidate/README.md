@@ -62,6 +62,13 @@ grader therefore runs the candidate in `<out>/<test>/<test dir>`, with
 (1dtests, BlockPoisson*, CoupledPoisson*, ModelPDE*, PoissonPFEM, …)
 refused with "procedure not registered".
 
+```sh
+printf '#!/bin/sh\nexec env -u ELMER_FORTRAN_SOLVER ELMER_NATIVE=1 <target>/release/elmer-run "$@"\n' > ElmerSolver-rust
+awk -F'\t' '$3==1 {print $1}' <golden-root>/registry.tsv > serial.txt
+scripts/grade-candidate.sh <oracle-bin> ElmerSolver-rust \
+  $S/build-release $S/src/fem/tests <golden-root> tolerances.json <out> 6 < serial.txt
+```
+
 ## The partitioned Rust path: MPI quick tests
 
 `rust-elmer-mpi-run-9008121.tsv` grades `elmer-mpi-run` built from main
@@ -97,11 +104,4 @@ printf '#!/bin/sh\nexec env -u ELMER_FORTRAN_SOLVER ELMER_NATIVE=1 HWLOC_COMPONE
 awk -F'\t' '$3>1 {print $1}' <golden-root>/registry.tsv > mpi.txt
 scripts/grade-candidate.sh <oracle-bin> ElmerSolver-rust-mpi \
   $S/build-release $S/src/fem/tests <golden-root> tolerances.json <out> 2 < mpi.txt
-```
-
-```sh
-printf '#!/bin/sh\nexec env -u ELMER_FORTRAN_SOLVER ELMER_NATIVE=1 <target>/release/elmer-run "$@"\n' > ElmerSolver-rust
-awk -F'\t' '$3==1 {print $1}' <golden-root>/registry.tsv > serial.txt
-scripts/grade-candidate.sh <oracle-bin> ElmerSolver-rust \
-  $S/build-release $S/src/fem/tests <golden-root> tolerances.json <out> 6 < serial.txt
 ```
