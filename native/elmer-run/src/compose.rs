@@ -14,6 +14,7 @@ use elmer_solver::{FeBackend, Model, SolverError, SolverRegistry};
 pub fn solver_registry() -> SolverRegistry {
     let mut reg = SolverRegistry::new();
     elmer_physics_heat::register(&mut reg);
+    elmer_physics_isosurface::register(&mut reg);
     elmer_physics_flux::register(&mut reg);
     elmer_physics_elastic::register(&mut reg);
     elmer_physics_elasticsolve::register(&mut reg);
