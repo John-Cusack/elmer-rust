@@ -3309,7 +3309,7 @@ pub(crate) fn solve_linear(
                     Some(f) => f(p, matrix),
                     None => Ok(Box::new(elmer_core::IdentityPrecond)),
                 };
-                m.and_then(|m| {
+                let r = m.and_then(|m| {
                     // `Variable % LinConverged` (IterSolve.F90:1646, 1664).
                     let a = crate::matvec::ElmerMatvec::new(matrix, block.ndeg);
                     let kept = block.precond.filter(|_| precond.is_some() && !amg_prec && !bilu_prec);
@@ -3328,7 +3328,9 @@ pub(crate) fn solve_linear(
                         .solve(&a, &*m, b, x, comm)
                         .map(|s| matches!(s.status, elmer_core::SolveStatus::Converged))
                         .map_err(SolverError::from)
-                })
+                });
+                solver.after_solve(matrix);
+                r
             }
             }
         };
