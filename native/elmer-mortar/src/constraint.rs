@@ -275,6 +275,14 @@ pub fn generate_constraint_matrix(
             if create_self {
                 rows[row].push((kk as u32, p.slave_scale * wsum));
             }
+            if let Some(d) = &p.diag {
+                if summed {
+                    return Err(MortarError::Unsupported(
+                        "MortarBC Diag in additive mode".into(),
+                    ));
+                }
+                rows[row].push(((t.n_rows + row) as u32, -d[i] * wsum));
+            }
             if let Some(r) = &p.rhs {
                 rhs[row] += wsum * r[i];
             }
