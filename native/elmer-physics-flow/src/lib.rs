@@ -34,6 +34,7 @@ pub mod cylindric;
 pub mod error;
 pub mod fix_tangent;
 pub mod free_surface;
+pub mod adv_react;
 pub mod solver;
 pub mod stokes;
 pub mod stream;

@@ -270,6 +270,17 @@ impl VtuSolver {
 /// (`AverageBodyFields`), and the writer gets the DG indexes.
 fn prepare_discontinuous(ctx: &mut SolverCtx<'_>, opts: &mut VtuOptions) -> Result<(), SolverError> {
     if !(opts.discontinuous_galerkin || opts.discontinuous_bodies) {
+        // A DG field is then cell data, the element mean of its DG values
+        // (VtuOutputSolver.F90:1443-1447, 1629-1655): the writer needs the
+        // mesh's DG indexes.
+        let store = &ctx.sim.vars;
+        let dg_field = opts.scalar_fields.iter().chain(&opts.vector_fields).any(|name| {
+            store.get(name).or_else(|| store.get(&format!("{name} 1"))).is_some_and(|v| v.kind == FieldKind::Dg)
+        });
+        if dg_field {
+            let index = ctx.sim.ensure_dg_indexes(ctx.mesh).index.clone();
+            opts.dg_layout = Some(Arc::new(elmer_vtu::DgLayout { index }));
+        }
         return Ok(());
     }
     let store = &ctx.sim.vars;
