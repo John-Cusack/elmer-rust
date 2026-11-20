@@ -190,6 +190,56 @@ fn lumped_matrix_inits(model: &mut Model) {
     }
 }
 
+/// Whether a keyword of `p` is a `Procedure` of library `lib` (any case,
+/// with or without `.so`).
+fn names_library(p: &ParamMap, lib: &str) -> bool {
+    p.0.values().any(|v| match v {
+        Value::Dependent(d) => match &d.kind {
+            DependentKind::Procedure { library, .. } => elmer_expr::udf::normalize_library(library).eq_ignore_ascii_case(lib),
+            _ => false,
+        },
+        _ => false,
+    })
+}
+
+/// `StatElecBoundary.F90`'s functions, when a Boundary Condition or a
+/// Material names them: they read the section of `Model % CurrentElement`,
+/// so they get every element's section, the live fields and MATC. Both
+/// the simulation's registry and the process-wide one get them (some
+/// solvers resolve keyword procedures in the latter only).
+fn install_statelec_boundary(sim: &mut Simulation, mesh: &dyn MeshView) {
+    use elmer_physics_scalar::statelec_boundary::{register, ListOf, Lists, LIBRARY};
+    let m = &sim.model;
+    if !m.boundary_conditions.iter().chain(&m.materials).any(|p| names_library(p, LIBRARY)) {
+        return;
+    }
+    let nb = mesh.n_bulk();
+    let list_of = (0..nb + mesh.n_boundary())
+        .map(|t| {
+            let tag = mesh.element(elmer_core::ElemId(t as u32)).tag;
+            if t < nb {
+                let body = m.body_of_tag(tag)?;
+                let mat = m.bodies.get(body - 1)?.integer("material")?;
+                (mat >= 1).then(|| ListOf::Material(mat as usize - 1))
+            } else {
+                m.bc_of_tag(tag).map(|b| ListOf::Bc(b - 1))
+            }
+        })
+        .collect();
+    let lists = Lists {
+        bcs: m.boundary_conditions.clone(),
+        materials: m.materials.clone(),
+        list_of,
+        eps0: m.constants.real("permittivity of vacuum").unwrap_or(elmer_physics_scalar::PHYSICAL_EPS0),
+    };
+    let fields: Arc<dyn elmer_expr::FieldLookup + Send + Sync> = sim.live_model(mesh);
+    let udfs = Arc::clone(&sim.backends.udfs);
+    for into in [&*sim.backends.udfs, elmer_expr::UdfRegistry::global()] {
+        let lists = Lists { bcs: lists.bcs.clone(), materials: lists.materials.clone(), list_of: lists.list_of.clone(), eps0: lists.eps0 };
+        register(into, lists, Arc::clone(&fields), Arc::new(SifMatc), Arc::clone(&udfs));
+    }
+}
+
 /// Refuses solver sections this build cannot run: `Simulation` skips a
 /// procedure missing from the registry, which would drop a solver silently.
 /// `Exec Solver = Never` sections are exempt. Then refuses the model
@@ -799,6 +849,7 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
         sim.vars.set_scalar(name, *value);
     }
     elmer_fixtures::registry::install_live(&fixture_case, &mut sim, mesh);
+    install_statelec_boundary(&mut sim, mesh);
     sim.setup(mesh, &registry, log, comm)?;
     if let Some(writer) = crate::result_file::writer(&sim.model, &mesh_dir, rank, size, log) {
         sim.set_save_current(Box::new(writer));

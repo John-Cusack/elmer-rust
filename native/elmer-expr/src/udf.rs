@@ -10,6 +10,7 @@
 //! * the entry is tried Fortran-mangled first (`fortranMangle`, `ELMER_LINKTYP`
 //!   1 on Linux: lower-case plus a trailing underscore), then exactly as written.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, OnceLock, RwLock};
@@ -39,6 +40,36 @@ impl fmt::Debug for Udf {
             Udf::Array(_) => "Udf::Array",
         })
     }
+}
+
+/// `Model % CurrentElement` as a user function sees it: the element whose
+/// keywords are being evaluated, 0-based, with its nodes. A function that
+/// reads its own element's section (`GetBC(CurrentElement)`,
+/// `GetMaterial(...)`) takes it from [`current_element`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CurrentElement {
+    pub index: u32,
+    pub nodes: Vec<u32>,
+}
+
+thread_local! {
+    static CURRENT_ELEMENT: RefCell<Option<CurrentElement>> = const { RefCell::new(None) };
+}
+
+/// Sets `Model % CurrentElement` for this thread. Like the Fortran pointer
+/// it stays until the next element is set.
+pub fn set_current_element(index: u32, nodes: &[u32]) {
+    CURRENT_ELEMENT.with(|c| {
+        let mut c = c.borrow_mut();
+        if !c.as_ref().is_some_and(|ce| ce.index == index && ce.nodes == nodes) {
+            *c = Some(CurrentElement { index, nodes: nodes.to_vec() });
+        }
+    });
+}
+
+/// `Model % CurrentElement` of this thread, `None` before any is set.
+pub fn current_element() -> Option<CurrentElement> {
+    CURRENT_ELEMENT.with(|c| c.borrow().clone())
 }
 
 /// `fortranMangle` for `ELMER_LINKTYP == 1`: ASCII lower-case plus `_`.
