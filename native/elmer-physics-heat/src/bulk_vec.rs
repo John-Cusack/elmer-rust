@@ -41,6 +41,9 @@ pub fn heat_bulk_local_vec(
     out: &mut LocalSystem,
 ) -> Result<(), HeatError> {
     let n = xyz.len();
+    // Basis functions: the n nodal ones, then the p element's others
+    // (`nd` of LocalMatrixVec, bubbles included).
+    let nf = n + cfg.extra_functions;
     check_nodal_inputs(n, mat)?;
     if !(1..=3).contains(&cfg.dim) {
         return Err(HeatError::Invalid(format!("dim {} not in 1..=3", cfg.dim)));
@@ -55,7 +58,7 @@ pub fn heat_bulk_local_vec(
         _ => None,
     };
 
-    reset(out, n, transient);
+    reset(out, nf, transient);
 
     let ips = quad.gauss_points(etype, cfg.quad_points);
     let ngp = ips.len();
@@ -65,28 +68,34 @@ pub fn heat_bulk_local_vec(
 
     // ElementInfoVec: Basis(t,p), dBasisdx(t,p,k), and the weights
     // DetJVec = s*detJ (times r when axisymmetric).
-    let mut bas = vec![0.0; ngp * n];
-    let mut dbas = vec![0.0; 3 * ngp * n];
+    let mut bas = vec![0.0; ngp * nf];
+    let mut dbas = vec![0.0; 3 * ngp * nf];
     let mut w = vec![0.0; ngp];
     let mut be = BasisEval::default();
     for (t, qp) in ips.iter().enumerate() {
         basis
             .eval(etype, xyz, qp.uvw, &mut be)
             .map_err(HeatError::Basis)?;
-        bas[t * n..(t + 1) * n].copy_from_slice(&be.basis[..n]);
-        for p in 0..n {
+        if be.basis.len() < nf || be.dbasis_dx.len() < nf {
+            return Err(HeatError::Basis(format!(
+                "{} basis functions evaluated, {nf} needed",
+                be.basis.len()
+            )));
+        }
+        bas[t * nf..(t + 1) * nf].copy_from_slice(&be.basis[..nf]);
+        for p in 0..nf {
             for k in 0..dim {
-                dbas[(k * ngp + t) * n + p] = be.dbasis_dx[p][k];
+                dbas[(k * ngp + t) * nf + p] = be.dbasis_dx[p][k];
             }
         }
         w[t] = qp.weight * be.det_j;
     }
     if cfg.axisymmetric {
         for t in 0..ngp {
-            w[t] *= field_at(&bas, n, t, xyz.iter().map(|x| x[0]));
+            w[t] *= field_at(&bas, nf, n, t, xyz.iter().map(|x| x[0]));
         }
     }
-    let grad = |t: usize, p: usize, k: usize| dbas[(k * ngp + t) * n + p];
+    let grad = |t: usize, p: usize, k: usize| dbas[(k * ngp + t) * nf + p];
 
     // ListGetElementRealVec of a keyword, ListGetElementScalarSolutionVec of
     // a field.
@@ -95,13 +104,13 @@ pub fn heat_bulk_local_vec(
             vec![v[0]; ngp]
         } else {
             (0..ngp)
-                .map(|t| field_at(&bas, n, t, v.iter().copied()))
+                .map(|t| field_at(&bas, nf, n, t, v.iter().copied()))
                 .collect()
         }
     };
     let solution = |v: &[f64]| -> Vec<f64> {
         (0..ngp)
-            .map(|t| field_at(&bas, n, t, v.iter().copied()))
+            .map(|t| field_at(&bas, nf, n, t, v.iter().copied()))
             .collect()
     };
     // ListGetElementReal at the first point.
@@ -116,7 +125,7 @@ pub fn heat_bulk_local_vec(
         None => {}
         Some(Conductivity::Scalar(k)) => {
             let k = keyword(k);
-            grad_u_dot_grad_u(ngp, n, dim, &dbas, &w, &mut out.stiff, &k);
+            grad_u_dot_grad_u(ngp, nf, dim, &dbas, &w, &mut out.stiff, &k);
             cond_tau = Some(k);
         }
         Some(Conductivity::Diagonal(k)) => {
@@ -124,17 +133,17 @@ pub fn heat_bulk_local_vec(
                 vec![k[0]; ngp]
             } else {
                 (0..ngp)
-                    .map(|t| interp_diag(&bas[t * n..(t + 1) * n], k))
+                    .map(|t| interp_diag(&bas[t * nf..t * nf + n], k))
                     .collect()
             };
             for t in 0..ngp {
-                for q in 0..n {
-                    for p in 0..n {
+                for q in 0..nf {
+                    for p in 0..nf {
                         let mut a = 0.0;
                         for i in 0..dim {
                             a += kt[t][i] * grad(t, p, i) * grad(t, q, i);
                         }
-                        out.stiff[p * n + q] += w[t] * a;
+                        out.stiff[p * nf + q] += w[t] * a;
                     }
                 }
             }
@@ -145,19 +154,19 @@ pub fn heat_bulk_local_vec(
                 vec![k[0]; ngp]
             } else {
                 (0..ngp)
-                    .map(|t| interp_full(&bas[t * n..(t + 1) * n], k))
+                    .map(|t| interp_full(&bas[t * nf..t * nf + n], k))
                     .collect()
             };
             for t in 0..ngp {
-                for q in 0..n {
-                    for p in 0..n {
+                for q in 0..nf {
+                    for p in 0..nf {
                         let mut a = 0.0;
                         for i in 0..dim {
                             for j in 0..dim {
                                 a += kt[t][i][j] * grad(t, p, i) * grad(t, q, j);
                             }
                         }
-                        out.stiff[p * n + q] += w[t] * a;
+                        out.stiff[p * nf + q] += w[t] * a;
                     }
                 }
             }
@@ -243,7 +252,7 @@ pub fn heat_bulk_local_vec(
                 }
             }
         }
-        grad_u_dot_u(ngp, n, dim, &dbas, &bas, &w, &mut out.stiff, &rho_cp, &vel);
+        grad_u_dot_u(ngp, nf, dim, &dbas, &bas, &w, &mut out.stiff, &rho_cp, &vel);
 
         // Pressure work: FORCE += Pcoeff*(dp/dt + v.grad p).
         if let Some((pcoeff, pn)) = &pressure_work {
@@ -253,7 +262,7 @@ pub fn heat_bulk_local_vec(
                     let f: Vec<f64> = (0..ngp)
                         .map(|t| pcoeff[t] * (press[t] - prev[t]) / dt)
                         .collect();
-                    u_dot_f(ngp, n, &bas, &w, &f, &mut out.force);
+                    u_dot_f(ngp, nf, &bas, &w, &f, &mut out.force);
                 }
             }
             let f: Vec<f64> = (0..ngp)
@@ -269,17 +278,17 @@ pub fn heat_bulk_local_vec(
                     pcoeff[t] * vg
                 })
                 .collect();
-            u_dot_f(ngp, n, &bas, &w, &f, &mut out.force);
+            u_dot_f(ngp, nf, &bas, &w, &f, &mut out.force);
         }
 
         // SUPG: STIFF += tau (rho cp v.grad u, rho cp v.grad v), and the
         // streamline-weighted mass.
         if let (Some((h_k, m_k)), Some(k)) = (supg, &cond_tau) {
-            stream = vec![0.0; ngp * n];
+            stream = vec![0.0; ngp * nf];
             for i in 0..dim {
-                for p in 0..n {
+                for p in 0..nf {
                     for t in 0..ngp {
-                        stream[t * n + p] += rho_cp[t] * vel[t][i] * grad(t, p, i);
+                        stream[t * nf + p] += rho_cp[t] * vel[t][i] * grad(t, p, i);
                     }
                 }
             }
@@ -295,17 +304,17 @@ pub fn heat_bulk_local_vec(
                 })
                 .collect();
             let tw: Vec<f64> = (0..ngp).map(|t| tau[t] * w[t]).collect();
-            u_dot_v(ngp, n, &stream, &stream, &tw, &mut out.stiff, None);
+            u_dot_v(ngp, nf, &stream, &stream, &tw, &mut out.stiff, None);
             if let Some(mass) = out.mass.as_mut() {
                 let tw: Vec<f64> = (0..ngp).map(|t| tau[t] * rho_cp[t] * w[t]).collect();
-                u_dot_v(ngp, n, &stream, &bas, &tw, mass, None);
+                u_dot_v(ngp, nf, &stream, &bas, &tw, mass, None);
             }
         }
     }
 
     // Time derivative: MASS += (rho cp dT/dt, v).
     if let Some(mass) = out.mass.as_mut() {
-        u_dot_v(ngp, n, &bas, &bas, &w, mass, Some(&rho_cp));
+        u_dot_v(ngp, nf, &bas, &bas, &w, mass, Some(&rho_cp));
     }
 
     // Source: Volumetric Heat Source wins; otherwise Heat Source * rho.
@@ -318,10 +327,10 @@ pub fn heat_bulk_local_vec(
         (None, None) => None,
     };
     if let Some(src) = src {
-        u_dot_f(ngp, n, &bas, &w, &src, &mut out.force);
+        u_dot_f(ngp, nf, &bas, &w, &src, &mut out.force);
         if !stream.is_empty() {
             let tw: Vec<f64> = (0..ngp).map(|t| tau[t] * w[t]).collect();
-            u_dot_f(ngp, n, &stream, &tw, &src, &mut out.force);
+            u_dot_f(ngp, nf, &stream, &tw, &src, &mut out.force);
         }
     }
 
@@ -336,10 +345,11 @@ pub fn heat_bulk_local_vec(
     Ok(())
 }
 
-/// `SUM(Basis(t,1:n) * values(1:n))`, the `MATMUL` of the vector getters.
-fn field_at(bas: &[f64], n: usize, t: usize, values: impl Iterator<Item = f64>) -> f64 {
+/// `SUM(Basis(t,1:n) * values(1:n))`, the `MATMUL` of the vector getters,
+/// from rows of `nf` functions.
+fn field_at(bas: &[f64], nf: usize, n: usize, t: usize, values: impl Iterator<Item = f64>) -> f64 {
     let mut s = 0.0;
-    for (b, v) in bas[t * n..(t + 1) * n].iter().zip(values) {
+    for (b, v) in bas[t * nf..t * nf + n].iter().zip(values) {
         s += b * v;
     }
     s

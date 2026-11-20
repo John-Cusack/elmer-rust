@@ -182,7 +182,8 @@ fn unsupported_cases_are_refused_at_setup() {
     let err = run(m, &mesh).err().expect("refused").to_string();
     assert!(err.contains("Compressibility Model"), "{err}");
 
-    // Convection without SUPG would need Elmer's residual-free bubble.
+    // Convection without SUPG takes the bubble element of solver_defaults,
+    // which this model was built without.
     let mut m = minimal_model();
     m.equations[0].insert("Convection", st("Constant"));
     assert!(try_model(m).contains("bubble"));

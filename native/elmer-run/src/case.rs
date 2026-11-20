@@ -99,6 +99,7 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
     let cdim = coords.dim;
     let transient = model.simulation.string("simulation type").is_some_and(|t| t.eq_ignore_ascii_case("transient"));
     let serendipity = model.simulation.logical("serendipity p elements").unwrap_or(true);
+    let equations = model.equations.clone();
     for params in &mut model.solvers {
         // `ElasticSolver_Init` (StressSolve delegates to it): without a
         // `Variable`, the displacement of the coordinate dimension.
@@ -118,6 +119,11 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         });
         if heat && params.get("variable").is_none() {
             params.insert("Variable", Value::Str("Temperature".into()));
+        }
+        // `HeatSolver_Init0` / `_Init`: the residual-free bubble element of
+        // unstabilized convection.
+        if heat {
+            elmer_physics_heat::solver_defaults(params, &equations, serendipity, transient);
         }
         // `IncompressibleNSSolver_Init0` / `_Init` (IncompressibleNS.F90):
         // the `Variable`, `Element` and discretisation defaults.

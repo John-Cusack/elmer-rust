@@ -19,8 +19,9 @@ use crate::material::{
 /// `q`, as Fortran's `STIFF(p,q)`.
 ///
 /// Differences from the Fortran that callers should know about:
-/// * `Joule Heat`, phase change and bubbles are not implemented (see
-///   [`crate::check_supported`]).
+/// * `Joule Heat` and phase change are not implemented (see
+///   [`crate::check_supported`]); p element functions beyond the nodal
+///   ones (bubbles) only in [`crate::heat_bulk_local_vec`].
 /// * A [`Compressibility`](crate::Compressibility) replaces the density at
 ///   each integration point; its pressure work is added only when the
 ///   caller gives the flow pressure (`Convection = Computed`).
@@ -37,6 +38,11 @@ pub fn heat_bulk_local(
 ) -> Result<(), HeatError> {
     let n = xyz.len();
     check_nodal_inputs(n, mat)?;
+    if cfg.extra_functions > 0 {
+        return Err(HeatError::Invalid(
+            "the per-point kernel takes nodal elements only".into(),
+        ));
+    }
     if !(1..=3).contains(&cfg.dim) {
         return Err(HeatError::Invalid(format!("dim {} not in 1..=3", cfg.dim)));
     }
