@@ -30,6 +30,8 @@ fn post<'a>(law: &'a ElasticLaw, disp: &'a [[f64; 3]]) -> StressPostInput<'a> {
         want_strain: true,
         want_stress: true,
         np: None,
+        large_deflection: false,
+        neo_hookean: false,
     }
 }
 
@@ -175,4 +177,49 @@ fn integration_point_data_equal_to_nodal_data_changes_nothing() {
         ip: Some(&bad),
     };
     assert!(stress_bulk_local(&P1Basis, &Gauss, &inp, &mut LocalSystem::zeros(0)).is_err());
+}
+
+/// Mass-weighted component `k` of a uniform projected field.
+fn uniform(out: &elmer_physics_elastic::post::StressPostLocal, f: &[f64], k: usize) -> f64 {
+    let m: f64 = out.mass.iter().sum();
+    (0..4).map(|p| f[4 * p + k]).sum::<f64>() / m
+}
+
+#[test]
+fn large_deflection_rigid_rotation_carries_no_stress() {
+    let law = iso(200.0, 0.3);
+    let (c, s) = (0.3_f64.cos(), 0.3_f64.sin());
+    let disp: Vec<[f64; 3]> = QUAD.iter().map(|p| [c * p[0] - s * p[1] - p[0], s * p[0] + c * p[1] - p[1], 0.0]).collect();
+    let mut inp = post(&law, &disp);
+    inp.large_deflection = true;
+    let out = stress_strain_local(&P1Basis, &Gauss, &inp).unwrap();
+    assert!(out.strain.iter().chain(&out.stress).all(|v| v.abs() < 1e-12), "{:?}", out.stress);
+    // The small-strain measure sees the rotation.
+    let out = stress_strain_local(&P1Basis, &Gauss, &post(&law, &disp)).unwrap();
+    assert!(out.stress.iter().any(|v| v.abs() > 1.0));
+}
+
+#[test]
+fn neo_hookean_uniaxial_stretch_matches_the_closed_form() {
+    let (e, nu) = (10.0, 0.3);
+    let law = iso(e, nu);
+    let lam = 1.2;
+    let disp: Vec<[f64; 3]> = QUAD.iter().map(|p| [(lam - 1.0) * p[0], 0.0, 0.0]).collect();
+    let mut inp = post(&law, &disp);
+    inp.large_deflection = true;
+    inp.neo_hookean = true;
+    let out = stress_strain_local(&P1Basis, &Gauss, &inp).unwrap();
+    // Plane strain: F = diag(lam, 1, 1), J = lam, S = p C^-1 + mu (I - C^-1),
+    // sigma = F S F^T / J, p = lambda/2 (J^2 - 1).
+    let lame1 = e * nu / ((1.0 + nu) * (1.0 - 2.0 * nu));
+    let mu = e / (2.0 * (1.0 + nu));
+    let p = lame1 / 2.0 * (lam * lam - 1.0);
+    let s11 = p / (lam * lam) + mu * (1.0 - 1.0 / (lam * lam));
+    let want = [lam * s11, p / lam, p / lam, 0.0];
+    for (k, w) in want.iter().enumerate() {
+        let got = uniform(&out, &out.stress, k);
+        assert!((got - w).abs() < 1e-12 * (1.0 + w.abs()), "stress {k}: {got} vs {w}");
+    }
+    // Green-Lagrange strain.
+    assert!((uniform(&out, &out.strain, 0) - (lam * lam - 1.0) / 2.0).abs() < 1e-12);
 }

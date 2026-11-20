@@ -600,6 +600,8 @@ impl ElasticSolver {
                 want_strain: flags.strain,
                 want_stress: flags.stress,
                 np: rel_np(&*fe.quad, el.etype, RelOrders::of(ctx.params()).bulk)?,
+                large_deflection: model.large,
+                neo_hookean: model.neo_hookean,
             };
             let loc = stress_strain_local(&*fe.basis, &*fe.quad, &inp).map_err(|x| fatal(x.to_string()))?;
             let slots: Vec<Option<usize>> = el
@@ -700,7 +702,6 @@ fn local_displacement(f: &FieldRef<'_>, nodes: &[u32], cdim: usize) -> Vec<[f64;
 impl Solver for ElasticSolver {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         check_solver_params(ctx.params())?;
-        let model = model_of(ctx.params());
         let dim = ctx.mesh.dim();
         let dofs = ctx.primary().map(|f| f.dofs);
         if dofs != Some(dim) {
@@ -713,9 +714,6 @@ impl Solver for ElasticSolver {
         // The postprocessing fields share the displacement's permutation.
         let flags = post_flags(ctx);
         if flags.any() {
-            if model.large || model.neo_hookean {
-                return Err(unsupported("stress and strain postprocessing under Large Deflection or the neo-Hookean material"));
-            }
             let name = ctx.variable_name().unwrap_or_default().to_string();
             let (perm, nslots) = {
                 let v = ctx.sim.vars.get(&name).ok_or_else(|| fatal("solver has no displacement variable"))?;

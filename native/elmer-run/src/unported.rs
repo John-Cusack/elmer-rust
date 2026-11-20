@@ -38,6 +38,11 @@ const SOLVER: &[Rule] = &[
     // `<name>_nodal` / elemental / DG variables after the solve; nothing
     // creates them, so the case would run without them (IpVariable2).
     present("Project Variable 1", "projections of integration-point variables are not implemented"),
+    // The contact projectors and their active-set iteration are not ported;
+    // elmer-mortar refuses the keyword only next to `Apply Mortar BCs`, so a
+    // solver with contact alone ran without it (ContactPatch2D: norm 1.8e17
+    // vs 9.9e-3).
+    flag("Apply Contact BCs", "contact mechanics is not implemented"),
 ];
 
 const BODY_FORCE: &[Rule] = &[];
@@ -230,6 +235,9 @@ mod tests {
             ..Model::default()
         };
         assert!(check(&model).is_ok());
+
+        let model = Model { solvers: vec![heat(&[("apply contact bcs", Value::Logical(true))])], ..Model::default() };
+        assert_eq!(refusal(&model), "Solver 1: Apply Contact BCs: contact mechanics is not implemented");
     }
 
     #[test]
