@@ -226,9 +226,9 @@ pub fn reference_solvers(text: &str) -> Result<Vec<RefSolver>, String> {
         if let Some(sec) = &section {
             if lower == "end" {
                 if let Some(n) = solver_number(sec) {
-                    if !seen.insert(n) {
-                        return Err(format!("two Solver {n} sections (merged by Elmer)"));
-                    }
+                    // A repeated `Solver N` section adds its keys to the
+                    // first (Elmer's list, later keys win): merge in order.
+                    seen.insert(n);
                     keys.entry(n).or_default().append(&mut block);
                 }
                 block.clear();
@@ -719,7 +719,11 @@ mod tests {
         let s = reference_solvers("Solver 1\n Variable = T\nEnd\nSolver 1 :: Reference Norm = 1\n").unwrap();
         assert_eq!(s, vec![rs(1, "t", None)]);
         assert!(reference_solvers("Solver 1\n Variable = T\n Reference Norm = 1\nEnd\nRUN\nRUN\n").is_err());
-        assert!(reference_solvers("Solver 3\n Variable = T\nEnd\nSolver 3\n Show Norm Index = 2\nEnd\n").is_err());
+        // Repeated sections merge: the second one's norm option counts.
+        let merged = reference_solvers("Solver 3\n Variable = T\n Reference Norm = 1\nEnd\nSolver 3\n Show Norm Index = 2\nEnd\n").unwrap();
+        assert!(merged[0].variable.as_ref().unwrap_err().contains("show norm index"));
+        let merged = reference_solvers("Solver 3\n Variable = A\n Reference Norm = 1\nEnd\nSolver 3\n Variable = B\nEnd\n").unwrap();
+        assert_eq!(merged[0].variable.as_deref(), Ok("b"));
     }
 
     #[test]
