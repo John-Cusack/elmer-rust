@@ -71,5 +71,8 @@
 )]
 
 pub mod amd;
+pub mod direct;
 pub mod ptr;
 pub mod umf;
+
+pub use direct::{is_umfpack_method, UmfpackLu};

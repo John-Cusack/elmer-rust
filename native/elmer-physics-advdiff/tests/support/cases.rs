@@ -11,7 +11,7 @@ use elmer_krylov::{Huti, HutiConfig};
 use elmer_solver::{Model, Simulation, SolverError, SolverRegistry};
 use elmer_sparse::Ilu;
 
-use super::backends::{DenseLu, SimMesh};
+use super::backends::SimMesh;
 
 pub fn data(case: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -49,7 +49,8 @@ pub fn simulation(model: Model) -> (Simulation, SolverRegistry) {
     });
     let mut sim = Simulation::new(model);
     let linear = &mut sim.backends.linear;
-    linear.register_direct("umfpack", |_| Ok(Box::new(DenseLu::default())));
+    // `umfpack` (also the serial default of a plain `Direct`) is the
+    // registry's UMFPACK 4.4 port.
     linear.register_iterative("bicgstab", |p| {
         Ok(Box::new(Huti::<f64>::new(HutiConfig::from_params(p)?)))
     });
