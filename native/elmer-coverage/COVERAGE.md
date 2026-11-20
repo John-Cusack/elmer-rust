@@ -129,27 +129,27 @@ Greedy order: each row is the blocker that completes the most tests still blocke
 
 ## Mismatches (9)
 
-| Test | Detail | Known blockers |
-|---|---|---|
-| 1dtests_MeshLevels | fields: 1d/case.result: potential step 3: ExceedsTolerance { error: 3.356429008651241e-12, allowed: 2.2204478755300617e-15 } |  |
-| BlockLinElast2bMany | fields: beams/case.result: dispb 1 step 1: ExceedsTolerance { error: 3.7029726821549768e-9, allowed: 7.566133080567932e-13 } |  |
-| ElasticAnisotropic2D | fields: square/case.result: stress_xy step 0: ExceedsTolerance { error: 3.2323545846176156e-15, allowed: 2.9747223786127604e-15 } |  |
-| ElasticStressLoad | fields: cube/case.result: stress_xy step 0: ExceedsTolerance { error: 6.337839007866327e-14, allowed: 5.078083642666394e-14 } |  |
-| ElmerGridExtrudeOffset | fields: cubes/case.result: temperature step 0: ExceedsTolerance { error: 1.4102198270676752e-13, allowed: 8.419222848165226e-14 } |  |
-| HeatGap | fields: Mesh/case.result: temperature step 0: ExceedsTolerance { error: 1.7901121442115182e-13, allowed: 1.3423866983500578e-13 } |  |
-| bentonite | fields: 1d/case.result: bentonite 1 step 0: ExceedsTolerance { error: 1.6225429742166603e-12, allowed: 1.316349920366898e-13 } |  |
-| passive_np3 | fields: tmesh/case.result.0: temperature step 0: ExceedsTolerance { error: 1.7441532425650615e-11, allowed: 6.677968900997165e-12 } |  |
-| passive_np8 | fields: tmesh/case.result.2: temperature step 1: ExceedsTolerance { error: 1.5314889567797203e-9, allowed: 1.464896205840955e-9 } |  |
+| Test | Detail | Known blockers | Cause |
+|---|---|---|---|
+| 1dtests_MeshLevels | fields: 1d/case.result: potential step 3: ExceedsTolerance { error: 3.356429008651241e-12, allowed: 2.2204478755300617e-15 } |  | UMFPACK vs faer LU: matrix bitwise; BDF steps carry the factorisation difference |
+| BlockLinElast2bMany | fields: beams/case.result: dispb 1 step 1: ExceedsTolerance { error: 3.7029726821549768e-9, allowed: 7.566133080567932e-13 } |  |  |
+| ElasticAnisotropic2D | fields: square/case.result: stress_xy step 0: ExceedsTolerance { error: 3.2323545846176156e-15, allowed: 2.9747223786127604e-15 } |  | UMFPACK vs faer LU: displacement system bitwise, solution differs by ulps |
+| ElasticStressLoad | fields: cube/case.result: stress_xy step 0: ExceedsTolerance { error: 6.337839007866327e-14, allowed: 5.078083642666394e-14 } |  | UMFPACK vs faer LU: first-iteration system bitwise; residual iterations carry it |
+| ElmerGridExtrudeOffset | fields: cubes/case.result: temperature step 0: ExceedsTolerance { error: 1.4102198270676752e-13, allowed: 8.419222848165226e-14 } |  |  |
+| HeatGap | fields: Mesh/case.result: temperature step 0: ExceedsTolerance { error: 1.7901121442115182e-13, allowed: 1.3423866983500578e-13 } |  |  |
+| bentonite | fields: 1d/case.result: bentonite 1 step 0: ExceedsTolerance { error: 1.6225429742166603e-12, allowed: 1.316349920366898e-13 } |  | UMFPACK vs faer LU: first-iteration system bitwise; 29 nonlinear iterations amplify it |
+| passive_np3 | fields: tmesh/case.result.0: temperature step 0: ExceedsTolerance { error: 1.7441532425650615e-11, allowed: 6.677968900997165e-12 } |  |  |
+| passive_np8 | fields: tmesh/case.result.2: temperature step 1: ExceedsTolerance { error: 1.5314889567797203e-9, allowed: 1.464896205840955e-9 } |  |  |
 
 ## Errors (5)
 
-| Test | Detail | Known blockers |
-|---|---|---|
-| ElastElstat1DBeam | fatal: MAIN: procedure "StatElecBoundary" "StatElecBoundaryForce" is not registered | userfunc: statelecboundary statelecboundaryforce; fatal: MAIN: procedure "StatElecBoundary" "StatElecBoundaryForce" is not registered |
-| InductionHeating3 | fatal: WhitneyAVSolver: Could not determine target variable type (real or complex) | fatal: WhitneyAVSolver: Could not determine target variable type (real or complex) |
-| InductionHeating4 | fatal: WhitneyAVSolver: Could not determine target variable type (real or complex) | fatal: WhitneyAVSolver: Could not determine target variable type (real or complex) |
-| mgdyn_airgap_harmonic | fatal: MagnetoDynamicsCalcFields: the potential has not been solved on the edge layout yet | feature: complex linear system; fatal: MagnetoDynamicsCalcFields: the potential has not been solved on the edge layout yet |
-| mgdyn_thinsheet_harmonic | fatal: MagnetoDynamicsCalcFields: the potential has not been solved on the edge layout yet | feature: complex linear system; fatal: MagnetoDynamicsCalcFields: the potential has not been solved on the edge layout yet |
+| Test | Detail | Known blockers | Cause |
+|---|---|---|---|
+| ElastElstat1DBeam | fatal: MAIN: procedure "StatElecBoundary" "StatElecBoundaryForce" is not registered | userfunc: statelecboundary statelecboundaryforce; fatal: MAIN: procedure "StatElecBoundary" "StatElecBoundaryForce" is not registered |  |
+| InductionHeating3 | fatal: WhitneyAVSolver: Could not determine target variable type (real or complex) | fatal: WhitneyAVSolver: Could not determine target variable type (real or complex) |  |
+| InductionHeating4 | fatal: WhitneyAVSolver: Could not determine target variable type (real or complex) | fatal: WhitneyAVSolver: Could not determine target variable type (real or complex) |  |
+| mgdyn_airgap_harmonic | fatal: MagnetoDynamicsCalcFields: the potential has not been solved on the edge layout yet | feature: complex linear system; fatal: MagnetoDynamicsCalcFields: the potential has not been solved on the edge layout yet |  |
+| mgdyn_thinsheet_harmonic | fatal: MagnetoDynamicsCalcFields: the potential has not been solved on the edge layout yet | feature: complex linear system; fatal: MagnetoDynamicsCalcFields: the potential has not been solved on the edge layout yet |  |
 
 ## Refreshing
 

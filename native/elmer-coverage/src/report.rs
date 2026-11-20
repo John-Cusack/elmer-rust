@@ -225,9 +225,16 @@ pub fn render(records: &[Record], meta: &Meta) -> String {
         if rows.is_empty() {
             continue;
         }
-        let _ = writeln!(out, "\n## {title} ({})\n\n| Test | Detail | Known blockers |\n|---|---|---|", rows.len());
+        let _ = writeln!(out, "\n## {title} ({})\n\n| Test | Detail | Known blockers | Cause |\n|---|---|---|---|", rows.len());
         for r in rows {
-            let _ = writeln!(out, "| {} | {} | {} |", r.name, md(&r.detail), md(&r.blockers.join("; ")));
+            let _ = writeln!(
+                out,
+                "| {} | {} | {} | {} |",
+                r.name,
+                md(&r.detail),
+                md(&r.blockers.join("; ")),
+                known_cause(&r.name)
+            );
         }
     }
 
@@ -251,6 +258,24 @@ pub fn render(records: &[Record], meta: &Meta) -> String {
     out
 }
 
+/// Mismatches whose earliest divergence from pristine has been traced and
+/// is not in the assembly: shown as the table's *Cause* column. The direct
+/// solves are UMFPACK in pristine (a plain `Linear System Solver = Direct`
+/// becomes `umfpack` in `CheckLinearSolverOptions`) and faer's sparse LU
+/// here; the first linear system of each case is bitwise identical to
+/// Elmer's, and the iterations carry the factorisation's few-ulp
+/// difference forward. Evidence: the linear-solver lane's findings.
+const KNOWN_CAUSES: &[(&str, &str)] = &[
+    ("1dtests_MeshLevels", "UMFPACK vs faer LU: matrix bitwise; BDF steps carry the factorisation difference"),
+    ("ElasticAnisotropic2D", "UMFPACK vs faer LU: displacement system bitwise, solution differs by ulps"),
+    ("ElasticStressLoad", "UMFPACK vs faer LU: first-iteration system bitwise; residual iterations carry it"),
+    ("bentonite", "UMFPACK vs faer LU: first-iteration system bitwise; 29 nonlinear iterations amplify it"),
+];
+
+fn known_cause(test: &str) -> &'static str {
+    KNOWN_CAUSES.iter().find(|(t, _)| *t == test).map_or("", |(_, c)| c)
+}
+
 fn md(s: &str) -> String {
     s.replace('|', "\\|")
 }
@@ -258,6 +283,12 @@ fn md(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn known_causes_name_their_tests_only() {
+        assert!(known_cause("bentonite").starts_with("UMFPACK vs faer LU"));
+        assert_eq!(known_cause("HeatGap"), "");
+    }
 
     fn rec(name: &str, verdict: Verdict, blockers: &[&str]) -> Record {
         Record {
