@@ -74,6 +74,13 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
   The rerun creates each `RefinedMesh<N>/` it needs, as `capture` does.
   A CutFEM solver whose cut mesh is not saved (the library CutFEM of
   `ModelPDE`) stays out of class.
+- **Global variables** (`Variable = -global ...`). `SaveResult` skips
+  globals unless `Output Global Variables` is set. Their golden is
+  captured with `--globals` (O2 plus that keyword), and the rerun matches
+  it. A global's `Values` is its NULL-Perm block as written. This applies
+  to OdeSolver1stOrder, OdeSolver2ndOrder and SlaveSolverSlots, whose
+  `--globals` golden sits in the refnorm golden root beside the per-RUN
+  one.
 - **Replayed tests (custom `runtest.cmake`).** These run through
   `cmake -P` with the arm's recorded registration, as `capture` does, with
   the overrides in the startinfo sif. A script that runs further sifs
@@ -94,11 +101,11 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
 
 | Verdict | Tests |
 |---|---:|
-| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **380** (487 solver checks) |
+| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **383** (490 solver checks) |
 | grader gap: the solver sets its own norm (FluxSolver, VectorHelmholtzNodal, WhitneyAVSolver) | 7 |
 | grader gap: DG field (PoissonDG) | 1 |
 | unexplained mismatch (PhaseChange3, solver 3 `PhaseSurface`) | 1 |
-| out of the validated class | 93 |
+| out of the validated class | 90 |
 
 Before this widening the class held 223 tests (238 solvers). All 223 are
 still bitwise, each with at least as many solvers as before.
@@ -132,7 +139,7 @@ Each test is listed under the first reason in its row.
 | `Show Norm` / `Show Norm Index` (a SaveScalars value is the norm) | 28 |
 | no `Variable`: several saved variables of its equation | 10 |
 | no `Variable`: no saved variable of its equation | 10 |
-| variable not in any result file (global, or not output) | 9 |
+| variable not in any result file (edge fields, a coupled vector Elmer does not output, matrix-only tests) | 6 |
 | MPI: non-nodal unknowns (no owners in the partition files) | 8 |
 | duplicate `Solver N` sections (merged by Elmer) | 7 |
 | MPI: local mesh changed after load (extruded, refined, view factors) | 6 |
@@ -143,7 +150,7 @@ Each test is listed under the first reason in its row.
 | non-nodal unknowns | 1 |
 
 So item 4 is **not** done for every captured test. The validated class
-covers 380 of the 482 quick tests. Widening it further means the
+covers 383 of the 482 quick tests. Widening it further means the
 SaveScalars-style norms, and parallel ownership of
 non-nodal unknowns and of meshes Elmer changes after loading.
 
@@ -152,7 +159,11 @@ non-nodal unknowns and of meshes Elmer changes after loading.
 ```sh
 S=/home/john/firstmate/data/elmer-s0-oracle
 OMP_NUM_THREADS=1 target/release/elmer-oracle refnorm-validate \
-  $S/build-release $S/src/fem/tests <per-RUN golden-root> <out-root>
+  $S/build-release $S/src/fem/tests <refnorm golden-root> <out-root>
 ```
 
-The table is written to `<out-root>/refnorm.tsv`.
+The table is written to `<out-root>/refnorm.tsv`. The refnorm golden root
+is the per-RUN golden (`--per-run`), with the three global-variable tests
+captured with `--per-run --globals`:
+`/home/john/elmer-laptop-lanes/elmer-lane-oracle/refnorm-golden/` on the
+oracle host.
