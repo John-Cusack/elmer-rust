@@ -49,8 +49,8 @@ pub struct PElementSpec {
     pub scalar_face_order: bool,
     /// Evaluate as the scalar `ElementInfo` does (PElementBase.F90 and
     /// `ElementMetric`) instead of `ElementInfoVec` (H1Basis.F90 and
-    /// `ElementMetricVec`); see `scalar.rs`. Triangles and full-scheme
-    /// quads have the scalar path so far; other elements ignore it.
+    /// `ElementMetricVec`); see `scalar.rs`. Triangles and quads
+    /// (both schemes) have the scalar path so far; other elements ignore it.
     pub scalar_element_info: bool,
 }
 
@@ -479,7 +479,7 @@ impl PElementBasis {
 }
 
 impl PElementBasis {
-    /// The scalar `ElementInfo` of a triangle or a (full-scheme) quad: the
+    /// The scalar `ElementInfo` of a triangle or a quad: the
     /// functions `scalar.rs` ports from PElementBase.F90, H1Basis values for
     /// the rest, geometry from `ElementMetric`.
     #[allow(clippy::too_many_arguments)]
@@ -516,6 +516,8 @@ impl PElementBasis {
             for k in 2..=self.spec.edge_degree[i].max(1) as usize {
                 let f = if tri {
                     crate::scalar::triangle_edge(i + 1, k, u, v, invert)
+                } else if self.spec.serendipity {
+                    crate::scalar::sd_quad_edge(i + 1, k, u, v, invert)
                 } else {
                     crate::scalar::quad_edge(i + 1, k, u, v, invert)
                 };
@@ -526,8 +528,33 @@ impl PElementBasis {
                 q += 1;
             }
         }
+        // Serendipity quad bubbles, i = 2..p-2 outer, j = 2..p-i inner, as
+        // `SD_bubbles_quad`.
+        if !tri
+            && self.spec.serendipity
+            && self.spec.bubble_p > 0
+            && self.spec.bubble_face_dir.is_none()
+        {
+            let bp = self.spec.bubble_p as usize;
+            'sd: for i in 2..=bp.saturating_sub(2) {
+                for j in 2..=bp.saturating_sub(i) {
+                    if q >= nb {
+                        break 'sd;
+                    }
+                    if let Some((value, g)) = crate::scalar::sd_quad_bubble(i, j, u, v) {
+                        val[q] = value;
+                        grad[q] = [g[0], g[1], 0.0];
+                    }
+                    q += 1;
+                }
+            }
+        }
         // Quad interior bubbles, i (u) outer, j (v) inner, as `bubbles_quad`.
-        if !tri && self.spec.bubble_p > 0 && self.spec.bubble_face_dir.is_none() {
+        if !tri
+            && !self.spec.serendipity
+            && self.spec.bubble_p > 0
+            && self.spec.bubble_face_dir.is_none()
+        {
             let bp = self.spec.bubble_p as usize;
             'bubbles: for i in 0..=bp.saturating_sub(2) {
                 for j in 0..=bp.saturating_sub(2) {
@@ -592,9 +619,7 @@ impl ElementBasis for PElementBasis {
         let mut val = vec![0.0; cap];
         let mut grad = vec![[0.0; 3]; cap];
         let nb = h1_p_basis_spec(&self.spec, uvw, &mut val, &mut grad)?;
-        if self.spec.scalar_element_info
-            && (etype.0 == 303 || (etype.0 == 404 && !self.spec.serendipity))
-        {
+        if self.spec.scalar_element_info && (etype.0 == 303 || etype.0 == 404) {
             return self.eval_scalar_2d(etype.0, nodal_xyz, uvw, val, grad, nb, out);
         }
         let dim = match etype.family() {

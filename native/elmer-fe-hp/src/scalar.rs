@@ -18,12 +18,13 @@
 //! cases whose powers are `x**2` and `x**4`, which every gfortran
 //! expansion of `**` evaluates the same way):
 //! * triangles (303): nodal and edge functions;
-//! * quadrilaterals (404, full scheme): nodal, edge and interior bubble
-//!   functions (`QuadEdgePBasis`, `QuadBubblePBasis` without
-//!   `localNumbers`, PElementBase.F90:915, :981, :1168, :1219).
+//! * quadrilaterals (404): nodal, edge and interior bubble functions, full
+//!   scheme (`QuadEdgePBasis`, `QuadBubblePBasis` without `localNumbers`,
+//!   PElementBase.F90:915, :981, :1168, :1219) and serendipity
+//!   (`SD_QuadEdgePBasis`, `SD_QuadBubblePBasis`, :495, :657, :738, :786).
 //!
 //! Triangle bubbles, face-directed quad bubbles (a 2D element on a 3D
-//! face), serendipity quads and higher degrees keep the H1Basis values.
+//! face) and higher degrees keep the H1Basis values.
 
 // Index loops mirror the Fortran's.
 #![allow(clippy::needless_range_loop)]
@@ -234,6 +235,56 @@ pub(crate) fn quad_bubble(i: usize, j: usize, u: f64, v: f64) -> Option<(f64, [f
     Some((pu * pv, [d_phi(i + 2, u)? * pv, pu * d_phi(j + 2, v)?]))
 }
 
+/// `SD_QuadEdgePBasis(edge, i, u, v, invert)` and `SD_dQuadEdgePBasis`.
+pub(crate) fn sd_quad_edge(
+    edge: usize,
+    i: usize,
+    u: f64,
+    v: f64,
+    invert: bool,
+) -> Option<(f64, [f64; 2])> {
+    // The edge's variable runs along u (edges 1, 3) or v (2, 4), reversed
+    // when inverted; `c` is the cross factor 1/2 (1 -/+ v) or 1/2 (1 -/+ u).
+    let s = if invert { -1.0 } else { 1.0 };
+    Some(match edge {
+        1 => {
+            let x = s * u;
+            (
+                0.5 * (1.0 - v) * phi(i, x)?,
+                [s * (0.5 * (1.0 - v) * d_phi(i, x)?), -(0.5 * phi(i, x)?)],
+            )
+        }
+        2 => {
+            let x = s * v;
+            (
+                0.5 * (1.0 + u) * phi(i, x)?,
+                [0.5 * phi(i, x)?, s * (0.5 * (u + 1.0) * d_phi(i, x)?)],
+            )
+        }
+        3 => {
+            let x = s * u;
+            (
+                0.5 * (1.0 + v) * phi(i, x)?,
+                [s * (0.5 * (1.0 + v) * d_phi(i, x)?), 0.5 * phi(i, x)?],
+            )
+        }
+        _ => {
+            let x = s * v;
+            (
+                0.5 * (1.0 - u) * phi(i, x)?,
+                [-(0.5 * phi(i, x)?), s * (0.5 * (1.0 - u) * d_phi(i, x)?)],
+            )
+        }
+    })
+}
+
+/// `SD_QuadBubblePBasis(i, j, u, v)` and `SD_dQuadBubblePBasis` without
+/// `localNumbers`: `Phi(i, u) Phi(j, v)`.
+pub(crate) fn sd_quad_bubble(i: usize, j: usize, u: f64, v: f64) -> Option<(f64, [f64; 2])> {
+    let (pu, pv) = (phi(i, u)?, phi(j, v)?);
+    Some((pu * pv, [d_phi(i, u)? * pv, pu * d_phi(j, v)?]))
+}
+
 /// `ElementMetric` (ElemInfo.F90:9893) for a 1D or 2D element in a `cdim`
 /// coordinate system: `dx` from the first `n` functions, then `detJ`
 /// and `LtoGMap`. `Err` for a degenerate element.
@@ -361,5 +412,23 @@ mod tests {
             }
         }
         assert!(quad_bubble(4, 0, u, v).is_none());
+        for edge in 1..=4 {
+            for i in 2..=5 {
+                for invert in [false, true] {
+                    check(
+                        &|u, v| sd_quad_edge(edge, i, u, v, invert).unwrap(),
+                        &format!("sd edge {edge} i {i} {invert}"),
+                    );
+                }
+            }
+        }
+        for i in 2..=3 {
+            for j in 2..=3 {
+                check(
+                    &|u, v| sd_quad_bubble(i, j, u, v).unwrap(),
+                    &format!("sd bubble {i} {j}"),
+                );
+            }
+        }
     }
 }
