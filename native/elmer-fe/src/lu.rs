@@ -45,7 +45,7 @@ fn lu_decomp(a: &mut [f64], n: usize, pivot: &mut [usize]) -> Option<()> {
 }
 
 /// InvertMatrix: `a` (n x n, column-major) is replaced by its inverse.
-pub(crate) fn invert_matrix(a: &mut [f64], n: usize) -> Option<()> {
+pub fn invert_matrix(a: &mut [f64], n: usize) -> Option<()> {
     let ix = |i: usize, j: usize| i + j * n;
     let mut pivot = vec![0usize; n];
     lu_decomp(a, n, &mut pivot)?;

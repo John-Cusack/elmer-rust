@@ -13,6 +13,7 @@ use crate::boundary::{element_center, flow_boundary_local, FlowBoundaryInput};
 use crate::bulk::{flow_bulk_local, Discretization, FlowBulkInput};
 use crate::error::FlowError;
 use crate::bulk::StabParams;
+use crate::cylindric::{cylindric_bulk_local, ns_condensate, CylindricBulkInput};
 
 const CALLER: &str = "FlowSolver";
 
@@ -125,7 +126,10 @@ fn check_stabilization(p: &ParamMap) -> Result<(), SolverError> {
             }
             Ok(())
         }
-        "bubbles" | "pbubbles" | "p2/p1" | "p2p1" | "vms" => {
+        // NavierStokesCylindricalCompose's p bubbles; the solver checks the
+        // coordinates and the elements.
+        "pbubbles" => Ok(()),
+        "bubbles" | "p2/p1" | "p2p1" | "vms" => {
             Err(unsupported(format!("Stabilization Method = {method}")))
         }
         other => Err(SolverError::fatal(CALLER, format!("Unknown \"stabilization method\": {other}"))),
@@ -218,10 +222,14 @@ fn mesh_stabilize(ctx: &SolverCtx<'_>) -> bool {
     })
 }
 
-fn cartesian(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
+/// The coordinate system FlowSolve assembles in: `false` for cartesian,
+/// `true` for `Cylindric Symmetric` (NavierStokesCylindricalCompose, a
+/// swirl velocity as the third component).
+fn cylindric(ctx: &SolverCtx<'_>) -> Result<bool, SolverError> {
     match ctx.simulation_params().string("coordinate system") {
-        None => Ok(()),
-        Some(s) if elmer_core::normalize_key(s).starts_with("cartesian") => Ok(()),
+        None => Ok(false),
+        Some(s) if elmer_core::normalize_key(s).starts_with("cartesian") => Ok(false),
+        Some(s) if elmer_core::normalize_key(s) == "cylindric symmetric" => Ok(true),
         Some(s) => Err(unsupported(format!("Coordinate System = {s}"))),
     }
 }
@@ -366,11 +374,11 @@ impl Solver for FlowSolver {
     /// Refuses up front every option of the sections this solver reads that
     /// the kernels would otherwise ignore.
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
-        cartesian(ctx)?;
+        let cyl = cylindric(ctx)?;
         check_solver_params(ctx.params())?;
         let dim = ctx.mesh.dim();
         let dofs = ctx.primary().map(|f| f.dofs);
-        if dofs != Some(dim + 1) {
+        if dofs != Some(dim + 1 + usize::from(cyl)) {
             return Err(unsupported(format!(
                 "a flow variable with {dofs:?} dofs in {dim}D (expected velocity components and pressure)"
             )));
@@ -410,7 +418,7 @@ impl Solver for FlowSolver {
     }
 
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
-        cartesian(ctx)?;
+        let cyl = cylindric(ctx)?;
         check_solver_params(ctx.params())?;
         let p = ctx.params().clone();
         let (convect_model, transient) = match p.string("flow model").map(elmer_core::normalize_key).as_deref() {
@@ -421,8 +429,27 @@ impl Solver for FlowSolver {
         let dim = ctx.mesh.dim();
         let comps = component_names(ctx)?;
         let nsdofs = comps.len();
-        if nsdofs != dim + 1 {
+        if nsdofs != dim + 1 + usize::from(cyl) {
             return Err(unsupported(format!("{nsdofs} flow dofs in {dim}D")));
+        }
+        // The velocity components: `dim`, and the swirl in cylindric symmetry.
+        let vdim = nsdofs - 1;
+        if !cyl && stabilization_method(&p) == "pbubbles" {
+            return Err(unsupported("Stabilization Method = pbubbles in cartesian coordinates"));
+        }
+        if cyl {
+            if stabilization_method(&p) != "pbubbles" {
+                return Err(unsupported(format!(
+                    "Cylindric Symmetric FlowSolve with Stabilization Method = {} (only pbubbles is ported)",
+                    stabilization_method(&p)
+                )));
+            }
+            if transient {
+                return Err(unsupported("transient Cylindric Symmetric FlowSolve (NSCondensateTransientH)"));
+            }
+            if ctx.sim.model.boundary_conditions.iter().any(|bc| bc.get("implicit friction coefficient").is_some()) {
+                return Err(unsupported("Implicit Friction Coefficient in Cylindric Symmetric coordinates"));
+            }
         }
 
         let disc = Discretization {
@@ -505,12 +532,12 @@ impl Solver for FlowSolver {
                 // its n vertex functions, on its own rule; the other dofs get
                 // no bulk contribution.
                 let pe = match ctx.solver_dofs() {
-                    Some(d) => Some(p_parts(d, e, el.etype, el.nodes, &stabilize_flag)?),
-                    None => None,
+                    Some(d) if !cyl => Some(p_parts(d, e, el.etype, el.nodes, &stabilize_flag)?),
+                    _ => None,
                 };
                 let values = ctx.primary().expect("checked in init").values;
                 let velocity: Vec<[f64; 3]> = (0..n)
-                    .map(|k| std::array::from_fn(|i| if i < dim { values[dofs[k * nsdofs + i] as usize] } else { 0.0 }))
+                    .map(|k| std::array::from_fn(|i| if i < vdim { values[dofs[k * nsdofs + i] as usize] } else { 0.0 }))
                     .collect();
 
                 let density = nodal(ctx, mat, "density", e, n)?;
@@ -523,16 +550,53 @@ impl Solver for FlowSolver {
                         .unwrap_or(false);
                     if hydrostatic {
                         for l in load.iter_mut() {
-                            l[..dim].copy_from_slice(&grav[..dim]);
+                            l[..vdim].copy_from_slice(&grav[..vdim]);
                         }
                     }
-                    for i in 0..dim {
+                    for i in 0..vdim {
                         if let Some(f) = ctx.real_at_nodes(b, &format!("flow bodyforce {}", i + 1), e)? {
                             for (l, v) in load.iter_mut().zip(f) {
                                 l[i] += v;
                             }
                         }
                     }
+                }
+
+                if cyl {
+                    if angular_velocity(bf)?.is_some() {
+                        return Err(SolverError::fatal(
+                            "FlowSolve",
+                            "Rotating coordinate implemented only for cartesian coordinates",
+                        ));
+                    }
+                    let d = ctx
+                        .solver_dofs()
+                        .ok_or_else(|| unsupported("Cylindric Symmetric pbubbles without p elements (legacy bubbles)"))?;
+                    let nb = d.local_bubbles(e);
+                    if nb == 0 {
+                        return Err(unsupported("Cylindric Symmetric pbubbles on an element without local bubbles"));
+                    }
+                    if dofs.len() != n * nsdofs || d.element_nodes(e) != el.nodes {
+                        return Err(unsupported("Cylindric Symmetric pbubbles on p elements with edge or face dofs"));
+                    }
+                    let pbasis = d.element_basis(e).map_err(|m| SolverError::fatal("ElementInfo", m))?;
+                    let rule = d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?;
+                    let inp = CylindricBulkInput {
+                        etype: el.etype,
+                        xyz: &xyz,
+                        density: &density,
+                        viscosity: &viscosity,
+                        velocity: &velocity,
+                        load: &load,
+                        convect,
+                        newton: self.newton,
+                        gradp: disc.gradp,
+                        bubbles: nb,
+                    };
+                    cylindric_bulk_local(&*pbasis, &rule, &inp, &mut self.local)?;
+                    ns_condensate(n, nb, vdim, &mut self.local)?;
+                    ctx.default_update(&self.local, e)?;
+                    continue;
                 }
 
                 // MeshStabParams: StabParam with Mesh % Stabilize, else only
@@ -614,6 +678,11 @@ impl Solver for FlowSolver {
                 {
                     continue;
                 }
+                if cyl {
+                    return Err(unsupported(
+                        "boundary forces or slip in Cylindric Symmetric coordinates (NavierStokesCylindricalBoundary)",
+                    ));
+                }
                 let parent_center = normal_parent(ctx, e).map(|pe| element_center(&node_xyz(ctx.mesh, ctx.mesh.element(pe).nodes)));
                 let xyz = node_xyz(ctx.mesh, el.nodes);
                 let inp = FlowBoundaryInput {
@@ -645,7 +714,7 @@ impl Solver for FlowSolver {
             // Implicit friction boundaries, on the matrix level.
             set_implicit_friction(ctx, dim)?;
 
-            noslip_walls(ctx, &comps, dim);
+            noslip_walls(ctx, &comps, vdim);
             // DefaultDirichletBCs: element values (in BC order with `Set
             // Dirichlet BCs by BC Numbering`), zero on p edge dofs, then the
             // point values of `Target Nodes` / `Target Coordinates`.

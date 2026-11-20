@@ -19,18 +19,24 @@
 //! and viscosity, body forces and hydrostatic gravity, traction, normal
 //! pressure, mass flux and slip-coefficient boundaries, Dirichlet and
 //! no-slip-wall conditions, and transient runs through `Default1stOrderTime`
-//! (`elmer-timeint`). Bubbles, P2/P1, VMS, compressible models, porous
-//! media, rotating frames, non-newtonian viscosity, normal-tangential and
-//! free-surface boundaries are refused instead of approximated.
+//! (`elmer-timeint`), rotating frames and normal-tangential boundaries.
+//! `Coordinate System = Cylindric Symmetric` assembles with
+//! [`cylindric_bulk_local`] (`NavierStokesCylindricalCompose`), for the
+//! p-bubble formulation (`Stabilization Method = pbubbles`, bubbles condensed
+//! by [`ns_condensate`]). Legacy bubbles, P2/P1, VMS, compressible models,
+//! porous media, non-newtonian viscosity and free-surface boundaries are
+//! refused instead of approximated.
 #![forbid(unsafe_code)]
 
 pub mod boundary;
 pub mod bulk;
+pub mod cylindric;
 pub mod error;
 pub mod solver;
 
 pub use boundary::{flow_boundary_local, outward_normal, FlowBoundaryInput};
 pub use bulk::{flow_bulk_local, Discretization, FlowBulkInput, StabParams};
+pub use cylindric::{cylindric_bulk_local, ns_condensate, CylindricBulkInput};
 pub use error::FlowError;
 pub use solver::{factory, install_fe, register, FeProvider, FlowSolver};
 
