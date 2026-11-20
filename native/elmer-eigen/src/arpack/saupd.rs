@@ -26,15 +26,19 @@ use super::lapack::{dlartg, dlascl_g, dlaset, dlarnv, dstqrb, EPS, SAFMIN};
 pub type Op<'a> = dyn FnMut(i32, [usize; 3], &mut [f64]) -> Result<(), String> + 'a;
 
 /// ARPACK's process state: the seed `dgetv0` keeps (`SAVE`, starting at
-/// 1, 3, 5, 7), so successive starting vectors continue one random stream.
+/// 1, 3, 5, 7), so successive starting vectors continue one random stream,
+/// and the `smlnum` that `dnaitr` and `dnapps` each `SAVE` on their first
+/// call (computed with that call's `n`).
 #[derive(Clone, Debug)]
 pub struct Arpack {
     pub iseed: [i32; 4],
+    pub naitr_smlnum: Option<f64>,
+    pub napps_smlnum: Option<f64>,
 }
 
 impl Default for Arpack {
     fn default() -> Self {
-        Arpack { iseed: [1, 3, 5, 7] }
+        Arpack { iseed: [1, 3, 5, 7], naitr_smlnum: None, napps_smlnum: None }
     }
 }
 
@@ -49,7 +53,7 @@ pub struct Stats {
 }
 
 /// `0.717` is a default-REAL literal in ARPACK: single precision.
-fn c0717() -> f64 {
+pub(crate) fn c0717() -> f64 {
     f64::from(0.717f32)
 }
 
@@ -175,7 +179,7 @@ pub fn dseigt(rnorm: f64, n: usize, h: &[f64], ldh: usize, eig: &mut [f64], boun
 /// ierr)`: a (random, unless `initv`) starting vector in the range of `OP`,
 /// B-orthogonal to the first `j - 1` columns of `v`. Returns `(rnorm, ierr)`.
 #[allow(clippy::too_many_arguments)]
-fn dgetv0(
+pub(crate) fn dgetv0(
     op: &mut Op<'_>,
     st: &mut Stats,
     arp: &mut Arpack,
