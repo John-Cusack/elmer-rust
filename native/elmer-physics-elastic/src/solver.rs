@@ -374,8 +374,8 @@ impl StressSolver {
                 };
                 ElasticLaw::Isotropic { young: ym.data, poisson }
             } else {
-                if cdim != 3 || axi {
-                    return Err(unsupported("anisotropic material outside 3D (ElasticSolve refuses it too)"));
+                if axi {
+                    return Err(unsupported("anisotropic material under axial symmetry"));
                 }
                 let c: Vec<[[f64; 6]; 6]> = (0..n).map(|k| c_of_block(ym.rows, ym.cols, ym.node(k))).collect();
                 let rotation = if flag(Some(mat), "rotate elasticity tensor") {
@@ -641,7 +641,7 @@ impl StressSolver {
             }
         }
 
-        let mut projector = post::Projector::new(ctx, &mass, ctx.solver_dofs().is_some())?;
+        let mut projector = post::Projector::new(ctx, &mass)?;
         let comm = ctx.comm;
         let mut project = |f: &[f64]| -> Result<Vec<f64>, SolverError> {
             let mut out = vec![0.0; nslots * ncomp];
