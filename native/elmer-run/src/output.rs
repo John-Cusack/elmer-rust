@@ -31,6 +31,11 @@ pub struct VtuOutput {
     /// `Eigen Analysis` / `Constraint Modes Analysis` of the section: one
     /// piece per eigen or constraint mode ([`VtuSolver::write_mode_files`]).
     mode_files: bool,
+    /// Without `Scalar Field n` / `Vector Field n`: `(Enforce Vectors,
+    /// dim)`, and the field list is made again at every write from the
+    /// variables that exist then, as VtuOutputSolver does (a solver may add
+    /// one during the run, `Extruded Coordinate` say).
+    auto_fields: Option<(bool, usize)>,
 }
 
 pub fn is_result_output(params: &ParamMap) -> bool {
@@ -142,7 +147,7 @@ pub fn prepare_vtu_output(
             Some(d) => case_dir.join(d),
             None => mesh_dir.to_path_buf(),
         };
-        outputs.push(VtuOutput { index, opts, dir, reference, mode_files });
+        outputs.push(VtuOutput { index, opts, dir, reference, mode_files, auto_fields: None });
     }
     Ok(outputs)
 }
@@ -229,6 +234,7 @@ impl VtuOutput {
         let (scalars, vectors) = fields_for_saving(&sim.vars, enforce_vectors, dim)?;
         self.opts.scalar_fields = scalars;
         self.opts.vector_fields = vectors;
+        self.auto_fields = Some((enforce_vectors, dim));
         Ok(())
     }
 
@@ -428,6 +434,11 @@ impl Solver for VtuSolver {
             }
         }
         let mut owned = self.out.opts.clone();
+        if let Some((enforce_vectors, dim)) = self.out.auto_fields {
+            let (scalars, vectors) = fields_for_saving(&ctx.sim.vars, enforce_vectors, dim)?;
+            owned.scalar_fields = scalars;
+            owned.vector_fields = vectors;
+        }
         prepare_discontinuous(ctx, &mut owned)?;
         let opts = &owned;
         let index = self.indexer.advance(opts);

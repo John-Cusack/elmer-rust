@@ -605,7 +605,7 @@ impl Simulation {
 
     /// The fields as `elmer-expr` reads them.
     pub fn fields<'a>(&'a self, mesh: &'a dyn MeshView) -> SimFields<'a> {
-        SimFields { vars: &self.vars, mesh }
+        SimFields { vars: &self.vars, mesh, dg: self.dg_indexes.as_ref() }
     }
 
     /// `ListGetCReal(section, key)` against this simulation's fields, MATC
@@ -988,7 +988,7 @@ impl Simulation {
                 }
                 let Some(val) = bc.get(name) else { continue };
                 let b = &self.backends;
-                let fields = SimFields { vars: &self.vars, mesh };
+                let fields = SimFields { vars: &self.vars, mesh, dg: self.dg_indexes.as_ref() };
                 if dofs > 1 && comp.is_none() {
                     // ListGetRealArray: the first MIN(rows, dofs) entries of column 1.
                     let c = crate::expr::compile_value(val, &b.udfs);
@@ -1221,9 +1221,18 @@ impl Simulation {
                 self.dg_indexes = Some(ix.clone());
             }
         }
+        // AddEquationBasics (MainUtils.F90:1764-1822): CreateMatrix returns
+        // no matrix for a `No Matrix` solver, so its variable gets `DOFs *
+        // Ndeg` values (every node's) whatever its permutation covers; the
+        // norm runs over all of them.
+        let n_values = if slot.dofs.is_none() && layout.is_none() && kind == FieldKind::Nodal && slot.params.logical("no matrix") == Some(true) {
+            self.nodal_ndeg(mesh, slot)?.max(perm.n_slots)
+        } else {
+            perm.n_slots
+        };
         slot.dofs = layout;
         let perm_arc: Arc<[u32]> = perm.perm.into();
-        let mut values = vec![0.0; perm.n_slots * spec.dofs];
+        let mut values = vec![0.0; n_values * spec.dofs];
         if apply_ics {
             if kind == FieldKind::Dg {
                 let ix = dg.as_ref().expect("a DG kind has a layout");
@@ -1468,7 +1477,7 @@ impl Simulation {
             }
             it
         };
-        let fields = SimFields { vars: &self.vars, mesh };
+        let fields = SimFields { vars: &self.vars, mesh, dg: self.dg_indexes.as_ref() };
         let params = crate::expr::resolve_creals(
             &slot.params,
             CHANGE_CREALS,

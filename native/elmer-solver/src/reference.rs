@@ -117,7 +117,7 @@ pub fn compare_to_reference(
                         format!("reference solution {k}")
                     };
                     let Some(rv) = p.get(&key) else { continue };
-                    let fields = crate::expr::SimFields { vars: &sim.vars, mesh };
+                    let fields = crate::expr::SimFields { vars: &sim.vars, mesh, dg: sim.dg_indexes.as_ref() };
                     let refval = crate::expr::eval_at_nodes(rv, &[node], &fields, sim.backends.matc.as_deref())?[0];
                     let val = var.values[dofs * j as usize + k - 1];
                     rn += refval * refval;
