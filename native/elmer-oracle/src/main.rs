@@ -237,6 +237,12 @@ fn resolve_solvers(
                 }
             }
         }
+        // A CutFEM solver's own field is on its cut mesh; when that mesh
+        // was not saved the field is not in any file.
+        if s.cutfem && !found_at.iter().any(|p| p.split('/').next().is_some_and(|d| d.to_lowercase().ends_with("-cutfem"))) {
+            notes.push(format!("solver {}: CutFEM: the cut-mesh solution is not saved", s.number));
+            continue;
+        }
         // Several meshes carry the variable: keep the solver's own file.
         if found.len() > 1 {
             if let Some(own) = elmer_oracle::refnorm::own_file(

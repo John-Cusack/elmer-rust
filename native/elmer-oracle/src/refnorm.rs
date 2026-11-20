@@ -38,6 +38,8 @@ pub struct RefSolver {
     pub coupled: bool,
     /// Lowercased solver-level `Mesh` (the solver runs on another mesh).
     pub mesh: Option<String>,
+    /// `CutFem = True`: the solver solves on a cut mesh `<mesh>-cutfem`.
+    pub cutfem: bool,
 }
 
 /// Solver entries that assign `Solver % Variable % Norm` themselves
@@ -279,6 +281,7 @@ pub fn reference_solvers(text: &str) -> Result<Vec<RefSolver>, String> {
                     LEGACY.iter().find(|l| l.0 == eq).map(|l| l.2.to_string())
                 }),
                 entry: keys_entry(&k),
+                cutfem: k.iter().any(|(k, v)| k == "cutfem" && v.to_lowercase().contains("true")),
                 mesh: k.iter().rev().find(|(k, _)| k == "mesh").and_then(|(_, v)| {
                     v.split_whitespace().next().map(|m| m.trim_matches('"').to_lowercase())
                 }),
@@ -625,6 +628,7 @@ mod tests {
             entry: None,
             coupled: false,
             mesh: None,
+            cutfem: false,
         }
     }
 
