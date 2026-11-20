@@ -149,7 +149,6 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
         ("adaptive mesh refinement", "adaptive mesh refinement"),
         ("use hencky strain", "Hencky strain"),
         ("maxwell material", "Maxwell material"),
-        ("pressure stabilization", "pressure stabilization"),
     ] {
         if flag(Some(p), key) {
             return Err(unsupported(what));
@@ -157,7 +156,6 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
     }
     for (key, what) in [
         ("element relative integration order", "elemental integration rule"),
-        ("element integration points", "elemental integration rule"),
         ("update transient system", "update transient system"),
     ] {
         if p.get(key).is_some() && p.integer(key).unwrap_or(1) != 0 {
@@ -244,6 +242,41 @@ struct ElementData {
     temperature: Option<Vec<f64>>,
     heat_expansion: Option<Vec<[f64; 3]>>,
     ip: Option<IpProps>,
+}
+
+impl ElementData {
+    /// The nodal data at `nodes` (the p basis's node order) instead of
+    /// `mesh_nodes`.
+    fn reordered(self, mesh_nodes: &[u32], nodes: &[u32]) -> Self {
+        if mesh_nodes == nodes {
+            return self;
+        }
+        let map: Vec<usize> =
+            nodes.iter().map(|n| mesh_nodes.iter().position(|m| m == n).expect("same node set")).collect();
+        fn take<T: Copy>(map: &[usize], v: &[T]) -> Vec<T> {
+            map.iter().map(|&i| v[i]).collect()
+        }
+        let law = match self.law {
+            ElasticLaw::Isotropic { young, poisson } => {
+                ElasticLaw::Isotropic { young: take(&map, &young), poisson: take(&map, &poisson) }
+            }
+            ElasticLaw::Anisotropic { c, rotation } => ElasticLaw::Anisotropic { c: take(&map, &c), rotation },
+        };
+        Self {
+            law,
+            density: take(&map, &self.density),
+            damping: self.damping.map(|v| take(&map, &v)),
+            load: take(&map, &self.load),
+            inertial: self.inertial.map(|v| take(&map, &v)),
+            pressure: self.pressure.map(|v| take(&map, &v)),
+            stress_load: self.stress_load.map(|v| take(&map, &v)),
+            strain_load: self.strain_load.map(|v| take(&map, &v)),
+            gpa: self.gpa.map(|v| take(&map, &v)),
+            temperature: self.temperature.map(|v| take(&map, &v)),
+            heat_expansion: self.heat_expansion.map(|v| take(&map, &v)),
+            ..self
+        }
+    }
 }
 
 fn nodal_temperature(temp: &Option<FieldRef<'_>>, nodes: &[u32], reference: &[f64]) -> Option<Vec<f64>> {
@@ -404,7 +437,12 @@ impl ElasticSolver {
                 ip.poisson = props::scalar_ips(ctx, mat, "poisson ratio", e, &shape)?;
                 Ok(vec![0.0; n])
             } else {
-                props::scalar_nodes(ctx, mat, "poisson ratio", e)?.ok_or_else(|| fatal("material has no 'Poisson Ratio'"))
+                // ElasticSolve.F90:2141: not read under "Incompressible".
+                match props::scalar_nodes(ctx, mat, "poisson ratio", e)? {
+                    Some(v) => Ok(v),
+                    None if model.incompressible => Ok(vec![0.0; n]),
+                    None => Err(fatal("material has no 'Poisson Ratio'")),
+                }
             }
         };
         let law = if young_ip {
@@ -576,15 +614,15 @@ impl ElasticSolver {
             }
             let plane_stress = flag(body.as_ref().and_then(|b| b.equation), "plane stress");
             let el = ctx.mesh.element(e);
-            let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
-            let d = self.element_data(ctx, e, cdim, model, temp_ref)?;
+            // A p element's basis takes its nodes in the order of its dofs (p
+            // tetrahedra are reordered); the nodal data follows them.
+            let nodes: Vec<u32> = ctx.solver_dofs().map_or_else(|| el.nodes.to_vec(), |dd| dd.element_nodes(e));
+            let xyz: Vec<[f64; 3]> = nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
+            let d = self.element_data(ctx, e, cdim, model, temp_ref)?.reordered(el.nodes, &nodes);
             // The dof slots: the nodes' through the permutation, or the p
             // element's (`GetElementDOFs`), with its scalar basis and rule.
             let pe = match ctx.solver_dofs() {
                 Some(dd) => {
-                    if dd.element_nodes(e) != el.nodes {
-                        return Err(unsupported("p elements whose basis reorders the nodes"));
-                    }
                     let mut s = Vec::new();
                     dd.element_slots(e, &mut s);
                     let slots: Vec<Option<usize>> =
@@ -757,12 +795,15 @@ impl Solver for ElasticSolver {
             if model.large {
                 return Err(fatal("\"Incompressible\" is a small strain formulation: set \"Large Deflection = False\""));
             }
-            // ElasticSolver_Init: `Element Integration Points` for the MINI
-            // element on triangles, tetrahedra and prisms; not ported.
+            // ElasticSolver_Init: the measured integration rules of the MINI
+            // element (`ListAddNewString`).
             let bubbles = ctx.params().string("element").is_some_and(|s| s.contains("b:"));
-            let mesh = ctx.mesh;
-            if bubbles && (0..mesh.n_bulk() as u32).any(|e| matches!(mesh.element(ElemId(e)).etype.0 / 100, 3 | 5 | 7)) {
-                return Err(unsupported("\"Incompressible\" with bubbles on triangles, tetrahedra or prisms (Element Integration Points)"));
+            if bubbles && ctx.params().get("element integration points").is_none() {
+                let id = ctx.solver_id();
+                let ix = ctx.sim.slots.iter().position(|s| s.id == id).expect("running solver has a slot");
+                ctx.sim.slots[ix]
+                    .params
+                    .insert("Element Integration Points", Value::Str("-tri 7 -tetra 24 -prism 85".into()));
             }
         } else if dofs != Some(dim) {
             return Err(fatal(format!("'Variable DOFs' must equal the coordinate dimension {dim}, got {dofs:?}")));
@@ -933,8 +974,11 @@ impl Solver for ElasticSolver {
             let elems: Vec<ElemId> = if skip_all || skip_bulk { Vec::new() } else { ctx.active_elements().collect() };
             for e in elems {
                 let el = ctx.mesh.element(e);
-                let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
-                let d = self.element_data(ctx, e, cdim, model, &temp_ref)?;
+                // A p element's basis takes its nodes in the order of its dofs (p
+                // tetrahedra are reordered); the nodal data follows them.
+                let nodes: Vec<u32> = ctx.solver_dofs().map_or_else(|| el.nodes.to_vec(), |dd| dd.element_nodes(e));
+                let xyz: Vec<[f64; 3]> = nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
+                let d = self.element_data(ctx, e, cdim, model, &temp_ref)?.reordered(el.nodes, &nodes);
                 // ElasticSolve.F90:2080: "Incompressible" overrides "Plane Stress".
                 let plane_stress = flag(ctx.body_params(e).and_then(|b| b.equation), "plane stress") && !model.incompressible;
                 // A p element: its dofs (`GetElementDOFs`, bubbles in the
@@ -943,9 +987,6 @@ impl Solver for ElasticSolver {
                     Some(dd) => {
                         let mut slots = Vec::new();
                         dd.element_slots(e, &mut slots);
-                        if dd.element_nodes(e) != el.nodes {
-                            return Err(unsupported("p elements whose basis reorders the nodes"));
-                        }
                         Some((
                             slots,
                             dd.element_basis_scalar(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
@@ -995,7 +1036,17 @@ impl Solver for ElasticSolver {
                     };
                     neo_hookean_local(&*fe.basis, &*fe.quad, &inp, &mut local).map_err(|x| fatal(x.to_string()))?;
                 } else {
-                    let bulk_np = rel_np(&*fe.quad, el.etype, RelOrders::of(ctx.params()).bulk)?;
+                    // `ElasticGaussPoints`: an `Element Integration Points` count
+                    // for the family first, else the relative order.
+                    let ngp = match ctx.params().string("element integration points") {
+                        Some(def) => elmer_solver::parse_elemental_gauss_rules(def)?[(el.etype.0 / 100) as usize],
+                        None => 0,
+                    };
+                    let bulk_np = if ngp > 0 {
+                        Some(ngp)
+                    } else {
+                        rel_np(&*fe.quad, el.etype, RelOrders::of(ctx.params()).bulk)?
+                    };
                     if bulk_np.is_some() && d.ip.is_some() {
                         return Err(unsupported("properties at integration points with a relative integration order"));
                     }
@@ -1023,13 +1074,25 @@ impl Solver for ElasticSolver {
                         ip: d.ip.as_ref(),
                         geometric: geometric_active.then_some(stability),
                         incompressible: model.incompressible,
+                        pstab: flag(Some(ctx.params()), "pressure stabilization").then(|| {
+                            (
+                                ctx.params().real("pressure stabilization coefficient").unwrap_or(1.0),
+                                crate::diameter::element_diameter(el.etype, &xyz),
+                            )
+                        }),
                     };
                     match &pe {
                         Some((slots, basis, rule)) => {
-                            if bulk_np.is_some() {
-                                return Err(unsupported("a relative integration order on p elements"));
+                            if ngp > 0 {
+                                let dd = ctx.solver_dofs().expect("p element");
+                                let r = dd.element_rule_np(e, ngp).map_err(|m| SolverError::fatal("GaussPoints", m))?;
+                                elastic_bulk_local_p(&**basis, &r, slots.len(), &inp, &mut local)
+                            } else {
+                                if bulk_np.is_some() {
+                                    return Err(unsupported("a relative integration order on p elements"));
+                                }
+                                elastic_bulk_local_p(&**basis, rule, slots.len(), &inp, &mut local)
                             }
-                            elastic_bulk_local_p(&**basis, rule, slots.len(), &inp, &mut local)
                         }
                         None => elastic_bulk_local(&*fe.basis, &*fe.quad, &inp, &mut local),
                     }

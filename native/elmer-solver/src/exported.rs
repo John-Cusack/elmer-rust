@@ -435,7 +435,7 @@ fn p_rule_len(
 
 /// `ParseElementalGaussRules`: the count after `-line`, `-tri`, `-quad`,
 /// `-tetra`, `-pyramid`, `-prism`, `-brick`, by element family (2..8).
-fn parse_elemental_gauss_rules(def: &str) -> Result<[usize; 9], SolverError> {
+pub fn parse_elemental_gauss_rules(def: &str) -> Result<[usize; 9], SolverError> {
     let def = def.to_ascii_lowercase();
     let mut out = [0; 9];
     let names = ["-line", "-tri", "-quad", "-tetra", "-pyramid", "-prism", "-brick"];

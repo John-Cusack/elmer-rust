@@ -365,8 +365,12 @@ impl StressSolver {
                     ip.poisson = props::scalar_ips(ctx, mat, "poisson ratio", e, &shape)?;
                     vec![0.0; n]
                 } else {
-                    props::scalar_nodes(ctx, mat, "poisson ratio", e)?
-                        .ok_or_else(|| SolverError::fatal(CALLER, "material has no 'Poisson Ratio'"))?
+                    // StressSolve.F90:1250: not read under "Incompressible".
+                    match props::scalar_nodes(ctx, mat, "poisson ratio", e)? {
+                        Some(v) => v,
+                        None if flag(Some(ctx.params()), "incompressible") => vec![0.0; n],
+                        None => return Err(SolverError::fatal(CALLER, "material has no 'Poisson Ratio'")),
+                    }
                 };
                 ElasticLaw::Isotropic { young: ym.data, poisson }
             } else {
