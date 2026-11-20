@@ -78,6 +78,16 @@ pub fn even_random() -> f64 {
     with_stream(314_159_265, |r| r.uniform())
 }
 
+/// `RANDOM_NUMBER` of a `REAL(4)` harvest (`random_r4`): the top 32 bits
+/// of the next output cut to the 24 significand bits (`rnumber_4`), times
+/// 2^-32; the same stream as [`even_random`].
+pub fn even_random_r4() -> f32 {
+    with_stream(314_159_265, |r| {
+        let v = ((r.next_u64() >> 32) as u32) & (!0u32 << 8);
+        v as f32 * (1.0 / 4_294_967_296.0)
+    })
+}
+
 /// Runs `f` on this thread's stream, seeding it from `seed` first if
 /// nothing has.
 pub(crate) fn with_stream<R>(seed: u64, f: impl FnOnce(&mut Rng) -> R) -> R {
@@ -92,6 +102,19 @@ mod tests {
     /// seeding, printed by a gfortran 13.3 program that does exactly what
     /// `InitializeRandomSeed` does (`RANDOM_SEED()`, then `PUT` of eight
     /// words of 314159265) and writes each value with `Z16.16`.
+    /// `REAL(4)` and `REAL(8)` harvests take the same xoshiro output: the
+    /// `REAL(4)` one is the `REAL(8)` one cut to 24 bits.
+    #[test]
+    fn r4_is_the_r8_draw_cut_to_24_bits() {
+        initialize_random_seed(314_159_265);
+        let r8: Vec<f64> = (0..4).map(|_| even_random()).collect();
+        initialize_random_seed(314_159_265);
+        for x in r8 {
+            let want = (x * 16_777_216.0).floor() / 16_777_216.0;
+            assert_eq!(f64::from(even_random_r4()), want);
+        }
+    }
+
     #[test]
     fn matches_gfortran_after_elmer_seeding() {
         let want: [u64; 6] = [

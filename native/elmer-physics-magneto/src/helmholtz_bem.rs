@@ -14,7 +14,7 @@
 //! boundary fluxes. The norm is `SQRT(SUM(ABS(Potential)**2)) / nNodes`.
 //!
 //! Refused: 3D, the iterative `FullIterSolver`, boundary elements other
-//! than lines, boundaries between two bodies.
+//! than lines, active/passive boundaries inside one body.
 
 // Index loops mirror the Fortran's.
 #![allow(clippy::needless_range_loop)]
@@ -136,7 +136,7 @@ fn green(k: f64, x: f64, y: f64, z: f64) -> Result<(C, [C; 3]), SolverError> {
 /// `NormalVector(Boundary, Nodes, u, v, .TRUE.)` of a 2D line with
 /// `CheckNormalDirection` (single parent: away from it, unless it is the
 /// `Normal Target Body`).
-fn line_normal(ctx: &SolverCtx<'_>, e: ElemId, u: f64) -> Result<[f64; 3], SolverError> {
+pub(crate) fn line_normal(ctx: &SolverCtx<'_>, e: ElemId, u: f64) -> Result<[f64; 3], SolverError> {
     let el = ctx.mesh.element(e);
     let xs: Vec<[f64; 3]> = el.nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
     let n = xs.len();
@@ -156,12 +156,27 @@ fn line_normal(ctx: &SolverCtx<'_>, e: ElemId, u: f64) -> Result<[f64; 3], Solve
     let mut b = vec![0.0; n];
     elmer_fe::basis::nodal_basis(def, 0.0, 0.0, 0.0, &mut b);
     let pt: [f64; 3] = std::array::from_fn(|a| (0..n).fold(0.0, |s, i| s + b[i] * xs[i][a]));
+    let out_body = ctx.bc_params(e).and_then(|bc| bc.integer("normal target body")).map_or(-1, i64::from);
+    let body_of = |p: ElemId| ctx.sim.model.body_of_tag(ctx.mesh.element(p).tag).map_or(0, |b| b as i64);
     let parent = match el.parents {
-        [Some(_), Some(_)] => return Err(unsupported("a boundary between two bodies")),
+        // A body-body boundary: the declared out body's other side, else
+        // the side with the higher body id (the normal points into the
+        // lower one).
+        [Some(l), Some(r)] => {
+            let (bl, br) = (body_of(l), body_of(r));
+            if out_body > 0 {
+                if bl == out_body { r } else { l }
+            } else if bl > br {
+                l
+            } else if bl < br {
+                r
+            } else {
+                return Err(unsupported("an active/passive boundary inside one body"));
+            }
+        }
         [Some(p), None] | [None, Some(p)] => p,
         [None, None] => return Ok(normal),
     };
-    let out_body = ctx.bc_params(e).and_then(|bc| bc.integer("normal target body")).map_or(-1, i64::from);
     let pel = ctx.mesh.element(parent);
     let pdef = elmer_fe::element_type(pel.etype.0).map_err(fe)?;
     let (pu, pv, pw) = match pel.etype.0 / 100 {
@@ -184,22 +199,22 @@ fn line_normal(ctx: &SolverCtx<'_>, e: ElemId, u: f64) -> Result<[f64; 3], Solve
     Ok(normal)
 }
 
-struct Line {
-    e: ElemId,
-    nodes: Vec<u32>,
-    xyz: Vec<[f64; 3]>,
+pub(crate) struct Line {
+    pub e: ElemId,
+    pub nodes: Vec<u32>,
+    pub xyz: Vec<[f64; 3]>,
 }
 
 /// One quadrature point of a boundary line: `s * detJ`, the basis, the
 /// point and the normal.
-struct Qp {
-    s: f64,
-    basis: Vec<f64>,
-    p: [f64; 3],
-    normal: [f64; 3],
+pub(crate) struct Qp {
+    pub s: f64,
+    pub basis: Vec<f64>,
+    pub p: [f64; 3],
+    pub normal: [f64; 3],
 }
 
-fn points(ctx: &SolverCtx<'_>, l: &Line, status: &mut MetricStatus) -> Result<Vec<Qp>, SolverError> {
+pub(crate) fn points(ctx: &SolverCtx<'_>, l: &Line, status: &mut MetricStatus) -> Result<Vec<Qp>, SolverError> {
     let n = l.nodes.len();
     let rule = elmer_fe::quadrature::gauss_points(ElementType(202), Some(4)).map_err(|m| SolverError::fatal(CALLER, m.to_string()))?;
     let def = elmer_fe::element_type(202).map_err(|m| SolverError::fatal(CALLER, m.to_string()))?;

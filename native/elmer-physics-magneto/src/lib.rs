@@ -38,6 +38,7 @@ pub mod emwave;
 pub mod error;
 pub mod harmonic;
 pub mod helmholtz_bem;
+pub mod poisson_bem;
 pub mod layout;
 pub mod local;
 pub mod material;
