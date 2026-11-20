@@ -165,6 +165,15 @@ pub fn dist_solve(
     } else {
         (vec![1.0; n], 1.0)
     };
+    if let Ok(dir) = std::env::var("ELMER_RS_DUMP") {
+        use std::io::Write;
+        let g = layout.gids();
+        let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{dir}/rs_d.dat.{}", comm.rank())).unwrap());
+        writeln!(f, "# bnorm {:e}", rhs_scaling).unwrap();
+        for (i, d) in diag.iter().enumerate() {
+            writeln!(f, "{} {:e} {}", g[i] + 1, d, layout.owners()[i]).unwrap();
+        }
+    }
 
     let m = DistCsr::from_local(comm, layout, &a)?;
     let b_own = layout.sum_to_owned(comm, &b);
