@@ -169,10 +169,7 @@ fn refuse(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
     if m.boundary_conditions.iter().any(|b| b.0.keys().any(|k| k.starts_with("mode "))) {
         return Err(SolverError::Unsupported("constraint modes set by mode <n>: boundary conditions".into()));
     }
-    if m.body_forces.iter().any(|b| b.0.keys().any(|k| k.starts_with("constraint mode"))) {
-        return Err(SolverError::Unsupported("constraint modes over body forces".into()));
-    }
-    if m.boundary_conditions.iter().any(|b| b.get("constraint mode direction").is_some()) {
+    if m.boundary_conditions.iter().chain(&m.body_forces).any(|b| b.get("constraint mode direction").is_some()) {
         return Err(SolverError::Unsupported("Constraint Mode Direction".into()));
     }
     if p.get("nonlinear post solvers").is_some() {
@@ -192,12 +189,12 @@ pub(crate) fn set_boundaries(ctx: &mut SolverCtx<'_>, fixed: &mut BTreeMap<u32, 
         return Ok(());
     }
     let model = &ctx.sim.model;
-    // Modes set over bodies (a Body Force `Constraint Mode <var>`) are
-    // not ported; without this they would count as no modes at all.
-    if model.body_forces.iter().any(|b| b.0.keys().any(|k| k.starts_with("constraint mode"))) {
-        return Err(SolverError::Unsupported("constraint modes over body forces".into()));
-    }
-    if !model.boundary_conditions.iter().any(|b| b.0.keys().any(|k| k.starts_with("constraint mode"))) {
+    // BCMode / BFMode: the modes are numbered over the boundary conditions
+    // when any has a `Constraint Mode...` keyword (ListCheckPrefixAnyBC),
+    // else over the body forces.
+    let has = |s: &[elmer_core::ParamMap]| s.iter().any(|b| b.0.keys().any(|k| k.starts_with("constraint mode")));
+    let bc_mode = has(&model.boundary_conditions);
+    if !bc_mode && !has(&model.body_forces) {
         // NumberOfConstraintModes = 0: nothing to do.
         ctx.sim.slots[ctx.slot].cmodes = None;
         return Ok(());
@@ -216,9 +213,10 @@ pub(crate) fn set_boundaries(ctx: &mut SolverCtx<'_>, fixed: &mut BTreeMap<u32, 
     // BCPerm: `Constraint Mode <var>` numbers a boundary (0 the ground),
     // `Constraint Modes <var>` the next one.
     let model = &ctx.sim.model;
-    let mut bc_perm = vec![0i32; model.boundary_conditions.len()];
+    let entities = if bc_mode { &model.boundary_conditions } else { &model.body_forces };
+    let mut bc_perm = vec![0i32; entities.len()];
     let mut j = 0;
-    for (i, bc) in model.boundary_conditions.iter().enumerate() {
+    for (i, bc) in entities.iter().enumerate() {
         let k = bc.integer("constraint mode").or_else(|| bc.integer(&format!("constraint mode {name}")));
         if let Some(k) = k {
             bc_perm[i] = if k == 0 { -1 } else { k };
@@ -244,16 +242,30 @@ pub(crate) fn set_boundaries(ctx: &mut SolverCtx<'_>, fixed: &mut BTreeMap<u32, 
     let ignore_p = have_p && ctx.params().logical("ignore constraint modes p") == Some(true);
     let mut index = vec![0i32; nrows];
     let (nb, nt) = (ctx.mesh.n_bulk(), ctx.mesh.n_bulk() + ctx.mesh.n_boundary());
+    // BCMode: the boundary elements; BFMode: every bulk element, active
+    // or not, through its body's `Body Force`.
+    let range = if bc_mode { nb..nt } else { 0..nb };
     let mut slots = Vec::new();
-    for e in nb..nt {
+    for e in range {
         let e = elmer_core::ElemId(e as u32);
-        let Some(bc) = ctx.bc_id(e) else { continue };
-        let k = bc_perm[bc - 1];
+        let ent = if bc_mode {
+            ctx.bc_id(e)
+        } else {
+            let model = &ctx.sim.model;
+            model
+                .body_of_tag(ctx.mesh.element(e).tag)
+                .and_then(|b| model.bodies.get(b - 1))
+                .and_then(|b| b.integer("body force"))
+                .filter(|&f| f > 0)
+                .map(|f| f as usize)
+        };
+        let Some(ent) = ent else { continue };
+        let Some(&k) = bc_perm.get(ent - 1) else { continue };
         if k == 0 {
             continue;
         }
         // `Perm(Indexes(1:nb))` of `mGetElementDOFs`: the nodes, then any
-        // p dofs of the boundary element.
+        // p dofs of the element.
         let nodes = ctx.mesh.element(e).nodes;
         match ctx.solver_dofs() {
             Some(d) => {
