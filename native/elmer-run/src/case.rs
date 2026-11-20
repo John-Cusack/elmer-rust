@@ -698,8 +698,8 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
 /// (#206), StatElecSolve (#208), IncompressibleNS (Taylor-Hood), HeatSolve
 /// (its residual-free bubble; nothing beyond `p:1`), ModelPDE's
 /// AdvDiffSolver and the test-local `Poisson` / `PoissonML`
-/// `PoissonSolver`, `ModelPDEsplitted`, `SingleElements`, `BenchmarkShell`
-/// and `Stokes1` ports.
+/// `PoissonSolver`, `ModelPDEsplitted`, `SingleElements`, `BenchmarkShell`,
+/// `Stokes1` and `AdvReactDG_P` (DG on p elements) ports.
 pub fn native_element(params: &ParamMap) -> bool {
     let Some(e) = params.string("element") else { return true };
     if normalize_key(e) == "n:1" {
@@ -707,7 +707,8 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 26] = [
+    const P_DOFS: [(&str, &str); 27] = [
+        ("advreactdg_p", "advectionreactionsolver"),
         ("benchmarkshell", "shellsolver"),
         ("elasticsolve", "elasticsolver"),
         ("filmflowsolver", "filmflowsolver"),

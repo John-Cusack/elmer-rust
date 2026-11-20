@@ -90,6 +90,12 @@ pub trait SolverDofs: Send + Sync {
     fn ndeg_parts(&self) -> (usize, usize) {
         (0, 0)
     }
+    /// `GaussPoints(Face)` of the mesh edge between `nodes` when the
+    /// layout gives it p definitions; `None` for the nodal rule.
+    fn edge_rule(&self, nodes: [u32; 2]) -> Option<Result<Vec<QuadPoint>, String>> {
+        let _ = nodes;
+        None
+    }
     /// `isActivePElement(Element, Solver)`. The default is `false`.
     fn is_p_element(&self, e: ElemId) -> bool {
         let _ = e;

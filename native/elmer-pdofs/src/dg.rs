@@ -52,8 +52,32 @@ impl DgDofs {
     /// `CreateMatrix` of a DG solver whose active bulk elements are
     /// `active`.
     pub fn build(mesh: &dyn MeshView, model: &Model, solver: &ParamMap, active: &[ElemId]) -> Result<Self, SolverError> {
+        Self::build_sized(mesh, model, solver, active, None)
+    }
+
+    /// [`DgDofs::build`] with `counts[t]` DG indexes for bulk element `t`
+    /// (`Element % DGDOFs` of a `d:` definition) instead of one per node.
+    fn build_sized(
+        mesh: &dyn MeshView,
+        model: &Model,
+        solver: &ParamMap,
+        active: &[ElemId],
+        counts: Option<&[usize]>,
+    ) -> Result<Self, SolverError> {
         let reduced = solver.logical("dg reduced basis") == Some(true);
-        let ix = DgIndexes::for_dg_solver(mesh, model)?;
+        let mut ix = DgIndexes::for_dg_solver(mesh, model)?;
+        if let Some(c) = counts {
+            if reduced {
+                return Err(SolverError::Unsupported("DG Reduced Basis on p elements".into()));
+            }
+            // NonNodalElements: DGIndexes numbered over the bulk elements.
+            let mut next = 0u32;
+            for (t, &k) in c.iter().enumerate() {
+                ix.index[t] = (next..next + k as u32).collect();
+                next += k as u32;
+            }
+            ix.count = next as usize;
+        }
         let nb = mesh.n_bulk();
         let mut is_active = vec![false; nb];
         for e in active {
@@ -215,7 +239,7 @@ impl DgDofs {
 
         // AddEquationBasics (MainUtils.F90:1703): the Perm is allocated with
         // MAX(nodal size, MaxDGDOFs * (bulk + boundary elements)) entries.
-        let max_dg = (0..nb).map(|t| mesh.element(ElemId(t as u32)).nodes.len()).max().unwrap_or(0);
+        let max_dg = (0..nb).map(|t| ix.index[t].len()).max().unwrap_or(0);
         let size = mesh.n_nodes().max(max_dg * (nb + mesh.n_boundary())).max(ix.count);
         let mut perm: Vec<u32> = perm.iter().map(|&p| if p == 0 { NO_DOF } else { p - 1 }).collect();
         perm.resize(size, NO_DOF);
@@ -279,5 +303,91 @@ impl SolverDofs for DgDofs {
 
     fn dg_layout(&self) -> Option<&DgIndexes> {
         Some(&self.ix)
+    }
+}
+
+/// A DG solver on p elements (`Element = "p:N d:M"`): the DG numbering of
+/// [`DgDofs`] over each element's `DGDOFs`, the p basis and integration
+/// rules of the same definitions ([`PSetup`](crate::setup::PSetup)).
+pub struct DgPDofs {
+    dg: DgDofs,
+    p: crate::setup::PSetup,
+}
+
+impl DgPDofs {
+    pub fn build(
+        mesh: &dyn MeshView,
+        model: &Model,
+        solver: &ParamMap,
+        active: &[ElemId],
+        p: crate::setup::PSetup,
+    ) -> Result<Self, SolverError> {
+        let counts: Vec<usize> = (0..mesh.n_bulk()).map(|t| p.dg_dofs(ElemId(t as u32))).collect();
+        let dg = DgDofs::build_sized(mesh, model, solver, active, Some(&counts))?;
+        Ok(DgPDofs { dg, p })
+    }
+}
+
+impl SolverDofs for DgPDofs {
+    fn perm(&self) -> Perm {
+        self.dg.perm()
+    }
+
+    fn create_matrix(&self, dofs: usize) -> CsrMatrix<f64> {
+        self.dg.create_matrix(dofs)
+    }
+
+    fn element_slots(&self, e: ElemId, out: &mut Vec<u32>) {
+        self.dg.element_slots(e, out)
+    }
+
+    fn boundary_extra_slots(&self, _e: ElemId, out: &mut Vec<u32>) {
+        out.clear();
+    }
+
+    fn element_basis(&self, e: ElemId) -> Result<Box<dyn ElementBasis + Send + Sync>, String> {
+        SolverDofs::element_basis(&self.p, e)
+    }
+
+    fn element_basis_scalar(&self, e: ElemId) -> Result<Box<dyn ElementBasis + Send + Sync>, String> {
+        SolverDofs::element_basis_scalar(&self.p, e)
+    }
+
+    fn element_rule(&self, e: ElemId) -> Result<Vec<QuadPoint>, String> {
+        SolverDofs::element_rule(&self.p, e)
+    }
+
+    fn element_rule_np(&self, e: ElemId, np: usize) -> Result<Vec<QuadPoint>, String> {
+        SolverDofs::element_rule_np(&self.p, e, np)
+    }
+
+    fn element_nodes(&self, e: ElemId) -> Vec<u32> {
+        SolverDofs::element_nodes(&self.p, e)
+    }
+
+    fn local_bubbles(&self, _e: ElemId) -> usize {
+        0
+    }
+
+    fn dg_layout(&self) -> Option<&DgIndexes> {
+        Some(&self.dg.ix)
+    }
+
+    fn is_p_element(&self, e: ElemId) -> bool {
+        self.p.is_p_element(e)
+    }
+
+    /// `GaussPoints(Face)` of a mesh edge with p definitions: the
+    /// `(BDOFs + 2)`-point line rule.
+    fn edge_rule(&self, nodes: [u32; 2]) -> Option<Result<Vec<QuadPoint>, String>> {
+        let ed = self.p.mesh.edges.iter().find(|ed| {
+            (ed.nodes[0] == nodes[0] && ed.nodes[1] == nodes[1]) || (ed.nodes[0] == nodes[1] && ed.nodes[1] == nodes[0])
+        })?;
+        let pd = ed.pdefs.as_ref()?;
+        Some(
+            elmer_fe::quadrature::gauss_points_1d(pd.gauss_points)
+                .map(|r| r.points())
+                .map_err(|err| err.to_string()),
+        )
     }
 }

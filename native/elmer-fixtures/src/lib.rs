@@ -37,6 +37,7 @@
 //! The README lists every other quick-test plugin with its blockers.
 #![forbid(unsafe_code)]
 
+pub mod adv_react_dg_p;
 pub mod benchmark_shell;
 pub mod bentonite;
 pub mod compute_error;
