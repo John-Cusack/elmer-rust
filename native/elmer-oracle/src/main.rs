@@ -342,6 +342,19 @@ fn refnorm_one(
         }) {
             return skip(&format!("{runs} RUN blocks; the sif names its own Output File"));
         }
+        // With `Output Intervals = 0` nothing is saved during a RUN; the
+        // file holds a field saved later (RotatingFlow's holds FlowSolve's
+        // 1e-6 initial value), not the solution the RUN compares.
+        if text.lines().any(|l| {
+            let c = elmer_oracle::runner::strip_sif_comment(l);
+            let key = elmer_oracle::runner::keyword_of(c.split("::").last().unwrap_or(""));
+            key.as_deref().is_some_and(|k| k.starts_with("output intervals"))
+                && c.split_once('=').is_some_and(|(_, v)| {
+                    v.split_whitespace().filter(|w| !w.eq_ignore_ascii_case("integer")).all(|w| w == "0")
+                })
+        }) {
+            return skip(&format!("{runs} RUN blocks with Output Intervals = 0 (no RUN's solution is saved)"));
+        }
         for (j, prefix) in elmer_oracle::refnorm::run_prefixes(&text).iter().enumerate() {
             let j = j + 1;
             let run_solvers = match elmer_oracle::refnorm::reference_solvers(prefix) {
