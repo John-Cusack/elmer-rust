@@ -229,7 +229,6 @@ impl ScalarPlan {
                 ("polyline coordinates", "integrals over polylines"),
                 ("exact coordinates", "values at exact coordinates inside elements"),
                 ("simulation timing", "run-dependent timing columns"),
-                ("save component results", "results of the Components section"),
                 ("json format", "JSON side file"),
                 ("filename numbering", "numbered file names"),
                 ("run control numbering", "run-control numbered file names"),

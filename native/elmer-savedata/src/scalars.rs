@@ -555,6 +555,25 @@ impl SaveScalars {
             let Some(val) = ctx.creal(&params, &name)? else { break };
             list.add(&plan, ctx, &name, val, false)?;
         }
+
+        // `Save Component Results` (default: whenever there are components):
+        // the components' own result scalars.
+        let comps = ctx.sim.model.components.clone();
+        if params.logical("save component results").unwrap_or(!comps.is_empty()) {
+            for (i, c) in comps.iter().enumerate() {
+                for (k, v) in &c.0 {
+                    let head: String = k.chars().take(4).collect();
+                    if format!("{head:<4}") != format!("{prefix:<4}") {
+                        continue;
+                    }
+                    if let Value::Real { data, .. } = v {
+                        if let Some(x) = data.first() {
+                            list.add(&plan, ctx, &format!("component {}: {k}", i + 1), *x, false)?;
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
     }
 

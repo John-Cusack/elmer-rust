@@ -59,7 +59,6 @@ fn keywords_that_are_not_implemented_are_refused_by_name() {
         ("Polyline Coordinates", Value::Real { rows: 2, cols: 2, data: vec![0.0, 0.0, 1.0, 1.0] }),
         ("Exact Coordinates", yes()),
         ("Simulation Timing", yes()),
-        ("Save Component Results", yes()),
         ("Json Format", yes()),
         ("Filename Numbering", yes()),
         ("Run Control Numbering", yes()),
