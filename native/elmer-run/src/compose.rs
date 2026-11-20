@@ -19,6 +19,7 @@ pub fn solver_registry() -> SolverRegistry {
     elmer_physics_elastic::register(&mut reg);
     elmer_physics_elasticsolve::register(&mut reg);
     elmer_physics_flow::register(&mut reg);
+    crate::flow_amr::register(&mut reg);
     elmer_physics_incompressible::register(&mut reg);
     elmer_physics_scalar::register(&mut reg);
     elmer_physics_advdiff::register(&mut reg);

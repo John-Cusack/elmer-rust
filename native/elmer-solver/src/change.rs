@@ -133,6 +133,14 @@ fn consistent_rows(spec: &NormSpec, perm: Option<&[u32]>, owned: &[bool], n: usi
 /// (unless `Skip Advance Nonlinear iter`) and sets `var.conv.nonlin_iter`,
 /// as the Fortran does before reaching this point; see
 /// [`crate::Simulation::compute_change`].
+/// The norm a steady-state `ComputeChange` takes of `var` (its section's
+/// norm settings over all its values), without the change itself.
+pub(crate) fn steady_norm(p: &ParamMap, var: &Variable, n_nodes: usize, comm: &dyn Communicator, log: &dyn Logger) -> f64 {
+    let spec = NormSpec::from_params(p, var.dofs);
+    let (vals, m) = select_norm_entries(&spec, &var.values, var.values.len(), var.perm.as_deref(), n_nodes, log);
+    compute_norm(&spec, &vals, m, comm)
+}
+
 pub fn compute_change(env: &ChangeEnv<'_>, var: &mut Variable, st: &mut SolverState) -> Result<ChangeReport, SolverError> {
     let p = env.params;
     let skipped = || ChangeReport {

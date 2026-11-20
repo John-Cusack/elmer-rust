@@ -43,6 +43,7 @@ pub mod mesh_db;
 mod mortar;
 mod motion;
 mod elec_force;
+mod flow_amr;
 mod gmsh_reader;
 mod openfoam;
 mod saveprojection;

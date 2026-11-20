@@ -5,7 +5,8 @@
 //! moving the run to the new mesh through `elmer_solver::remesh`.
 //!
 //! A solver supplies its residuals through [`Estimator`] (HeatSolve's
-//! `HeatSolver_Inside_Residual`, `_Edge_Residual`, `_Boundary_Residual`).
+//! `HeatSolver_Inside_Residual`, `_Edge_Residual`, `_Boundary_Residual`;
+//! FlowSolve's in [`flow`]).
 //!
 //! Refused: remeshing with MMG or Gmsh, `Flux
 //! Recovery`, coarsening, `Adaptive Pre Smoothing`, outlier fractions and
@@ -15,6 +16,7 @@
 
 pub mod diffusion;
 pub mod elasticity;
+pub mod flow;
 pub mod mesh;
 mod recovery;
 pub mod remesh;
