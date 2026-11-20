@@ -65,6 +65,8 @@ pub mod variable;
 pub use assembly::ElmerAssembly;
 /// Elmer's file formats and Fortran edit descriptors, for the run's writers.
 pub use elmer_saveio;
+/// User functions and the current element they see, for solver crates.
+pub use elmer_expr;
 pub use restart::{load_restart, restart};
 /// The dense symmetric eigensolver (`DSYEV`) and the eigen analysis, for
 /// solver crates that depend on this one only.
