@@ -101,6 +101,7 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
     let transient = model.simulation.string("simulation type").is_some_and(|t| t.eq_ignore_ascii_case("transient"));
     let serendipity = model.simulation.logical("serendipity p elements").unwrap_or(true);
     let equations = model.equations.clone();
+    let materials = model.materials.clone();
     for params in &mut model.solvers {
         // `ElasticSolver_Init` (StressSolve delegates to it): without a
         // `Variable`, the displacement of the coordinate dimension.
@@ -122,6 +123,30 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         });
         if elasticsolve && params.get("bubbles in global system").is_none() {
             params.insert("Bubbles in Global System", Value::Logical(true));
+        }
+        // ElasticSolver_Init: a UMAT material's integration-point fields.
+        if elasticsolve && materials.iter().any(|m| m.get("umat subroutine").is_some()) {
+            let out = params.logical("output state variables") == Some(true);
+            let no = if out { "" } else { "-nooutput " };
+            let stress = if cdim == 3 {
+                "UmatStress[UmatStress_xx:1 UmatStress_yy:1 UmatStress_zz:1 UmatStress_xy:1 UmatStress_yz:1 UmatStress_xz:1]"
+            } else {
+                "UmatStress[UmatStress_xx:1 UmatStress_zz:1 UmatStress_yy:1 UmatStress_xy:1]"
+            };
+            let mut defs = vec![format!("{no}-ip {stress}"), format!("{no}-dofs 3 -ip UmatEnergy")];
+            let nstate = materials
+                .iter()
+                .filter(|m| m.get("umat subroutine").is_some())
+                .map(|m| m.integer("number of state variables").unwrap_or(0))
+                .max()
+                .unwrap_or(0);
+            if nstate > 0 {
+                defs.push(format!("{no}-dofs {nstate} -ip UmatState"));
+            }
+            for def in defs {
+                let k = (1..).find(|k| params.get(&format!("exported variable {k}")).is_none()).unwrap_or(1);
+                params.insert(&format!("Exported Variable {k}"), Value::Str(def));
+            }
         }
         // `HeatSolver_init` (HeatSolve.F90:167): `Variable = Temperature`.
         let heat = procedure_of(params).is_some_and(|(lib, entry)| {

@@ -42,19 +42,31 @@ fn factory(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     if FE.get().is_none() {
         return Err(SolverError::NotWired("element basis and quadrature (elmer-fe)".into()));
     }
-    Ok(Box::new(ElasticSolver { fe: None, mesh_note: false }))
+    Ok(Box::new(ElasticSolver { fe: None, mesh_note: false, umat: None }))
 }
 
 /// The elasticity solver.
 pub struct ElasticSolver {
     fe: Option<FeServices>,
     mesh_note: bool,
+    /// A UMAT material's committed integration-point state.
+    umat: Option<UmatSaved>,
+}
+
+/// `UmatStress0`, `UmatEnergy0`, `UmatState0` and the converged
+/// displacement of the previous scanning step (`PrevValues(:,1)`).
+#[derive(Default)]
+struct UmatSaved {
+    stress0: Vec<f64>,
+    energy0: Vec<f64>,
+    state0: Vec<f64>,
+    prev: Vec<f64>,
 }
 
 impl ElasticSolver {
     /// A solver that owns its basis and quadrature.
     pub fn new(fe: FeServices) -> Self {
-        Self { fe: Some(fe), mesh_note: false }
+        Self { fe: Some(fe), mesh_note: false, umat: None }
     }
 
     fn fe(&self) -> &FeServices {
@@ -100,6 +112,9 @@ fn rel_np(quad: &dyn Quadrature, etype: ElementType, rel: i32) -> Result<Option<
         )),
     }
 }
+
+/// `AEPS` (Types.F90).
+const AEPS: f64 = 10.0 * f64::EPSILON;
 
 fn unsupported(what: &str) -> SolverError {
     SolverError::Unsupported(format!("{CALLER}: {what}"))
@@ -384,10 +399,10 @@ impl ElasticSolver {
         let n = el.nodes.len();
         let bp = ctx.body_params(e).ok_or_else(|| fatal(format!("element {} has no body", e.0)))?;
         let mat = bp.material.ok_or_else(|| fatal(format!("body {} has no material", bp.body_id)))?;
-        for (key, what) in [("maxwell material", "Maxwell material"), ("umat subroutine", "UMAT")] {
-            if mat.get(key).is_some() && (flag(Some(mat), key) || !matches!(mat.get(key), Some(Value::Logical(_)))) {
-                return Err(unsupported(what));
-            }
+        let umat = mat.get("umat subroutine").is_some();
+        let key = "maxwell material";
+        if mat.get(key).is_some() && (flag(Some(mat), key) || !matches!(mat.get(key), Some(Value::Logical(_)))) {
+            return Err(unsupported("Maxwell material"));
         }
         for prefix in ["pre stress", "pre strain", "mesh velocity"] {
             if present_prefix(mat, prefix) {
@@ -445,7 +460,10 @@ impl ElasticSolver {
                 }
             }
         };
-        let law = if young_ip {
+        let law = if umat {
+            // The UMAT is the material; its constants are read by the caller.
+            ElasticLaw::Isotropic { young: vec![0.0; n], poisson: vec![0.0; n] }
+        } else if young_ip {
             // Isotropy is assumed with it, as in ElasticSolve.
             ip.young = props::scalar_ips(ctx, mat, "youngs modulus", e, &shape)?;
             let poisson = scalar_poisson(&mut ip)?;
@@ -572,6 +590,143 @@ impl ElasticSolver {
         })
     }
 
+    /// One element of a UMAT material (ElasticSolve.F90:2040-2350): the
+    /// material's routine and constants, `LocalMatrixWithUMAT` on its
+    /// integration points' state, and at the first iterate its external
+    /// loads into `BulkRHS`.
+    #[allow(clippy::too_many_arguments)]
+    fn umat_element(
+        &mut self,
+        ctx: &mut SolverCtx<'_>,
+        e: ElemId,
+        cdim: usize,
+        d: &ElementData,
+        field: &FieldRef<'_>,
+        temp: &Option<FieldRef<'_>>,
+        scanning: bool,
+        bulk_rhs: &mut [f64],
+    ) -> Result<LocalSystem, SolverError> {
+        let el = ctx.mesh.element(e);
+        let n = el.nodes.len();
+        let bp = ctx.body_params(e).ok_or_else(|| fatal(format!("element {} has no body", e.0)))?;
+        if flag(bp.equation, "plane stress") {
+            return Err(fatal("LocalMatrixWithUMAT: Cannot yet handle plane stress case"));
+        }
+        let mat = bp.material.ok_or_else(|| fatal(format!("body {} has no material", bp.body_id)))?;
+        let (lib, entry) = elmer_solver::solver::procedure_value(mat, "umat subroutine")
+            .ok_or_else(|| fatal("'UMAT Subroutine' is not a procedure"))?;
+        let umat = crate::umat::lookup(&lib, &entry)
+            .ok_or_else(|| unsupported(&format!("UMAT Subroutine \"{lib}\" \"{entry}\"")))?;
+        let nprops = mat.integer("number of material constants").unwrap_or(0).max(0) as usize;
+        let nstatev = mat.integer("number of state variables").unwrap_or(0).max(0) as usize;
+        // `MaterialConstants(i,1)`.
+        let consts: Vec<f64> = match mat.get("material constants") {
+            Some(Value::Real { rows, cols, data }) if *cols == 1 || *rows == 1 => data.clone(),
+            Some(Value::Real { rows, cols, data }) => (0..*rows).map(|i| data[i * cols]).collect(),
+            _ => Vec::new(),
+        };
+        if consts.len() < nprops {
+            return Err(fatal("Check the size of Material Constants array"));
+        }
+        let cmname = mat.string("name").unwrap_or("").to_string();
+        // `LocalTemperature`: the reference temperature, the temperature
+        // where the field has it.
+        let mut temperature = props::scalar_nodes(ctx, mat, "reference temperature", e)?.unwrap_or_else(|| vec![0.0; n]);
+        if let Some(t) = temp.as_ref().and_then(|t| t.perm.map(|p| (p, t.values))) {
+            for (k, &node) in el.nodes.iter().enumerate() {
+                if let Some(&s) = t.0.get(node as usize).filter(|&&s| s != elmer_core::NO_DOF) {
+                    temperature[k] = t.1[s as usize];
+                }
+            }
+        }
+        let disp = local_displacement(field, el.nodes, cdim);
+        let saved = self.umat.as_ref().expect("allocated before the iteration");
+        let prev_field = FieldRef { values: &saved.prev, ..*field };
+        let prev = if scanning { local_displacement(&prev_field, el.nodes, cdim) } else { vec![[0.0; 3]; n] };
+        let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+        let fe = self.fe();
+        let np = rel_np(&*fe.quad, el.etype, RelOrders::of(ctx.params()).bulk)?;
+        let points = fe.quad.gauss_points(el.etype, np);
+        let ntens = if cdim == 2 { 4 } else { 6 };
+        // `GetIpIndex(t, Element, UmatEnergyVar)`: the element's points.
+        let (lo, hi) = {
+            let v = ctx.sim.vars.get("umatenergy").ok_or_else(|| fatal("Could not find variable \"UmatEnergy\""))?;
+            let p = v.perm.as_deref().ok_or_else(|| fatal("UmatEnergy has no permutation"))?;
+            (p[e.0 as usize] as usize, p[e.0 as usize + 1] as usize)
+        };
+        if hi - lo != points.len() {
+            return Err(fatal("UMAT: the integration points of the IP variables differ from the element's"));
+        }
+        let max_statev = ctx.sim.vars.get("umatstate").map_or(0, |v| v.dofs);
+        if nstatev > max_statev {
+            return Err(fatal("UMAT: more state variables than UmatState holds"));
+        }
+        let npt = points.len();
+        let mut stress = vec![0.0; ntens * npt];
+        let mut energy = vec![0.0; 3 * npt];
+        let mut state = vec![0.0; max_statev * npt];
+        let st0 = (
+            &saved.stress0[ntens * lo..ntens * hi],
+            &saved.energy0[3 * lo..3 * hi],
+            if max_statev > 0 { &saved.state0[max_statev * lo..max_statev * hi] } else { &[][..] },
+        );
+        let time = ctx.sim.vars.scalar("time").unwrap_or(0.0);
+        let dt = ctx.sim.vars.scalar("timestep size").unwrap_or(0.0);
+        let inp = crate::umat::UmatInput {
+            etype: el.etype,
+            xyz: &xyz,
+            cdim,
+            disp: &disp,
+            prev: &prev,
+            load: &d.load,
+            inertial: d.inertial.as_deref(),
+            density: &d.density,
+            temperature: &temperature,
+            props: &consts[..nprops.min(consts.len())],
+            nstatev,
+            cmname: &cmname,
+            umat,
+            time,
+            dt,
+            element_index: e.0 as usize + 1,
+        };
+        let ndof = n * cdim;
+        let mut local = LocalSystem::zeros(ndof);
+        let mut ext = vec![0.0; ndof];
+        let mut ip = crate::umat::IpState {
+            stress0: st0.0,
+            energy0: st0.1,
+            state0: st0.2,
+            stress: &mut stress,
+            energy: &mut energy,
+            state: &mut state,
+            max_statev,
+        };
+        crate::umat::umat_local(&*fe.basis, &points, &inp, &mut ip, &mut local.stiff, &mut local.force, &mut ext)
+            .map_err(fatal)?;
+        for (name, vals, w) in [("umatstress", &stress, ntens), ("umatenergy", &energy, 3), ("umatstate", &state, max_statev)] {
+            if w == 0 {
+                continue;
+            }
+            if let Some(v) = ctx.sim.vars.get_mut(name) {
+                v.values[w * lo..w * hi].copy_from_slice(vals);
+            }
+        }
+        if !bulk_rhs.is_empty() {
+            let perm = field.perm.ok_or_else(|| fatal("displacement has no permutation"))?;
+            for (k, &node) in el.nodes.iter().enumerate() {
+                let s = perm[node as usize];
+                if s == elmer_core::NO_DOF {
+                    continue;
+                }
+                for i in 0..cdim {
+                    bulk_rhs[s as usize * field.dofs + i] += ext[cdim * k + i];
+                }
+            }
+        }
+        Ok(local)
+    }
+
     /// Temperature snapshot of the primary-variable-independent field, taken
     /// before the mutable assembly.
     fn temperature_field(ctx: &SolverCtx<'_>) -> Option<(Vec<u32>, Vec<f64>)> {
@@ -676,16 +831,38 @@ impl ElasticSolver {
                 neo_hookean: model.neo_hookean,
                 pressure: pressure.as_deref(),
             };
-            let loc = match &pe {
-                Some((sl, basis, rule)) => {
-                    if inp.np.is_some() {
-                        return Err(unsupported("a relative integration order on p elements"));
+            let umat_here = ctx.body_params(e).and_then(|b| b.material).is_some_and(|m| m.get("umat subroutine").is_some());
+            let loc = if umat_here {
+                // GenerateStressVariable / GenerateStrainVariable.
+                let ntens = if cdim == 2 { 4 } else { 6 };
+                let v = ctx.sim.vars.get("umatstress").ok_or_else(|| fatal("Could not find variable \"UmatStress\""))?;
+                let p = v.perm.as_deref().ok_or_else(|| fatal("UmatStress has no permutation"))?;
+                let (lo, hi) = (p[e.0 as usize] as usize, p[e.0 as usize + 1] as usize);
+                let points = fe.quad.gauss_points(el.etype, None);
+                crate::umat::umat_projection_local(
+                    &*fe.basis,
+                    &points,
+                    el.etype,
+                    &xyz,
+                    &disp,
+                    &v.values[ntens * lo..ntens * hi],
+                    ntens,
+                    ncomp,
+                    model.large,
+                )
+                .map_err(fatal)?
+            } else {
+                match &pe {
+                    Some((sl, basis, rule)) => {
+                        if inp.np.is_some() {
+                            return Err(unsupported("a relative integration order on p elements"));
+                        }
+                        post::stress_strain_local_p(&**basis, rule, sl.len(), &inp)
                     }
-                    post::stress_strain_local_p(&**basis, rule, sl.len(), &inp)
+                    None => stress_strain_local(&*fe.basis, &*fe.quad, &inp),
                 }
-                None => stress_strain_local(&*fe.basis, &*fe.quad, &inp),
-            }
-            .map_err(|x| fatal(x.to_string()))?;
+                .map_err(|x| fatal(x.to_string()))?
+            };
             mass.add(&slots, &loc.mass);
             for (p, s) in slots.iter().enumerate() {
                 let Some(s) = s else { continue };
@@ -732,7 +909,13 @@ impl ElasticSolver {
             let stress = project(&fstress)?;
             let mut vm = vec![0.0; nslots];
             let (mut pri, mut tre) = (vec![0.0; nslots * 3], vec![0.0; nslots]);
+            // ElasticSolve.F90:989: with a UMAT no von Mises or principal
+            // values are computed.
+            let umat_on = ctx.sim.model.materials.iter().any(|m| m.get("umat subroutine").is_some());
             for s in 0..nslots {
+                if umat_on {
+                    break;
+                }
                 let t = post::vector_to_tensor(&stress[ncomp * s..ncomp * (s + 1)], ncomp);
                 vm[s] = post::von_mises(&t);
                 if flags.principal {
@@ -941,6 +1124,55 @@ impl Solver for ElasticSolver {
             values: v,
         });
 
+        // ElasticSolve.F90:697-1090, :1565: a UMAT material solves for the
+        // displacement increment from the residual of the last converged
+        // state.
+        let use_umat = ctx.sim.model.materials.iter().any(|m| m.get("umat subroutine").is_some());
+        let scanning = ctx
+            .simulation_params()
+            .string("simulation type")
+            .is_some_and(|t| elmer_core::normalize_key(t) == "scanning");
+        let mut nonlin_res0 = 1.0;
+        if use_umat {
+            if transient {
+                return Err(fatal("UMAT version does not yet support transient simulation"));
+            }
+            for (bad, what) in [
+                (model.large, "Large Deflection"),
+                (axi, "axial symmetry"),
+                (flag(Some(ctx.params()), "use hencky strain"), "Hencky strain"),
+                (flag(Some(ctx.params()), "initialize state variables"), "Initialize State Variables"),
+                (flag(Some(ctx.params()), "linear system symmetric"), "Linear System Symmetric"),
+                (ctx.solver_dofs().is_some(), "p elements"),
+                (lumping || cs || cbs || cbm || geometric, "Model Lumping, a constant system or geometric stiffness"),
+            ] {
+                if bad {
+                    return Err(unsupported(&format!("UMAT materials with {what}")));
+                }
+            }
+            ctx.params_mut().insert("Skip Compute Nonlinear Change", Value::Logical(true));
+            if self.umat.is_none() {
+                let mut saved = UmatSaved::default();
+                for (name, keep) in [("umatstress", 0), ("umatenergy", 1), ("umatstate", 2)] {
+                    let Some(v) = ctx.sim.vars.get_mut(name) else {
+                        if keep < 2 {
+                            return Err(fatal(format!("Could not find variable \"{name}\"")));
+                        }
+                        continue;
+                    };
+                    v.values.iter_mut().for_each(|x| *x = 0.0);
+                    let zeros = vec![0.0; v.values.len()];
+                    match keep {
+                        0 => saved.stress0 = zeros,
+                        1 => saved.energy0 = zeros,
+                        _ => saved.state0 = zeros,
+                    }
+                }
+                saved.prev = vec![0.0; ctx.primary().map_or(0, |f| f.values.len())];
+                self.umat = Some(saved);
+            }
+        }
+
         for iter in 1..=max_iter {
             // The keyword is rewritten: the core reads it when the system is solved.
             let geometric_active = geometric && iter > 1;
@@ -949,6 +1181,10 @@ impl Solver for ElasticSolver {
             }
             let eigen = eigen_now(ctx);
             ctx.info(CALLER, &format!("ELASTICITY ITERATION {iter}"), 4);
+            // `TotalSol(:) = Displacement(:)`; `BulkRHS`, the external loads
+            // of the first iterate.
+            let total: Vec<f64> = if use_umat { ctx.primary().map(|f| f.values.to_vec()).unwrap_or_default() } else { Vec::new() };
+            let mut bulk_rhs: Vec<f64> = if use_umat && iter == 1 { vec![0.0; total.len()] } else { Vec::new() };
             ctx.default_initialize()?;
             // Reuse what an earlier pass saved (:1636-1680): the matrix, and
             // the bulk load unless only the matrix is constant.
@@ -979,6 +1215,11 @@ impl Solver for ElasticSolver {
                 let nodes: Vec<u32> = ctx.solver_dofs().map_or_else(|| el.nodes.to_vec(), |dd| dd.element_nodes(e));
                 let xyz: Vec<[f64; 3]> = nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
                 let d = self.element_data(ctx, e, cdim, model, &temp_ref)?.reordered(el.nodes, &nodes);
+                if use_umat {
+                    let local = self.umat_element(ctx, e, cdim, &d, &field, &temp_ref, scanning, &mut bulk_rhs)?;
+                    ctx.default_update(&local, e)?;
+                    continue;
+                }
                 // ElasticSolve.F90:2080: "Incompressible" overrides "Plane Stress".
                 let plane_stress = flag(ctx.body_params(e).and_then(|b| b.equation), "plane stress") && !model.incompressible;
                 // A p element: its dofs (`GetElementDOFs`, bubbles in the
@@ -1333,6 +1574,20 @@ impl Solver for ElasticSolver {
                         ctx.default_first_order_time(&mut local, e, dt)?;
                     }
                 }
+                // ElasticSolve.F90:2640-2650: the boundary loads of the first
+                // iterate into `BulkRHS` too.
+                if !bulk_rhs.is_empty() {
+                    let mut slots = Vec::new();
+                    ctx.element_slots(e, &mut slots);
+                    let w = field.dofs;
+                    for (k, &sl) in slots.iter().enumerate() {
+                        if sl != elmer_core::NO_DOF {
+                            for i in 0..w {
+                                bulk_rhs[sl as usize * w + i] += local.force[w * k + i];
+                            }
+                        }
+                    }
+                }
                 ctx.default_update(&local, e)?;
             }
 
@@ -1342,6 +1597,71 @@ impl Solver for ElasticSolver {
                 Some(l) if l.fix_displacement => l.displacements(ctx, iter as usize)?,
                 _ => Vec::new(),
             };
+            if use_umat {
+                // ElasticSolve.F90:1702-1810: the Dirichlet values as
+                // increments of the current displacement, then the residual
+                // of the current iterate; the increment from zero.
+                ctx.default_finish_boundary_assembly()?;
+                let cur: Vec<f64> = ctx.primary().map(|f| f.values.to_vec()).unwrap_or_default();
+                let fixed: Vec<(u32, f64)> =
+                    ctx.dirichlet_values()?.into_iter().map(|(dof, v)| (dof, v - cur[dof as usize])).collect();
+                ctx.apply_dirichlet_values(&fixed)?;
+                if let Some(f) = ctx.primary_mut() {
+                    f.values.iter_mut().for_each(|x| *x = 0.0);
+                }
+                if iter == 1 {
+                    let mx = bulk_rhs.iter().fold(0.0f64, |m, x| m.max(x.abs()));
+                    nonlin_res0 = if mx < AEPS {
+                        ctx.info("ElasticSolver", "No pressure external loads ... ", 4);
+                        1.0
+                    } else {
+                        bulk_rhs.iter().map(|x| x * x).sum::<f64>().sqrt()
+                    };
+                }
+                let rhs_norm = ctx.system_mut().map_or(0.0, |s| s.rhs.iter().map(|x| x * x).sum::<f64>().sqrt());
+                let res = rhs_norm / nonlin_res0;
+                ctx.info(
+                    "ElasticitySolver",
+                    &format!("Residual for nonlinear iterate {}: {}", iter - 1, elmer_solver::fortran_fmt::es(res, 12, 3)),
+                    5,
+                );
+                let tol = ctx.params().real("nonlinear system convergence tolerance").unwrap_or(0.0);
+                let commit = |s: &mut Self, ctx: &mut SolverCtx<'_>, disp: &[f64]| {
+                    let saved = s.umat.as_mut().expect("allocated");
+                    for (name, dst) in
+                        [("umatstress", &mut saved.stress0), ("umatenergy", &mut saved.energy0), ("umatstate", &mut saved.state0)]
+                    {
+                        if let Some(v) = ctx.sim.vars.get(name) {
+                            dst.copy_from_slice(&v.values);
+                        }
+                    }
+                    if scanning {
+                        saved.prev.copy_from_slice(disp);
+                    }
+                };
+                if res < tol && iter > min_iter {
+                    ctx.info("ElasticitySolver", "Nonlinear iteration is terminated succesfully", 5);
+                    if let Some(f) = ctx.primary_mut() {
+                        f.values.copy_from_slice(&total);
+                    }
+                    commit(self, ctx, &total);
+                    break;
+                }
+                ctx.default_solve()?;
+                let new: Vec<f64> = {
+                    let f = ctx.primary_mut().ok_or_else(|| fatal("solver has no displacement variable"))?;
+                    for (x, t) in f.values.iter_mut().zip(&total) {
+                        *x += t;
+                    }
+                    f.values.to_vec()
+                };
+                if iter == max_iter {
+                    ctx.info("ElasticitySolver", "The maximum of nonlinear iterations reached: Terminating...", 5);
+                    commit(self, ctx, &new);
+                    break;
+                }
+                continue;
+            }
             ctx.default_dirichlet_after(&first)?;
             ctx.default_solve()?;
             if let Some(l) = lump.as_mut() {
