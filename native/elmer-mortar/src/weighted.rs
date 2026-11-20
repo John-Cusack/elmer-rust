@@ -153,6 +153,7 @@ pub fn weighted_projector(
         master_scale: 1.0,
         mortar_perm: false,
         rhs: None,
+        diag: None,
     })
 }
 
@@ -303,5 +304,6 @@ pub fn weighted_projector_discont(
         master_scale: 1.0,
         mortar_perm: false,
         rhs: None,
+        diag: None,
     }))
 }
