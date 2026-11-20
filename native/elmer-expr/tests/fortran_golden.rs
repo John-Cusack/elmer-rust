@@ -55,7 +55,7 @@ fn read_table(name: &str) -> (Vec<f64>, Vec<f64>) {
 fn table(vars: &[&str], x: Vec<f64>, y: Vec<f64>, cubic: bool) -> Value {
     Value::Dependent(Dependent {
         variables: vars.iter().map(|s| s.to_string()).collect(),
-        kind: DependentKind::Table { x, y, cubic },
+        kind: DependentKind::Table { x, y, cubic, monotone: false },
         rows: 1,
         cols: 1,
     })

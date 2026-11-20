@@ -176,6 +176,7 @@ fn run_poisson(n: usize, linsys: &[(&str, Value)], extra: Option<(&str, DirectFa
             x: vec![0.0, 1.0],
             y: vec![0.0, 2.0],
             cubic: false,
+            monotone: false,
         },
         rows: 1,
         cols: 1,

@@ -55,7 +55,7 @@ fn dep(vars: &[&str], kind: DependentKind, rows: usize, cols: usize) -> Value {
 }
 
 fn table(vars: &[&str], x: &[f64], y: &[f64], cubic: bool) -> Value {
-    dep(vars, DependentKind::Table { x: x.to_vec(), y: y.to_vec(), cubic }, 1, 1)
+    dep(vars, DependentKind::Table { x: x.to_vec(), y: y.to_vec(), cubic, monotone: false }, 1, 1)
 }
 
 fn eval(c: &elmer_expr::Compiled, nodes: &[u32], time: f64) -> Vec<f64> {
@@ -169,7 +169,7 @@ fn coordinate_dependency() {
 fn tensor_table_is_point_major_row_major() {
     // 2x2 tensor at two table points
     let y = [1.0, 2.0, 3.0, 4.0, 10.0, 20.0, 30.0, 40.0];
-    let v = dep(&["time"], DependentKind::Table { x: vec![0.0, 1.0], y: y.to_vec(), cubic: true }, 2, 2);
+    let v = dep(&["time"], DependentKind::Table { x: vec![0.0, 1.0], y: y.to_vec(), cubic: true, monotone: false }, 2, 2);
     let c = compile(&v);
     assert_eq!(eval(&c, &[0], 0.5), vec![5.5, 11.0, 16.5, 22.0]);
 }

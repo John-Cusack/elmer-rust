@@ -60,33 +60,6 @@ fn distributed(m: &elmer_sif::Model) -> Vec<(elmer_solver::model::DistEntity, us
     out
 }
 
-/// `Real Cubic Monotone` picks a monotone spline, which lives only on
-/// `elmer-sif`'s entries, so it is refused here.
-fn refuse_distribute(m: &elmer_sif::Model) -> Result<(), String> {
-    let numbered: [(&str, &[Section]); 7] = [
-        ("Solver", &m.solvers),
-        ("Equation", &m.equations),
-        ("Body", &m.bodies),
-        ("Material", &m.materials),
-        ("Body Force", &m.body_forces),
-        ("Initial Condition", &m.ics),
-        ("Boundary Condition", &m.bcs),
-    ];
-    let singles = [("Simulation", &m.simulation), ("Constants", &m.constants)];
-    let all = numbered
-        .iter()
-        .flat_map(|(kind, v)| v.iter().map(move |s| (*kind, s)))
-        .chain(singles.iter().filter_map(|(kind, s)| s.as_ref().map(|s| (*kind, s))));
-    for (kind, s) in all {
-        // `elmer-core`'s tables carry `cubic` only, so a monotone spline
-        // would be evaluated as the plain cubic one.
-        if let Some(e) = s.entries.iter().find(|e| matches!(&e.value, elmer_sif::Value::Table(t) if t.monotone)) {
-            return Err(format!("{kind} {}: {} = Real Cubic Monotone: monotone splines are not implemented", s.id, e.name));
-        }
-    }
-    Ok(())
-}
-
 /// `elmer-solver`'s view of a parsed and completed model. Sections it has
 /// no place for are refused.
 pub fn to_model(m: &elmer_sif::Model) -> Result<Model, String> {
@@ -96,7 +69,6 @@ pub fn to_model(m: &elmer_sif::Model) -> Result<Model, String> {
     if m.control.is_some() {
         return Err("Control section".into());
     }
-    refuse_distribute(m)?;
     Ok(Model {
         header: ParamMap::new(),
         simulation: single(&m.simulation),

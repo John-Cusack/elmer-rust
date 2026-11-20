@@ -92,7 +92,7 @@ fn conductivity_table() -> Value {
     }
     Value::Dependent(Dependent {
         variables: vec!["Temp".into()],
-        kind: DependentKind::Table { x, y, cubic: true },
+        kind: DependentKind::Table { x, y, cubic: true, monotone: false },
         rows: 1,
         cols: 1,
     })

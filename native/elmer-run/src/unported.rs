@@ -184,7 +184,7 @@ mod tests {
     fn equals(var: &str) -> Value {
         Value::Dependent(Dependent {
             variables: vec![var.into()],
-            kind: DependentKind::Table { x: vec![1.0], y: vec![1.0], cubic: false },
+            kind: DependentKind::Table { x: vec![1.0], y: vec![1.0], cubic: false, monotone: false },
             rows: 1,
             cols: 1,
         })

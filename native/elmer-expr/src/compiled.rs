@@ -197,7 +197,7 @@ fn compile_dependent(
     let ncomp = rows * cols;
     let args = parse_sources(&d.variables);
     let body = match &d.kind {
-        DependentKind::Table { x, y, cubic } => {
+        DependentKind::Table { x, y, cubic, monotone } => {
             if args.is_empty() {
                 return Err(ExprError::Invalid("table without a dependency variable".into()));
             }
@@ -219,7 +219,7 @@ fn compile_dependent(
                 .collect();
             // ListAddDepReal: splines only for scalar tables with n > 3.
             let cubic = (*cubic && ncomp == 1 && n > 3)
-                .then(|| curve::cubic_spline(x, &comps[0], opts.monotone));
+                .then(|| curve::cubic_spline(x, &comps[0], opts.monotone || *monotone));
             Body::Table(Table {
                 x: x.clone(),
                 comps,

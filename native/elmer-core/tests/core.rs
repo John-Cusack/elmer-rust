@@ -37,6 +37,7 @@ fn param_map_lookups_are_key_normalised() {
                 x: vec![0.0, 1.0],
                 y: vec![1.0, 2.0],
                 cubic: false,
+                monotone: false,
             },
             rows: 1,
             cols: 1,

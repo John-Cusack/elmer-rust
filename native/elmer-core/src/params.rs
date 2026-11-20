@@ -44,6 +44,9 @@ pub enum DependentKind {
         x: Vec<f64>,
         y: Vec<f64>,
         cubic: bool,
+        /// `Real Cubic Monotone`: the spline's slopes are limited so it is
+        /// monotone between the points (`CubicSpline(..., Monotone)`).
+        monotone: bool,
     },
     Matc(String),
     Procedure {

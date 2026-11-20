@@ -244,7 +244,7 @@ fn density(sim: &ParamMap) -> Option<Density> {
         return None;
     };
     match &d.kind {
-        DependentKind::Table { x, y, cubic: false } => {
+        DependentKind::Table { x, y, cubic: false, .. } => {
             let (x, y) = (x.clone(), y.clone());
             Some(Box::new(move |t| {
                 Ok(elmer_expr::curve::interpolate_curve(&x, &y, t, None))
