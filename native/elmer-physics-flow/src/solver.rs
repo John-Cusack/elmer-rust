@@ -66,10 +66,6 @@ fn flag(p: Option<&ParamMap>, key: &str) -> bool {
     p.and_then(|p| p.logical(key)).unwrap_or(false)
 }
 
-fn has_prefix(p: &ParamMap, prefix: &str) -> bool {
-    p.0.keys().any(|k| k.starts_with(prefix))
-}
-
 /// The incompressible stabilized P1/P1 solver.
 pub struct FlowSolver {
     /// `None` until `init` picks the `elmer-fe` defaults.
@@ -195,6 +191,33 @@ fn check_body(eq: Option<&ParamMap>, mat: Option<&ParamMap>, bf: Option<&ParamMa
     Ok(())
 }
 
+/// FlowSolve.F90:1279-1302: `Alpha`, the `Surface Tension Coefficient`, and
+/// `Beta`, zero without a `Temperature` variable, else the coefficient times
+/// `1 - Surface Tension Expansion Coefficient * Temperature` (the expansion
+/// coefficient alone at a node outside the temperature's perm), or the
+/// coefficient when no expansion coefficient is given.
+fn surface_tension(ctx: &SolverCtx<'_>, bc: &ParamMap, e: ElemId, n: usize) -> Result<(Vec<f64>, Vec<f64>), SolverError> {
+    let coeff = ctx.real_at_nodes(bc, "surface tension coefficient", e)?;
+    let alpha = coeff.clone().unwrap_or_else(|| vec![0.0; n]);
+    let Some(temp) = ctx.variable("temperature") else {
+        return Ok((alpha, vec![0.0; n]));
+    };
+    let beta = match ctx.real_at_nodes(bc, "surface tension expansion coefficient", e)? {
+        Some(mut b) => {
+            for (j, &node) in ctx.mesh.element(e).nodes.iter().enumerate() {
+                let k = temp.perm.map_or(node, |p| p[node as usize]);
+                if k != NO_DOF {
+                    b[j] = 1.0 - b[j] * temp.values[k as usize * temp.dofs];
+                }
+            }
+            let c = coeff.unwrap_or_else(|| vec![0.0; n]);
+            b.iter().zip(&c).map(|(b, c)| b * c).collect()
+        }
+        None => alpha.clone(),
+    };
+    Ok((alpha, beta))
+}
+
 /// Boundary-condition options this crate does not port.
 fn check_bc(bc: &ParamMap, _var_name: &str) -> Result<(), SolverError> {
     for (key, what) in [
@@ -205,9 +228,6 @@ fn check_bc(bc: &ParamMap, _var_name: &str) -> Result<(), SolverError> {
         if flag(Some(bc), key) {
             return Err(unsupported(what));
         }
-    }
-    if has_prefix(bc, "surface tension") {
-        return Err(unsupported("surface tension"));
     }
     Ok(())
 }
@@ -695,9 +715,12 @@ impl Solver for FlowSolver {
                     }
                 }
                 let mass_flux = nodal(ctx, bc, "mass flux", e, n)?;
+                let (alpha, beta) = surface_tension(ctx, bc_nt, e, n)?;
                 let any = |v: &[f64]| v.iter().any(|&x| x != 0.0);
                 if !any(&ext)
                     && !any(&mass_flux)
+                    && !any(&alpha)
+                    && !any(&beta)
                     && !traction.iter().any(|t| any(t))
                     && !slip.iter().any(|s| any(s))
                 {
@@ -721,6 +744,7 @@ impl Solver for FlowSolver {
                     parent_center,
                     np: None,
                     normal_tangential: normal_tangential(bc_nt, &var_name),
+                    surface_tension: (any(&alpha) || any(&beta)).then_some((&alpha[..], &beta[..])),
                 };
                 match ctx.solver_dofs() {
                     None => flow_boundary_local(basis, quad, &inp, &mut self.local)?,
