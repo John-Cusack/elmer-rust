@@ -402,6 +402,8 @@ pub struct Simulation {
     /// ARPACK's saved state (`dgetv0`'s seed), kept across eigen solves as
     /// in one ElmerSolver process.
     pub(crate) arpack: elmer_eigen::arpack::saupd::Arpack,
+    /// The `SAVE`d state of ARPACK's complex routines, for the process.
+    pub(crate) zarpack: elmer_eigen::arpack::znaupd::ZArpack,
     /// The solver BlockSolve.F90's `TotMatrix` points at
     /// ([`crate::block_alias`]).
     pub(crate) block_tot: Option<crate::block_alias::BlockOwner>,
@@ -511,6 +513,7 @@ impl Simulation {
             save_current: None,
             node_owned: None,
             arpack: Default::default(),
+            zarpack: Default::default(),
             p_ndeg_parts: None,
             p_element_nodes: None,
             adaptive: Default::default(),

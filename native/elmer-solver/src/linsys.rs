@@ -286,6 +286,32 @@ pub(crate) fn solve_complex(
     log: &dyn elmer_core::Logger,
     comm: &dyn Communicator,
 ) -> Result<(), SolverError> {
+    solve_complex_op(p, a, false, b, x, log, comm)
+}
+
+/// [`solve_complex`] with the iterative methods applying `a` as Elmer's
+/// IterSolver does to a complex child matrix
+/// ([`crate::matvec::crs_complex_matrix_vector_multiply`]).
+pub(crate) fn solve_complex_elmer_product(
+    p: &ParamMap,
+    a: &CsrMatrix<Complex64>,
+    b: &[Complex64],
+    x: &mut [Complex64],
+    log: &dyn elmer_core::Logger,
+    comm: &dyn Communicator,
+) -> Result<(), SolverError> {
+    solve_complex_op(p, a, true, b, x, log, comm)
+}
+
+fn solve_complex_op(
+    p: &ParamMap,
+    a: &CsrMatrix<Complex64>,
+    elmer_product: bool,
+    b: &[Complex64],
+    x: &mut [Complex64],
+    log: &dyn elmer_core::Logger,
+    comm: &dyn Communicator,
+) -> Result<(), SolverError> {
     let kind = p.string("linear system solver").map(normalize_key).ok_or_else(|| {
         SolverError::fatal("SolveLinearSystem", "Give \"Linear System Solver\", e.g. \"iterative\" or \"direct\"")
     })?;
@@ -340,7 +366,11 @@ pub(crate) fn solve_complex(
                 _ => Box::new(Huti::<Complex64>::new(HutiConfig::from_params_with(p, true, log)?)),
             };
             let precond = complex_precond(p, a, log)?;
-            solver.solve(a, &*precond, b, x, comm)?;
+            if elmer_product {
+                solver.solve(&crate::matvec::ElmerComplexMatvec(a), &*precond, b, x, comm)?;
+            } else {
+                solver.solve(a, &*precond, b, x, comm)?;
+            }
             Ok(())
         }
         other => Err(SolverError::Unsupported(format!("Linear System Solver = {other}"))),

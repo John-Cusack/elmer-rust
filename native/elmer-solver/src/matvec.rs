@@ -17,6 +17,7 @@
 //! selects.
 
 use elmer_core::{CsrMatrix, LinalgError, LinearOperator};
+use num_complex::Complex64;
 
 /// `CRS_MatrixVectorMultiply( A, u, v )`: `v = A u` with Elmer's product
 /// for a matrix of `A % ndeg = ndeg`.
@@ -87,6 +88,49 @@ impl LinearOperator<f64> for ElmerMatvec<'_> {
 
     fn apply_transpose(&self, x: &[f64], y: &mut [f64]) -> Result<(), LinalgError> {
         self.a.apply_transpose(x, y)
+    }
+}
+
+/// The complex product of a complex system whose child matrix keeps `ndeg =
+/// -1` (`CreateChildMatrix` of `ChangeToHarmonicSystem`): the default
+/// branch of `CRS_ComplexMatrixVectorMultiply` (CRSMatrix.F90), which is
+/// also the loop of `CRS_BlockComplexMatrixVectorMultiply`, the product
+/// IterSolver takes over the block view of such a matrix: four accumulators
+/// over each row's entries taken four at a time, the rest into the first,
+/// `r1 + r2 + r3 + r4` at the end.
+pub(crate) fn crs_complex_matrix_vector_multiply(a: &CsrMatrix<Complex64>, u: &[Complex64], v: &mut [Complex64]) {
+    for i in 0..a.nrows {
+        let (s, e) = (a.row_ptr[i], a.row_ptr[i + 1]);
+        let term = |j: usize| a.values[j] * u[a.col_idx[j] as usize];
+        let mut r = [Complex64::new(0.0, 0.0); 4];
+        let mut j = s;
+        while j + 4 <= e {
+            for (q, rq) in r.iter_mut().enumerate() {
+                *rq += term(j + q);
+            }
+            j += 4;
+        }
+        while j < e {
+            r[0] += term(j);
+            j += 1;
+        }
+        v[i] = r[0] + r[1] + r[2] + r[3];
+    }
+}
+
+/// A complex matrix as Elmer's complex Krylov methods apply it
+/// ([`crs_complex_matrix_vector_multiply`]).
+pub(crate) struct ElmerComplexMatvec<'a>(pub &'a CsrMatrix<Complex64>);
+
+impl LinearOperator<Complex64> for ElmerComplexMatvec<'_> {
+    fn nrows(&self) -> usize {
+        self.0.nrows
+    }
+    fn ncols(&self) -> usize {
+        self.0.ncols
+    }
+    fn apply(&self, x: &[Complex64], y: &mut [Complex64]) {
+        crs_complex_matrix_vector_multiply(self.0, x, y);
     }
 }
 
@@ -189,4 +233,29 @@ mod tests {
         a.apply(&u, &mut w);
         assert_eq!(v, w);
     }
+
+    /// Six entries: four accumulators over the first four, the last two into
+    /// the first accumulator, then `r1 + r2 + r3 + r4`; the left-to-right sum
+    /// of the same terms rounds differently.
+    #[test]
+    fn complex_product_accumulates_by_four() {
+        let c = |re: f64, im: f64| Complex64::new(re, im);
+        let a = CsrMatrix {
+            nrows: 1,
+            ncols: 6,
+            row_ptr: vec![0, 6],
+            col_idx: (0..6).collect(),
+            values: vec![c(1.0, 0.0), c(1.0e16, 0.0), c(1.0, 0.0), c(-1.0e16, 0.0), c(1.0, 0.0), c(1.0, 1.0)],
+            diag: None,
+        };
+        let u = vec![c(1.0, 0.0); 6];
+        let mut v = vec![c(0.0, 0.0)];
+        crs_complex_matrix_vector_multiply(&a, &u, &mut v);
+        let r1 = c(1.0, 0.0) + c(1.0, 0.0) + c(1.0, 1.0);
+        let want = r1 + c(1.0e16, 0.0) + c(1.0, 0.0) + c(-1.0e16, 0.0);
+        assert_eq!(v[0], want);
+        let plain = a.values.iter().fold(c(0.0, 0.0), |s, &x| s + x);
+        assert_ne!(v[0], plain);
+    }
+
 }

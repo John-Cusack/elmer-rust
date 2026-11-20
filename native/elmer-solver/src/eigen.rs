@@ -33,10 +33,16 @@
 //! solves do.
 //! A `Stability Analysis` goes through `ArpackStabEigenSolve`'s mode-2
 //! iteration instead ([`arpack_stab_eigen_solve`]).
-//! Refused: complex, damped, lumped-mass and parallel eigen
-//! systems, block and multigrid inner solvers, and scaling methods other
-//! than the diagonal one.
+//! A `Harmonic Mode` eigen analysis goes through `ChangeToHarmonicSystem`'s
+//! complex system `A = K + i D` and `ArpackEigenSolveComplex`
+//! (`ZNAUPD`/`ZNEUPD`, [`arpack_eigen_solve_complex`]), the inner solves
+//! by the complex `SolveLinearSystem` with Elmer's complex product; it
+//! needs a solver that assembles its damping matrix (`DefaultUpdateDamp`).
+//! Refused: `Linear System Complex` eigen systems, a shifted complex one,
+//! lumped-mass and parallel eigen systems, block and multigrid inner
+//! solvers, and scaling methods other than the diagonal one.
 
+use num_complex::Complex64;
 use elmer_core::{CsrMatrix, LinalgError, ParamMap, Params};
 use elmer_eigen::{EigenConfig, Mass, Normalize};
 
@@ -367,6 +373,135 @@ fn arpack_stab_eigen_solve(
     })
 }
 
+/// An inner solve `A x = b` of the complex eigen iteration, `x` holding the guess.
+type ComplexInner<'a> = dyn FnMut(&[Complex64], &mut [Complex64]) -> Result<(), SolverError> + 'a;
+
+/// `ArpackEigenSolveComplex` (EigenSolve.F90:1150): `ZNAUPD` in mode 3
+/// with `BMAT = 'G'` on `A x = lambda M x` (complex `A`, `M`), `OP = A^-1
+/// M` (no shift), `inner` solving `A x = b`; `ZNEUPD` for the Ritz
+/// pairs, then `EigenSystemSorting`.
+fn arpack_eigen_solve_complex(
+    zarp: &mut elmer_eigen::arpack::znaupd::ZArpack,
+    a: &CsrMatrix<Complex64>,
+    mass: &CsrMatrix<Complex64>,
+    cfg: &EigenConfig,
+    inner: &mut ComplexInner<'_>,
+) -> Result<elmer_eigen::EigenResult, SolverError> {
+    use elmer_eigen::arpack::naupd::NWhich;
+    use elmer_eigen::arpack::{znaupd, zneupd};
+    use elmer_eigen::ArpackWhich as W;
+    let n = a.nrows;
+    let (nev, ncv) = (cfg.nev, cfg.ncv);
+    if ncv <= nev {
+        return Err(SolverError::fatal(CALLER, "Number of Lanczos vectors must exceed the number of eigenvalues."));
+    }
+    let which = match elmer_eigen::ArpackWhich::for_mode(cfg.select, true) {
+        W::LM => NWhich::LM,
+        W::SM => NWhich::SM,
+        W::LR => NWhich::LR,
+        W::SR => NWhich::SR,
+        W::LI => NWhich::LI,
+        W::SI => NWhich::SI,
+    };
+    if cfg.shift != 0.0 {
+        return Err(unsupported("a shifted complex eigen system (Eigen System Shift)"));
+    }
+    let z = Complex64::new(0.0, 0.0);
+    let mut iter = 1usize;
+    let mut resid = vec![z; n];
+    let mut v = vec![z; n * ncv];
+    let mut workd = vec![z; 3 * n];
+    let mut workl = vec![z; 3 * ncv * ncv + 6 * ncv];
+    let mut iparam = [0i32; 11];
+    iparam[0] = 1;
+    iparam[2] = cfg.max_iter as i32;
+    iparam[6] = 3;
+    let mut tol = cfg.tol;
+    let mut failure: Option<SolverError> = None;
+    let au = {
+        let mut op = |ido: i32, ip: [usize; 3], wd: &mut [Complex64]| -> Result<(), String> {
+            let r = match ido {
+                -1 | 1 => {
+                    iter += 1;
+                    let b: Vec<Complex64> = if ido == -1 {
+                        let mut y = vec![z; n];
+                        crate::matvec::crs_complex_matrix_vector_multiply(mass, &wd[ip[0]..ip[0] + n], &mut y);
+                        wd[ip[1]..ip[1] + n].copy_from_slice(&y);
+                        y
+                    } else {
+                        wd[ip[2]..ip[2] + n].to_vec()
+                    };
+                    // The guess is what workd(ipntr(2)) holds.
+                    inner(&b, &mut wd[ip[1]..ip[1] + n])
+                }
+                2 => {
+                    let mut y = vec![z; n];
+                    crate::matvec::crs_complex_matrix_vector_multiply(mass, &wd[ip[0]..ip[0] + n], &mut y);
+                    wd[ip[1]..ip[1] + n].copy_from_slice(&y);
+                    Ok(())
+                }
+                _ => Err(SolverError::fatal(CALLER, format!("unexpected ARPACK request ido = {ido}"))),
+            };
+            r.map_err(|e| {
+                let msg = e.to_string();
+                failure = Some(e);
+                msg
+            })
+        };
+        znaupd::znaupd(&mut op, zarp, true, n, which, nev, &mut tol, &mut resid, ncv, &mut v, n, iparam, &mut workd, &mut workl, 0)
+    };
+    let au = match au {
+        Ok(a) => a,
+        Err(msg) => return Err(failure.unwrap_or_else(|| SolverError::fatal(CALLER, msg))),
+    };
+    match au.info {
+        0 | 2 => {}
+        1 => return Err(SolverError::fatal(CALLER, "Maximum number of iterations reached.")),
+        3 => return Err(SolverError::fatal(CALLER, "No shifts could be applied during implicit Arnoldi update, try increasing NCV.")),
+        i => return Err(SolverError::fatal(CALLER, format!(" Error with ZNAUPD, info = {i:>11}"))),
+    }
+    let r = zneupd::zneupd(true, z, true, n, which, nev, tol, &resid, ncv, &mut v, n, &au, &mut workd, &mut workl);
+    if r.info != 0 {
+        return Err(SolverError::fatal(CALLER, format!(" Error with ZNEUPD, info = {:>11}", r.info)));
+    }
+    let vals: Vec<Complex64> = (0..nev).map(|i| r.d.get(i).copied().unwrap_or(z)).collect();
+    let perm = elmer_eigen::eigen_system_sorting(cfg.sorting, &vals);
+    let values: Vec<Complex64> = perm.iter().map(|&p| vals[p]).collect();
+    let vectors: Vec<Vec<Complex64>> = perm.iter().map(|&p| v[p * n..p * n + n].to_vec()).collect();
+    Ok(elmer_eigen::EigenResult {
+        values,
+        vectors,
+        iterations: au.iparam[2].max(0) as usize,
+        op_applications: iter - 1,
+        converged: au.iparam[4].max(0) as usize,
+        residuals: None,
+    })
+}
+
+/// The complex system `ChangeToHarmonicSystem` makes of a second-order
+/// eigen system (SolveCore.F90:4811): `A = K + i D` with `D` the damping,
+/// `M` the mass, on `K`'s pattern, as `CRS_ComplexMatrixVectorMultiply`
+/// reads the interleaved child matrix (`Values(kr+1) = -D`, then
+/// `CMPLX(Values(j), -Values(j+1))`); the mass child's off-diagonal stays
+/// zero, so `M` gets the imaginary part `-0`.
+fn harmonic_system(k: &CsrMatrix<f64>, damp: &CsrMatrix<f64>, mass: &CsrMatrix<f64>) -> (CsrMatrix<Complex64>, CsrMatrix<Complex64>) {
+    let mk = |vals: Vec<Complex64>| CsrMatrix {
+        nrows: k.nrows,
+        ncols: k.ncols,
+        row_ptr: k.row_ptr.clone(),
+        col_idx: k.col_idx.clone(),
+        values: vals,
+        diag: k.diag.clone(),
+    };
+    let a: Vec<Complex64> = (0..k.values.len())
+        .map(|j| {
+            Complex64::new(k.values[j], -(-damp.values[j]))
+        })
+        .collect();
+    let m: Vec<Complex64> = mass.values.iter().map(|&mv| Complex64::new(mv, -0.0)).collect();
+    (mk(a), mk(m))
+}
+
 /// The eigen solve of `SolveSystem`; returns the variable's norm.
 pub(crate) fn solve(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverError> {
     let (mesh, log, comm, ix) = (ctx.mesh, ctx.log, ctx.comm, ctx.slot);
@@ -406,6 +541,80 @@ pub(crate) fn solve(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverError> {
     let mut mass = sys.mass.take().ok_or_else(|| SolverError::fatal(CALLER, "no mass matrix (DefaultUpdateMass)"))?;
     let k = &mut sys.matrix;
     let n = k.nrows;
+    if p.logical("harmonic mode") == Some(true) {
+        // ChangeToHarmonicSystem + ArpackEigenSolveComplex. The damping
+        // matrix is what the solver gave DefaultUpdateDamp; a solver that
+        // never called it may have dropped a damping term, so it is refused.
+        let Some(damp) = sys.damp.as_ref() else {
+            sys.mass = Some(mass);
+            return Err(unsupported("Harmonic Mode for a solver that does not assemble its damping matrix (DefaultUpdateDamp)"));
+        };
+        let (mut a, mut mc) = harmonic_system(k, damp, &mass);
+        sys.mass = Some(mass);
+        // ScaleLinearSystem on the complex matrix: 1/sqrt|A_ii|.
+        let scale = p.logical("linear system skip scaling") != Some(true) && p.logical("linear system scaling").unwrap_or(true);
+        let mut dsc = vec![1.0f64; n];
+        if scale {
+            for i in 0..n {
+                let mut di = Complex64::new(0.0, 0.0);
+                for j in a.row_ptr[i]..a.row_ptr[i + 1] {
+                    if a.col_idx[j] as usize == i {
+                        di = a.values[j];
+                    }
+                }
+                let s = di.re.hypot(di.im).sqrt();
+                dsc[i] = if s > f64::MIN_POSITIVE { 1.0 / s } else { 1.0 };
+            }
+            for mat in [&mut a, &mut mc] {
+                for i in 0..n {
+                    for j in mat.row_ptr[i]..mat.row_ptr[i + 1] {
+                        let f = dsc[i] * dsc[mat.col_idx[j] as usize];
+                        mat.values[j] = Complex64::new(mat.values[j].re * f, mat.values[j].im * f);
+                    }
+                }
+            }
+        }
+        let mut q = p.clone();
+        q.insert("Linear System Scaling", elmer_core::Value::Logical(false));
+        let mut inner = |b: &[Complex64], x: &mut [Complex64]| -> Result<(), SolverError> {
+            crate::linsys::solve_complex_elmer_product(&q, &a, b, x, log, comm)
+        };
+        let mut result = arpack_eigen_solve_complex(&mut sim.zarpack, &a, &mc, &cfg, &mut inner)?;
+        // BackScaleLinearSystem(EigenScaling = .TRUE.).
+        if scale {
+            for v in &mut result.vectors {
+                for (x, s) in v.iter_mut().zip(&dsc) {
+                    *x *= *s;
+                }
+            }
+        }
+        elmer_eigen::log_summary(&result, cfg.tol, log);
+        if normalize != Normalize::None {
+            if let Some(mm) = sys.mass.as_ref() {
+                elmer_eigen::scale_eigen_vectors(Mass::Consistent(mm), &mut result.vectors, normalize == Normalize::Unity);
+            }
+        }
+        // ChangeToHarmonicSystem's imaginary part `<name> im` (and its
+        // components), an output variable that keeps the zero values of the
+        // harmonic system's (never solved) imaginary dofs.
+        let (vname, vdofs, vperm, vlen) = {
+            let v = sim.vars.by_id(id);
+            (v.name.clone(), v.dofs, v.perm.clone(), v.values.len())
+        };
+        let im = format!("{vname} im");
+        if sim.vars.get(&im).is_none() {
+            sim.vars.add(crate::Variable::new(&im, elmer_core::FieldKind::Nodal, vdofs, vperm, vec![0.0; vlen]))?;
+        }
+        let var = sim.vars.by_id_mut(id);
+        let spec = crate::norm::NormSpec::from_params(&p, var.dofs);
+        let (vals, m) = crate::norm::select_norm_entries(&spec, &var.values, n.min(var.values.len()), var.perm.as_deref(), mesh.n_nodes(), log);
+        let norm = crate::norm::compute_norm(&spec, &vals, m, comm);
+        var.conv.norm = norm;
+        var.eigen_values = result.values;
+        var.eigen_vectors = result.vectors;
+        log.info("SolveLinearSystem", &format!("Repointing {} eigenvalue components for: {} complex", 2 * var.dofs, var.name), 3);
+        return Ok(norm);
+    }
 
     // ScaleLinearSystem(Solver, A): K and MassValues with one diagonal.
     let scale = p.logical("linear system skip scaling") != Some(true) && p.logical("linear system scaling").unwrap_or(true);
