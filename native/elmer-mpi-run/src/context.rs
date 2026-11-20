@@ -20,6 +20,9 @@ struct Registered {
     gid: Vec<u64>,
     owner: Vec<usize>,
     layout: Option<Rc<DofLayout>>,
+    /// The rows of the last Dirichlet conditions applied to it, after
+    /// `CommunicateDirichletBCs` (every holder's constrained copies).
+    dirichlet: Vec<u32>,
 }
 
 /// Transport and ownership of one rank.
@@ -86,6 +89,7 @@ impl RankContext {
             gid,
             owner,
             layout: None,
+            dirichlet: Vec::new(),
         });
     }
 
@@ -94,7 +98,7 @@ impl RankContext {
     pub fn register_rows(&self, gid: Vec<u64>, owner: Vec<usize>, a: &CsrMatrix<f64>) {
         let mut m = self.matrices.borrow_mut();
         m.retain(|r| r.row_ptr != a.row_ptr || r.col_idx != a.col_idx);
-        m.push(Registered { row_ptr: a.row_ptr.clone(), col_idx: a.col_idx.clone(), gid, owner, layout: None });
+        m.push(Registered { row_ptr: a.row_ptr.clone(), col_idx: a.col_idx.clone(), gid, owner, layout: None, dirichlet: Vec::new() });
     }
 
     /// Every holder's value of each shared mesh node summed into each copy,
@@ -124,6 +128,22 @@ impl RankContext {
             }
         };
         Ok(layout)
+    }
+
+    /// Records the Dirichlet rows of a registered matrix, every holder's
+    /// copies included (`CommunicateDirichletBCs`).
+    pub fn set_dirichlet_rows(&self, a: &CsrMatrix<f64>, rows: Vec<u32>) {
+        let mut m = self.matrices.borrow_mut();
+        if let Some(r) = m.iter_mut().find(|r| r.row_ptr == a.row_ptr && r.col_idx == a.col_idx) {
+            r.dirichlet = rows;
+        }
+    }
+
+    /// The rows [`set_dirichlet_rows`](Self::set_dirichlet_rows) recorded
+    /// for `a` (none when `a` is not registered).
+    pub fn dirichlet_rows(&self, a: &CsrMatrix<f64>) -> Vec<u32> {
+        let m = self.matrices.borrow();
+        m.iter().find(|r| r.row_ptr == a.row_ptr && r.col_idx == a.col_idx).map(|r| r.dirichlet.clone()).unwrap_or_default()
     }
 
     /// The dof layout of a matrix registered with [`register`](Self::register),

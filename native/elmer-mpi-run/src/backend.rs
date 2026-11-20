@@ -55,7 +55,7 @@ pub fn dist_options(p: &ParamMap) -> Result<DistSolveOptions, SolverError> {
     Ok(opts)
 }
 
-fn dist_err(e: DistError) -> SolverError {
+pub(crate) fn dist_err(e: DistError) -> SolverError {
     match e {
         DistError::Linalg(l) => SolverError::Linalg(l),
         other => SolverError::fatal("ParallelIter", other.to_string()),
@@ -79,7 +79,7 @@ pub fn prepare_slot(params: &mut ParamMap) {
 }
 
 /// The section's `Linear System Scaling` as it was before [`prepare_slot`].
-fn scaling_of(params: &ParamMap) -> bool {
+pub(crate) fn scaling_of(params: &ParamMap) -> bool {
     params.logical(SCALING_KEY).or_else(|| params.logical("linear system scaling")).unwrap_or(true)
 }
 
@@ -149,6 +149,9 @@ impl AssemblyBackend for ParAssembly {
             }
         });
         let all: Vec<(u32, f64)> = (0..n).filter(|&r| !value[r].is_nan()).map(|r| (r as u32, value[r])).collect();
+        // For the mass rows of an eigen system (CRS_ZeroRow /
+        // CRS_SetSymmDirichlet zero them for every constrained copy).
+        ctx.set_dirichlet_rows(a, all.iter().map(|&(r, _)| r).collect());
         let mut total = [all.iter().filter(|&&(r, _)| layout.owned_pos()[r as usize] != elmer_core::NO_DOF).count() as f64];
         ex.sum_f64(&mut total);
         if total[0] == 0.0 {
@@ -194,7 +197,7 @@ impl AssemblyBackend for ParAssembly {
 /// summed over the ranks holding the dof (`ParallelSumVector`), with the
 /// absolute row sum, summed likewise, standing in for a zero diagonal
 /// (MatrixScaling.F90:122-200). Collective.
-fn summed_diagonal_scaling(ex: &dyn Exchange, layout: &DofLayout, a: &CsrMatrix<f64>) -> Vec<f64> {
+pub(crate) fn summed_diagonal_scaling(ex: &dyn Exchange, layout: &DofLayout, a: &CsrMatrix<f64>) -> Vec<f64> {
     let tiny = f64::MIN_POSITIVE;
     let diag_of = |i: usize| {
         (a.row_ptr[i]..a.row_ptr[i + 1]).find(|&k| a.col_idx[k] as usize == i).map_or(0.0, |k| a.values[k])
@@ -305,7 +308,7 @@ impl IterativeSolver<f64> for DistIterative {
 /// zero-rhs shortcut, `ScaleLinearSystem` with the summed diagonal and rhs
 /// scaling, the split matrix and block-local preconditioner, the method on
 /// owned dofs, then back-scaling and the ghost update. Collective.
-fn itermethod_solve(
+pub(crate) fn itermethod_solve(
     ex: &dyn Exchange,
     layout: &DofLayout,
     a: &CsrMatrix<f64>,
