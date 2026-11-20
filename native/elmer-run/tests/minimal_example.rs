@@ -200,7 +200,8 @@ fn run_block_changing_the_simulation_is_refused_before_running() {
     let dir = scratch_case("minimal_example", "reload-refused");
     let mesh = FileMesh::read(&dir.join("triangle"), 2);
     let mut block = elmer_solver::Model::default();
-    block.simulation.insert("Angular Frequency", Value::real(2.0));
+    // `Angular Frequency` is re-read after a reload; a timestep size is not.
+    block.simulation.insert("Timestep Sizes", Value::real(2.0));
     let (log, _) = logger();
     let case = Case {
         model: minimal_example(),
@@ -210,7 +211,7 @@ fn run_block_changing_the_simulation_is_refused_before_running() {
         mesh_dir: dir.join("triangle"),
     };
     let err = run_case(case, &log, &SerialComm).unwrap_err().to_string();
-    assert!(err.contains("RUN block 2 changes Simulation angular frequency"), "{err}");
+    assert!(err.contains("RUN block 2 changes Simulation timestep sizes"), "{err}");
     assert!(!dir.join("TEST.PASSED").exists());
 }
 

@@ -23,6 +23,9 @@ pub struct HelmholtzConfig {
     pub angular_frequency: f64,
     /// Requested Gauss points, or `None` for the element default.
     pub quad_points: Option<usize>,
+    /// `Linear System Preconditioning Damp Coefficient (Im)`: the shift of
+    /// the damped preconditioning matrix (`PREC`), when one is built.
+    pub prec_shift: Option<Complex64>,
 }
 
 impl HelmholtzConfig {
@@ -32,6 +35,7 @@ impl HelmholtzConfig {
             axisymmetric: false,
             angular_frequency,
             quad_points: None,
+            prec_shift: None,
         }
     }
 }
@@ -66,6 +70,9 @@ pub struct HelmholtzLocal {
     pub n: usize,
     pub stiff: Vec<Complex64>,
     pub force: Vec<Complex64>,
+    /// The damped preconditioning matrix (`PREC`) when
+    /// [`HelmholtzConfig::prec_shift`] is set, else empty.
+    pub prec: Vec<Complex64>,
 }
 
 impl HelmholtzLocal {
@@ -75,6 +82,29 @@ impl HelmholtzLocal {
         self.stiff.resize(n * n, Complex64::new(0.0, 0.0));
         self.force.clear();
         self.force.resize(n, Complex64::new(0.0, 0.0));
+        self.prec.clear();
+    }
+
+    /// [`to_real`](Self::to_real) of the preconditioning matrix (no force).
+    pub fn prec_to_real(&self, out: &mut LocalSystem) {
+        let n = self.n;
+        let m = 2 * n;
+        out.n = m;
+        out.stiff.clear();
+        out.stiff.resize(m * m, 0.0);
+        out.force.clear();
+        out.force.resize(m, 0.0);
+        out.mass = None;
+        out.damp = None;
+        for p in 0..n {
+            for q in 0..n {
+                let a = self.prec[p * n + q];
+                out.stiff[2 * p * m + 2 * q] = a.re;
+                out.stiff[2 * p * m + 2 * q + 1] = -a.im;
+                out.stiff[(2 * p + 1) * m + 2 * q] = a.im;
+                out.stiff[(2 * p + 1) * m + 2 * q + 1] = a.re;
+            }
+        }
     }
 
     /// The equivalent real system with each node's real and imaginary parts
@@ -173,13 +203,27 @@ pub fn helmholtz_bulk_local(
             .map_or(Complex64::new(0.0, 0.0), |l| interp_c(phi, l));
         let rho = interp(phi, &mat.density);
 
+        if cfg.prec_shift.is_some() && out.prec.is_empty() {
+            out.prec.resize(n * n, Complex64::new(0.0, 0.0));
+        }
         for p in 0..n {
             for q in 0..n {
                 let grad: f64 = (0..cfg.dim).map(|i| dphi[q][i] * dphi[p][i]).sum();
                 let a = Complex64::new(m, d) * (phi[q] * phi[p]) + grad;
                 out.stiff[p * n + q] += a * (s / rho);
+                // `B = -M * ShiftCoeff * Basis(q) * Basis(p)`, `PREC += s*B/Rho`.
+                if let Some(shift) = cfg.prec_shift {
+                    let b = Complex64::new(-m, 0.0) * shift * phi[q] * phi[p];
+                    out.prec[p * n + q] += b * s / rho;
+                }
             }
             out.force[p] += load * (s * phi[p] / rho);
+        }
+    }
+    // `PREC = STIFF + PREC`.
+    if cfg.prec_shift.is_some() {
+        for (pv, a) in out.prec.iter_mut().zip(&out.stiff) {
+            *pv = *a + *pv;
         }
     }
     Ok(())
@@ -234,6 +278,10 @@ pub fn helmholtz_boundary_local(
             }
             out.force[p] += load * (s * phi[p] / rho);
         }
+    }
+    // LocalMatrixBoundary: `DefaultUpdatePrec(STIFF)`.
+    if cfg.prec_shift.is_some() {
+        out.prec = out.stiff.clone();
     }
     Ok(())
 }

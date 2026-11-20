@@ -3,12 +3,11 @@
 //! the way `HelmholtzSolver` (HelmholtzSolve.F90:99) does.
 //!
 //! The pressure is a two-dof variable (`Pressure 1` real, `Pressure 2`
-//! imaginary). The Fortran marks the system `Linear System Complex` and lets
-//! the complex Krylov methods and the complex UMFPACK work on the interleaved
-//! storage; `elmer-solver`'s `default_solve` does not take that flag yet, so
-//! the interleaved real system is solved instead. It is the same linear
-//! system, so the solution is the same; only the iterative methods'
-//! convergence path and the matrix scaling differ.
+//! imaginary). As the Fortran's `_Init`, the system is marked `Linear
+//! System Complex` (unless the case says otherwise), so `default_solve`
+//! solves the interleaved storage as the complex system: the Krylov methods
+//! in complex arithmetic (CG with the unconjugated product, which a complex
+//! symmetric Helmholtz matrix needs) and UMFPACK on the interleaved form.
 
 use elmer_core::{ElemId, ElementBasis, LocalSystem, ParamMap, Params, Quadrature, Value, NO_DOF};
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
@@ -113,6 +112,17 @@ fn angular_frequency(ctx: &SolverCtx<'_>) -> Option<f64> {
 
 impl Solver for HelmholtzSolver {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        // HelmholtzSolver_Init (HelmholtzSolve.F90:51): the interleaved
+        // system is solved as the complex one, so the Krylov methods run in
+        // complex arithmetic (complex CG with the unconjugated product).
+        if ctx.params().get("linear system complex").is_none() {
+            ctx.params_mut().insert("Linear System Complex", Value::Logical(true));
+        }
+        if ctx.params().0.keys().any(|k| k.starts_with("linear system preconditioning damp coefficient"))
+            && ctx.params().get("allocate preconditioning matrix").is_none()
+        {
+            ctx.params_mut().insert("Allocate Preconditioning Matrix", Value::Logical(true));
+        }
         check_supported(ctx)?;
         axisymmetric(ctx)?;
         let dofs = ctx.primary().map(|v| v.dofs);
@@ -141,32 +151,25 @@ impl Solver for HelmholtzSolver {
             "res: Frequency",
             Value::real(omega / (2.0 * std::f64::consts::PI)),
         );
-        if (flag(
-            ctx.params(),
-            "linear system preconditioning damp coefficient",
-        ) || ctx
-            .params()
-            .get("linear system preconditioning damp coefficient")
-            .is_some()
-            || ctx
-                .params()
-                .get("linear system preconditioning damp coefficient im")
-                .is_some())
-            && ctx
-                .params()
-                .string("linear system solver")
-                .map(str::to_ascii_lowercase)
-                .as_deref()
-                == Some("iterative")
+        // HelmholtzSolve.F90:268-280: the damped preconditioning matrix of an
+        // iterative solve, `ShiftCoeff = Damp Coefficient + i Damp
+        // Coefficient Im`.
+        let (re, im) = (
+            ctx.params().real("linear system preconditioning damp coefficient"),
+            ctx.params().real("linear system preconditioning damp coefficient im"),
+        );
+        let mut prec_shift = (re.is_some() || im.is_some()).then(|| Complex64::new(re.unwrap_or(0.0), im.unwrap_or(0.0)));
+        if prec_shift.is_some()
+            && ctx.params().string("linear system solver").map(str::to_ascii_lowercase).as_deref() != Some("iterative")
         {
-            ctx.warn(
-                CALLER,
-                "Damped preconditioning matrix is not built; the solution is unaffected, the iteration may differ",
-            );
+            ctx.warn(CALLER, "Damped preconditioning makes sence only for iterative methods, canceling!");
+            prec_shift = None;
         }
 
         let mut cfg = HelmholtzConfig::new(dim, omega);
         cfg.axisymmetric = axi;
+        cfg.prec_shift = prec_shift;
+        let mut prec_local = LocalSystem::zeros(0);
         let maxiter = ctx
             .params()
             .integer("nonlinear system max iterations")
@@ -218,6 +221,10 @@ impl Solver for HelmholtzSolver {
                 )?;
                 self.complex.to_real(&mut self.local);
                 ctx.default_update(&self.local, e)?;
+                if cfg.prec_shift.is_some() {
+                    self.complex.prec_to_real(&mut prec_local);
+                    ctx.default_update_prec(&prec_local, e)?;
+                }
             }
 
             for &e in &bnd {
@@ -272,6 +279,10 @@ impl Solver for HelmholtzSolver {
                 )?;
                 self.complex.to_real(&mut self.local);
                 ctx.default_update(&self.local, e)?;
+                if cfg.prec_shift.is_some() {
+                    self.complex.prec_to_real(&mut prec_local);
+                    ctx.default_update_prec(&prec_local, e)?;
+                }
             }
 
             ctx.default_dirichlet()?;

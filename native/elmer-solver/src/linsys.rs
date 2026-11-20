@@ -279,18 +279,22 @@ fn precond(p: &ParamMap, a: &CsrMatrix<f64>) -> Result<Box<dyn Preconditioner<f6
 /// IDR(s); preconditioners `none`, `diagonal`, `ilu[n]` and `ilut`. Cholesky
 /// methods, the stationary methods, incomplete Cholesky and preconditioner
 /// reuse are refused.
-pub(crate) fn solve_complex(
+///
+/// The preconditioner is built from `prec` (`A % PrecValues`) instead of
+/// `a` when given.
+pub(crate) fn solve_complex_prec(
     p: &ParamMap,
     a: &CsrMatrix<Complex64>,
+    prec: Option<&CsrMatrix<Complex64>>,
     b: &[Complex64],
     x: &mut [Complex64],
     log: &dyn elmer_core::Logger,
     comm: &dyn Communicator,
 ) -> Result<(), SolverError> {
-    solve_complex_op(p, a, false, b, x, log, comm)
+    solve_complex_op(p, a, prec, false, b, x, log, comm)
 }
 
-/// [`solve_complex`] with the iterative methods applying `a` as Elmer's
+/// [`solve_complex_prec`] with the iterative methods applying `a` as Elmer's
 /// IterSolver does to a complex child matrix
 /// ([`crate::matvec::crs_complex_matrix_vector_multiply`]).
 pub(crate) fn solve_complex_elmer_product(
@@ -301,12 +305,14 @@ pub(crate) fn solve_complex_elmer_product(
     log: &dyn elmer_core::Logger,
     comm: &dyn Communicator,
 ) -> Result<(), SolverError> {
-    solve_complex_op(p, a, true, b, x, log, comm)
+    solve_complex_op(p, a, None, true, b, x, log, comm)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn solve_complex_op(
     p: &ParamMap,
     a: &CsrMatrix<Complex64>,
+    prec: Option<&CsrMatrix<Complex64>>,
     elmer_product: bool,
     b: &[Complex64],
     x: &mut [Complex64],
@@ -369,7 +375,8 @@ fn solve_complex_op(
                 }
                 _ => Box::new(Huti::<Complex64>::new(HutiConfig::from_params_with(p, true, log)?)),
             };
-            let precond = complex_precond(p, a, log)?;
+            // CRS_ComplexIncompleteLU factors `A % PrecValues` when present.
+            let precond = complex_precond(p, prec.unwrap_or(a), log)?;
             if elmer_product {
                 solver.solve(&crate::matvec::ElmerComplexMatvec(a), &*precond, b, x, comm)?;
             } else {
@@ -585,7 +592,7 @@ mod tests {
             p.insert("Linear System Convergence Tolerance", elmer_core::Value::real(1e-12));
             p.insert("Linear System Max Iterations", elmer_core::Value::Integer(vec![100]));
             let mut x = vec![Complex64::new(0.0, 0.0); 3];
-            solve_complex(&p, &a, &b, &mut x, &elmer_core::NullLogger, &elmer_core::SerialComm).unwrap();
+            solve_complex_prec(&p, &a, None, &b, &mut x, &elmer_core::NullLogger, &elmer_core::SerialComm).unwrap();
             x
         };
         let (x2, xl) = (solve("BiCGStab2"), solve("BiCGStabl"));

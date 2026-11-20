@@ -580,6 +580,13 @@ impl<'a> SolverCtx<'a> {
         self.sim.slots[self.slot].asm = Default::default();
         let sim = &mut *self.sim;
         let slot = &mut sim.slots[self.slot];
+        // `Allocate Preconditioning Matrix` (CreateMatrix) / InitializeToZero:
+        // the separate preconditioning matrix starts from zero.
+        if slot.params.logical("allocate preconditioning matrix") == Some(true) {
+            if let Some(sys) = slot.system.as_ref() {
+                slot.asm.prec = Some(vec![0.0; sys.matrix.values.len()]);
+            }
+        }
         // `CreateOdeMatrix` (MainUtils.F90): a solver of a global variable
         // with `Ode Matrix` gets a full `Dofs x Dofs` system.
         if slot.system.is_none() && slot.params.logical("ode matrix") == Some(true) {
@@ -986,6 +993,47 @@ impl<'a> SolverCtx<'a> {
         if e.0 as usize >= self.mesh.n_bulk() && crate::loads::is_nonzero(local) {
             sim.slots[self.slot].asm.boundary_touched = true;
         }
+        Ok(())
+    }
+
+    /// `DefaultUpdatePrec`: `local.stiff` into the separate preconditioning
+    /// matrix (`A % PrecValues`, allocated at zero on first use), glued as
+    /// [`default_update`](Self::default_update) glues the system matrix. The
+    /// local force is ignored.
+    pub fn default_update_prec(&mut self, local: &LocalSystem, e: ElemId) -> Result<(), SolverError> {
+        if self.is_passive(e)? {
+            return Ok(());
+        }
+        let mut idx = Vec::new();
+        self.element_slots(e, &mut idx);
+        let sim = &mut *self.sim;
+        let backend = sim
+            .backends
+            .assembly
+            .as_ref()
+            .ok_or_else(|| SolverError::NotWired("assembly backend (elmer-assembly)".into()))?;
+        let flipped = match (&sim.backends.conforming, sim.slots[self.slot].conforming_flip) {
+            (Some(map), true) => {
+                let mut l = local.clone();
+                crate::conforming::flip_local(&mut l, self.mesh.element(e).nodes, map).then_some(l)
+            }
+            _ => None,
+        };
+        let local = flipped.as_ref().unwrap_or(local);
+        let slot = &mut sim.slots[self.slot];
+        let sys = slot
+            .system
+            .as_mut()
+            .ok_or_else(|| SolverError::fatal("DefaultUpdatePrec", "call default_initialize first"))?;
+        let prec = slot.asm.prec.get_or_insert_with(|| vec![0.0; sys.matrix.values.len()]);
+        // The system matrix's pattern with the preconditioning values; the
+        // force goes nowhere.
+        let mut zero = LocalSystem::zeros(local.n);
+        zero.stiff.copy_from_slice(&local.stiff);
+        std::mem::swap(&mut sys.matrix.values, prec);
+        let mut scratch = vec![0.0; sys.rhs.len()];
+        backend.add_local(&mut sys.matrix, &mut scratch, &idx, &zero);
+        std::mem::swap(&mut sys.matrix.values, prec);
         Ok(())
     }
 
@@ -1905,6 +1953,9 @@ impl<'a> SolverCtx<'a> {
                 return Err(SolverError::Unsupported(format!("SolveLinearSystem option {k}")));
             }
         }
+        // `A % PrecValues` of this assembly, for the preconditioner (taken:
+        // the next `DefaultInitialize` starts a new one).
+        let prec_values = slot.asm.prec.take();
         let sys = slot
             .system
             .as_mut()
@@ -2075,6 +2126,7 @@ impl<'a> SolverCtx<'a> {
                 multigrid: mg.as_deref(),
                 alias: None,
                 precond: None,
+                prec_values: None,
             };
             sim.slots[slot_ix].lin_converged = solve_linear(&sim.backends.linear, &env, p, a, b, x, bnorm, nullify, log, comm)?;
             // ComputeChange over the collection solution, multipliers
@@ -2134,6 +2186,7 @@ impl<'a> SolverCtx<'a> {
                 multigrid: mg.as_deref(),
                 alias: if eliminate { None } else { block_plan.as_ref().and_then(|b| b.alias()) },
                 precond: None,
+                prec_values: prec_values.as_deref(),
             };
             if eliminate {
                 // SolveCore.F90:3188-3192: the procedure solves and computes
@@ -2335,6 +2388,9 @@ pub(crate) struct BlockEnv<'a> {
     /// (`Linear System Precondition Recompute`): built by the first solve
     /// through it, reused by the later ones.
     pub precond: Option<&'a PrecondCache>,
+    /// `A % PrecValues` on the matrix's pattern: the preconditioner of a
+    /// complex system is built from it ([`crate::loads::AssemblyState::prec`]).
+    pub prec_values: Option<&'a [f64]>,
 }
 
 /// The kept preconditioner of [`BlockEnv::precond`].
@@ -2505,7 +2561,7 @@ pub fn solve_other_matrix(
         log.info("SolveLinearSystem", "Solution trivially zero!", 5);
         return Ok(true);
     }
-    let env = BlockEnv { dofs: 1, ndeg: 1, simulation, schur: None, multigrid: None, alias: None, precond };
+    let env = BlockEnv { dofs: 1, ndeg: 1, simulation, schur: None, multigrid: None, alias: None, precond, prec_values: None };
     solve_linear(linear, &env, p, matrix, b, x, bnorm, false, log, comm)
 }
 
@@ -2553,10 +2609,23 @@ pub(crate) fn solve_linear(
         } else {
             None
         };
+        // `A % PrecValues`, scaled as the matrix is (ScaleLinearSystem), in
+        // its complex form (CPrecValues): what CRS_ComplexIncompleteLU factors.
+        let prec_c = match block.prec_values {
+            Some(v) if v.len() == matrix.values.len() => {
+                let pm = elmer_core::CsrMatrix { values: v.to_vec(), ..matrix.clone() };
+                let mut pc = crate::linsys::to_complex(&pm)?;
+                if let Some(rs) = scaling.as_ref() {
+                    rs.scale_values(&ac, &mut pc.values);
+                }
+                Some(pc)
+            }
+            _ => None,
+        };
         if nullify {
             xc.iter_mut().for_each(|v| *v = num_complex::Complex64::new(0.0, 0.0));
         }
-        let r = crate::linsys::solve_complex(p, &ac, &bc, &mut xc, log, comm).map(|_| true);
+        let r = crate::linsys::solve_complex_prec(p, &ac, prec_c.as_ref(), &bc, &mut xc, log, comm).map(|_| true);
         if let Some(rs) = scaling {
             rs.unscale(&mut ac, Some(&mut bc[..]), Some(&mut xc[..]));
         }
@@ -2760,7 +2829,7 @@ mod eliminate_tests {
         p.insert("Linear System Direct Method", Value::Str("umfpack".into()));
         let linear = crate::linsys::elmer_registry();
         let sim = ParamMap::new();
-        let env = BlockEnv { dofs: 1, ndeg: 1, simulation: &sim, schur: None, multigrid: None, alias: None, precond: None };
+        let env = BlockEnv { dofs: 1, ndeg: 1, simulation: &sim, schur: None, multigrid: None, alias: None, precond: None , prec_values: None};
         let mut x = vec![0.0; n];
         eliminate_dirichlet(&linear, &env, &p, &a, &b, &mut x, false, &NullLogger, &SerialComm).unwrap();
         assert_eq!((x[0], x[n - 1]), (0.5, -0.25));

@@ -511,10 +511,11 @@ fn check_reloads(model: &Model, reloads: &[Model], registry: &SolverRegistry) ->
                 "RUN block {run} changes {what} (re-reading changed keywords after a reload is not composed)"
             )))
         };
-        // HelmholtzFEM's second block (`Simulation :: Angular Frequency`)
-        // runs at the new frequency but misses its reference (1.28e-2 vs
-        // 9.90e-3); Simulation and Constants changes stay refused.
-        if let Some(key) = block.simulation.0.keys().find(|k| *k != "solver input file") {
+        // `Angular Frequency` / `Frequency` are read by the solvers, which
+        // are rebuilt after the reload (HelmholtzFEM's second block); other
+        // Simulation and Constants changes stay refused.
+        const SIM_ALLOWED: [&str; 3] = ["solver input file", "angular frequency", "frequency"];
+        if let Some(key) = block.simulation.0.keys().find(|k| !SIM_ALLOWED.contains(&k.as_str())) {
             return refuse(format!("Simulation {key}"));
         }
         if let Some(key) = block.constants.0.keys().next() {
