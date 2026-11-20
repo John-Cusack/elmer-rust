@@ -33,7 +33,7 @@ pub fn register(registry: &mut SolverRegistry) {
 }
 
 pub fn factory(_params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
-    Ok(Box::new(MagnetoDynamics2DSteady))
+    Ok(Box::new(MagnetoDynamics2DSteady::default()))
 }
 
 /// Whether `params` runs `MagnetoDynamics2D` (the steady/transient solver).
@@ -57,7 +57,14 @@ pub fn init_section(p: &mut ParamMap) {
     }
 }
 
-struct MagnetoDynamics2DSteady;
+#[derive(Default)]
+struct MagnetoDynamics2DSteady {
+    /// `CalculateLumpedTransient`'s `SAVE`d state: `Visited`, the elements
+    /// of the torque integral and the air gap correction `Ctorq`.
+    visited: bool,
+    torque_elem: Vec<bool>,
+    ctorq: f64,
+}
 
 fn unsupported(what: impl Into<String>) -> SolverError {
     SolverError::Unsupported(format!("{CALLER}: {}", what.into()))
@@ -75,6 +82,8 @@ fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
         "skip degenerate elements",
         "newton-raphson iteration",
         "constant mass matrix",
+        "store basis functions",
+        "solve adjoint equation",
     ] {
         if p.logical(k) == Some(true) {
             return Err(unsupported(format!("solver option '{k}'")));
@@ -97,12 +106,12 @@ fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
                 return Err(unsupported(format!("body force '{k}'")));
             }
         }
-        if bf.logical("calculate potential") == Some(true) {
-            return Err(unsupported("'Calculate Potential' (CalculateLumpedTransient)"));
-        }
     }
-    if m.bodies.iter().any(|b| b.get("r inner").is_some()) || m.simulation.get("rotor radius").is_some() {
-        return Err(unsupported("torque (CalculateLumpedTransient)"));
+    if m.bodies.iter().any(|b| b.logical("calculate inertial moment") == Some(true)) {
+        return Err(unsupported("'Calculate Inertial Moment' (CalculateLumpedTransient)"));
+    }
+    if m.simulation.get("number of times").is_some() || m.simulation.get("number of slices").is_some() {
+        return Err(unsupported("slices or times (CalculateLumpedTransient)"));
     }
     if m.components.iter().any(|c| c.get("coil type").is_some()) {
         return Err(unsupported("coil components"));
@@ -111,11 +120,151 @@ fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
         if has_prefix(bc, "magnetic flux density") {
             return Err(unsupported("Magnetic Flux Density BC (SetMagneticFluxDensityBC)"));
         }
-        if bc.get("mortar bc").is_some() || bc.get("periodic bc").is_some() || bc.get("anti periodic bc").is_some() {
-            return Err(unsupported("mortar / periodic BCs"));
-        }
     }
     Ok(())
+}
+
+impl MagnetoDynamics2DSteady {
+    /// `CalculateLumpedTransient()` (MagnetoDynamics2D.F90:456), steady
+    /// state: the area and mean `dA/dt` (zero) of each body force with
+    /// `Calculate Potential`, the air gap torque (`R Inner`/`R Outer` of a
+    /// body, or `Rotor Radius`) and, on the first call with a torque, the
+    /// (zero) inertial volume and moment; stored as `res:` values of the
+    /// simulation.
+    fn calculate_lumped(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        ctx.info(CALLER, "Calculating lumped parameters", 8);
+        let m = &ctx.sim.model;
+        let any_body = |k: &str| m.bodies.iter().find_map(|b| b.real(k));
+        let (rinner, router, rmean, rdiff, have_range, calc_torque) = match any_body("r inner") {
+            Some(ri) => {
+                let ro = any_body("r outer")
+                    .ok_or_else(|| SolverError::fatal(CALLER, "Requested property > r outer < not found in any body"))?;
+                (ri, ro, (ri + ro) / 2.0, ro - ri, true, true)
+            }
+            None => match m.simulation.real("rotor radius") {
+                Some(rm) => {
+                    let rd = m.simulation.real("rotor air gap width").unwrap_or(1.0e-3 * rm);
+                    (0.0, 0.0, rm, rd, false, true)
+                }
+                None => (0.0, 0.0, 0.0, 0.0, false, false),
+            },
+        };
+        let calc_pot = m.body_forces.iter().any(|b| b.logical("calculate potential") == Some(true));
+        let calc_inert = calc_torque && !self.visited;
+        if !(calc_torque || calc_pot || calc_inert) {
+            return Ok(());
+        }
+        let nbf = m.body_forces.len();
+        let nb = ctx.mesh.n_bulk();
+        let elems: Vec<ElemId> = ctx.active_elements().filter(|e| (e.0 as usize) < nb).collect();
+        let xyz_of = |ctx: &SolverCtx<'_>, e: ElemId| -> Vec<[f64; 3]> {
+            ctx.mesh.element(e).nodes.iter().map(|&k| ctx.mesh.coord(k)).collect()
+        };
+        if !self.visited && calc_torque {
+            let mut sel = vec![false; elems.len()];
+            for (i, &e) in elems.iter().enumerate() {
+                let xyz = xyz_of(ctx, e);
+                let n = xyz.len() as f64;
+                if have_range {
+                    let x = xyz.iter().map(|c| c[0]).sum::<f64>() / n;
+                    let y = xyz.iter().map(|c| c[1]).sum::<f64>() / n;
+                    let r = (x * x + y * y).sqrt();
+                    sel[i] = r >= rinner && r <= router;
+                } else {
+                    sel[i] = xyz.iter().any(|c| ((c[0] * c[0] + c[1] * c[1]).sqrt() - rmean).abs() < rdiff / 2.0);
+                }
+            }
+            let count = sel.iter().filter(|&&b| b).count();
+            ctx.info(CALLER, &format!("Number of elements to compute torque: {count}"), 4);
+            self.torque_elem = sel;
+        }
+        let (mut torq, mut torq_area) = (0.0f64, 0.0f64);
+        let (mut a, mut u) = (vec![0.0f64; nbf], vec![0.0f64; nbf]);
+        let pot = {
+            let f = ctx.primary().ok_or_else(|| SolverError::fatal(CALLER, "the solver has no variable"))?;
+            let perm = f.perm.ok_or_else(|| SolverError::fatal(CALLER, "the solver variable has no permutation"))?.to_vec();
+            (perm, f.values.to_vec())
+        };
+        for (i, &e) in elems.iter().enumerate() {
+            let el = ctx.mesh.element(e);
+            let mut bfid = None;
+            if calc_pot {
+                let body = ctx.sim.model.body_of_tag(el.tag);
+                if let Some(b) = body.and_then(|b| ctx.sim.model.bodies[b - 1].integer("body force")) {
+                    let b = b as usize;
+                    if b >= 1 && b <= nbf && ctx.sim.model.body_forces[b - 1].logical("calculate potential") == Some(true) {
+                        bfid = Some(b - 1);
+                    }
+                }
+            }
+            let this_torque = calc_torque && self.torque_elem.get(i).copied().unwrap_or(false);
+            if bfid.is_none() && !this_torque {
+                continue;
+            }
+            let xyz = xyz_of(ctx, e);
+            let n = xyz.len();
+            let sol: Vec<f64> =
+                el.nodes.iter().map(|&k| pot.0.get(k as usize).filter(|&&s| s != NO_DOF).map_or(0.0, |&s| pot.1[s as usize])).collect();
+            for pt in points(el.etype, &xyz, false)? {
+                let weight = pt.s_detj;
+                let basis = &pt.basis[..n];
+                let x: f64 = (0..n).map(|k| xyz[k][0] * basis[k]).sum();
+                let y: f64 = (0..n).map(|k| xyz[k][1] * basis[k]).sum();
+                let r = (x * x + y * y).sqrt();
+                if let Some(b) = bfid {
+                    // dPot = (POT - pPOT)/dt: zero in steady state.
+                    a[b] += weight;
+                    u[b] += weight * (0..n).map(|k| 0.0 * basis[k]).sum::<f64>();
+                }
+                if this_torque {
+                    let wtorq = weight * r / (std::f64::consts::PI * 4.0e-7 * rdiff);
+                    let bx: f64 = (0..n).map(|k| sol[k] * pt.dbasis[k][1]).sum();
+                    let by: f64 = -(0..n).map(|k| sol[k] * pt.dbasis[k][0]).sum::<f64>();
+                    let br = x / r * bx + y / r * by;
+                    let bp = -(y / r * bx) + x / r * by;
+                    torq += wtorq * br * bp;
+                    torq_area += weight;
+                }
+            }
+        }
+        if calc_pot {
+            for i in 0..nbf {
+                if a[i] > 0.0 {
+                    let sim = &mut ctx.sim.model.simulation;
+                    elmer_solver::results::add_result(sim, &format!("res: Potential / bodyforce {}", i + 1), u[i] / a[i]);
+                    elmer_solver::results::add_result(sim, &format!("res: area / bodyforce {}", i + 1), a[i]);
+                }
+            }
+        }
+        if calc_torque {
+            let es = |v: f64| elmer_solver::fortran_fmt::es(v, 15, 4);
+            if !self.visited {
+                ctx.info(CALLER, &format!("Air gap initial torque:{}", es(torq)), 6);
+                let mut ctorq = 1.0;
+                if torq_area > f64::EPSILON {
+                    ctorq = 2.0 * std::f64::consts::PI * rmean * rdiff / torq_area;
+                    ctx.info(CALLER, &format!("Air gap correction initial:{ctorq:8.4}"), 4);
+                    let periods = ctx.sim.model.simulation.integer("rotor periods").unwrap_or(0);
+                    if periods > 1 {
+                        ctx.info(CALLER, &format!("Air gap correction rotor periods: {periods}"), 4);
+                        ctorq /= periods as f64;
+                    }
+                }
+                ctx.info(CALLER, &format!("Air gap correction:{ctorq:8.4}"), 4);
+                self.ctorq = ctorq;
+            }
+            torq *= self.ctorq;
+            ctx.info(CALLER, &format!("Air gap torque:{}", es(torq)), 5);
+            elmer_solver::results::add_result(&mut ctx.sim.model.simulation, "res: air gap torque", torq);
+        }
+        if calc_inert {
+            let sim = &mut ctx.sim.model.simulation;
+            elmer_solver::results::add_result(sim, "res: inertial volume", 0.0);
+            elmer_solver::results::add_result(sim, "res: inertial moment", 0.0);
+        }
+        self.visited = true;
+        Ok(())
+    }
 }
 
 /// `NormalVector(Element, Nodes, u, v, .TRUE.)` of a linear boundary line
@@ -317,6 +466,10 @@ impl Solver for MagnetoDynamics2DSteady {
             if ctx.default_converged() {
                 break;
             }
+        }
+        // MagnetoDynamics2D.F90:359-363.
+        if !axi {
+            self.calculate_lumped(ctx)?;
         }
         // The `Coordinates` exported variable, if any.
         if let Some(id) = ctx.sim.vars.id("coordinates") {

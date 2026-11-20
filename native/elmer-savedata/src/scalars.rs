@@ -532,7 +532,7 @@ impl SaveScalars {
 
         // Scalars other solvers left in the Simulation section.
         let prefix: String = plan.results_prefix.chars().take(4).collect();
-        let found: Vec<(String, f64)> = ctx
+        let mut found: Vec<(String, f64)> = ctx
             .simulation_params()
             .0
             .iter()
@@ -545,6 +545,9 @@ impl SaveScalars {
                 _ => None,
             })
             .collect();
+        // In the order Elmer's list keeps them (stable: the rest as before).
+        let sim = ctx.simulation_params().clone();
+        found.sort_by_key(|(k, _)| elmer_solver::results::result_rank(&sim, k));
         for (k, v) in found {
             if simulation_visited && list.names.contains(&k.to_lowercase()) {
                 continue;
