@@ -270,7 +270,7 @@ pub(crate) fn quad_bubble(i: usize, j: usize, u: f64, v: f64) -> Option<(f64, [f
 }
 
 /// `SD_QuadEdgePBasis(edge, i, u, v, invert)` and `SD_dQuadEdgePBasis`.
-pub(crate) fn sd_quad_edge(
+pub fn sd_quad_edge(
     edge: usize,
     i: usize,
     u: f64,

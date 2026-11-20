@@ -806,10 +806,20 @@ fn transform_mesh(model: &mut Model, mesh: &dyn MeshView, discont_perm: &mut Opt
         Some(m) => m,
         None => mesh,
     };
-    let split = mesh_levels(discont, &model.simulation, &model.boundary_conditions).map_err(err)?;
-    if split.is_some() {
-        *discont_perm = None;
-    }
+    // `Follow * Boundary`: the loaded mesh and each split follow the
+    // curved boundaries (FollowCurvedBoundary).
+    let split = if crate::follow::any_follow(&model.boundary_conditions) {
+        if model.simulation.integer("mesh levels").unwrap_or(1) > 1 {
+            *discont_perm = None;
+        }
+        Some(crate::follow::follow_levels(discont, model)?)
+    } else {
+        let split = mesh_levels(discont, &model.simulation, &model.boundary_conditions).map_err(err)?;
+        if split.is_some() {
+            *discont_perm = None;
+        }
+        split
+    };
     let split = split.or(base);
     let current: &dyn MeshView = match &split {
         Some(m) => m,

@@ -37,6 +37,7 @@
 //! mortar couplings, and boundary elements a BC `Body Id` makes active.
 #![forbid(unsafe_code)]
 
+pub use elmer_fe_hp;
 pub mod basis;
 pub mod defs;
 pub mod dg;

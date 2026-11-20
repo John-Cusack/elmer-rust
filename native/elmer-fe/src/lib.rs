@@ -26,7 +26,7 @@ pub mod stab;
 mod tables;
 
 pub use coords::{CoordinateInfo, CoordinateKind, CoordinateSystem};
-pub use lu::invert_matrix;
+pub use lu::{invert_matrix, lu_decomp, lu_solve_pivot};
 pub use element_type::{element_type, element_types, BasisTerm, ElementTypeDef};
 pub use error::FeError;
 pub use info::{element_info, element_info_second, LagrangeBasis};
