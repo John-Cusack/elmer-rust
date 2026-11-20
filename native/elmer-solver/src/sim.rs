@@ -350,6 +350,9 @@ pub struct Simulation {
     save_current: Option<Box<dyn SaveCurrent>>,
     /// Whether this rank owns each mesh node ([`Simulation::set_node_owned`]).
     node_owned: Option<Arc<[bool]>>,
+    /// ARPACK's saved state (`dgetv0`'s seed), kept across eigen solves as
+    /// in one ElmerSolver process.
+    pub(crate) arpack: elmer_eigen::arpack::saupd::Arpack,
     /// The solver BlockSolve.F90's `TotMatrix` points at
     /// ([`crate::block_alias`]).
     pub(crate) block_tot: Option<crate::block_alias::BlockOwner>,
@@ -418,6 +421,7 @@ impl Simulation {
             block_tot: None,
             save_current: None,
             node_owned: None,
+            arpack: Default::default(),
         }
     }
 
