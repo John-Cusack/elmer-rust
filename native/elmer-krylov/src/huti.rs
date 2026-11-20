@@ -141,8 +141,13 @@ impl<T: HutiScalar> Ops<'_, T> {
         if self.comm.size() == 1 {
             return s;
         }
+        // SParActiveSUM: one MPI_DOUBLE_PRECISION for a real dot.
         let mut p = s.parts();
-        self.comm.sum_f64(&mut p);
+        if T::COMPLEX {
+            self.comm.sum_f64(&mut p);
+        } else {
+            self.comm.sum_f64(&mut p[..1]);
+        }
         T::from_parts(p)
     }
 

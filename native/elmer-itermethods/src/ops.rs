@@ -10,8 +10,13 @@ pub(crate) fn dot<T: IterScalar>(comm: &dyn Communicator, x: &[T], y: &[T]) -> T
     for (a, b) in x.iter().zip(y) {
         s = s + a.conj() * *b;
     }
+    // SParActiveSUM: one MPI_DOUBLE_PRECISION for a real dot.
     let mut buf = [s.re(), s.im()];
-    comm.sum_f64(&mut buf);
+    if T::IS_COMPLEX {
+        comm.sum_f64(&mut buf);
+    } else {
+        comm.sum_f64(&mut buf[..1]);
+    }
     T::from_parts(buf[0], buf[1])
 }
 
