@@ -215,9 +215,84 @@ impl DofLayout {
 
     /// Every copy of a shared dof gets the sum over its holders
     /// (`ParallelSumVector`). Collective.
+    ///
+    /// In `ExchangeSourceVec` (SParIterComm.F90:3620) every holder sends its
+    /// value to every other holder, and each holder adds what it receives to
+    /// its own value, neighbours in ascending rank order. With three or more
+    /// holders the copies of one dof can therefore differ in the last bit,
+    /// so each copy gets its own holder's sum ([`DofLayout::reduce_shared`]).
     pub fn sum_shared(&self, comm: &dyn Exchange, local: &mut [f64]) {
-        let owned = self.sum_to_owned(comm, local);
-        self.owned_to_local(comm, &owned, local);
+        self.reduce_shared(comm, local, |h, me| {
+            let own = h.iter().find(|&&(r, _)| r == me).map_or(0.0, |&(_, v)| v);
+            h.iter()
+                .filter(|&&(r, _)| r != me)
+                .fold(own, |s, &(_, v)| s + v)
+        });
+    }
+
+    /// Every copy of a shared dof gets `combine(holders, rank)`: `holders`
+    /// are `(rank, value)` of every holder of the dof in ascending rank
+    /// order, `rank` the holder the result is for. Elmer's exchanges send
+    /// each holder's value to all other holders, which then combine in
+    /// their own order; the owner here sees every holder's value, forms
+    /// each holder's result and hands each copy its own. Collective.
+    pub fn reduce_shared(
+        &self,
+        comm: &dyn Exchange,
+        local: &mut [f64],
+        combine: impl Fn(&[(usize, f64)], usize) -> f64,
+    ) {
+        let send: Vec<(usize, Vec<f64>)> = self
+            .copies_in
+            .iter()
+            .map(|(o, l)| (*o, l.iter().map(|&i| local[i as usize]).collect()))
+            .collect();
+        let mut recv: Vec<(usize, Vec<f64>)> = self
+            .copies_out
+            .iter()
+            .map(|(r, p)| (*r, vec![0.0; p.len()]))
+            .collect();
+        comm.exchange_f64(&send, &mut recv);
+        let mut holders: Vec<Vec<(usize, f64)>> = self
+            .owned
+            .iter()
+            .map(|&i| vec![(self.rank, local[i as usize])])
+            .collect();
+        for ((r, pos), (_, vals)) in self.copies_out.iter().zip(&recv) {
+            for (&p, &v) in pos.iter().zip(vals) {
+                holders[p as usize].push((*r, v));
+            }
+        }
+        for h in holders.iter_mut() {
+            h.sort_by_key(|&(r, _)| r);
+        }
+        for (p, &i) in self.owned.iter().enumerate() {
+            local[i as usize] = combine(&holders[p], self.rank);
+        }
+        // Each copy's own result back to it.
+        let send: Vec<(usize, Vec<f64>)> = self
+            .copies_out
+            .iter()
+            .map(|(r, pos)| {
+                (
+                    *r,
+                    pos.iter()
+                        .map(|&p| combine(&holders[p as usize], *r))
+                        .collect(),
+                )
+            })
+            .collect();
+        let mut recv: Vec<(usize, Vec<f64>)> = self
+            .copies_in
+            .iter()
+            .map(|(o, l)| (*o, vec![0.0; l.len()]))
+            .collect();
+        comm.exchange_f64(&send, &mut recv);
+        for ((_, dofs), (_, vals)) in self.copies_in.iter().zip(&recv) {
+            for (&i, &v) in dofs.iter().zip(vals) {
+                local[i as usize] = v;
+            }
+        }
     }
 }
 

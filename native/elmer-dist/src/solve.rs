@@ -192,7 +192,8 @@ pub fn dist_solve(
 
     layout.owned_to_local(comm, &x_own, x);
     for (xi, d) in x.iter_mut().zip(&diag) {
-        *xi *= d * rhs_scaling;
+        // BackScaleLinearSystem: x * Diag * RhsScaling, left to right.
+        *xi = *xi * d * rhs_scaling;
     }
     Ok(stats)
 }

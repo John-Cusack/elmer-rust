@@ -128,23 +128,27 @@ impl AssemblyBackend for ParAssembly {
         let ex = &*ctx.ex;
         let n = a.nrows;
 
-        // CommunicateDirichletBCs: a shared dof constrained on any rank is
-        // constrained on all its holders, with the value they agree on.
-        let mut count = vec![0.0; n];
-        let mut value = vec![0.0; n];
+        // CommunicateDirichletBCs (BoundaryConditionUtils.F90:3182): a
+        // shared dof constrained on any rank is constrained on all its
+        // holders. A holder that constrains it keeps its own value; the
+        // others take the value of the lowest-rank holder that does (the
+        // first one received). NaN marks an unconstrained copy.
+        let mut value = vec![f64::NAN; n];
         for &(row, v) in fixed {
             let r = row as usize;
             if r >= n {
                 return Err(SolverError::Linalg(LinalgError::Dim(format!("Dirichlet row {r} >= {n}"))));
             }
             // A repeated row keeps its last value, as in the serial path.
-            count[r] = 1.0;
             value[r] = v;
         }
-        layout.sum_shared(ex, &mut count);
-        layout.sum_shared(ex, &mut value);
-        let all: Vec<(u32, f64)> =
-            (0..n).filter(|&r| count[r] > 0.0).map(|r| (r as u32, value[r] / count[r])).collect();
+        layout.reduce_shared(ex, &mut value, |h, me| {
+            match h.iter().find(|&&(r, _)| r == me) {
+                Some(&(_, v)) if !v.is_nan() => v,
+                _ => h.iter().find(|&&(r, v)| r != me && !v.is_nan()).map_or(f64::NAN, |&(_, v)| v),
+            }
+        });
+        let all: Vec<(u32, f64)> = (0..n).filter(|&r| !value[r].is_nan()).map(|r| (r as u32, value[r])).collect();
         let mut total = [all.iter().filter(|&&(r, _)| layout.owned_pos()[r as usize] != elmer_core::NO_DOF).count() as f64];
         ex.sum_f64(&mut total);
         if total[0] == 0.0 {
@@ -366,7 +370,8 @@ fn itermethod_solve(
     let stats = solver.solve(&m.operator(ex), prec.as_ref(), &b_own, &mut x_own, comm)?;
     layout.owned_to_local(ex, &x_own, x);
     for (xi, di) in x.iter_mut().zip(&d) {
-        *xi *= di * rhs_scaling;
+        // BackScaleLinearSystem: x * Diag * RhsScaling, left to right.
+        *xi = *xi * di * rhs_scaling;
     }
     Ok(stats)
 }

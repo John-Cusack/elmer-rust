@@ -13,6 +13,15 @@
 //! The matvec is then `y = Inside x` plus, from each neighbour, the partial row
 //! sums its interface block computed against its own `x`. No ghost values of
 //! `x` are needed and the Krylov vectors hold owned dofs only.
+//!
+//! The partial sums round as Elmer's do. An interface row is evaluated once
+//! per `IfMatrix` group it appears in: group `r` holds this rank's own entries
+//! of rows owned by `r` plus what `r` sent, group `s` what a third rank `s`
+//! sent. Groups go out in ascending rank order and the owner adds each partial
+//! in arrival order (`SParMatVecCommSetup`, `Recv_LocIf_Wait`). Within a row
+//! the columns are in global id order when the group has both own and
+//! received entries, which `CombineCRSMatIndices` sorts, and in the order they
+//! came otherwise.
 
 use std::collections::HashMap;
 
@@ -24,7 +33,8 @@ use crate::layout::DofLayout;
 use crate::{agree, DistError};
 
 /// Interface rows this rank evaluates for the row owner `rank`: CSR over
-/// owned columns, rows in the order the owner expects them.
+/// owned columns, rows in the order the owner expects them (by group, then
+/// global id; a row may appear once per group).
 #[derive(Clone, Debug)]
 struct IfBlock {
     rank: usize,
@@ -66,8 +76,10 @@ impl DistCsr {
         let (gid, owner, pos) = (layout.gids(), layout.owners(), layout.owned_pos());
 
         let mut inside: Vec<(usize, u32, f64)> = Vec::new();
-        // Interface entries kept here: (row owner, row gid, owned column, value).
-        let mut iface: Vec<(usize, u64, u32, f64)> = Vec::new();
+        // Interface entries kept here: (row owner, group, row gid, owned
+        // column, value). The group is Elmer's `IfMatrix` index: the row
+        // owner for this rank's own entries, the sending rank otherwise.
+        let mut iface: Vec<(usize, usize, u64, u32, f64)> = Vec::new();
         // To column owners: row gid, row owner, column gid, value bits.
         let mut out: Vec<Vec<u64>> = vec![Vec::new(); size];
         for i in 0..n {
@@ -76,7 +88,7 @@ impl DistCsr {
                 let v = local.values[k];
                 match (owner[i] == me, owner[j] == me) {
                     (true, true) => inside.push((pos[i] as usize, pos[j], v)),
-                    (false, true) => iface.push((owner[i], gid[i], pos[j], v)),
+                    (false, true) => iface.push((owner[i], owner[i], gid[i], pos[j], v)),
                     (_, false) => {
                         out[owner[j]].extend([gid[i], owner[i] as u64, gid[j], v.to_bits()])
                     }
@@ -84,6 +96,12 @@ impl DistCsr {
             }
         }
         let got = comm.all_to_all_u64(&out);
+        // Groups with entries of this rank's own rows / sent by that rank.
+        let mut has_own = vec![false; size];
+        for e in &iface {
+            has_own[e.1] = true;
+        }
+        let has_recv: Vec<bool> = got.iter().map(|b| !b.is_empty()).collect();
 
         let owned_by_gid: HashMap<u64, u32> = layout
             .owned()
@@ -106,7 +124,7 @@ impl DistCsr {
                         }
                     }
                 } else if ro < size {
-                    iface.push((ro, gi, pj, v));
+                    iface.push((ro, src, gi, pj, v));
                 } else {
                     bad.get_or_insert(format!("rank {src} sent row owner {ro}"));
                 }
@@ -120,35 +138,51 @@ impl DistCsr {
         inside.extend((0..n_own).map(|i| (i, i as u32, 0.0)));
         let inside = from_triplets(n_own, n_own, inside);
 
-        // Interface blocks: rows by global id per row owner.
-        let mut by_rank: Vec<Vec<(u64, u32, f64)>> = vec![Vec::new(); size];
-        for (ro, gi, pj, v) in iface {
-            by_rank[ro].push((gi, pj, v));
+        // Interface blocks per row owner: rows by group, then global id.
+        let mut by_rank: Vec<Vec<(usize, u64, u32, f64)>> = vec![Vec::new(); size];
+        for (ro, g, gi, pj, v) in iface {
+            by_rank[ro].push((g, gi, pj, v));
         }
+        let owned_gid: Vec<u64> = layout.owned().iter().map(|&l| gid[l as usize]).collect();
         let mut send_if = Vec::new();
         let mut row_gids: Vec<Vec<u64>> = vec![Vec::new(); size];
         for (r, mut ents) in by_rank.into_iter().enumerate() {
             if ents.is_empty() {
                 continue;
             }
-            ents.sort_by_key(|&(g, c, _)| (g, c));
-            let mut rows: Vec<u64> = ents.iter().map(|e| e.0).collect();
-            rows.dedup();
-            let row_of: HashMap<u64, u32> = rows
-                .iter()
-                .enumerate()
-                .map(|(k, &g)| (g, k as u32))
-                .collect();
-            let m = from_triplets(
-                rows.len(),
-                n_own,
-                ents.iter().map(|&(g, c, v)| (row_of[&g] as usize, c, v)),
-            );
+            // Stable: within a row, columns stay in the order they came
+            // (local CSR order, then each sender's CSR order) unless the
+            // group merges both kinds, which CombineCRSMatIndices sorts.
+            ents.sort_by_key(|&(g, gi, c, _)| {
+                let merged = has_own[g] && has_recv[g];
+                (g, gi, if merged { owned_gid[c as usize] } else { 0 })
+            });
+            let mut rows: Vec<u64> = Vec::new();
+            let mut row_ptr = vec![0usize];
+            let mut cols: Vec<u32> = Vec::new();
+            let mut vals: Vec<f64> = Vec::new();
+            let mut prev: Option<(usize, u64, u32)> = None;
+            for &(g, gi, c, v) in &ents {
+                if prev == Some((g, gi, c)) {
+                    *vals.last_mut().unwrap() += v;
+                    continue;
+                }
+                if prev.map(|p| (p.0, p.1)) != Some((g, gi)) {
+                    if prev.is_some() {
+                        row_ptr.push(cols.len());
+                    }
+                    rows.push(gi);
+                }
+                cols.push(c);
+                vals.push(v);
+                prev = Some((g, gi, c));
+            }
+            row_ptr.push(cols.len());
             send_if.push(IfBlock {
                 rank: r,
-                row_ptr: m.row_ptr,
-                cols: m.col_idx,
-                vals: m.values,
+                row_ptr,
+                cols,
+                vals,
             });
             row_gids[r] = rows;
         }
