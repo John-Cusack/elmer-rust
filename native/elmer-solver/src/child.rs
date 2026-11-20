@@ -142,6 +142,7 @@ impl SolverCtx<'_> {
                     matrix,
                     rhs: vec![0.0; n],
                     mass: None,
+                    damp: None,
                 },
             });
         }

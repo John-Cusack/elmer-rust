@@ -84,9 +84,6 @@ pub fn to_model(m: &elmer_sif::Model) -> Result<Model, String> {
     if !m.boundaries.is_empty() {
         return Err("Boundary <n> sections".into());
     }
-    if !m.components.is_empty() {
-        return Err("Component sections".into());
-    }
     if m.control.is_some() {
         return Err("Control section".into());
     }
@@ -102,6 +99,7 @@ pub fn to_model(m: &elmer_sif::Model) -> Result<Model, String> {
         body_forces: numbered("Body Force", &m.body_forces)?,
         initial_conditions: numbered("Initial Condition", &m.ics)?,
         boundary_conditions: numbered("Boundary Condition", &m.bcs)?,
+        components: numbered("Component", &m.components)?,
     })
 }
 

@@ -554,6 +554,30 @@ impl<'a> SolverCtx<'a> {
         self.sim.slots[self.slot].asm = Default::default();
         let sim = &mut *self.sim;
         let slot = &mut sim.slots[self.slot];
+        // `CreateOdeMatrix` (MainUtils.F90): a solver of a global variable
+        // with `Ode Matrix` gets a full `Dofs x Dofs` system.
+        if slot.system.is_none() && slot.params.logical("ode matrix") == Some(true) {
+            let id = slot
+                .variable
+                .ok_or_else(|| SolverError::fatal("CreateOdeMatrix", "solver has no variable"))?;
+            let v = sim.vars.by_id(id);
+            if v.kind != elmer_core::FieldKind::Global {
+                return Err(SolverError::Unsupported("Ode Matrix for a variable that is not global".into()));
+            }
+            let n = v.dofs;
+            let matrix = elmer_core::CsrMatrix {
+                nrows: n,
+                ncols: n,
+                row_ptr: (0..=n).map(|i| i * n).collect(),
+                col_idx: (0..n * n).map(|k| (k % n) as u32).collect(),
+                values: vec![0.0; n * n],
+                diag: Some((0..n).map(|i| i * n + i).collect()),
+            };
+            let global_mass = slot.params.logical("use global mass matrix") == Some(true);
+            let mass = (slot.nof_eigen > 0 || global_mass).then(|| matrix.clone());
+            let damp = (slot.time_order >= 2).then(|| matrix.clone());
+            slot.system = Some(LinearSystem { matrix, rhs: vec![0.0; n], mass, damp });
+        }
         if slot.system.is_none() {
             let backend = sim
                 .backends
@@ -581,7 +605,7 @@ impl<'a> SolverCtx<'a> {
             // `Use Global Mass Matrix`, on the same pattern.
             let global_mass = slot.params.logical("use global mass matrix") == Some(true);
             let mass = (slot.nof_eigen > 0 || global_mass).then(|| matrix.clone());
-            slot.system = Some(LinearSystem { matrix, rhs: vec![0.0; n], mass });
+            slot.system = Some(LinearSystem { matrix, rhs: vec![0.0; n], mass, damp: None });
         }
         let sys = slot.system.as_mut().expect("system created above");
         sys.matrix.values.iter_mut().for_each(|v| *v = 0.0);
@@ -990,6 +1014,27 @@ impl<'a> SolverCtx<'a> {
             .params
             .integer("time derivative order")
             .unwrap_or(slot.time_order as i32);
+        if order == 2 {
+            // Default2ndOrderTimeGlobal -> Add2ndOrderTime_CRS.
+            if slot.params.logical("old global time integration") == Some(true) {
+                return Err(SolverError::Unsupported("Old Global Time Integration".into()));
+            }
+            let scheme = elmer_timeint::Scheme::from_params(&slot.params, &self.sim.model.simulation, 2)
+                .map_err(|e| SolverError::fatal("Add2ndOrderTime_CRS", e.to_string()))?;
+            let (alpha, beta) = scheme
+                .second_order_params()
+                .ok_or_else(|| SolverError::Unsupported("second-order global time terms without Bossak or generalized-alpha parameters".into()))?;
+            let dt = slot.dt;
+            let id = slot
+                .variable
+                .ok_or_else(|| SolverError::fatal("Default2ndOrderTimeGlobal", "solver has no variable"))?;
+            let prev = self.sim.vars.by_id(id).prev_values.clone();
+            let sys = self.sim.slots[self.slot]
+                .system
+                .as_mut()
+                .ok_or_else(|| SolverError::fatal("Default2ndOrderTimeGlobal", "call default_initialize first"))?;
+            return crate::global_time::time_2nd_order_crs(dt, &mut sys.matrix, sys.mass.as_ref(), sys.damp.as_ref(), &mut sys.rhs, alpha, beta, &prev);
+        }
         if order != 1 {
             return Err(SolverError::Unsupported(format!(
                 "Use Global Mass Matrix with Time Derivative Order {order}"

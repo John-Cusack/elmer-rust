@@ -46,6 +46,7 @@ fn sif_model(path: &std::path::Path) -> Model {
         body_forces: numbered(&m.body_forces),
         initial_conditions: numbered(&m.ics),
         boundary_conditions: numbered(&m.bcs),
+        components: Vec::new(),
     }
 }
 
