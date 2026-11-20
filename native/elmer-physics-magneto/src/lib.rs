@@ -40,6 +40,7 @@ pub mod local;
 pub mod material;
 pub mod mgdyn2d;
 pub mod solver;
+pub mod statmag;
 pub mod steady;
 pub mod topology;
 
