@@ -225,6 +225,9 @@ fn arpack_eigen_solve(
                                 ),
                             }));
                         }
+                        if std::env::var_os("ELMER_RS_EIGDBG").is_some() && ex.rank() == 0 {
+                            eprintln!("EIGDBG ido={ido} it={} res={:.4e}", stats.iterations, stats.residual);
+                        }
                         // ParallelVector.
                         wd[ip[1]..ip[1] + pn].copy_from_slice(&layout.gather_owned(&x));
                         Ok(())
