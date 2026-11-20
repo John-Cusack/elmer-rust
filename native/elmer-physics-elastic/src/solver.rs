@@ -38,6 +38,7 @@ pub fn install_fe(fe: FeServices) -> Result<(), FeServices> {
 pub fn register(reg: &mut SolverRegistry) {
     let (lib, entry) = crate::REGISTRY_ENTRY;
     reg.register(lib, entry, factory);
+    reg.register("SpringAssembly", "SpringAssembler", crate::spring_assembly::factory);
 }
 
 fn factory(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {

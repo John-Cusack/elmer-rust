@@ -30,6 +30,7 @@ pub mod nodes;
 pub mod post;
 mod props;
 pub mod solver;
+mod spring_assembly;
 
 pub use boundary::{stress_boundary_local, stress_boundary_local_p, Spring, StressBoundaryInput};
 pub use bulk::{shape_at_points, stress_bulk_local, stress_bulk_local_p, CoordSystem, IpProps, StressBulkInput};

@@ -1499,9 +1499,6 @@ impl Simulation {
                 return Err(SolverError::fatal("SolverActivate", "For scanning we should have scanning variable!"));
             }
         }
-        if p.get("assembly solvers").is_some_and(|v| *v != Value::Logical(false)) {
-            return Err(SolverError::Unsupported(format!("Solver {}: assembly solvers", self.slots[ix].id)));
-        }
         self.slots[ix].dt = dts * dt;
         // MainUtils.F90:1392, 1518: `Block Solver` runs BlockSolver around
         // the procedure; without one the blocks are assembled one by one.
