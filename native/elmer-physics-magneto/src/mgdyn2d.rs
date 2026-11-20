@@ -119,7 +119,7 @@ fn angular_frequency(ctx: &SolverCtx<'_>, e: ElemId) -> Result<f64, SolverError>
 /// `GetReluctivity` (MagnetoDynamics2D.F90:2790) for an isotropic scalar:
 /// `Get2x2CMPLXTensorInverse` of `mu0 mu_r` (or `Permeability`) on the
 /// diagonal, else `Reluctivity`. Returns the diagonal entry per node.
-fn reluctivity(ctx: &SolverCtx<'_>, material: &ParamMap, e: ElemId, mu0: f64) -> Result<Vec<f64>, SolverError> {
+pub(crate) fn reluctivity(ctx: &SolverCtx<'_>, material: &ParamMap, e: ElemId, mu0: f64) -> Result<Vec<f64>, SolverError> {
     let inv = |a: f64| {
         // det = a*d - b*c with b = c = 0, then 1/det * d.
         let det = a * a - 0.0 * 0.0;
@@ -140,7 +140,7 @@ fn reluctivity(ctx: &SolverCtx<'_>, material: &ParamMap, e: ElemId, mu0: f64) ->
     ))
 }
 
-fn interp(basis: &[f64], v: &[f64]) -> f64 {
+pub(crate) fn interp(basis: &[f64], v: &[f64]) -> f64 {
     let mut s = 0.0;
     for (b, x) in basis.iter().zip(v) {
         s += b * x;
@@ -167,16 +167,16 @@ fn interleave(stiff: &[Complex64], force: &[Complex64], nd: usize, out: &mut Loc
     }
 }
 
-struct Point {
-    s_detj: f64,
-    basis: Vec<f64>,
-    dbasis: Vec<[f64; 3]>,
-    x: f64,
+pub(crate) struct Point {
+    pub(crate) s_detj: f64,
+    pub(crate) basis: Vec<f64>,
+    pub(crate) dbasis: Vec<[f64; 3]>,
+    pub(crate) x: f64,
 }
 
 /// The Gauss points of `GaussPoints(Element)` with `ElementInfo` and the
 /// axisymmetric `detJ * x`.
-fn points(etype: ElementType, xyz: &[[f64; 3]], axi: bool) -> Result<Vec<Point>, SolverError> {
+pub(crate) fn points(etype: ElementType, xyz: &[[f64; 3]], axi: bool) -> Result<Vec<Point>, SolverError> {
     let def = elmer_fe::element_type(etype.0).map_err(|e| SolverError::fatal(CALLER, e.to_string()))?;
     let rule = elmer_fe::quadrature::gauss_points(etype, None).map_err(|e| SolverError::fatal(CALLER, e.to_string()))?;
     let n = xyz.len();

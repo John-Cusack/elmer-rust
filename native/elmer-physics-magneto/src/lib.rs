@@ -39,6 +39,7 @@ pub mod layout;
 pub mod local;
 pub mod material;
 pub mod mgdyn2d;
+pub mod mgdyn2d_steady;
 pub mod solver;
 pub mod statmag;
 pub mod steady;

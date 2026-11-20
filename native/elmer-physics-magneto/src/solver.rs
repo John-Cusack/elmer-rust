@@ -32,6 +32,7 @@ pub fn register(registry: &mut SolverRegistry) {
     registry.register(HARMONIC.0, HARMONIC.1, harmonic_factory);
     registry.register(CALC_FIELDS.0, CALC_FIELDS.1, calc_fields_factory);
     crate::mgdyn2d::register(registry);
+    crate::mgdyn2d_steady::register(registry);
     crate::statmag::register(registry);
 }
 

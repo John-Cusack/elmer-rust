@@ -1071,6 +1071,9 @@ fn run_case_meshes(
     for p in &mut model.solvers {
         elmer_physics_magneto::solver::whitney_init_section(p, &model.body_forces, &model.boundary_conditions);
     }
+    for p in model.solvers.iter_mut().filter(|p| elmer_physics_magneto::mgdyn2d_steady::is_section(p)) {
+        elmer_physics_magneto::mgdyn2d_steady::init_section(p);
+    }
     for p in model.solvers.iter_mut().filter(|p| elmer_physics_magneto::statmag::is_section(p)) {
         elmer_physics_magneto::statmag::init_section(p);
     }
