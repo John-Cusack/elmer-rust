@@ -458,6 +458,33 @@ pub fn parse_elemental_gauss_rules(def: &str) -> Result<[usize; 9], SolverError>
 
 /// The fields as seen at one point of an element: every variable and the
 /// coordinates interpolated with the basis values there.
+/// `ListGetElementReal(Handle, Basis, Element, GaussPoint)` of `value`
+/// (`key` of `section`) at one Gauss point: evaluated at the element's
+/// nodes and interpolated with `basis` (`SUM(Basis(1:n) * F(1:n))`), unless
+/// a dependency is an integration-point variable or `<key> At IP` is set,
+/// when it is evaluated at the point itself (`EvaluateAtIp`).
+#[allow(clippy::too_many_arguments)]
+fn element_real_at_ip(
+    value: &Value,
+    section: &ParamMap,
+    key: &str,
+    sim: &Simulation,
+    fields: &SimFields<'_>,
+    nodes: &[u32],
+    basis: &[f64],
+) -> Result<f64, SolverError> {
+    let b = &sim.backends;
+    let at_ip = section.logical(&format!("{key} at ip")) == Some(true)
+        || matches!(value, Value::Dependent(d) if d.variables.iter().flat_map(|v| v.split(','))
+            .any(|v| sim.vars.get(&elmer_core::normalize_key(v)).is_some_and(|x| x.kind == FieldKind::Ip)));
+    if at_ip {
+        let at = AtPoint { inner: fields, nodes, basis };
+        return Ok(crate::expr::eval_at_nodes_with(value, &[0], &at, b.matc.as_deref(), &b.udfs)?[0]);
+    }
+    let f = crate::expr::eval_at_nodes_with(value, nodes, fields, b.matc.as_deref(), &b.udfs)?;
+    Ok(basis.iter().zip(&f).fold(0.0, |s, (b, f)| s + b * f))
+}
+
 struct AtPoint<'a> {
     inner: &'a SimFields<'a>,
     nodes: &'a [u32],
@@ -553,9 +580,8 @@ impl Simulation {
                             fe.basis
                                 .eval(el.etype, &xyz, qp.uvw, &mut ev)
                                 .map_err(|msg| SolverError::fatal("InitCond", msg))?;
-                            let at = AtPoint { inner: &fields, nodes: el.nodes, basis: &ev.basis };
-                            let v = crate::expr::eval_at_nodes_with(value, &[0], &at, b.matc.as_deref(), &b.udfs)?;
-                            values[(i1 + k) * dofs + j] = v[0];
+                            values[(i1 + k) * dofs + j] =
+                                element_real_at_ip(value, ic, key, self, &fields, el.nodes, &ev.basis[..el.nodes.len()])?;
                         }
                     }
                 }
@@ -657,9 +683,8 @@ impl Simulation {
                                 fe.basis
                                     .eval(el.etype, &xyz, qp.uvw, &mut ev)
                                     .map_err(|msg| SolverError::fatal(CALLER, msg))?;
-                                let at = AtPoint { inner: &fields, nodes: el.nodes, basis: &ev.basis };
-                                let v = crate::expr::eval_at_nodes_with(value, &[0], &at, b.matc.as_deref(), &b.udfs)?;
-                                writes.push(((i1 + k) * dofs + j, v[0]));
+                                let v = element_real_at_ip(value, section, &key, self, &fields, el.nodes, &ev.basis[..el.nodes.len()])?;
+                                writes.push(((i1 + k) * dofs + j, v));
                             }
                         }
                         FieldKind::Elemental => {
@@ -734,12 +759,213 @@ impl Simulation {
                 v.values_changed = true;
             }
         }
+        self.project_variables(ix, mesh, log)?;
         self.publish_live();
         Ok(())
     }
 }
 
+/// `Ip2DgFieldInElement` (InterpolateMeshToMesh.F90:1803): the nodal
+/// values of the local L2 projection of an element's `m` integration-point
+/// values on `GaussPoints(Element, m)`, `MASS f = LOAD` solved with
+/// `LuSolve`. `fip` holds the points' values point-major, `dofs` per point;
+/// returns them per dof, one value per node. `axi` weights by the radius
+/// (`CSymmetry`).
+pub fn ip_to_dg_in_element(
+    fe: &crate::backend::FeBackend,
+    etype: elmer_core::ElementType,
+    xyz: &[[f64; 3]],
+    fip: &[f64],
+    dofs: usize,
+    axi: bool,
+) -> Result<Vec<Vec<f64>>, SolverError> {
+    let dofs = dofs.max(1);
+    let m = fip.len() / dofs;
+    let n = xyz.len();
+    let points = fe.quadrature.gauss_points(etype, Some(m));
+    if points.len() != m {
+        return Err(SolverError::fatal("Ip2DgFieldInElement", "no rule with the field's number of points"));
+    }
+    // MASS and the basis at the points, the same for each component.
+    let mut be = elmer_core::BasisEval::default();
+    let mut mass = vec![0.0; n * n];
+    let mut wb = Vec::with_capacity(m);
+    for qp in &points {
+        fe.basis.eval(etype, xyz, qp.uvw, &mut be).map_err(|e| SolverError::fatal("ElementInfo", e))?;
+        let mut w = qp.weight * be.det_j;
+        if axi {
+            w *= (0..n).map(|k| be.basis[k] * xyz[k][0]).sum::<f64>();
+        }
+        for p in 0..n {
+            for q in 0..n {
+                mass[p * n + q] += w * be.basis[q] * be.basis[p];
+            }
+        }
+        wb.push((w, be.basis[..n].to_vec()));
+    }
+    let mut out = Vec::with_capacity(dofs);
+    for k in 0..dofs {
+        let mut load = vec![0.0; n];
+        for (i, (w, bas)) in wb.iter().enumerate() {
+            let f = fip[dofs * i + k];
+            for p in 0..n {
+                load[p] += w * bas[p] * f;
+            }
+        }
+        let mut a = mass.clone();
+        crate::control::lu_solve(n, &mut a, &mut load)?;
+        out.push(load);
+    }
+    Ok(out)
+}
+
 impl Simulation {
+    /// The `Project Variable i` / `Project Type i` requests of slot `ix`
+    /// (UpdateExportedVariables, SolverBasics.F90:6853): each IP variable
+    /// is projected by `Ip2DgSwapper(Mesh, Var, ToType)` (SolverBasics.F90:
+    /// 9222) into `<name>_nodal` (the default: element fits summed at the
+    /// nodes, divided by the number of elements that hit them), `<name>_elem`
+    /// (`elem`: the mean of the element's point values) or `<name>_dg`
+    /// (`dg`: the fit at the element's DG indexes), over the bulk elements
+    /// with points; an existing target is reused.
+    fn project_variables(&mut self, ix: usize, mesh: &dyn MeshView, log: &dyn Logger) -> Result<(), SolverError> {
+        const SWAPPER: &str = "Ip2DgSwapper";
+        for l in 1.. {
+            let Some(name) = self.slots[ix].params.string(&format!("project variable {l}")).map(str::to_string) else {
+                break;
+            };
+            let name = crate::sim::parse_variable_spec(&name, None)?.name;
+            let Some(id) = self.vars.id(&name) else {
+                log.warn(CALLER, &format!("Could not find variable for projection: {name}"));
+                continue;
+            };
+            if self.vars.by_id(id).kind != FieldKind::Ip {
+                return Err(SolverError::fatal(CALLER, "Variable projection implemented only for IP variable!"));
+            }
+            let to = match self.slots[ix].params.string(&format!("project type {l}")).map(elmer_core::normalize_key).as_deref() {
+                Some("elem") => FieldKind::Elemental,
+                Some("dg") => FieldKind::Dg,
+                _ => FieldKind::Nodal,
+            };
+            // `Element % DGIndexes`: Elmer has them from the setup of any
+            // Discontinuous Galerkin solver; here they are made on first use.
+            if to == FieldKind::Dg
+                && self.dg_indexes.is_none()
+                && self.slots.iter().any(|s| s.params.logical("discontinuous galerkin") == Some(true))
+            {
+                self.ensure_dg_indexes(mesh);
+            }
+            let fe = self.backends.fe.as_ref().ok_or_else(|| SolverError::NotWired("basis and quadrature for Ip2DgSwapper".into()))?;
+            let from = self.vars.by_id(id);
+            let suffix = match to {
+                FieldKind::Dg => "_dg",
+                FieldKind::Elemental => "_elem",
+                _ => "_nodal",
+            };
+            let to_name = format!("{}{suffix}", from.name);
+            let offs = from.perm.as_deref().ok_or_else(|| SolverError::fatal(SWAPPER, "IP field without a permutation"))?;
+            let dofs = from.dofs.max(1);
+            let nb = mesh.n_bulk();
+            let has_points = |t: usize| offs[t + 1] > offs[t];
+            let dg = if to == FieldKind::Dg { self.dg_indexes.as_ref() } else { None };
+            let permsize = match to {
+                FieldKind::Dg => (0..nb).map(|t| mesh.element(ElemId(t as u32)).nodes.len()).sum(),
+                FieldKind::Elemental => nb + mesh.n_boundary(),
+                _ => mesh.n_nodes(),
+            };
+            // The target's indexes of element t.
+            let targets = |t: usize| -> Option<Vec<usize>> {
+                match to {
+                    FieldKind::Dg => dg.map(|d| d.index[t].iter().map(|&i| i as usize).collect()),
+                    FieldKind::Elemental => Some(vec![t]),
+                    _ => Some(mesh.element(ElemId(t as u32)).nodes.iter().map(|&k| k as usize).collect()),
+                }
+            };
+            let mut mark = vec![false; permsize];
+            for t in (0..nb).filter(|&t| has_points(t)) {
+                let Some(idx) = targets(t) else {
+                    log.warn(SWAPPER, "Cannot project to DG field without DGIndexes!");
+                    break;
+                };
+                for i in idx {
+                    mark[i] = true;
+                }
+            }
+            let mut perm = vec![NO_DOF; permsize];
+            let mut size = 0usize;
+            for (p, _) in perm.iter_mut().zip(&mark).filter(|(_, &m)| m) {
+                *p = size as u32;
+                size += 1;
+            }
+            let mut values = vec![0.0f64; size * dofs];
+            let mut hits = vec![0usize; size];
+            let axi = self
+                .model
+                .simulation
+                .string("coordinate system")
+                .is_some_and(|c| matches!(elmer_core::normalize_key(c).as_str(), "axi symmetric" | "cylindric symmetric"));
+            for t in (0..nb).filter(|&t| has_points(t)) {
+                let Some(idx) = targets(t) else { continue };
+                if idx.iter().all(|&i| perm[i] == NO_DOF) {
+                    continue;
+                }
+                let (i1, i2) = (offs[t] as usize, offs[t + 1] as usize);
+                let fip = &from.values[dofs * i1..dofs * i2];
+                if to == FieldKind::Elemental {
+                    let j = perm[t] as usize;
+                    let m = (i2 - i1) as f64;
+                    for k in 0..dofs {
+                        values[dofs * j + k] = (0..i2 - i1).map(|i| fip[dofs * i + k]).sum::<f64>() / m;
+                    }
+                    continue;
+                }
+                let el = mesh.element(ElemId(t as u32));
+                let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| mesh.coord(k)).collect();
+                let fdg = ip_to_dg_in_element(fe, el.etype, &xyz, fip, dofs, axi)?;
+                for (k, f) in fdg.iter().enumerate() {
+                    for (i, &d) in idx.iter().enumerate() {
+                        let j = perm[d];
+                        if j == NO_DOF {
+                            continue;
+                        }
+                        let j = j as usize;
+                        if to == FieldKind::Dg {
+                            values[dofs * j + k] = f[i];
+                        } else {
+                            values[dofs * j + k] += f[i];
+                            if k == 0 {
+                                hits[j] += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            if to == FieldKind::Nodal {
+                for (j, &h) in hits.iter().enumerate() {
+                    if h > 0 {
+                        for k in 0..dofs {
+                            values[dofs * j + k] /= h as f64;
+                        }
+                    }
+                }
+            }
+            let perm: std::sync::Arc<[u32]> = perm.into();
+            match self.vars.get_mut(&to_name) {
+                Some(v) => {
+                    v.perm = Some(perm);
+                    v.values = values;
+                    v.values_changed = true;
+                }
+                None => {
+                    let mut v = crate::variable::Variable::new(&to_name, to, dofs, Some(perm), values);
+                    v.values_changed = true;
+                    self.vars.add(v)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// `CheckAndCreateDGIndexes(Mesh)`: the mesh's DG indexes, created when
     /// no DG variable has made them yet.
     pub fn ensure_dg_indexes(&mut self, mesh: &dyn MeshView) -> &DgIndexes {

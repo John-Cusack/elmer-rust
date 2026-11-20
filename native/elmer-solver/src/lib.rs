@@ -41,7 +41,7 @@ pub use control::lu_solve;
 pub mod coupled;
 pub mod error;
 mod exported;
-pub use exported::{dg_edges, dg_interfaces, parse_elemental_gauss_rules, DgIndexes};
+pub use exported::{dg_edges, dg_interfaces, ip_to_dg_in_element, parse_elemental_gauss_rules, DgIndexes};
 mod global_time;
 pub mod expr;
 pub mod fortran_fmt;

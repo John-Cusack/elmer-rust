@@ -926,45 +926,16 @@ fn ip_fields_as_dg(
             }
         }
         let mut values = vec![0.0; j as usize * dofs];
-        let mut be = elmer_core::BasisEval::default();
         for t in 0..nb {
             let m = (offs[t + 1] - offs[t]) as usize;
             if m == 0 {
                 continue;
             }
             let el = mesh.element(ElemId(t as u32));
-            let n = el.nodes.len();
             let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| mesh.coord(k)).collect();
-            let points = fe.quadrature.gauss_points(el.etype, Some(m));
-            if points.len() != m {
-                return Err(SolverError::fatal("Ip2DgFieldInElement", "no rule with the field's number of points"));
-            }
-            // MASS and the basis at the points, the same for each component.
-            let mut mass = vec![0.0; n * n];
-            let mut wb = Vec::with_capacity(m);
-            for qp in &points {
-                fe.basis.eval(el.etype, &xyz, qp.uvw, &mut be).map_err(|e| SolverError::fatal("ElementInfo", e))?;
-                let mut w = qp.weight * be.det_j;
-                if axi {
-                    w *= (0..n).map(|k| be.basis[k] * xyz[k][0]).sum::<f64>();
-                }
-                for p in 0..n {
-                    for q in 0..n {
-                        mass[p * n + q] += w * be.basis[q] * be.basis[p];
-                    }
-                }
-                wb.push((w, be.basis[..n].to_vec()));
-            }
-            for k in 0..dofs {
-                let mut load = vec![0.0; n];
-                for (i, (w, bas)) in wb.iter().enumerate() {
-                    let fip = v.values[dofs * (offs[t] as usize + i) + k];
-                    for p in 0..n {
-                        load[p] += w * bas[p] * fip;
-                    }
-                }
-                let mut a = mass.clone();
-                elmer_solver::lu_solve(n, &mut a, &mut load)?;
+            let fip = &v.values[dofs * offs[t] as usize..dofs * offs[t + 1] as usize];
+            let fdg = elmer_solver::ip_to_dg_in_element(fe, el.etype, &xyz, fip, dofs, axi)?;
+            for (k, load) in fdg.iter().enumerate() {
                 for (i, &d) in layout.index[t].iter().enumerate() {
                     let s = perm[d as usize];
                     if s > 0 {
