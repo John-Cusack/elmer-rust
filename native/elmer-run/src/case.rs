@@ -154,6 +154,10 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if is(params, elmer_physics_flux::DIVERGENCE_PROCEDURE) {
             elmer_physics_flux::divergence_defaults(params);
         }
+        // `MarchingODESolver_init`: no matrix.
+        if is(params, ("MarchingODESolver", "MarchingODESolver")) {
+            elmer_physics_meshtools::marching_defaults(params);
+        }
         // `TopoOpt_init0` / `_init`: the elemental topology fields.
         if is(params, elmer_physics_topoopt::PROCEDURE) {
             elmer_physics_topoopt::solver_defaults(params);
