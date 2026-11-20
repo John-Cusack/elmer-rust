@@ -16,8 +16,8 @@
 //! rotations).
 //!
 //! Refused: triangles and other element types, p elements (`Cartesian
-//! Formulation`), a `Director` field, beam axis offsets, live edge loads, the solid
-//! coupling, `Drilling
+//! Formulation`), a `Director` field, beam axis offsets, live edge loads, `Structure
+//! Interface` with `Target Nodes`, `Drilling
 //! DOFs`, `Rotate DOFs`, bubbles, explicit strain reduction operators,
 //! mass (transient, harmonic, eigen) and more than one partition.
 //!
