@@ -520,6 +520,12 @@ pub struct Backends {
 /// solver's nonlinear iteration (DefUtils.F90). The backend keeps its own
 /// per-solver state.
 pub trait ContactBackend: Send + Sync {
+    /// `DefaultInitialize` (DefUtils.F90:3924-3928), before the n-t setup:
+    /// `Displace Mesh At Init` moves the mesh by the solution, so that the
+    /// n-t normals and the projectors are those of the displaced mesh.
+    fn begin_initialize(&self, _ctx: &mut crate::SolverCtx<'_>) -> Result<(), SolverError> {
+        Ok(())
+    }
     /// `DefaultInitialize` (DefUtils.F90:3924-3952): the `Mortar BC
     /// Nonlinear` projectors, generated on the mesh displaced by the
     /// current solution.

@@ -175,6 +175,7 @@ impl NtSystem {
         name: &str,
         dim: usize,
         projectors: &[NodalProjectorView],
+        fe: Option<&crate::backend::FeBackend>,
     ) -> Result<Option<Self>, SolverError> {
         let bcs = &model.boundary_conditions;
         let rotate = |bc: &ParamMap| bc.logical(&format!("{name} rotate")).unwrap_or(true);
@@ -186,7 +187,6 @@ impl NtSystem {
             for (key, what) in [
                 (format!("{name} condition"), "conditional normal-tangential boundaries"),
                 ("rotational normals".to_string(), "Rotational Normals"),
-                ("mass consistent normals".to_string(), "Mass Consistent Normals"),
                 ("normal-tangential priority".to_string(), "Normal-Tangential Priority"),
             ] {
                 if bc.get(&key).is_some() {
@@ -242,12 +242,42 @@ impl NtSystem {
             if !active(bc) {
                 continue;
             }
+            // `Mass Consistent Normals`: IntegMassConsistent
+            // (BoundaryConditionUtils.F90:4374), the element normal weighted
+            // by the node's basis function over the element's Gauss points.
+            let mass_consistent = bc.logical("mass consistent normals") == Some(true);
+            let ips = if mass_consistent {
+                let fe = fe.ok_or_else(|| unsupported("Mass Consistent Normals without an element basis"))?;
+                let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| mesh.coord(n)).collect();
+                let mut out = Vec::new();
+                let mut be = elmer_core::BasisEval::default();
+                for qp in fe.quadrature.gauss_points(el.etype, None) {
+                    fe.basis
+                        .eval(el.etype, &xyz, qp.uvw, &mut be)
+                        .map_err(|m| SolverError::fatal("IntegMassConsistent", m.to_string()))?;
+                    let lnrm = boundary_normal(mesh, model, e, [qp.uvw[0], qp.uvw[1]])?;
+                    out.push((qp.weight, lnrm, be.det_j, be.basis.clone()));
+                }
+                out
+            } else {
+                Vec::new()
+            };
             for (j, &n) in el.nodes.iter().enumerate() {
                 let k = reorder[n as usize];
                 if k == 0 {
                     continue;
                 }
-                let nrm = boundary_normal(mesh, model, e, node_uv(el.etype.0, j)?)?;
+                let nrm = if mass_consistent {
+                    let mut nrm = [0.0f64; 3];
+                    for (s, lnrm, det_j, basis) in &ips {
+                        for a in 0..3 {
+                            nrm[a] += s * lnrm[a] * det_j * basis[j];
+                        }
+                    }
+                    nrm
+                } else {
+                    boundary_normal(mesh, model, e, node_uv(el.etype.0, j)?)?
+                };
                 let s = &mut normals[k as usize - 1];
                 for a in 0..3 {
                     s[a] += nrm[a];
