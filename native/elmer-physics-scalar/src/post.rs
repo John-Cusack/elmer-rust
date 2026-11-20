@@ -316,9 +316,33 @@ pub(crate) fn postprocess(
         }
     }
 
-    for (f, _, acc) in active {
+    // Into each field through its own permutation (`Var % Perm`): a field
+    // RefineMesh recreated on a new mesh has the identity one, the solver
+    // the bandwidth-optimised one.
+    let primary_perm: Option<Vec<u32>> = ctx.primary().and_then(|p| p.perm.map(|q| q.to_vec()));
+    let n_nodes = ctx.mesh.n_nodes();
+    for (f, vdofs, acc) in active {
         let v = ctx.sim.vars.get_mut(f.name).expect("the field exists");
-        v.values.copy_from_slice(&acc);
+        let same = match (&primary_perm, v.perm.as_deref()) {
+            (Some(a), Some(b)) => a.as_slice() == b,
+            (None, None) => true,
+            _ => false,
+        };
+        if same {
+            v.values.copy_from_slice(&acc);
+        } else {
+            v.values.iter_mut().for_each(|x| *x = 0.0);
+            for n in 0..n_nodes {
+                let s = primary_perm.as_ref().map_or(n as u32, |p| p[n]);
+                let t = v.perm.as_deref().map_or(n as u32, |p| p[n]);
+                if s == NO_DOF || t == NO_DOF {
+                    continue;
+                }
+                for m in 0..vdofs {
+                    v.values[t as usize * vdofs + m] = acc[s as usize * vdofs + m];
+                }
+            }
+        }
         v.values_changed = true;
     }
 
