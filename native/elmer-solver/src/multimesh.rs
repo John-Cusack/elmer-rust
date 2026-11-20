@@ -287,7 +287,92 @@ impl Simulation {
             }];
             self.meshes.projectors[&(source, m)].apply(std::slice::from_ref(&old), &mut new);
             nv.values.copy_from_slice(&new[0].values);
+            if self.backends.points.is_some() {
+                self.interpolate_unfound(mesh, first, source, &name, &old)?;
+            }
             self.meshes.copies[i].stale = false;
+        }
+        Ok(())
+    }
+
+    /// The nodes of the active mesh this rank's piece of mesh `source` did
+    /// not contain, evaluated on the other ranks' pieces (the parallel part
+    /// of `InterpolateMeshToMesh`). Collective.
+    fn interpolate_unfound(
+        &mut self,
+        mesh: &dyn MeshView,
+        first: &dyn MeshView,
+        source: usize,
+        name: &str,
+        old: &FieldData,
+    ) -> Result<(), SolverError> {
+        let m = self.meshes.active;
+        let unfound: Vec<usize> = {
+            let p = &self.meshes.projectors[&(source, m)];
+            (0..mesh.n_nodes()).filter(|&i| !p.found.get(i).copied().unwrap_or(false)).collect()
+        };
+        let points: Vec<[f64; 3]> = unfound.iter().map(|&i| mesh.coord(i as u32)).collect();
+        let held = (source > 0).then(|| Arc::clone(&self.meshes.list[source - 1].mesh));
+        let src: &dyn MeshView = match &held {
+            Some(m) => &**m,
+            None => first,
+        };
+        let bbox = (src.n_nodes() > 0).then(|| {
+            let mut b = [f64::INFINITY, f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+            for k in 0..src.n_nodes() {
+                let x = src.coord(k as u32);
+                for a in 0..3 {
+                    b[a] = b[a].min(x[a]);
+                    b[a + 3] = b[a + 3].max(x[a]);
+                }
+            }
+            let eps = 0.1 * (0..3).map(|a| b[a + 3] - b[a]).fold(f64::NEG_INFINITY, f64::max);
+            for a in 0..3 {
+                b[a] -= eps;
+                b[a + 3] += eps;
+            }
+            b
+        });
+        let opts = InterpOptions::from_params(&self.model.simulation, None);
+        let loc = Locator::new(src, opts).map_err(|e| SolverError::fatal("InterpolateMeshToMesh", e.to_string()))?;
+        let fe = self.backends.fe.as_ref().ok_or_else(|| SolverError::NotWired("basis and quadrature (elmer-fe)".into()))?;
+        let mut eval = |pts: &[[f64; 3]]| -> Vec<Option<f64>> {
+            let mut out = elmer_core::BasisEval::default();
+            pts.iter()
+                .map(|&p| {
+                    let hit = loc.locate(p, None)?;
+                    let el = src.element(hit.element);
+                    let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| src.coord(k)).collect();
+                    fe.basis.eval(el.etype, &xyz, hit.uvw, &mut out).ok()?;
+                    let np = el.nodes.len();
+                    let rowsum: f64 = out.basis[..np].iter().sum();
+                    let mut v = 0.0;
+                    for (j, &k) in el.nodes.iter().enumerate() {
+                        let slot = match &old.perm {
+                            Some(p) => p[k as usize],
+                            None => k,
+                        };
+                        if slot != elmer_core::NO_DOF {
+                            v += old.values[slot as usize] * (out.basis[j] / rowsum);
+                        }
+                    }
+                    Some(v)
+                })
+                .collect()
+        };
+        let got = self.backends.points.as_ref().expect("checked").exchange(bbox, &points, &mut eval)?;
+        let id = self.vars.id(name).expect("the copy");
+        let nv = self.vars.by_id_mut(id);
+        for (&i, v) in unfound.iter().zip(got) {
+            if let Some(v) = v {
+                let slot = match nv.perm.as_deref() {
+                    Some(p) => p[i],
+                    None => i as u32,
+                };
+                if slot != elmer_core::NO_DOF {
+                    nv.values[slot as usize] = v;
+                }
+            }
         }
         Ok(())
     }

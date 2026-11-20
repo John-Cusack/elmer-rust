@@ -523,6 +523,29 @@ pub struct Backends {
     /// Sums over the mesh nodes shared between partitions; `None` in a
     /// serial run.
     pub nodes: Option<Box<dyn NodeInterface>>,
+    /// Point evaluation on the other partitions (the parallel part of
+    /// `InterpolateMeshToMesh`); `None` in a serial run.
+    pub points: Option<Box<dyn PointExchange>>,
+}
+
+/// The parallel part of `InterpolateMeshToMesh` (InterpolateMeshToMesh.F90):
+/// the points a rank did not find in its own piece of the source mesh go
+/// to every other rank whose source bounding box (padded by a tenth of its
+/// largest extent) contains them; each of those evaluates them on its own
+/// piece, and the values found come back.
+pub trait PointExchange: Send + Sync {
+    /// Collective. `bbox` is this rank's source mesh box (`[min x, min y,
+    /// min z, max x, max y, max z]`, padded), `None` for an empty piece;
+    /// `points` are this rank's unfound points; `eval` evaluates points
+    /// another rank sent (`None` where not found here). Returns, for each
+    /// of `points`, the value of the highest rank that found it.
+    #[allow(clippy::type_complexity)]
+    fn exchange(
+        &self,
+        bbox: Option<[f64; 6]>,
+        points: &[[f64; 3]],
+        eval: &mut dyn FnMut(&[[f64; 3]]) -> Vec<Option<f64>>,
+    ) -> Result<Vec<Option<f64>>, SolverError>;
 }
 
 /// Nodal exchange between the partitions of a parallel run.
@@ -584,6 +607,7 @@ impl Default for Backends {
             conforming: None,
             contact: None,
             nodes: None,
+            points: None,
         }
     }
 }

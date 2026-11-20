@@ -161,15 +161,6 @@ fn load_mesh(mesh_dir: &Path, rank: usize, np: usize, scale: f64) -> Result<ParM
     Ok(mesh)
 }
 
-/// Runs the case `sif` on the ranks of `ex`, each reading
-/// `<Mesh DB>/partitioning.<np>/part.<rank+1>.*` (the mesh DB itself at
-/// np=1). Collective. Unsupported input comes back as
-/// [`SolverError::Unsupported`] before any file is written. Setup and run
-/// errors are not yet agreed between ranks: one that only some ranks hit
-/// leaves the others waiting, and the binary's `mpirun` then needs a kill.
-/// `MatrixParallelInfoDG` (ParallelUtils.F90:341): every DG solver's matrix
-/// with the global dof `8 (GElementIndex - 1) + j` of its element's node `j`
-/// (`MaxDGNodes = 8`), owned by the element's partition.
 /// [`elmer_solver::NodeInterface`] over the thread's [`RankContext`].
 struct ParNodes;
 
@@ -190,13 +181,71 @@ impl elmer_solver::NodeInterface for ParNodes {
     }
 }
 
-/// `MatrixParallelInfoDG` (ParallelUtils.F90:341-511) for every DG solver:
-/// the global id and owner of each row. Without `DG Reduced Basis` index
-/// `j` of an element is `8 (GElementIndex - 1) + j`; with it, a row is the
-/// node's `GlobalDOFs` offset by its body group times the largest node id.
-/// A row of an element whose nodes are all interface nodes is shared with
-/// the partitions of its node (the element's own first when not reduced);
-/// any other row is private to this rank. Collective.
+/// [`elmer_solver::PointExchange`] over the thread's [`RankContext`]: the
+/// bounding boxes to every rank, each rank's unfound points to the ranks
+/// whose box holds them, the values found back (InterpolateMeshToMesh.F90).
+struct ParPoints;
+
+impl elmer_solver::PointExchange for ParPoints {
+    fn exchange(
+        &self,
+        bbox: Option<[f64; 6]>,
+        points: &[[f64; 3]],
+        eval: &mut dyn FnMut(&[[f64; 3]]) -> Vec<Option<f64>>,
+    ) -> Result<Vec<Option<f64>>, SolverError> {
+        let ctx = RankContext::current().ok_or_else(|| unsupported("a point exchange outside a partitioned run"))?;
+        let ex = &*ctx.ex;
+        let (me, np) = (ex.rank(), ex.size());
+        let mut out = vec![None; points.len()];
+        let mut total = [points.len() as f64];
+        ex.sum_f64(&mut total);
+        if total[0] == 0.0 {
+            return Ok(out);
+        }
+        let mine: Vec<u64> = match bbox {
+            Some(b) => std::iter::once(1).chain(b.iter().map(|x| x.to_bits())).collect(),
+            None => vec![0],
+        };
+        let boxes = ex.all_to_all_u64(&vec![mine; np]);
+        let mut sent: Vec<Vec<usize>> = vec![Vec::new(); np];
+        let mut send: Vec<Vec<u64>> = vec![Vec::new(); np];
+        for r in (0..np).filter(|&r| r != me) {
+            let b = &boxes[r];
+            if b.first() != Some(&1) || b.len() < 7 {
+                continue;
+            }
+            let bb: Vec<f64> = b[1..7].iter().map(|&x| f64::from_bits(x)).collect();
+            for (j, p) in points.iter().enumerate() {
+                if (0..3).any(|a| p[a] < bb[a] || p[a] > bb[a + 3]) {
+                    continue;
+                }
+                sent[r].push(j);
+                send[r].extend(p.iter().map(|x| x.to_bits()));
+            }
+        }
+        let got = ex.all_to_all_u64(&send);
+        let mut reply: Vec<Vec<u64>> = vec![Vec::new(); np];
+        for (r, msg) in got.iter().enumerate() {
+            if msg.is_empty() {
+                continue;
+            }
+            let pts: Vec<[f64; 3]> = msg.as_chunks::<3>().0.iter().map(|c| c.map(f64::from_bits)).collect();
+            for (k, v) in eval(&pts).into_iter().enumerate() {
+                if let Some(v) = v {
+                    reply[r].extend([k as u64, v.to_bits()]);
+                }
+            }
+        }
+        let back = ex.all_to_all_u64(&reply);
+        for (r, msg) in back.iter().enumerate() {
+            for pair in msg.as_chunks::<2>().0 {
+                out[sent[r][pair[0] as usize]] = Some(f64::from_bits(pair[1]));
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// The degree of an `Element = "p:N"` definition (a constant `N`, no other
 /// tokens).
 fn p_degree(e: &str) -> Option<usize> {
@@ -318,6 +367,13 @@ pub(crate) fn edge_count(code: u16) -> usize {
     edge_map_2d(code).map_or(0, <[[usize; 2]]>::len)
 }
 
+/// `MatrixParallelInfoDG` (ParallelUtils.F90:341-511) for every DG solver:
+/// the global id and owner of each row. Without `DG Reduced Basis` index
+/// `j` of an element is `8 (GElementIndex - 1) + j`; with it, a row is the
+/// node's `GlobalDOFs` offset by its body group times the largest node id.
+/// A row of an element whose nodes are all interface nodes is shared with
+/// the partitions of its node (the element's own first when not reduced);
+/// any other row is private to this rank. Collective.
 fn register_dg_matrices(sim: &mut Simulation, mesh: &ParMesh, ctx: &RankContext) -> Result<(), SolverError> {
     if mesh.element_gids().is_empty() {
         return Ok(());
@@ -393,6 +449,12 @@ fn register_dg_matrices(sim: &mut Simulation, mesh: &ParMesh, ctx: &RankContext)
     Ok(())
 }
 
+/// Runs the case `sif` on the ranks of `ex`, each reading
+/// `<Mesh DB>/partitioning.<np>/part.<rank+1>.*` (the mesh DB itself at
+/// np=1). Collective. Unsupported input comes back as
+/// [`SolverError::Unsupported`] before any file is written. Setup and run
+/// errors are not yet agreed between ranks: one that only some ranks hit
+/// leaves the others waiting, and the binary's `mpirun` then needs a kill.
 pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> Result<ParOutcome, SolverError> {
     let (rank, np) = (ex.rank(), ex.size());
     let loaded = SifFrontend { mesh: no_mesh }.load(sif).map_err(SolverError::Unsupported)?;
@@ -422,6 +484,18 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
 
     let scale = model.simulation.real("coordinate scaling").unwrap_or(1.0);
     let mut mesh = agree(&*ex, load_mesh(&loaded.mesh_dir, rank, np, scale))?;
+    // `Solver i :: Mesh = "<name>"`: this rank's piece of each solver mesh
+    // under the Mesh DB directory (LoadModel's solver meshes).
+    let mut solver_meshes: Vec<(String, ParMesh)> = Vec::new();
+    for s in &model.solvers {
+        let Some(name) = s.string("mesh").map(str::trim) else { continue };
+        if name.split_whitespace().count() != 1 || solver_meshes.iter().any(|(n, _)| n == name) {
+            continue;
+        }
+        let db = loaded.mesh_dir.parent().unwrap_or(&loaded.mesh_dir);
+        let m = agree(&*ex, load_mesh(&db.join(name), rank, np, scale))?;
+        solver_meshes.push((name.to_string(), m));
+    }
     for _ in 0..crate::levels::splits(&model.simulation, &model.boundary_conditions)? {
         mesh = crate::levels::split(&mesh, &*ex)?;
     }
@@ -455,6 +529,11 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     // Bandwidth = False`) before the permutations exist.
     elmer_run::lumped_matrix_inits(&mut model);
     let mut sim = Simulation::new(model);
+    let mesh_names: Vec<String> = solver_meshes.iter().map(|(n, _)| n.clone()).collect();
+    for (name, m) in solver_meshes {
+        sim.add_solver_mesh(&name, Arc::new(m));
+    }
+    sim.backends.points = Some(Box::new(ParPoints));
     sim.set_matc(Rc::new(SifMatc));
     sim.backends.assembly = Some(Box::new(ParAssembly));
     sim.backends.linear = linear_registry();
@@ -492,6 +571,12 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     }
     if let Some(writer) = elmer_run::result_file::writer(&sim.model, &loaded.mesh_dir, rank, np, log) {
         sim.set_save_current(Box::new(writer));
+    }
+    // Each solver mesh saves its own `<mesh name>/<Output File>.<rank>`.
+    for (k, name) in mesh_names.iter().enumerate() {
+        if let Some(writer) = elmer_run::result_file::writer(&sim.model, &case_dir.join(name), rank, np, log) {
+            sim.set_solver_mesh_writer(k + 1, Box::new(writer));
+        }
     }
     sim.set_node_owned(mesh.owned_nodes().into());
     for out in &mut outputs {
