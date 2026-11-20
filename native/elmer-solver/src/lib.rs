@@ -25,6 +25,7 @@ mod block_alias;
 mod block_driver;
 mod block_system;
 pub mod change;
+pub mod conforming;
 mod child;
 mod amg;
 mod constraint_modes;

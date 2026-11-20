@@ -382,6 +382,10 @@ pub struct Backends {
     /// Non-nodal (p-element) dof numbering, consulted for every solver;
     /// `None` numbers every solver by nodes.
     pub dofs: Option<Box<dyn DofsBackend>>,
+    /// The `Conforming BC` node map (`Mesh % PeriodicPerm`), which a solver
+    /// with `Apply Conforming BCs` numbers its dofs by; `elmer-mortar`
+    /// builds it.
+    pub conforming: Option<Arc<crate::conforming::ConformingMap>>,
 }
 
 /// `ElementInfo` and `GaussPoints` for the framework's own integrals.
@@ -400,6 +404,7 @@ impl Default for Backends {
             udfs: Arc::new(UdfRegistry::new()),
             fe: None,
             dofs: None,
+            conforming: None,
         }
     }
 }

@@ -94,7 +94,18 @@ impl AssemblyBackend for ElmerAssembly {
 
     fn create_matrix(&self, mesh: &dyn MeshView, active: &[ElemId], perm: &Perm, dofs: usize) -> CsrMatrix<f64> {
         let m = active_mask(mesh, active);
-        let p = elmer_assembly::Perm::from_perm(perm.perm.clone());
+        let used = perm.perm.iter().filter(|&&s| s != elmer_core::NO_DOF).count();
+        let p = if used == perm.n_slots {
+            elmer_assembly::Perm::from_perm(perm.perm.clone())
+        } else {
+            // `Apply Conforming BCs`: nodes share their partner's slot, so the
+            // table has no inverse; the pattern only maps nodes to slots.
+            elmer_assembly::Perm {
+                perm: perm.perm.clone(),
+                inv: Vec::new(),
+                n_dofs: perm.n_slots,
+            }
+        };
         elmer_assembly::create_matrix(mesh, &|e: ElemId| m[e.0 as usize], &p, dofs)
     }
 
