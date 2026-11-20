@@ -183,9 +183,6 @@ fn check_body(eq: Option<&ParamMap>, mat: Option<&ParamMap>, bf: Option<&ParamMa
                 return Err(unsupported(what));
             }
         }
-        if has_prefix(b, "angular velocity") {
-            return Err(unsupported("rotating frame (Angular Velocity)"));
-        }
     }
     let _ = eq;
     Ok(())
@@ -576,6 +573,7 @@ impl Solver for FlowSolver {
                     discretization: disc,
                     want_mass: transient,
                     np: None,
+                    omega: angular_velocity(bf)?,
                 };
                 match &pe {
                     None => flow_bulk_local(basis, quad, &inp, &mut self.local)?,
@@ -820,6 +818,17 @@ fn element_normal(mesh: &dyn MeshView, etype: elmer_core::ElementType, nodes: &[
     };
     let s = n.iter().map(|v| v * v).sum::<f64>().sqrt();
     Ok(n.map(|v| v / s))
+}
+
+/// `Angular Velocity(3)` of the element's body force (FlowSolve.F90:745):
+/// a rotating frame, Cartesian coordinates only (FlowSolve's own Fatal
+/// otherwise; FlowSolve here refuses other coordinate systems anyway).
+fn angular_velocity(bf: Option<&ParamMap>) -> Result<Option<[f64; 3]>, SolverError> {
+    let Some(v) = bf.and_then(|b| b.get("angular velocity")) else { return Ok(None) };
+    match v {
+        Value::Real { data, .. } if data.len() >= 3 => Ok(Some([data[0], data[1], data[2]])),
+        _ => Err(unsupported("Angular Velocity other than three constant reals")),
+    }
 }
 
 /// A p element's basis, rule and dof count.

@@ -9,7 +9,8 @@
 //! Ported: Stokes and Navier-Stokes with Picard or Newton linearization of
 //! the convection term, the `Div`, `Gradp` and `Laplace Discretization`
 //! variants, mesh velocity, and the mass matrix for a transient solve.
-//! Bubbles, P2/P1, VMS, compressible models, porous drag, rotating frames,
+//! A rotating frame (`Angular Velocity`) adds its centrifugal force and
+//! Coriolis term. Bubbles, P2/P1, VMS, compressible models, porous drag,
 //! Lorentz and potential forces, anisotropic and non-newtonian viscosity are
 //! not ported; the solver refuses cases that ask for them.
 
@@ -62,6 +63,10 @@ pub struct FlowBulkInput<'a> {
     pub want_mass: bool,
     /// Gauss point count, `None` for the element default.
     pub np: Option<usize>,
+    /// `Angular Velocity` of a rotating frame: the centrifugal force
+    /// `-omega x (omega x x)` in the load and the Coriolis term `2 rho omega
+    /// x u` in the matrix.
+    pub omega: Option<[f64; 3]>,
 }
 
 fn check_len(what: &'static str, expected: usize, got: usize) -> Result<(), FlowError> {
@@ -158,6 +163,19 @@ pub fn flow_bulk_local(
         let mut force = [0.0; 4];
         for (i, f) in force.iter_mut().enumerate().take(c) {
             *f = interp(&|k| inp.load[k][i]);
+        }
+        if let Some(om) = inp.omega {
+            // omega x (omega x coord) = omega (omega . coord) - coord (omega . omega),
+            // multiplied by density later on.
+            let coord: [f64; 3] = std::array::from_fn(|a| (0..n).map(|k| phi[k] * inp.xyz[k][a]).sum());
+            let oc: f64 = (0..3).map(|a| om[a] * coord[a]).sum();
+            let oo: f64 = (0..3).map(|a| om[a] * om[a]).sum();
+            for i in 0..dim {
+                force[i] -= om[i] * oc;
+            }
+            for i in 0..dim {
+                force[i] += coord[i] * oo;
+            }
         }
         if inp.convect && inp.newton {
             for i in 0..dim {
@@ -265,6 +283,20 @@ pub fn flow_bulk_local(
                 if let Some(m) = mass.as_mut() {
                     for i in 0..dim {
                         m[ij(at(p, i), at(q, i))] += s * rho * phi[q] * phi[p];
+                    }
+                }
+                // Coriolis (NavierStokes.F90:971-1002). The Fortran's last 3D
+                // update writes A(1,3) once more where A(3,1) is meant, so
+                // A(1,3) nets out and A(3,1) stays unset; kept as it is.
+                if let Some(om) = inp.omega {
+                    let mc = 2.0 * s * rho * phi[q] * phi[p];
+                    a[ij(at(p, 0), at(q, 1))] -= mc * om[2];
+                    a[ij(at(p, 1), at(q, 0))] += mc * om[2];
+                    if dim == 3 {
+                        a[ij(at(p, 0), at(q, 2))] += mc * om[1];
+                        a[ij(at(p, 1), at(q, 2))] -= mc * om[0];
+                        a[ij(at(p, 2), at(q, 1))] += mc * om[0];
+                        a[ij(at(p, 0), at(q, 2))] -= mc * om[1];
                     }
                 }
 
