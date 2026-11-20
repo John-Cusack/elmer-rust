@@ -330,9 +330,9 @@ impl DiffuseGray {
         let mut a = Vec::new();
         let mut b = Vec::new();
         for (&e, row) in &self.factors {
-            ctx.element_slots(ElemId(e), &mut a);
+            radiation_slots(ctx, ElemId(e), &mut a)?;
             for &(j, _) in row {
-                ctx.element_slots(j, &mut b);
+                radiation_slots(ctx, j, &mut b)?;
                 for &s in a.iter().filter(|&&s| s != NO_DOF) {
                     for &t in b.iter().filter(|&&t| t != NO_DOF) {
                         pairs.push((s as usize, t as usize));
@@ -394,7 +394,7 @@ impl DiffuseGray {
 
         let ips = quad.gauss_points(el.etype, None);
         let mut slots = Vec::new();
-        ctx.element_slots(e, &mut slots);
+        radiation_slots(ctx, e, &mut slots)?;
         let temps: Vec<f64> = {
             let f = ctx.primary().expect("heat solver has a variable");
             slots.iter().map(|&s| f.values[s as usize]).collect()
@@ -448,7 +448,7 @@ impl DiffuseGray {
             for &(j, fj) in fact {
                 let t4 = temps4[&j.0];
                 let tj = t4.powf(0.25);
-                ctx.element_slots(j, &mut other);
+                radiation_slots(ctx, j, &mut other)?;
                 let k = other.len() as f64;
                 let coeff = -4.0 * fj * tj.powi(3) * stefan;
                 let load = -3.0 * fj * tj.powi(4) * stefan;
@@ -521,24 +521,35 @@ impl DiffuseGray {
     }
 }
 
+/// The system slots of a radiating boundary element: its nodes', or for a
+/// DG solver `DgRadiationIndexes(Element, n, ElemInds, .TRUE.)`, the DG
+/// indexes of its nodes in the first parent whose material has an
+/// `Emissivity`.
+pub(crate) fn radiation_slots(ctx: &SolverCtx<'_>, e: ElemId, out: &mut Vec<u32>) -> Result<(), SolverError> {
+    match ctx.solver_dofs().and_then(|d| d.dg_layout()) {
+        Some(ix) => {
+            *out = crate::solver::dg_diffuse_gray_slots(ctx, ix, e)?;
+            Ok(())
+        }
+        None => {
+            ctx.element_slots(e, out);
+            Ok(())
+        }
+    }
+}
+
 /// `TabulateBoundaryAverages`' `Temps4`, by boundary element id.
-pub(crate) fn temps4(ctx: &SolverCtx<'_>, elems: &[ElemId]) -> HashMap<u32, f64> {
-    let f = ctx.primary().expect("heat solver has a variable");
-    elems
-        .iter()
-        .filter(|&&e| is_diffuse_gray(ctx, e))
-        .map(|&e| {
-            let nodes = ctx.mesh.element(e).nodes;
-            let sum: f64 = nodes
-                .iter()
-                .map(|&nd| {
-                    let s = f.perm.map_or(nd, |p| p[nd as usize]);
-                    f.values[s as usize].powi(4)
-                })
-                .sum();
-            (e.0, sum / nodes.len() as f64)
-        })
-        .collect()
+pub(crate) fn temps4(ctx: &SolverCtx<'_>, elems: &[ElemId]) -> Result<HashMap<u32, f64>, SolverError> {
+    let mut slots = Vec::new();
+    let mut out = HashMap::new();
+    for &e in elems.iter().filter(|&&e| is_diffuse_gray(ctx, e)) {
+        radiation_slots(ctx, e, &mut slots)?;
+        let f = ctx.primary().expect("heat solver has a variable");
+        // SUM(NodalTemp(1:n)**4) / n.
+        let sum: f64 = slots.iter().map(|&s| f.values[s as usize].powi(4)).sum();
+        out.insert(e.0, sum / slots.len() as f64);
+    }
+    Ok(out)
 }
 
 fn add_entry(a: &mut CsrMatrix<f64>, row: usize, col: usize, v: f64) -> Result<(), SolverError> {

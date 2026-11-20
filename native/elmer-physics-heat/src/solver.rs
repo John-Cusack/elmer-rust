@@ -679,7 +679,37 @@ fn dg_slot(ctx: &SolverCtx<'_>, ix: &elmer_solver::DgIndexes, parent: ElemId, no
 /// `TempPerm(DgRadiationIndexes(Element, n, Indexes, .FALSE.))`
 /// (ElementUtils.F90:1120): the DG indexes of the boundary element's nodes
 /// in its parent, the one with the larger body id when there are two.
-fn dg_radiation_slots(ctx: &SolverCtx<'_>, ix: &elmer_solver::DgIndexes, e: ElemId) -> Result<Vec<u32>, SolverError> {
+/// `TempPerm(DgRadiationIndexes(Element, n, Indexes, .TRUE.))`
+/// (ElementUtils.F90, `DiffuseGray`): the DG indexes of the boundary
+/// element's nodes in the first parent (left, then right) whose material
+/// has an `Emissivity`.
+pub(crate) fn dg_diffuse_gray_slots(ctx: &SolverCtx<'_>, ix: &elmer_solver::DgIndexes, e: ElemId) -> Result<Vec<u32>, SolverError> {
+    const C: &str = "DGRadiationIndexes";
+    let el = ctx.mesh.element(e);
+    let parent = match el.parents {
+        [Some(l), Some(r)] => {
+            let mut found = None;
+            for p in [l, r] {
+                let b = ctx
+                    .body_params(p)
+                    .ok_or_else(|| SolverError::fatal(C, format!("Body {} has no Material associated!", body_id(ctx, p))))?;
+                let m = b
+                    .material
+                    .ok_or_else(|| SolverError::fatal(C, format!("Body {} has no Material associated!", body_id(ctx, p))))?;
+                if m.get("emissivity").is_some() {
+                    found = Some(p);
+                    break;
+                }
+            }
+            found.ok_or_else(|| SolverError::fatal(C, "DG boundary parents should have emissivity!"))?
+        }
+        [Some(p), None] | [None, Some(p)] => p,
+        [None, None] => return Err(SolverError::fatal(C, "DG boundary should have parents!")),
+    };
+    el.nodes.iter().map(|&n| dg_slot(ctx, ix, parent, n)).collect()
+}
+
+pub(crate) fn dg_radiation_slots(ctx: &SolverCtx<'_>, ix: &elmer_solver::DgIndexes, e: ElemId) -> Result<Vec<u32>, SolverError> {
     let el = ctx.mesh.element(e);
     let parent = match el.parents {
         [Some(l), Some(r)] => {
@@ -991,11 +1021,6 @@ impl Solver for HeatSolver {
         let dg_ix = ctx.solver_dofs().and_then(|d| d.dg_layout()).cloned();
         if dg_ix.is_some() {
             check_dg(ctx, &var_name)?;
-            if self.diffuse.as_ref().is_some_and(Option::is_some) {
-                return Err(SolverError::Unsupported(
-                    "HeatSolver: diffuse gray radiation of a DG solver (DgRadiationIndexes with DiffuseGray)".into(),
-                ));
-            }
             if self.radiators.as_ref().is_some_and(Option::is_some) {
                 return Err(SolverError::Unsupported("HeatSolver: radiators of a DG solver".into()));
             }
@@ -1022,7 +1047,7 @@ impl Solver for HeatSolver {
                     .is_some_and(|s| s.state.newton_active)
             };
             let t4 = match self.diffuse {
-                Some(Some(_)) => temps4(ctx, &bnd),
+                Some(Some(_)) => temps4(ctx, &bnd)?,
                 _ => Default::default(),
             };
 
