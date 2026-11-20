@@ -364,6 +364,7 @@ impl elmer_solver::ContactBackend for MortarContact {
             coord_dim: self.coord_dim,
             log: ctx.log,
             discont_perm: None,
+            edges: None,
         };
         let timestep = ctx.sim.vars.scalar("timestep").map_or(0, |t| t.round() as i32);
         let projectors = match generate_mortar_projectors(&env, &[], true, &self.case_dir, timestep).map_err(mortar_err)? {

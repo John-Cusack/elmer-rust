@@ -7,7 +7,7 @@ use elmer_core::{Logger, MeshView, Params};
 use elmer_fe::LagrangeBasis;
 use elmer_interp::{build_projector, Extras, InterpOptions, Locator};
 
-use crate::interface::{create_interface_meshes, map_interface_coordinate, InterfaceMesh};
+use crate::interface::{map_interface_coordinate, InterfaceMesh};
 use crate::overlay::overlay_interface_meshes;
 use crate::save::save_projector;
 use crate::weighted::weighted_projector;
@@ -110,6 +110,34 @@ pub struct ProjectorEnv<'a> {
     /// (`Mesh % DisContMesh`): for each original node, the 1-based number of
     /// its copy, 0 if none. `None` otherwise.
     pub discont_perm: Option<&'a [u32]>,
+    /// The edges and faces of the mesh (`Mesh % Edges`, `Mesh % Faces`)
+    /// when the solver has edge dofs; `None` for a nodal mesh.
+    pub edges: Option<EdgeEnv<'a>>,
+}
+
+/// `ElementInfo( Face, Nodes, u, v, w, detJ, Basis, EdgeBasis = WBasis,
+/// USolver )` of the Piola basis at a p-reference point: the edge basis
+/// and the nodal basis. Arguments: element code, nodes, global node
+/// numbers, point.
+pub type FaceEdgeBasis<'a> =
+    &'a dyn Fn(u16, &[[f64; 3]], &[i64], [f64; 3]) -> Result<(Vec<[f64; 3]>, Vec<f64>), String>;
+
+/// What `LevelProjector` needs for the edge dofs of a solver with an
+/// H(curl) basis.
+#[derive(Clone, Copy)]
+pub struct EdgeEnv<'a> {
+    /// `Find_Face`: the mesh face of a boundary element.
+    pub face_of: crate::interface::FaceOf<'a>,
+    /// `Mesh % NumberOfEdges`.
+    pub n_edges: usize,
+    /// `Mesh % MaxEdgeDOFs`.
+    pub max_edge_dofs: usize,
+    /// `EdgeElementStyle`: `PiolaVersion` and `SecondOrder`.
+    pub piola: bool,
+    pub second_order: bool,
+    /// `isActivePElement` of the solver's first element.
+    pub p_elements: bool,
+    pub basis: FaceEdgeBasis<'a>,
 }
 
 impl ProjectorEnv<'_> {
@@ -228,8 +256,15 @@ pub fn periodic_projector(
         .simulation
         .logical("mortar bcs split quadratic")
         .unwrap_or(false);
-    let Some((mut b1, mut b2)) =
-        create_interface_meshes(env.mesh, env.bc_of, env.bcs.len(), this, target, split)?
+    let Some((mut b1, mut b2)) = crate::interface::create_interface_meshes_faces(
+        env.mesh,
+        env.bc_of,
+        env.bcs.len(),
+        this,
+        target,
+        split,
+        env.edges.as_ref().map(|e| e.face_of),
+    )?
     else {
         return Ok(None);
     };
@@ -303,7 +338,15 @@ pub fn periodic_projector(
     }
 
     let mut p = if level {
-        if flag(bc, "projector skip nodes") || env.solver.is_some_and(|s| flag(s, "projector skip nodes")) {
+        let solver_flag = |k: &str| env.solver.is_some_and(|s| flag(s, k));
+        let do_nodes = !(solver_flag("projector skip nodes") || flag(bc, "projector skip nodes"));
+        // DoEdges (MortarUtils.F90:8424-8442).
+        let do_edges = !(solver_flag("projector skip edges") || flag(bc, "projector skip edges"))
+            && env.edges.is_some_and(|e| e.n_edges > 0 && !e.p_elements)
+            && env.mesh.dim() == 3
+            && env.coord_dim == 3
+            && solver_flag("hcurl basis");
+        if !do_nodes && !do_edges {
             env.log.warn("LevelProjector", "Nothing to do, no nonodes, no edges!");
             return Ok(None);
         }
@@ -322,6 +365,8 @@ pub fn periodic_projector(
             full_circle,
             radius,
             periods,
+            do_nodes,
+            edges: if do_edges { env.edges } else { None },
         };
         crate::level::level_projector(&b1, &b2, &o, env.log)?
     } else if weak {

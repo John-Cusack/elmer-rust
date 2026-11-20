@@ -149,8 +149,10 @@ impl Frontend for SifFrontend {
         let (db, name) = first.header.mesh_db.clone().ok_or("no Mesh DB in Header")?;
         let mesh_dir = case_dir.join(&db).join(&name);
         // `Mesh % Name`: the Output File goes to `<case>/<name>/`, whatever
-        // the Mesh DB directory (ElmerSolver.F90:3886).
-        model.header.insert("Mesh Name", elmer_core::Value::Str(name.clone()));
+        // the Mesh DB directory (ElmerSolver.F90:3886). The name is the part
+        // of the mesh path after its last `/` (ModelDescription.F90:3131-3155).
+        let base = name.trim_end_matches('/').rsplit('/').next().unwrap_or(&name).to_string();
+        model.header.insert("Mesh Name", elmer_core::Value::Str(base));
         let intersection = first
             .bcs
             .iter()

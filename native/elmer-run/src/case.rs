@@ -903,6 +903,7 @@ fn periodic_assembly(
         coord_dim,
         log,
         discont_perm,
+        edges: None,
     };
     let (projectors, stop) = generate_periodic_projectors(&env, case_dir, 0)?;
     if stop {
@@ -931,6 +932,7 @@ pub fn conforming_map(
         coord_dim,
         log,
         discont_perm: None,
+        edges: None,
     };
     Ok(generate_conforming_map(&env)?)
 }

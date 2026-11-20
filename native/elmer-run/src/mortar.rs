@@ -61,6 +61,22 @@ impl MortarSolver {
         let model = &ctx.sim.model;
         let bcs: Vec<&dyn Params> = model.boundary_conditions.iter().map(|b| b as &dyn Params).collect();
         let bc_of = |tag: i32| model.bc_of_tag(tag);
+        // A solver with edge dofs: the mesh's faces and edges for the
+        // projectors (`Mesh % Faces`, `DoEdges`).
+        let sp = ctx.params();
+        let on = |k: &str| sp.logical(k) == Some(true);
+        let dofs = ctx.solver_dofs().filter(|d| d.n_edges() > 0);
+        let face_of = |e: elmer_core::ElemId| dofs.and_then(|d| d.boundary_face(e));
+        let edges = dofs.map(|d| elmer_mortar::EdgeEnv {
+            face_of: &face_of,
+            n_edges: d.n_edges(),
+            // The edge dofs of the first-kind basis per edge.
+            max_edge_dofs: if on("quadratic approximation") { 2 } else { 1 },
+            piola: on("use piola transform") || on("quadratic approximation") || on("second kind basis"),
+            second_order: on("quadratic approximation"),
+            p_elements: ctx.mesh.n_bulk() > 0 && d.is_p_element(elmer_core::ElemId(0)),
+            basis: &elmer_physics_magneto::piola::face_edge_basis,
+        });
         let env = ProjectorEnv {
             mesh: ctx.mesh,
             bcs: &bcs,
@@ -70,6 +86,7 @@ impl MortarSolver {
             coord_dim: self.coord_dim,
             log: &NullLogger,
             discont_perm: self.discont_perm.as_deref().map(Vec::as_slice),
+            edges,
         };
         let name = ctx.variable_name().ok_or_else(|| SolverError::fatal("GenerateConstraintMatrix", "no variable"))?;
         let mut projectors: Vec<Option<Projector>> = match generate_mortar_projectors(&env, &[], false, &self.case_dir, 0)? {

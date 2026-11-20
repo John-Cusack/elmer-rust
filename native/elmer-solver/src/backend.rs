@@ -84,6 +84,13 @@ pub trait SolverDofs: Send + Sync {
     fn n_edges(&self) -> usize {
         0
     }
+    /// `Find_Face(Mesh, Parent, Element)` of boundary element `e`, parent
+    /// `Left` else `Right`: the mesh face's `NodeIndexes` and its 0-based
+    /// global `EdgeIndexes`. `None` when the mesh has no faces.
+    fn boundary_face(&self, e: ElemId) -> Option<(Vec<u32>, Vec<u32>)> {
+        let _ = e;
+        None
+    }
     /// The parts of Elmer's `Ndeg` beyond the nodes that this layout gives
     /// the mesh: `MaxBDOFs * NumberOfBulkElements`, and `MaxEDOFs *
     /// NumberOfEdges + MaxFDOFs * NumberOfFaces`.

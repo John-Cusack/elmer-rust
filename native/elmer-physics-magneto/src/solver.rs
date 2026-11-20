@@ -71,6 +71,9 @@ pub fn whitney_kind(params: &ParamMap) -> Option<bool> {
 /// other bases are left alone (the solvers refuse them).
 pub fn whitney_init_section(params: &mut ParamMap, body_forces: &[ParamMap], bcs: &[ParamMap], transient: bool) {
     let Some(harmonic) = whitney_kind(params) else { return };
+    // `ListAddLogical('Hcurl Basis', .TRUE.)`, which the mortar projectors
+    // read (`DoEdges`).
+    params.insert("Hcurl Basis", Value::Logical(true));
     // `ListAddLogical('Use Global Mass Matrix', .TRUE.)`: only a transient
     // run assembles the mass.
     if !harmonic && transient {

@@ -92,6 +92,7 @@ impl Solver for SaveProjection {
                 coord_dim: self.coord_dim,
                 log: &NullLogger,
                 discont_perm: self.discont_perm.as_deref().map(Vec::as_slice),
+                edges: None,
             };
             let timestep = ctx.sim.vars.scalar("timestep").map_or(0, |t| t.round() as i32);
             let mut all: Vec<Option<Projector>> = vec![None; bcs.len()];

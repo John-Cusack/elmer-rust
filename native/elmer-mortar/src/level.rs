@@ -436,6 +436,10 @@ pub struct LevelOptions<'a> {
     pub full_circle: bool,
     pub radius: f64,
     pub periods: Option<i32>,
+    /// `DoNodes`.
+    pub do_nodes: bool,
+    /// `DoEdges`: the solver's edge dofs, when they are projected.
+    pub edges: Option<crate::projector::EdgeEnv<'a>>,
 }
 
 /// `LevelProjector( BMesh1, BMesh2, .FALSE., .FALSE., .FALSE., 1, DoNodes,
@@ -499,11 +503,14 @@ pub fn level_projector(
     // NodePerm: slave nodes, less those on the master side.
     let mut node_perm = vec![0usize; o.n_nodes];
     for e in 0..b1.n_bulk() {
+        if !o.do_nodes {
+            break;
+        }
         for &n in b1.element(ElemId(e as u32)).nodes {
             node_perm[b1.inv_perm[n as usize] as usize] = 1;
         }
     }
-    if bc.logical("level projector eliminate redundant nodes").unwrap_or(true) {
+    if o.do_nodes && bc.logical("level projector eliminate redundant nodes").unwrap_or(true) {
         let mut m = 0;
         for e in 0..b2.n_bulk() {
             for &n in b2.element(ElemId(e as u32)).nodes {
@@ -525,11 +532,71 @@ pub fn level_projector(
             *p = m;
         }
     }
-    log.info(CALLER, &format!("Number of active nodes in projector: {m}"), 8);
-    let mut inv_perm = vec![elmer_core::NO_DOF; m];
-    let mut list: Vec<BTreeMap<u32, f64>> = vec![BTreeMap::new(); m];
+    if o.do_nodes {
+        log.info(CALLER, &format!("Number of active nodes in projector: {m}"), 8);
+    }
+    // EdgePerm: the slave faces' edges, less the master's, numbered after
+    // the nodes (EdgeRow0).
+    let edge_row0 = m;
+    let mut edge_perm: Vec<usize> = Vec::new();
+    let mut rows_total = m;
+    if let Some(ed) = &o.edges {
+        if !weak {
+            return Err(MortarError::Unsupported("the strong edge level projector".into()));
+        }
+        if !ed.piola || ed.second_order || ed.max_edge_dofs != 1 {
+            return Err(MortarError::Unsupported("edge level projectors of other than the lowest-order Piola basis".into()));
+        }
+        if mesh_dim != 3 {
+            return Err(MortarError::Unsupported("edge level projectors of a 2D mesh".into()));
+        }
+        for b in [b1, b2] {
+            if (0..b.n_bulk()).any(|e| b.element(ElemId(e as u32)).etype.0 != 303) {
+                return Err(MortarError::Unsupported("edge level projectors on other than linear triangles".into()));
+            }
+        }
+        if flag(bc, "level projector eliminate edges greedy") {
+            return Err(MortarError::Unsupported("Level Projector Eliminate Edges Greedy".into()));
+        }
+        edge_perm = vec![0usize; ed.n_edges];
+        for e in 0..b1.n_bulk() {
+            for &k in b1.element_edges(e) {
+                edge_perm[k as usize] = 1;
+            }
+        }
+        let n = edge_perm.iter().sum::<usize>();
+        let eliminate = bc.logical("level projector eliminate redundant edges").unwrap_or(true);
+        if eliminate {
+            for e in 0..b2.n_bulk() {
+                for &k in b2.element_edges(e) {
+                    edge_perm[k as usize] = 0;
+                }
+            }
+        }
+        let mut me = 0usize;
+        for p in edge_perm.iter_mut() {
+            if *p > 0 {
+                me += 1;
+                *p = me;
+            }
+        }
+        if eliminate {
+            log.info(CALLER, &format!("Eliminating redundant edges from projector: {}", n - me), 10);
+        }
+        log.info(CALLER, &format!("Number of active edges in projector: {me}"), 8);
+        rows_total = edge_row0 + me;
+        // The first-order triangles have no face dofs (BDOFs = 0).
+        log.info(CALLER, &format!("Number of active faces in projector: {}", b1.n_bulk()), 8);
+        log.info(CALLER, "Number of active face DOFs in projector: 0", 8);
+    }
+    log.info(CALLER, &format!("Max number of rows in projector: {rows_total}"), 10);
+    let mut inv_perm = vec![elmer_core::NO_DOF; rows_total];
+    let mut list: Vec<BTreeMap<u32, f64>> = vec![BTreeMap::new(); rows_total];
 
     if mesh_dim == 2 {
+        if !o.do_nodes {
+            return Err(MortarError::Unsupported("Projector Skip Nodes in a 2D level projector".into()));
+        }
         weak_1d(b1, b2, o, node_coeff, max_distance, &node_perm, &mut inv_perm, &mut list, log)?;
     } else {
         // XTol and YTol from the master's extent, before a rotational
@@ -569,6 +636,14 @@ pub fn level_projector(
             full_circle: o.full_circle,
             gauss_points: bc.integer("mortar bc gauss points").map(|n| n.max(1) as usize),
             coord_dim: o.coord_dim,
+            edges: o.edges.map(|ed| crate::generic::GenericEdges {
+                edge_perm: &edge_perm,
+                edge_row0,
+                n_nodes: o.n_nodes,
+                edge_coeff: real("projector edge multiplier").unwrap_or(1.0),
+                edge_scale: o.node_scale,
+                basis: ed.basis,
+            }),
         };
         crate::generic::weak_generic(b1, b2, &setup, &node_perm, &mut inv_perm, &mut list, log)?;
     }

@@ -143,8 +143,14 @@ fn check(ctx: &SolverCtx<'_>, sp: &ParamMap) -> Result<(), SolverError> {
             }
         }
     }
+    // `Apply Mortar BCs`: the framework's mortar constraints (elmer-run's
+    // MortarSolver) take the `Mortar BC` boundaries.
+    let mortar = sp.logical("apply mortar bcs") == Some(true);
     for bc in &model.boundary_conditions {
         for k in crate::steady::REFUSED_BC_PREFIXES.iter().chain(BC_TERMS) {
+            if mortar && *k == "mortar bc" {
+                continue;
+            }
             if has_prefix(bc, k) {
                 return Err(unsupported(format!("boundary condition '{k}'")));
             }
@@ -318,6 +324,20 @@ fn local_matrix(
         }
     }
     Ok((loc, np, mass))
+}
+
+/// `ElementInfo( Face, Nodes, u, v, w, detJ, Basis, EdgeBasis = WBasis,
+/// USolver )` of the lowest-order Piola basis on a boundary face, at a
+/// p-reference point (the mortar projector's `AddProjectorWeakGeneric`):
+/// the edge basis and the nodal basis. `cdim` is 3.
+pub fn face_edge_basis(
+    code: u16,
+    nodes: &[[f64; 3]],
+    gindex: &[i64],
+    uvw: [f64; 3],
+) -> Result<(Vec<[f64; 3]>, Vec<f64>), String> {
+    let (ev, basis, _) = edge_element_info_nodal(ElementType(code), nodes, gindex, uvw, 1, 3)?;
+    Ok((ev.edge[..ev.dofs].to_vec(), basis))
 }
 
 /// The edge basis, nodal `Basis` and `dBasisdx` at a point.
