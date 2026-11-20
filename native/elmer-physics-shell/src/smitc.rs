@@ -79,7 +79,8 @@ fn shear_correction(h: f64, x: &[f64], y: &[f64], stab: f64) -> Result<f64, Solv
         3 => {
             let l21 = l(x[1] - x[0], y[1] - y[0]);
             let l32 = l(x[2] - x[1], y[2] - y[1]);
-            let l13 = l(x[0] - x[0], y[0] - y[0]);
+            // The Fortran's `x13 = x(1) - x(1)`, `y13 = y(1) - y(1)`.
+            let l13 = 0.0f64;
             (0.20 * stab, l21.max(l32).max(l13))
         }
         4 => {
@@ -105,13 +106,29 @@ type J2 = ([[f64; 2]; 2], [[f64; 2]; 2]);
 fn jacobi3(x: &[f64], y: &[f64]) -> J2 {
     let j = [[x[1] - x[0], y[1] - y[0]], [x[2] - x[0], y[2] - y[0]]];
     let det = j[0][0] * j[1][1] - j[0][1] * j[1][0];
-    (j, [[j[1][1] / det, -j[0][1] / det], [-j[1][0] / det, j[0][0] / det]])
+    (
+        j,
+        [
+            [j[1][1] / det, -j[0][1] / det],
+            [-j[1][0] / det, j[0][0] / det],
+        ],
+    )
 }
 
 /// `Jacobi4( Jmat, invJ, detJ, xi, eta, x, y )`.
 fn jacobi4(xi: f64, eta: f64, x: &[f64], y: &[f64]) -> J2 {
-    let dxi = [-(1.0 - eta) / 4.0, (1.0 - eta) / 4.0, (1.0 + eta) / 4.0, -(1.0 + eta) / 4.0];
-    let deta = [-(1.0 - xi) / 4.0, -(1.0 + xi) / 4.0, (1.0 + xi) / 4.0, (1.0 - xi) / 4.0];
+    let dxi = [
+        -(1.0 - eta) / 4.0,
+        (1.0 - eta) / 4.0,
+        (1.0 + eta) / 4.0,
+        -(1.0 + eta) / 4.0,
+    ];
+    let deta = [
+        -(1.0 - xi) / 4.0,
+        -(1.0 + xi) / 4.0,
+        (1.0 + xi) / 4.0,
+        (1.0 - xi) / 4.0,
+    ];
     let mut j = [[0.0f64; 2]; 2];
     for i in 0..4 {
         j[0][0] += dxi[i] * x[i];
@@ -120,7 +137,13 @@ fn jacobi4(xi: f64, eta: f64, x: &[f64], y: &[f64]) -> J2 {
         j[1][1] += deta[i] * y[i];
     }
     let det = j[0][0] * j[1][1] - j[0][1] * j[1][0];
-    (j, [[j[1][1] / det, -j[0][1] / det], [-j[1][0] / det, j[0][0] / det]])
+    (
+        j,
+        [
+            [j[1][1] / det, -j[0][1] / det],
+            [-j[1][0] / det, j[0][0] / det],
+        ],
+    )
 }
 
 /// `Sdofs(k) = (Tau(1)*Jmat(1,c) + Tau(2)*Jmat(2,c)) / d` for column `c`.
@@ -260,7 +283,11 @@ fn covariant_interpolation(x: &[f64], y: &[f64], u: f64, v: f64, kernel: bool) -
     };
     // ShearStrain = -MATMUL( invJ, ShearRef ).
     (0..2)
-        .map(|i| (0..nc).map(|j| -(0.0 + inv[i][0] * sr[0][j] + inv[i][1] * sr[1][j])).collect())
+        .map(|i| {
+            (0..nc)
+                .map(|j| -(0.0 + inv[i][0] * sr[0][j] + inv[i][1] * sr[1][j]))
+                .collect()
+        })
         .collect()
 }
 
@@ -285,7 +312,8 @@ impl Solver for SmitcSolver {
         if p.logical("hole correction") == Some(true) {
             return Err(unsupported("Hole Correction (perforated plates)"));
         }
-        if p.logical("harmonic mode") == Some(true) || p.logical("harmonic analysis") == Some(true) {
+        if p.logical("harmonic mode") == Some(true) || p.logical("harmonic analysis") == Some(true)
+        {
             return Err(unsupported("harmonic analysis (damping matrix)"));
         }
         if ctx.comm.size() > 1 {
@@ -294,13 +322,30 @@ impl Solver for SmitcSolver {
         Ok(())
     }
 
-    fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, transient: bool) -> Result<(), SolverError> {
+    fn solve(
+        &mut self,
+        ctx: &mut SolverCtx<'_>,
+        _dt: f64,
+        transient: bool,
+    ) -> Result<(), SolverError> {
         if transient {
             return Err(unsupported("transient plates (Default2ndOrderTime)"));
         }
-        ctx.info(CALLER, "--------------------------------------------------", 4);
-        ctx.info(CALLER, "Solving the Reissner-Mindlin equations for plates", 4);
-        ctx.info(CALLER, "--------------------------------------------------", 4);
+        ctx.info(
+            CALLER,
+            "--------------------------------------------------",
+            4,
+        );
+        ctx.info(
+            CALLER,
+            "Solving the Reissner-Mindlin equations for plates",
+            4,
+        );
+        ctx.info(
+            CALLER,
+            "--------------------------------------------------",
+            4,
+        );
         let p = ctx.params().clone();
         let alpha = ctx.creal(&p, "shear relaxation alpha")?.unwrap_or(1.0);
         let eigen = p.logical("eigen analysis") == Some(true);
@@ -308,15 +353,30 @@ impl Solver for SmitcSolver {
         let mut grav = 0.0;
         if p.logical("use gravity") == Some(true) {
             match ctx.constants().get("gravity") {
-                Some(Value::Real { data, .. }) if !data.is_empty() => grav = data[data.len() - 1].abs(),
+                Some(Value::Real { data, .. }) if !data.is_empty() => {
+                    grav = data[data.len() - 1].abs()
+                }
                 _ => {
-                    return Err(SolverError::fatal(CALLER, "Gravity requested but not given as constant!"));
+                    return Err(SolverError::fatal(
+                        CALLER,
+                        "Gravity requested but not given as constant!",
+                    ));
                 }
             }
         }
-        let max_iter = p.integer("nonlinear system max iterations").unwrap_or(1).max(1);
-        let name = ctx.variable_name().ok_or_else(|| SolverError::fatal(CALLER, "no variable"))?.to_string();
-        let id = ctx.sim.vars.id(&name).ok_or_else(|| SolverError::fatal(CALLER, "no variable"))?;
+        let max_iter = p
+            .integer("nonlinear system max iterations")
+            .unwrap_or(1)
+            .max(1);
+        let name = ctx
+            .variable_name()
+            .ok_or_else(|| SolverError::fatal(CALLER, "no variable"))?
+            .to_string();
+        let id = ctx
+            .sim
+            .vars
+            .id(&name)
+            .ok_or_else(|| SolverError::fatal(CALLER, "no variable"))?;
         let elems: Vec<ElemId> = ctx.active_elements().collect();
         for _ in 0..max_iter {
             ctx.default_initialize()?;
@@ -342,7 +402,12 @@ impl Solver for SmitcSolver {
 }
 
 impl SmitcSolver {
-    fn element_data(&self, ctx: &SolverCtx<'_>, e: ElemId, n: usize) -> Result<ElementData, SolverError> {
+    fn element_data(
+        &self,
+        ctx: &SolverCtx<'_>,
+        e: ElemId,
+        n: usize,
+    ) -> Result<ElementData, SolverError> {
         let bp = ctx.body_params(e);
         let bf = bp.as_ref().and_then(|b| b.body_force);
         let mat = bp.as_ref().and_then(|b| b.material);
@@ -490,4 +555,31 @@ fn local_matrix(
         },
         mass,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The square `[0, 2]^2` maps one to one onto the reference square.
+    #[test]
+    fn jacobi4_of_the_doubled_square_is_the_identity() {
+        let (x, y) = ([0.0, 2.0, 2.0, 0.0], [0.0, 0.0, 2.0, 2.0]);
+        let (j, inv) = jacobi4(0.3, -0.2, &x, &y);
+        assert_eq!(j, [[1.0, 0.0], [0.0, 1.0]]);
+        assert_eq!(inv, [[1.0, 0.0], [0.0, 1.0]]);
+    }
+
+    /// Kappa = h^2 / (h^2 + alpha l^2) with the longest edge; the triangle
+    /// leaves out its third edge, as the Fortran does.
+    #[test]
+    fn shear_correction_uses_the_longest_counted_edge() {
+        let h2 = 0.1f64.powi(2);
+        let k = shear_correction(0.1, &[0.0, 1.0, 1.0, 0.0], &[0.0, 0.0, 1.0, 1.0], 1.0).unwrap();
+        assert_eq!(k, h2 / (h2 + 0.1));
+        // Edges 1-2 and 2-3 have length 1; 3-1 (sqrt 2) is not counted.
+        let k = shear_correction(0.1, &[0.0, 1.0, 1.0], &[0.0, 0.0, 1.0], 1.0).unwrap();
+        assert_eq!(k, h2 / (h2 + 0.2));
+        assert!(shear_correction(0.1, &[0.0; 6], &[0.0; 6], 1.0).is_err());
+    }
 }
