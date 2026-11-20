@@ -31,6 +31,7 @@ fn opts(method: HutiMethod, precond: DistPrecond) -> DistSolveOptions {
         huti,
         precond,
         scaling: true,
+        ndeg: 0,
     }
 }
 

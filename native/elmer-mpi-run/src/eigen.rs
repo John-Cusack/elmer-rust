@@ -159,10 +159,13 @@ fn arpack_eigen_solve(
         W::SI => naupd::NWhich::SI,
     };
     // The split mass matrix (ParallelInitSolve), for MGmv.
-    let m = DistCsr::from_local(ex, layout, mass).map_err(dist_err)?;
+    // The split matrix carries the matrix's ndeg (SParIterSolver.F90:857).
+    let ndeg = RankContext::current().map_or(0, |c| c.dofs_of(k));
+    let m = DistCsr::from_local(ex, layout, mass).map_err(dist_err)?.with_ndeg(ndeg);
     // The inner solves: ParallelIter, no scaling.
     let mut opts = dist_options(params)?;
     opts.scaling = false;
+    opts.ndeg = ndeg;
     let itermethod = if ITERMETHODS.contains(&method_of(params).as_str()) {
         Some(IterMethodsConfig::from_params(params)?)
     } else {
