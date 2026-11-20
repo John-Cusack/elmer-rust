@@ -810,6 +810,7 @@ dependencies = [
  "elmer-block",
  "elmer-core",
  "elmer-direct",
+ "elmer-eigen",
  "elmer-expr",
  "elmer-fixtures",
  "elmer-itermethods",

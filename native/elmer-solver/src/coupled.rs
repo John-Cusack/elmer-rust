@@ -822,7 +822,7 @@ impl Solver for CoupledSystem {
                 let Some(pat) = pattern else { break };
                 let matrix = pat.to_crs()?;
                 let rhs = vec![0.0; matrix.nrows];
-                ctx.sim.slots[ctx.slot].system = Some(LinearSystem { matrix, rhs });
+                ctx.sim.slots[ctx.slot].system = Some(LinearSystem { matrix, rhs, mass: None });
                 list = false;
             }
             self.dirichlet(ctx, &lay)?;

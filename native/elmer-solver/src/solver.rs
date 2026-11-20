@@ -479,11 +479,52 @@ impl<'a> SolverCtx<'a> {
                 None => backend.create_matrix(self.mesh, &slot.active, &perm, v.dofs),
             };
             let n = matrix.nrows;
-            slot.system = Some(LinearSystem { matrix, rhs: vec![0.0; n] });
+            // `Matrix % MassValues` of an eigen solver, on the same pattern.
+            let mass = (slot.nof_eigen > 0).then(|| matrix.clone());
+            slot.system = Some(LinearSystem { matrix, rhs: vec![0.0; n], mass });
         }
         let sys = slot.system.as_mut().expect("system created above");
         sys.matrix.values.iter_mut().for_each(|v| *v = 0.0);
         sys.rhs.iter_mut().for_each(|v| *v = 0.0);
+        if let Some(m) = sys.mass.as_mut() {
+            m.values.iter_mut().for_each(|v| *v = 0.0);
+        }
+        Ok(())
+    }
+
+    /// `Solver % NOFEigenValues`: the eigenpairs this solver's `Eigen
+    /// Analysis` computes, 0 when it does none. A solver assembles its mass
+    /// matrix with [`default_update_mass`](Self::default_update_mass) when
+    /// this is positive.
+    pub fn nof_eigen(&self) -> usize {
+        self.sim.slots[self.slot].nof_eigen
+    }
+
+    /// `DefaultUpdateMass`: add an element mass matrix (row-major, the
+    /// local system's size) at element `e`'s dofs to `Matrix % MassValues`.
+    /// Nothing happens for a solver without a mass matrix.
+    pub fn default_update_mass(&mut self, mass: &[f64], e: ElemId) -> Result<(), SolverError> {
+        if self.is_passive(e)? {
+            return Ok(());
+        }
+        let mut idx = Vec::new();
+        self.element_slots(e, &mut idx);
+        let sim = &mut *self.sim;
+        let backend = sim
+            .backends
+            .assembly
+            .as_ref()
+            .ok_or_else(|| SolverError::NotWired("assembly backend (elmer-assembly)".into()))?;
+        let Some(m) = sim.slots[self.slot].system.as_mut().and_then(|s| s.mass.as_mut()) else {
+            return Ok(());
+        };
+        let n = (mass.len() as f64).sqrt().round() as usize;
+        if n * n != mass.len() {
+            return Err(SolverError::fatal("DefaultUpdateMass", "element mass matrix is not square"));
+        }
+        let local = LocalSystem { n, stiff: mass.to_vec(), mass: None, damp: None, force: vec![0.0; n] };
+        let mut rhs = vec![0.0; m.nrows];
+        backend.add_local(m, &mut rhs, &idx, &local);
         Ok(())
     }
 
@@ -928,6 +969,9 @@ impl<'a> SolverCtx<'a> {
             .as_mut()
             .ok_or_else(|| SolverError::fatal("DefaultDirichletBCs", "call default_initialize first"))?;
         backend.try_apply_dirichlet(&mut sys.matrix, &mut sys.rhs, &fixed, &slot.params)?;
+        if let Some(m) = sys.mass.as_mut() {
+            crate::eigen::dirichlet_mass(m, &fixed, &slot.params)?;
+        }
         // `A % ConstrainedDOF`, which source control reads.
         slot.asm.constrained = fixed;
         Ok(())
@@ -950,6 +994,9 @@ impl<'a> SolverCtx<'a> {
             .as_mut()
             .ok_or_else(|| SolverError::fatal("DefaultDirichletBCs", "call default_initialize first"))?;
         backend.try_apply_dirichlet(&mut sys.matrix, &mut sys.rhs, fixed, &slot.params)?;
+        if let Some(m) = sys.mass.as_mut() {
+            crate::eigen::dirichlet_mass(m, fixed, &slot.params)?;
+        }
         slot.asm.constrained = fixed.to_vec();
         Ok(())
     }
@@ -1064,6 +1111,10 @@ impl<'a> SolverCtx<'a> {
         }
         if let Some(modes) = self.sim.slots[self.slot].cmodes.clone() {
             return crate::constraint_modes::solve_modes(self, modes);
+        }
+        // SolveSystem's eigen branch (SolveCore.F90:1410): no ComputeChange.
+        if crate::eigen::active(self) {
+            return crate::eigen::solve(self);
         }
         self.solve_system()
     }

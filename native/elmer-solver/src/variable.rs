@@ -65,6 +65,12 @@ pub struct Variable {
     pub output: bool,
     pub secondary: bool,
     pub values_changed: bool,
+    /// `Var % EigenValues` of an `Eigen Analysis` solve, in `Eigen System
+    /// Sorting` order; empty otherwise.
+    pub eigen_values: Vec<num_complex::Complex64>,
+    /// `Var % EigenVectors(i, :)`: the mode of `eigen_values[i]`, one entry
+    /// per value of [`values`](Self::values).
+    pub eigen_vectors: Vec<Vec<num_complex::Complex64>>,
 }
 
 impl Variable {
@@ -83,6 +89,8 @@ impl Variable {
             output: true,
             secondary: false,
             values_changed: true,
+            eigen_values: Vec::new(),
+            eigen_vectors: Vec::new(),
         }
     }
 

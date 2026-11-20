@@ -427,6 +427,7 @@ impl SaveScalars {
         }
         ctx.info(CALLER, &format!("Performed {} reduction operations", n.saturating_sub(1)), 7);
 
+        self.eigen_values(ctx, list, &plan)?;
         self.point_values(ctx, list, &plan)?;
 
         // Scalars other solvers left in the Simulation section.
@@ -490,6 +491,48 @@ impl SaveScalars {
 
     /// `Save Points` and the nearest nodes of `Save Coordinates`: every
     /// scalar field with `Output` set, at each node (SaveScalars.F90:1000).
+    /// `Save Eigenvalues` / `Save Eigenfrequencies` (SaveScalars.F90:940):
+    /// every eigenpair of every solver with an eigen analysis, in solver
+    /// order, skipping a `Linear System Solver Disabled` one. A frequency is
+    /// `sqrt(lambda) / 2 pi`, negative for a negative eigenvalue.
+    fn eigen_values(&mut self, ctx: &mut SolverCtx<'_>, list: &mut SaveList, plan: &ScalarPlan) -> Result<(), SolverError> {
+        let sec = &plan.section;
+        let either = |a: &str, b: &str| sec.logical(a).or_else(|| sec.logical(b)).unwrap_or(false);
+        let save_value = either("save eigenvalues", "save eigen values");
+        let save_freq = either("save eigenfrequencies", "save eigen frequencies");
+        if !(save_value || save_freq) {
+            return Ok(());
+        }
+        let complex = either("complex eigen values", "complex eigenvalues");
+        let mut found = 0usize;
+        let mut rows: Vec<(String, f64)> = Vec::new();
+        for slot in &ctx.sim.slots {
+            if slot.params.logical("linear system solver disabled") == Some(true) || slot.nof_eigen == 0 {
+                continue;
+            }
+            let values = slot.variable.map(|id| ctx.sim.vars.by_id(id).eigen_values.clone()).unwrap_or_default();
+            for k in 1..=slot.nof_eigen {
+                let z = values.get(k - 1).copied().unwrap_or_default();
+                found += 1;
+                if save_value {
+                    rows.push((format!("eigen: re value {k}"), z.re));
+                    if complex {
+                        rows.push((format!("eigen: im value {k}"), z.im));
+                    }
+                }
+                if save_freq {
+                    let f = if z.re >= 0.0 { z.re.sqrt() } else { -(-z.re).sqrt() } / (2.0 * std::f64::consts::PI);
+                    rows.push((format!("eigen: frequency {k} [hz]"), f));
+                }
+            }
+        }
+        for (name, val) in rows {
+            list.add(plan, ctx, &name, val, false)?;
+        }
+        ctx.info(CALLER, &format!("Found {found} Eigenvalues"), 4);
+        Ok(())
+    }
+
     fn point_values(&mut self, ctx: &mut SolverCtx<'_>, list: &mut SaveList, plan: &ScalarPlan) -> Result<(), SolverError> {
         if plan.save_points.is_empty() && plan.save_coordinates.is_empty() {
             return Ok(());

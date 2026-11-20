@@ -29,6 +29,7 @@ mod child;
 mod amg;
 mod constraint_modes;
 mod constraints;
+mod eigen;
 mod control;
 pub mod coupled;
 pub mod error;
