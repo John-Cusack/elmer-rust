@@ -1332,6 +1332,13 @@ fn run_case_meshes(
             .ok_or_else(|| SolverError::fatal("ResultOutputSolver", format!("no slot for Solver {id}")))?;
         slot.set_instance(Box::new(out.into_solver(Arc::clone(&written)).in_job(rank, size)));
     }
+    // ResultOutputSolver sections with `STL Format` only.
+    for slot in &mut sim.slots {
+        let params = &sim.model.solvers[slot.id - 1];
+        if crate::output::is_stl_output(params) {
+            slot.set_instance(Box::new(crate::stl::StlSolver { params: params.clone(), case_dir: case_dir.clone() }));
+        }
+    }
     // `Apply Mortar BCs`, or a `Periodic BC Use Lagrange Coefficient` of its
     // variable: the slot's solver behind the mortar constraints.
     let discont_perm = discont_perm.map(Arc::new);

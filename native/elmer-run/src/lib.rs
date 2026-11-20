@@ -47,6 +47,7 @@ mod energy_release;
 pub mod result_file;
 pub mod output;
 pub mod sif;
+mod stl;
 pub mod unported;
 
 pub use case::{conforming_map, fixture_case, run_case, run_case_with, Case, Outcome, RunEnv};
