@@ -275,8 +275,23 @@ pub(crate) fn solve_complex(
     })?;
     match kind.as_str() {
         "direct" => {
+            let method = p.string("linear system direct method").unwrap_or("banded");
+            if elmer_umfpack::is_umfpack_method(method) {
+                // Umfpack_SolveSystem (DirectSolve.F90) has only the real
+                // umf4 routines: a complex matrix goes to UMFPACK as its
+                // interleaved real form (after the complex scaling).
+                let ar = to_interleaved(a);
+                let mut d = direct(p)?;
+                d.factor(&ar)?;
+                let mut y: Vec<f64> = b.iter().flat_map(|z| [z.re, z.im]).collect();
+                d.solve_in_place(&mut y)?;
+                for (k, xk) in x.iter_mut().enumerate() {
+                    *xk = Complex64::new(y[2 * k], y[2 * k + 1]);
+                }
+                return Ok(());
+            }
             let mut d: Box<dyn DirectSolver<Complex64>> =
-                match kind_for_method(p.string("linear system direct method").unwrap_or("banded"))? {
+                match kind_for_method(method)? {
                     DirectKind::BandLu => Box::new(BandLu::<Complex64>::new()),
                     DirectKind::SparseLu => Box::new(FaerLu::<Complex64>::new()),
                     DirectKind::BandCholesky | DirectKind::SparseCholesky => {
@@ -408,6 +423,43 @@ pub(crate) fn to_complex(a: &CsrMatrix<f64>) -> Result<CsrMatrix<Complex64>, Sol
     Ok(c)
 }
 
+/// The interleaved real form of a native complex matrix, the inverse of
+/// [`to_complex`]: entry `(i, j) = re + i im` gives `A(2i, 2j) = re`,
+/// `A(2i, 2j+1) = -im`, `A(2i+1, 2j) = im`, `A(2i+1, 2j+1) = re`.
+pub(crate) fn to_interleaved(c: &CsrMatrix<Complex64>) -> CsrMatrix<f64> {
+    let n = 2 * c.nrows;
+    let mut a = CsrMatrix {
+        nrows: n,
+        ncols: 2 * c.ncols,
+        row_ptr: vec![0],
+        col_idx: Vec::new(),
+        values: Vec::new(),
+        diag: None,
+    };
+    let mut diag = Vec::with_capacity(n);
+    for i in 0..c.nrows {
+        let row = c.row_ptr[i]..c.row_ptr[i + 1];
+        for half in 0..2u32 {
+            let r = 2 * i as u32 + half;
+            let mut d = None;
+            for k in row.clone() {
+                let (j, z) = (c.col_idx[k], c.values[k]);
+                for (col, v) in [(2 * j, if half == 0 { z.re } else { z.im }), (2 * j + 1, if half == 0 { -z.im } else { z.re })] {
+                    if col == r {
+                        d = Some(a.values.len());
+                    }
+                    a.col_idx.push(col);
+                    a.values.push(v);
+                }
+            }
+            diag.push(d);
+            a.row_ptr.push(a.values.len());
+        }
+    }
+    a.diag = diag.into_iter().collect();
+    a
+}
+
 pub(crate) fn pair_up(v: &[f64]) -> Vec<Complex64> {
     v.as_chunks::<2>().0.iter().map(|&[re, im]| Complex64::new(re, im)).collect()
 }
@@ -454,6 +506,28 @@ pub(crate) fn bilu(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `to_interleaved` is the inverse of `to_complex`, with the diagonal.
+    #[test]
+    fn interleaved_round_trip() {
+        let c = CsrMatrix::<Complex64> {
+            nrows: 2,
+            ncols: 2,
+            row_ptr: vec![0, 2, 3],
+            col_idx: vec![0, 1, 1],
+            values: vec![Complex64::new(2.0, -3.0), Complex64::new(-1.0, 0.5), Complex64::new(4.0, 1.0)],
+            diag: Some(vec![0, 2]),
+        };
+        let a = to_interleaved(&c);
+        assert_eq!(a.row_ptr, vec![0, 4, 8, 10, 12]);
+        assert_eq!(a.values[..4], [2.0, 3.0, -1.0, -0.5]);
+        assert_eq!(a.values[4..8], [-3.0, 2.0, 0.5, -1.0]);
+        assert_eq!(a.diag, Some(vec![0, 5, 8, 11]));
+        let back = to_complex(&a).unwrap();
+        assert_eq!(back.values, c.values);
+        assert_eq!(back.col_idx, c.col_idx);
+        assert_eq!(back.diag, c.diag);
+    }
 
     /// `max_i |Ax - b|_i / (|A||x| + |b|)_i` on a 2 x 2 system; a row with
     /// `|A||x| + |b|` below AEPS and no residual counts zero.
