@@ -11,6 +11,7 @@ pub mod legendre;
 pub mod line;
 pub mod maps;
 pub mod pbasis;
+mod scalar;
 pub mod pyramid;
 pub mod quad;
 pub mod tetra;

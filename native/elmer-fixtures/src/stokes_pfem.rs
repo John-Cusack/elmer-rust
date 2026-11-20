@@ -159,7 +159,8 @@ impl Solver for StokesSolver {
                 return Err(SolverError::Unsupported("Stokes1 StokesSolver: local bubbles (LCondensate)".into()));
             }
             let order = d.element_nodes(e);
-            let basis = d.element_basis(e).map_err(fatal)?;
+            // Stokes.f90 calls the scalar ElementInfo.
+            let basis = d.element_basis_scalar(e).map_err(fatal)?;
             let rule = d.element_rule_np(e, nd + nb).map_err(fatal)?;
             let etype = ctx.mesh.element(e).etype;
             let xyz: Vec<[f64; 3]> = order.iter().map(|&k| ctx.mesh.coord(k)).collect();

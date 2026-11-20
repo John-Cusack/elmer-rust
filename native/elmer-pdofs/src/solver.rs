@@ -82,6 +82,17 @@ impl SolverDofs for PSetup {
             .map_err(|err| err.to_string())
     }
 
+    /// As [`Self::element_basis`], with the p basis evaluated on the scalar
+    /// `ElementInfo` path (`PElementSpec::scalar_element_info`).
+    fn element_basis_scalar(&self, e: ElemId) -> Result<Box<dyn ElementBasis + Send + Sync>, String> {
+        if !self.is_p_element(e) {
+            return elmer_solver::SolverDofs::element_basis(self, e);
+        }
+        let mut spec = self.layout().element_spec(e.0 as usize).map_err(|err| err.to_string())?;
+        spec.scalar_element_info = true;
+        Ok(Box::new(elmer_fe_hp::PElementBasis::new(spec)))
+    }
+
     fn element_rule(&self, e: ElemId) -> Result<Vec<QuadPoint>, String> {
         self.gauss_rule(e)
             .map(|r| r.points())
