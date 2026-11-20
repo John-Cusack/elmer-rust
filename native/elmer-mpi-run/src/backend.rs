@@ -289,6 +289,22 @@ impl IterativeSolver<f64> for DistIterative {
         let ctx = RankContext::current()
             .ok_or_else(|| LinalgError::Unsupported("parallel solve outside a partitioned run".into()))?;
         let layout = ctx.layout_of(&self.a).map_err(to_linalg)?;
+        if let Ok(dir) = std::env::var("ELMER_RS_DUMP") {
+            use std::io::Write;
+            let g = layout.gids();
+            let a = &self.a;
+            let r = ctx.ex.rank();
+            let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{dir}/rs_a.dat.{r}")).unwrap());
+            for i in 0..a.nrows {
+                for k in a.row_ptr[i]..a.row_ptr[i + 1] {
+                    writeln!(f, "{} {} {:e} 0", g[i] + 1, g[a.col_idx[k] as usize] + 1, a.values[k]).unwrap();
+                }
+            }
+            let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{dir}/rs_b.dat.{r}")).unwrap());
+            for (i, v) in b.iter().enumerate() {
+                writeln!(f, "{} {:e}", g[i] + 1, v).unwrap();
+            }
+        }
         let stats = match &self.itermethod {
             None => dist_solve(&*ctx.ex, &layout, &self.a, b, x, &self.opts, None).map_err(to_linalg)?,
             Some(cfg) => itermethod_solve(&*ctx.ex, &layout, &self.a, b, x, &self.opts, cfg)?,
