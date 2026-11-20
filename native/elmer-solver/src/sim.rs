@@ -1050,18 +1050,8 @@ impl Simulation {
         };
         let mut perm = perm;
         if conforming {
-            let transient = self
-                .model
-                .simulation
-                .string("simulation type")
-                .is_some_and(|t| t.eq_ignore_ascii_case("transient"));
-            if transient {
-                // MainUtils: conforming BCs enforce `Use Global Mass Matrix`.
-                return Err(SolverError::Unsupported(format!(
-                    "Solver {}: Apply Conforming BCs in a transient run (Use Global Mass Matrix)",
-                    slot.id
-                )));
-            }
+            // MainUtils: conforming BCs enforce `Use Global Mass Matrix`.
+            slot.params.insert("Use Global Mass Matrix", Value::Logical(true));
             // Without a map (no `Conforming BC`) Elmer warns that the
             // conforming BC is requested but not generated, and numbers the
             // nodes as usual.
