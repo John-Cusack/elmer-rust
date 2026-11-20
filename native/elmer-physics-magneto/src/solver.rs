@@ -249,7 +249,8 @@ impl Solver for WhitneyAv {
             let v = s.values.iter().flat_map(|z| [z.re, z.im]).collect();
             (v, s.node_slot, s.n_nodal, s.n_edges, 2)
         } else {
-            let s = crate::steady::solve_steady_ordered(&case, id, order.as_deref())?;
+            let mag = material_magnetization(ctx)?;
+            let s = crate::steady::solve_steady_with(&case, id, order.as_deref(), &mag)?;
             (s.values, s.node_slot, s.n_nodal, s.n_edges, 1)
         };
         let n_nodes = node_slot.len();
@@ -328,4 +329,36 @@ impl Solver for CalcFields {
         let t = crate::calcfields2d::target(&ctx.sim.model.solvers, ctx.params())?;
         crate::calcfields2d::solve(ctx, t, transient)
     }
+}
+
+/// The material `Magnetization 1..3` of each bulk element at its nodes
+/// (`GetRealVector(Material, Load(4:6,1:n), 'Magnetization')`), evaluated
+/// with the current fields; `None` for an element whose material gives no
+/// components (a constant `Magnetization` array is read by the driver).
+fn material_magnetization(ctx: &SolverCtx<'_>) -> Result<Vec<Option<Vec<[f64; 3]>>>, SolverError> {
+    let nb = ctx.mesh.n_bulk();
+    let mut out = vec![None; nb];
+    if !ctx.sim.model.materials.iter().any(|m| m.0.keys().any(|k| k.starts_with("magnetization "))) {
+        return Ok(out);
+    }
+    for (e, slot) in out.iter_mut().enumerate() {
+        let id = elmer_core::ElemId(e as u32);
+        let Some(bp) = ctx.body_params(id) else { continue };
+        let Some(material) = bp.material else { continue };
+        let n = ctx.mesh.element(id).nodes.len();
+        let mut m = vec![[0.0f64; 3]; n];
+        let mut found = false;
+        for c in 0..3 {
+            if let Some(v) = ctx.real_at_nodes(material, &format!("magnetization {}", c + 1), id)? {
+                found = true;
+                for (k, x) in v.into_iter().enumerate() {
+                    m[k][c] = x;
+                }
+            }
+        }
+        if found {
+            *slot = Some(m);
+        }
+    }
+    Ok(out)
 }

@@ -107,8 +107,8 @@ fn check_solver(case: &Case, sp: &ParamMap) -> Result<(), MagnetoError> {
         }
     }
     for m in case.materials.iter().flatten() {
-        if has_prefix(m, "laminate stack model") || has_prefix(m, "magnetization") {
-            return Err(MagnetoError::unsupported("material laminate stack or magnetization"));
+        if has_prefix(m, "laminate stack model") {
+            return Err(MagnetoError::unsupported("material laminate stack"));
         }
     }
     for bc in case.bcs.iter().flatten() {
@@ -143,6 +143,19 @@ pub fn solve_steady(case: &Case, solver_id: usize) -> Result<AvSolution, Magneto
 /// [`solve_steady`] solved in Elmer's slot order (see
 /// [`crate::harmonic::solve_harmonic_ordered`]); values in layout order.
 pub fn solve_steady_ordered(case: &Case, solver_id: usize, order: Option<&[u32]>) -> Result<AvSolution, MagnetoError> {
+    solve_steady_with(case, solver_id, order, &[])
+}
+
+/// [`solve_steady_ordered`] with the material `Magnetization` of each bulk
+/// element at its nodes (`material_mag[e]`, evaluated by the caller where
+/// it depends on fields), used where the body force gives none
+/// (WhitneyAVSolver.F90:891).
+pub fn solve_steady_with(
+    case: &Case,
+    solver_id: usize,
+    order: Option<&[u32]>,
+    material_mag: &[Option<Vec<[f64; 3]>>],
+) -> Result<AvSolution, MagnetoError> {
     let sp = case
         .solver(solver_id)
         .ok_or_else(|| MagnetoError::Input(format!("no Solver {solver_id}")))?;
@@ -172,21 +185,36 @@ pub fn solve_steady_ordered(case: &Case, solver_id: usize, order: Option<&[u32]>
         let nu = reluctivity(material, &case.constants)?;
         let sigma = conductivity(material)?;
         let mut load = [0.0; 7];
+        let mut found_mag = false;
         if let Some(bf) = case.body_force(el.body) {
             if let Some(j) = const_vector(bf, "current density")? {
                 load[..3].copy_from_slice(&j);
             }
             if let Some(m) = const_vector(bf, "magnetization")? {
                 load[3..6].copy_from_slice(&m);
+                found_mag = true;
             }
             if let Some(v) = const_real(bf, "electric potential")? {
                 load[6] = v;
             }
         }
+        let mut loads = vec![load; nn];
+        // `IF(.NOT.FoundMagnetization) GetRealVector(Material, ...)`.
+        if !found_mag {
+            if let Some(Some(m)) = material_mag.get(e) {
+                for (l, mv) in loads.iter_mut().zip(m) {
+                    l[3..6].copy_from_slice(mv);
+                }
+            } else if let Some(m) = const_vector(material, "magnetization")? {
+                for l in loads.iter_mut() {
+                    l[3..6].copy_from_slice(&m);
+                }
+            }
+        }
         let co = BulkCoeffs {
             nu: vec![nu; nn],
             sigma: vec![sigma; nn],
-            load: vec![load; nn],
+            load: loads,
         };
         let (xyz, gindex) = geometry(case, &el.nodes);
         let np = if with_v { nn } else { 0 };
