@@ -42,7 +42,7 @@ fn factory(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     if FE.get().is_none() {
         return Err(SolverError::NotWired("element basis and quadrature (elmer-fe)".into()));
     }
-    Ok(Box::new(ElasticSolver { fe: None, umat: None, ve_prev: None }))
+    Ok(Box::new(ElasticSolver { fe: None, umat: None, ve_prev: None, refine: Default::default() }))
 }
 
 /// The elasticity solver.
@@ -53,6 +53,8 @@ pub struct ElasticSolver {
     /// `ve_stress % PrevValues(:,1)`: a Maxwell material's lag stress of the
     /// previous step.
     ve_prev: Option<Vec<f64>>,
+    /// RefineMesh's SAVEd state (`Adaptive Mesh Refinement`).
+    refine: elmer_adaptive::RefineState,
 }
 
 /// `UmatStress0`, `UmatEnergy0`, `UmatState0` and the converged
@@ -68,7 +70,7 @@ struct UmatSaved {
 impl ElasticSolver {
     /// A solver that owns its basis and quadrature.
     pub fn new(fe: FeServices) -> Self {
-        Self { fe: Some(fe), umat: None, ve_prev: None }
+        Self { fe: Some(fe), umat: None, ve_prev: None, refine: Default::default() }
     }
 
     fn fe(&self) -> &FeServices {
@@ -173,7 +175,6 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
         ("harmonic analysis", "harmonic analysis"),
         ("harmonic mode", "harmonic analysis"),
         ("local matrix storage", "local matrix storage"),
-        ("adaptive mesh refinement", "adaptive mesh refinement"),
         ("use hencky strain", "Hencky strain"),
     ] {
         if flag(Some(p), key) {
@@ -1796,6 +1797,19 @@ impl Solver for ElasticSolver {
         let flags = post_flags(ctx);
         if flags.any() {
             self.postprocess(ctx, flags, cdim, axi, model, &temp_ref)?;
+        }
+        // ElasticSolve.F90:2764: RefineMesh with the elasticity residuals
+        // (large deflection unless `Large Deflection = False`).
+        let p = ctx.params();
+        if p.logical("adaptive mesh refinement") == Some(true) {
+            if model.neo_hookean || self.umat.is_some() || p.get("umat subroutine").is_some() {
+                ctx.info("ElasticSolver", "Adaptive Mesh Refinement is not available", 4);
+            } else if p.logical("library adaptivity") != Some(true) {
+                let ld = p.logical("large deflection").unwrap_or(true);
+                elmer_adaptive::elasticity::ElasticityEstimator::check(ctx)?;
+                let mut est = elmer_adaptive::elasticity::ElasticityEstimator { large_deflection: ld };
+                elmer_adaptive::refine_mesh(ctx, &mut self.refine, &mut est)?;
+            }
         }
         if displace {
             displace_mesh(ctx, 1.0, cdim)?;

@@ -41,6 +41,44 @@ pub struct MeshChange {
     pub name: String,
 }
 
+/// Wraps a new mesh before the run moves to it (the runner's movable
+/// coordinates, so that `Displace Mesh` and the mesh mappers move the
+/// current mesh).
+pub type MeshWrapper = Box<dyn FnMut(Arc<dyn MeshView + Send + Sync>) -> Arc<dyn MeshView + Send + Sync>>;
+
+/// `mesh` with the coordinates `coords` (the old mesh as RefineMesh saw it).
+pub(crate) struct WithCoords<'a> {
+    pub mesh: &'a dyn MeshView,
+    pub coords: &'a [[f64; 3]],
+}
+
+impl MeshView for WithCoords<'_> {
+    fn dim(&self) -> usize {
+        self.mesh.dim()
+    }
+    fn n_nodes(&self) -> usize {
+        self.mesh.n_nodes()
+    }
+    fn coord(&self, node: u32) -> [f64; 3] {
+        self.coords[node as usize]
+    }
+    fn n_bulk(&self) -> usize {
+        self.mesh.n_bulk()
+    }
+    fn n_boundary(&self) -> usize {
+        self.mesh.n_boundary()
+    }
+    fn element(&self, e: elmer_core::ElemId) -> elmer_core::ElementRef<'_> {
+        self.mesh.element(e)
+    }
+    fn element_edges(&self, e: elmer_core::ElemId) -> Option<&[u32]> {
+        self.mesh.element_edges(e)
+    }
+    fn element_faces(&self, e: elmer_core::ElemId) -> Option<&[u32]> {
+        self.mesh.element_faces(e)
+    }
+}
+
 /// Makes the result writer of a mesh from its name.
 pub type MeshWriterFactory =
     Box<dyn FnMut(&str, &Simulation) -> Result<Option<Box<dyn SaveCurrent>>, SolverError>>;
@@ -49,11 +87,15 @@ pub type MeshWriterFactory =
 #[derive(Default)]
 pub struct AdaptiveMeshes {
     pub(crate) pending: Option<MeshChange>,
+    /// The old mesh's coordinates when the change was asked for: RefineMesh
+    /// interpolates there, before the solver displaces its mesh.
+    pub(crate) pending_coords: Option<Vec<[f64; 3]>>,
     /// `Mesh % AdaptiveFinished` of the current mesh.
     pub(crate) finished: bool,
     /// `Mesh % AdaptiveDepth` of the current mesh.
     pub(crate) depth: usize,
     pub(crate) writer: Option<MeshWriterFactory>,
+    pub(crate) wrapper: Option<MeshWrapper>,
     /// Name of the current mesh, empty for the run's first mesh.
     pub(crate) name: String,
 }
@@ -66,6 +108,19 @@ impl Simulation {
     /// Installs the factory of the per-mesh result writers.
     pub fn set_mesh_writer_factory(&mut self, f: MeshWriterFactory) {
         self.adaptive.writer = Some(f);
+    }
+
+    /// Installs the wrapper of new meshes ([`MeshWrapper`]).
+    pub fn set_mesh_wrapper(&mut self, f: MeshWrapper) {
+        self.adaptive.wrapper = Some(f);
+    }
+
+    /// The mesh the run moves to: `mesh` through the installed wrapper.
+    pub(crate) fn wrap_mesh(&mut self, mesh: Arc<dyn MeshView + Send + Sync>) -> Arc<dyn MeshView + Send + Sync> {
+        match self.adaptive.wrapper.as_mut() {
+            Some(w) => w(mesh),
+            None => mesh,
+        }
     }
 
     /// `Mesh % AdaptiveDepth` of the current mesh (0 for the first).

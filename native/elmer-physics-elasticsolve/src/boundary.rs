@@ -82,6 +82,35 @@ fn normal_from_projector(xyz: &[[f64; 3]], dbasis_dx: &[[f64; 3]], cdim: usize) 
     Ok(n)
 }
 
+/// The unit normal of a boundary element at a point, unoriented: on a
+/// linear line in 2-D `NormalVector`'s own arithmetic (ElementGeometry.F90:
+/// `(-dydu, dxdu) / SQRT(dxdu**2 + dydu**2)` with `dN/du = (-1/2, 1/2)`),
+/// otherwise [`normal_from_projector`].
+fn boundary_normal(
+    etype: elmer_core::ElementType,
+    xyz: &[[f64; 3]],
+    dbasis_dx: &[[f64; 3]],
+    cdim: usize,
+) -> Result<[f64; 3], ElasticError> {
+    if cdim == 2 && etype.0 == 202 {
+        let du = [-0.5, 0.5];
+        let (mut dxdu, mut dydu) = (0.0, 0.0);
+        for k in 0..2 {
+            dxdu += du[k] * xyz[k][0];
+        }
+        for k in 0..2 {
+            dydu += du[k] * xyz[k][1];
+        }
+        let det = dxdu * dxdu + dydu * dydu;
+        if det <= 0.0 {
+            return Err(ElasticError::Basis("degenerate boundary element".into()));
+        }
+        let det = 1.0 / det.sqrt();
+        return Ok([-dydu * det, dxdu * det, 0.0]);
+    }
+    normal_from_projector(xyz, dbasis_dx, cdim)
+}
+
 /// Boundary element force and spring matrix. Overwrites `out`.
 pub fn elastic_boundary_local(
     basis: &dyn ElementBasis,
@@ -132,7 +161,7 @@ pub fn elastic_boundary_local_p(
     let mut be = BasisEval::default();
     basis.eval(inp.etype, inp.xyz, centre_uvw, &mut be).map_err(ElasticError::Basis)?;
     let centre: [f64; 3] = std::array::from_fn(|a| (0..n).map(|k| be.basis[k] * inp.xyz[k][a]).sum());
-    let n_centre = normal_from_projector(inp.xyz, &be.dbasis_dx, cdim)?;
+    let n_centre = boundary_normal(inp.etype, inp.xyz, &be.dbasis_dx, cdim)?;
     let flip = (0..3).map(|a| (inp.parent.center[a] - centre[a]) * n_centre[a]).sum::<f64>() > 0.0;
     let sign = if flip { -1.0 } else { 1.0 };
 
@@ -147,7 +176,7 @@ pub fn elastic_boundary_local_p(
             s *= r;
         }
 
-        let mut ref_normal = normal_from_projector(inp.xyz, &be.dbasis_dx, cdim)?;
+        let mut ref_normal = boundary_normal(inp.etype, inp.xyz, &be.dbasis_dx, cdim)?;
         for v in &mut ref_normal {
             *v *= sign;
         }
@@ -184,9 +213,20 @@ pub fn elastic_boundary_local_p(
         let traction: [f64; 3] =
             std::array::from_fn(|a| if a < cdim { (0..n).map(|k| inp.traction[k][a] * bas[k]).sum() } else { 0.0 });
         let scale = if inp.pseudo_traction { 1.0 } else { metric };
+        // LocalBoundaryMatrix adds the normal traction, then the traction:
+        // `s * Basis(q) * Force(i)` and `s * Basis(q) * Force(i) * MetricTerm`.
         for q in 0..ntot {
             for i in 0..cdim {
-                out.force[q * dofs + i] += s * bas[q] * (pressure_force[i] + traction[i] * scale);
+                out.force[q * dofs + i] += s * bas[q] * pressure_force[i];
+            }
+        }
+        for q in 0..ntot {
+            for i in 0..cdim {
+                out.force[q * dofs + i] += if inp.pseudo_traction {
+                    s * bas[q] * traction[i]
+                } else {
+                    s * bas[q] * traction[i] * scale
+                };
             }
         }
 

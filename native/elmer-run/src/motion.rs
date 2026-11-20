@@ -46,6 +46,61 @@ impl<'a> MovableMesh<'a> {
     }
 }
 
+/// A mesh the run moved to (adaptive refinement) with its coordinates in a
+/// [`SharedCoords`]: [`install`](Self::install) points every node mover at
+/// them, so `Displace Mesh` and the mesh mappers move the current mesh. The
+/// run's [`MotionGuard`] restores the original movers at its end.
+pub(crate) struct OwnedMovableMesh {
+    mesh: Arc<dyn MeshView + Send + Sync>,
+    coords: Arc<SharedCoords>,
+}
+
+impl OwnedMovableMesh {
+    pub(crate) fn new(mesh: Arc<dyn MeshView + Send + Sync>) -> Self {
+        let coords = (0..mesh.n_nodes() as u32).map(|n| mesh.coord(n)).collect();
+        OwnedMovableMesh { mesh, coords: Arc::new(SharedCoords::new(coords)) }
+    }
+
+    pub(crate) fn install(&self) {
+        let coords: Arc<dyn MeshMotion> = self.coords.clone();
+        motion::install(Some(coords));
+        let c = self.coords.clone();
+        free_surface::install_node_mover(Some(Arc::new(move |x: &[[f64; 3]]| c.set_coords(x))));
+        let c = self.coords.clone();
+        // The run goes on: StressSolve/ElasticSolve keep `AllocationsDone`.
+        elmer_physics_elastic::motion::switch_node_mover(Some(Arc::new(move |x: &[[f64; 3]]| c.set_coords(x))));
+        let c = self.coords.clone();
+        elmer_physics_shell::motion::install_node_mover(Some(Arc::new(move |x: &[[f64; 3]]| c.set_coords(x))));
+    }
+}
+
+impl MeshView for OwnedMovableMesh {
+    fn dim(&self) -> usize {
+        self.mesh.dim()
+    }
+    fn n_nodes(&self) -> usize {
+        self.mesh.n_nodes()
+    }
+    fn coord(&self, node: u32) -> [f64; 3] {
+        self.coords.get(node)
+    }
+    fn n_bulk(&self) -> usize {
+        self.mesh.n_bulk()
+    }
+    fn n_boundary(&self) -> usize {
+        self.mesh.n_boundary()
+    }
+    fn element(&self, e: ElemId) -> ElementRef<'_> {
+        self.mesh.element(e)
+    }
+    fn element_edges(&self, e: ElemId) -> Option<&[u32]> {
+        self.mesh.element_edges(e)
+    }
+    fn element_faces(&self, e: ElemId) -> Option<&[u32]> {
+        self.mesh.element_faces(e)
+    }
+}
+
 /// Restores the previously installed mesh motion on drop.
 pub(crate) struct MotionGuard(
     Option<Arc<dyn MeshMotion>>,

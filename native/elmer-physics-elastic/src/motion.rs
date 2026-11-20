@@ -17,6 +17,13 @@ thread_local! {
 /// Installs the runner's node mover for the solvers run on this thread,
 /// returning the previous one. It starts a new run: no routine has
 /// displaced the mesh yet.
+/// Points the solvers at another mesh's coordinates within the same run
+/// (adaptive refinement moved the run to a new mesh): unlike
+/// [`install_node_mover`], the solvers keep their `AllocationsDone` state.
+pub fn switch_node_mover(m: Option<NodeMover>) -> Option<NodeMover> {
+    MOVER.with(|c| std::mem::replace(&mut *c.borrow_mut(), m))
+}
+
 pub fn install_node_mover(m: Option<NodeMover>) -> Option<NodeMover> {
     DONE.with(|d| d.borrow_mut().clear());
     MOVER.with(|c| std::mem::replace(&mut *c.borrow_mut(), m))

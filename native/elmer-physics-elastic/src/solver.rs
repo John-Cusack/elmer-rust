@@ -45,7 +45,7 @@ fn factory(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     if FE.get().is_none() {
         return Err(SolverError::NotWired("element basis and quadrature (elmer-fe)".into()));
     }
-    Ok(Box::new(StressSolver { fe: None, ve_prev: None }))
+    Ok(Box::new(StressSolver { fe: None, ve_prev: None, refine: Default::default() }))
 }
 
 /// The linear elasticity solver.
@@ -54,12 +54,14 @@ pub struct StressSolver {
     /// `ve_stress % PrevValues(:,1)`: a Maxwell material's lag stress of the
     /// previous step.
     ve_prev: Option<Vec<f64>>,
+    /// RefineMesh's state (`Adaptive Mesh Refinement`).
+    refine: elmer_adaptive::RefineState,
 }
 
 impl StressSolver {
     /// A solver that owns its basis and quadrature.
     pub fn new(fe: FeServices) -> Self {
-        Self { fe: Some(fe), ve_prev: None }
+        Self { fe: Some(fe), ve_prev: None, refine: Default::default() }
     }
 
     fn fe(&self) -> &FeServices {
@@ -1265,6 +1267,17 @@ impl Solver for StressSolver {
         if flags.any() {
             self.postprocess(ctx, flags, cdim, axi, &temp_ref)?;
         }
+        // StressSolve.F90:1094: RefineMesh with the small-strain estimators.
+        let p = ctx.params();
+        if p.logical("adaptive mesh refinement") == Some(true) && p.logical("library adaptivity") != Some(true) {
+            elmer_adaptive::elasticity::ElasticityEstimator::check(ctx)?;
+            let mut est = elmer_adaptive::elasticity::ElasticityEstimator { large_deflection: false };
+            elmer_adaptive::refine_mesh(ctx, &mut self.refine, &mut est)?;
+        }
+        // RefineMesh leaves `Model % Mesh` on the old mesh (Adaptive.F90:846),
+        // so the displacement below moves the old mesh; the new one starts
+        // from RefineMesh's coordinates and the next visit takes its
+        // interpolated displacement off it.
         // StressSolve.F90:1108: the mesh follows the new displacement.
         if displace {
             Self::displace_mesh(ctx, 1.0)?;

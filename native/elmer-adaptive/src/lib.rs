@@ -12,6 +12,7 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::needless_range_loop)]
 
+pub mod elasticity;
 pub mod mesh;
 mod split;
 
