@@ -34,6 +34,7 @@ pub fn register(registry: &mut SolverRegistry) {
     crate::mgdyn2d::register(registry);
     crate::mgdyn2d_steady::register(registry);
     crate::statmag::register(registry);
+    crate::vhnodal::register(registry);
 }
 
 pub fn calc_fields_factory(_params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {

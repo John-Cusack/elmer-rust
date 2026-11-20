@@ -367,7 +367,7 @@ fn unsupported(what: impl Into<String>) -> SolverError {
 }
 
 /// `ListGetAngularFrequency(pSolver % Values, Found, Element)`.
-fn angular_frequency(ctx: &SolverCtx<'_>, psp: &ParamMap, e: ElemId) -> Result<Option<f64>, SolverError> {
+pub(crate) fn angular_frequency(ctx: &SolverCtx<'_>, psp: &ParamMap, e: ElemId) -> Result<Option<f64>, SolverError> {
     let two_pi = 2.0 * std::f64::consts::PI;
     let bp = ctx.body_params(e);
     let lists = [
