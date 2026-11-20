@@ -67,6 +67,22 @@ pub struct FlowBulkInput<'a> {
     /// `-omega x (omega x x)` in the load and the Coriolis term `2 rho omega
     /// x u` in the matrix.
     pub omega: Option<[f64; 3]>,
+    /// `Viscosity Model = power law` (EffectiveViscosity,
+    /// MaterialModels.F90), `None` for a Newtonian viscosity.
+    pub power_law: Option<PowerLaw<'a>>,
+}
+
+/// The nodal parameters of the power-law viscosity `mu = Viscosity *
+/// s^((c2-1)/2) / c4^(c2-1)`, `s` half the second invariant of the strain
+/// rate, clamped below at `c3^2`.
+#[derive(Clone, Copy)]
+pub struct PowerLaw<'a> {
+    /// `Viscosity Exponent` (c2).
+    pub exponent: &'a [f64],
+    /// `Critical Shear Rate` (c3).
+    pub critical: Option<&'a [f64]>,
+    /// `Nominal Shear Rate` (c4).
+    pub nominal: Option<&'a [f64]>,
 }
 
 fn check_len(what: &'static str, expected: usize, got: usize) -> Result<(), FlowError> {
@@ -133,6 +149,11 @@ pub fn flow_bulk_local(
     let mut sw = vec![[[0.0; 4]; 4]; n];
     // second[p][i][j] = sum_k (d phi_p / d x_i at node k) * d phi_k / d x_j.
     let mut second = vec![[[0.0; 3]; 3]; n];
+    // The viscosity Jacobian (`JacM`) of a Newton iteration on a power-law
+    // viscosity, and whether the last integration point asked for it
+    // (`ViscNewtonLin` is the last point's value when it is applied).
+    let mut jac = vec![0.0; if inp.power_law.is_some() && inp.newton { nd * nd } else { 0 }];
+    let mut visc_newton = false;
 
     for qp in &points {
         basis
@@ -144,7 +165,7 @@ pub fn flow_bulk_local(
 
         let interp = |v: &dyn Fn(usize) -> f64| (0..n).map(|k| v(k) * phi[k]).sum::<f64>();
         let rho = interp(&|k| inp.density[k]);
-        let mu = interp(&|k| inp.viscosity[k]);
+        let mut mu = interp(&|k| inp.viscosity[k]);
 
         let mut velo = [0.0; 3];
         let mut uvelo = [0.0; 3];
@@ -156,6 +177,26 @@ pub fn flow_bulk_local(
                 uvelo[i] += inp.velocity[k][i] * phi[k];
                 for j in 0..3 {
                     grad[i][j] += inp.velocity[k][i] * dphi[k][j];
+                }
+            }
+        }
+        if let Some(pl) = inp.power_law {
+            let muder = power_law(&pl, phi, &grad, &mut mu);
+            visc_newton = inp.newton && muder != 0.0;
+            if visc_newton {
+                // StrainS(p, j) = SUM(Strain(j,:) * dBasisdx(p,:)).
+                let strain: [[f64; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| (grad[i][j] + grad[j][i]) / 2.0));
+                let ss: Vec<[f64; 3]> = (0..n)
+                    .map(|p| std::array::from_fn(|j| (0..3).fold(0.0, |acc, k| acc + strain[j][k] * dphi[p][k])))
+                    .collect();
+                for i in 0..dim {
+                    for j in 0..dim {
+                        for q in 0..n {
+                            for p in 0..n {
+                                jac[ij(at(p, j), at(q, i))] += s * 2.0 * muder * 4.0 * ss[q][i] * ss[p][j];
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -334,6 +375,51 @@ pub fn flow_bulk_local(
             }
         }
     }
+    if visc_newton {
+        // StiffMatrix += JacM; FORCE += MATMUL(JacM, SOL), SOL the nodal
+        // velocity with zero pressure.
+        let mut sol = vec![0.0; nd];
+        for p in 0..n {
+            sol[at(p, 0)..at(p, 0) + dim].copy_from_slice(&inp.velocity[p][..dim]);
+        }
+        for (a, j) in out.stiff.iter_mut().zip(&jac) {
+            *a += j;
+        }
+        for r in 0..nd {
+            out.force[r] += (0..nd).fold(0.0, |acc, k| acc + jac[ij(r, k)] * sol[k]);
+        }
+    }
     out.mass = mass;
     Ok(())
+}
+
+/// `EffectiveViscosity` for `power law` in cartesian coordinates: replaces
+/// `mu` (the interpolated `Viscosity`) by the effective viscosity and
+/// returns its derivative `muder` with respect to `s`.
+fn power_law(pl: &PowerLaw<'_>, phi: &[f64], grad: &[[f64; 3]; 3], mu: &mut f64) -> f64 {
+    let at_ip = |v: &[f64]| (0..phi.len()).fold(0.0, |acc, k| acc + phi[k] * v[k]);
+    // SecondInvariant (Cartesian): sum of (dV(i,j) + dV(j,i))^2.
+    let mut sec = 0.0;
+    for i in 0..3 {
+        for j in 0..3 {
+            let s = grad[i][j] + grad[j][i];
+            sec += s * s;
+        }
+    }
+    let visc = *mu;
+    let c2 = at_ip(pl.exponent);
+    let mut s = 0.5 * sec;
+    let mut muder = if s != 0.0 { visc * (c2 - 1.0) / 2.0 * s.powf((c2 - 1.0) / 2.0 - 1.0) } else { 0.0 };
+    if let Some(c3) = pl.critical.map(at_ip) {
+        if s < c3 * c3 {
+            s = c3 * c3;
+            muder = 0.0;
+        }
+    }
+    *mu = visc * s.powf((c2 - 1.0) / 2.0);
+    if let Some(c4) = pl.nominal.map(at_ip) {
+        *mu /= c4.powf(c2 - 1.0);
+        muder /= c4.powf(c2 - 1.0);
+    }
+    muder
 }

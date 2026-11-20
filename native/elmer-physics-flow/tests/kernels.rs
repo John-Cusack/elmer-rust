@@ -39,6 +39,7 @@ fn input<'a>(
     let (_, hk) = elmer_fe::stab_param(et, xyz, 2, false).unwrap();
     let stab = StabParams { hk, mk };
     FlowBulkInput {
+        power_law: None,
         etype: et,
         xyz,
         dim: 2,
