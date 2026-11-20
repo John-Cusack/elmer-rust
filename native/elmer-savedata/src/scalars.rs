@@ -539,6 +539,14 @@ impl SaveScalars {
             }
             list.add(&plan, ctx, &k, v, false)?;
         }
+
+        // Free-form expressions with GetCReal, until the first one missing.
+        let params = ctx.params().clone();
+        for k in 1.. {
+            let name = format!("Expression {k}");
+            let Some(val) = ctx.creal(&params, &name)? else { break };
+            list.add(&plan, ctx, &name, val, false)?;
+        }
         Ok(())
     }
 

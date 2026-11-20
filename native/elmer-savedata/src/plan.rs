@@ -236,12 +236,14 @@ impl ScalarPlan {
                 ("mark failed strategy", "failed-strategy marker files"),
                 ("avoid failed strategy", "failed-strategy marker files"),
                 ("output partitioning directory", "per-partition output directory"),
-                ("expression 1", "free-form MATC expressions"),
             ],
         )?;
-        for key in p.0.keys() {
-            if key.starts_with("expression ") {
-                return Err(unsupported(format!("{H}: free-form MATC expressions ({key})")));
+
+        // `Expression n` is read with ListGetCReal: a real constant or a
+        // dependent real (table, MATC, procedure).
+        for (key, v) in &p.0 {
+            if key.starts_with("expression ") && !matches!(v, Value::Real { .. } | Value::Dependent(_)) {
+                return Err(unsupported(format!("{H}: {key} that is not a real value")));
             }
         }
 
