@@ -144,6 +144,7 @@ pub(crate) fn solve<T: HutiScalar>(
                 }
                 o.norm(&t1v)
             }
+            HutiStop::UserSupplied => o.user_stop(x, b, &r),
         };
 
         m.step(iter, residual);

@@ -52,6 +52,9 @@ pub enum HutiStop {
     /// residual near convergence (6). Other methods treat it as their
     /// `case default`, the unscaled true residual.
     UpperBound,
+    /// `HUTI_USUPPLIED_STOPC` (10): a caller's `stopcfun(x, b, r)`
+    /// ([`crate::Huti::with_stop`]); BiCGStab(2) only.
+    UserSupplied,
 }
 
 /// Everything one HUTI call reads from `ipar`/`dpar` plus the IterSolve
@@ -167,9 +170,13 @@ impl HutiConfig {
             cfg.ell = l.max(0) as usize;
         }
 
-        if params.logical("Linear System Componentwise Backward Error") == Some(true) {
+        // IterSolve.F90:894: the componentwise backward error is the user
+        // stop criterion; the caller supplies it (with the matrix) for
+        // real BiCGStab(2).
+        let componentwise = params.logical("Linear System Componentwise Backward Error") == Some(true);
+        if componentwise && (complex || method != HutiMethod::BiCGStab2) {
             return Err(LinalgError::Unsupported(
-                "Linear System Componentwise Backward Error (BackwardError.F90)".into(),
+                "Linear System Componentwise Backward Error (BackwardError.F90) for this HUTI method".into(),
             ));
         }
         if params.logical("Linear System Normwise Backward Error") == Some(true) {
@@ -177,7 +184,7 @@ impl HutiConfig {
                 "Linear System Normwise Backward Error (BackwardError.F90)".into(),
             ));
         }
-        cfg.stop_crit = HutiStop::TrueResidualScaledByB;
+        cfg.stop_crit = if componentwise { HutiStop::UserSupplied } else { HutiStop::TrueResidualScaledByB };
 
         // Ranks other than 0 print nothing; Huti::solve applies that from the
         // communicator (IterSolve.F90:932).

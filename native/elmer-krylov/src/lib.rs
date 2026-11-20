@@ -37,6 +37,6 @@ mod output;
 mod scalar;
 
 pub use config::{HutiConfig, HutiMethod, HutiStop};
-pub use huti::{Huti, HutiInfo, OutputSink};
+pub use huti::{Huti, HutiInfo, OutputSink, StopFn};
 pub use output::{format_e, format_i, iteration_line};
 pub use scalar::HutiScalar;

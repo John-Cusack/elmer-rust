@@ -71,6 +71,7 @@ pub(crate) fn solve<T: HutiScalar>(
             HutiStop::PseudoResidual => o.norm(&r),
             HutiStop::PseudoResidualScaledByB => o.norm(&r) / rhsnorm,
             HutiStop::PseudoResidualScaledByPrecB => o.norm(&r) / precrhsnorm,
+            HutiStop::UserSupplied => unreachable!("a user stop criterion is BiCGStab(2)'s only"),
             HutiStop::XDiffNorm => {
                 for i in 0..n {
                     z[i] = alpha * p[i];

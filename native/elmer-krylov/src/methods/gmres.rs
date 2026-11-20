@@ -163,6 +163,7 @@ pub(crate) fn solve<T: HutiScalar>(
                     _ => res,
                 }
             }
+            HutiStop::UserSupplied => unreachable!("a user stop criterion is BiCGStab(2)'s only"),
             HutiStop::XDiffNorm => {
                 t1v.fill(T::zero());
                 update(&mut t1v, &v, &y, m);

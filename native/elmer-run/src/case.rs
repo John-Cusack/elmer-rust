@@ -1200,8 +1200,12 @@ fn run_case_meshes(
     for p in model.solvers.iter_mut().filter(|p| elmer_physics_isosurface::is_section(p)) {
         elmer_physics_isosurface::init_section(p);
     }
+    let transient_sim = model
+        .simulation
+        .string("simulation type")
+        .is_some_and(|t| t.trim().eq_ignore_ascii_case("transient"));
     for p in &mut model.solvers {
-        elmer_physics_magneto::solver::whitney_init_section(p, &model.body_forces, &model.boundary_conditions);
+        elmer_physics_magneto::solver::whitney_init_section(p, &model.body_forces, &model.boundary_conditions, transient_sim);
     }
     for p in model.solvers.iter_mut().filter(|p| elmer_physics_magneto::mgdyn2d_steady::is_section(p)) {
         elmer_physics_magneto::mgdyn2d_steady::init_section(p);

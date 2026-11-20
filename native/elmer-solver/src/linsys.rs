@@ -49,6 +49,7 @@ pub fn elmer_registry() -> LinearSolverRegistry {
     for m in ["gcr", "idrs"] {
         r.register_iterative_with_matrix(m, itermethods_for);
     }
+    r.register_iterative_with_matrix("bicgstab2", huti_for);
     for m in ["jacobi", "richardson", "sgs"] {
         r.register_iterative(m, stationary);
         r.register_iterative_with_matrix(m, stationary_for);
@@ -67,6 +68,19 @@ pub fn elmer_registry() -> LinearSolverRegistry {
 
 fn huti(p: &ParamMap) -> Result<Box<dyn IterativeSolver<f64> + Send>, SolverError> {
     Ok(Box::new(Huti::<f64>::new(HutiConfig::from_params(p)?)))
+}
+
+/// HUTI with the matrix: `Linear System Componentwise Backward Error`
+/// makes [`componentwise_backward_error`] on it HUTI's user stop criterion
+/// (IterSolve.F90:894; BiCGStab(2) only, as `HutiConfig` checks).
+fn huti_for(p: &ParamMap, a: &CsrMatrix<f64>) -> Result<Box<dyn IterativeSolver<f64> + Send>, SolverError> {
+    let cfg = HutiConfig::from_params(p)?;
+    if cfg.stop_crit != elmer_krylov::HutiStop::UserSupplied {
+        return Ok(Box::new(Huti::<f64>::new(cfg)));
+    }
+    let a = a.clone();
+    let stop: elmer_krylov::StopFn<f64> = Box::new(move |x: &[f64], b: &[f64], _r: &[f64]| componentwise_backward_error(&a, x, b));
+    Ok(Box::new(Huti::<f64>::new(cfg).with_stop(stop)))
 }
 
 /// IterativeMethods.F90 Krylov methods; IterSolve.F90 routes these names there.
@@ -258,6 +272,13 @@ fn precond(p: &ParamMap, a: &CsrMatrix<f64>) -> Result<Box<dyn Preconditioner<f6
     if !(0..=9).contains(&level) {
         level = 0;
     }
+    // IterSolve.F90:1235-1268: with `Edge Basis` the ILU(n) is that of a
+    // matrix with the identity on the ordinary dofs and only the entries of
+    // the extra (constraint) rows and columns.
+    if p.logical("edge basis") == Some(true) {
+        let extra = p.integer(EXTRA_DOFS_KEY).map_or(0, |e| e.max(0) as usize);
+        return Ok(Box::new(Ilu::ilu_n(&null_edges_matrix(a, extra), level as usize)?));
+    }
     if p.logical("linear system symmetric ilu") == Some(true) {
         let retry = if p.logical("linear system cholesky retry") == Some(true) {
             Some(p.real("linear system cholesky factor").ok_or_else(|| {
@@ -269,6 +290,49 @@ fn precond(p: &ParamMap, a: &CsrMatrix<f64>) -> Result<Box<dyn Preconditioner<f6
         return Ok(Box::new(Ilu::ic_n(a, level as usize, retry)?));
     }
     Ok(Box::new(Ilu::ilu_n(a, level as usize)?))
+}
+
+/// The number of extra dofs (`A % ExtraDOFs`, the constraint rows of a
+/// collection matrix) the preconditioner of an `Edge Basis` system needs.
+pub(crate) const EXTRA_DOFS_KEY: &str = "__linear system extra dofs";
+
+/// The `PrecMat` of IterSolve.F90:1244-1258 (`NullEdges`, no
+/// `ConstraintMatrix`): rows from last to first, the diagonal 1 on the
+/// first `n - extra` rows (an index only on the others), then the row's
+/// entries in an extra row or column, as the list matrix accumulates them.
+fn null_edges_matrix(a: &CsrMatrix<f64>, extra: usize) -> CsrMatrix<f64> {
+    let n = a.nrows;
+    let k = n.saturating_sub(extra);
+    let mut rows: Vec<std::collections::BTreeMap<u32, f64>> = vec![Default::default(); n];
+    for i in (0..n).rev() {
+        if i >= k {
+            rows[i].entry(i as u32).or_insert(0.0);
+        } else {
+            *rows[i].entry(i as u32).or_insert(0.0) += 1.0;
+        }
+        for j in (a.row_ptr[i]..a.row_ptr[i + 1]).rev() {
+            let c = a.col_idx[j] as usize;
+            if i >= k || c >= k {
+                *rows[i].entry(c as u32).or_insert(0.0) += a.values[j];
+            }
+        }
+    }
+    let mut out = CsrMatrix { nrows: n, ncols: n, row_ptr: vec![0], col_idx: Vec::new(), values: Vec::new(), diag: None };
+    let mut diag = Vec::with_capacity(n);
+    for (i, r) in rows.into_iter().enumerate() {
+        let mut d = None;
+        for (c, v) in r {
+            if c as usize == i {
+                d = Some(out.values.len());
+            }
+            out.col_idx.push(c);
+            out.values.push(v);
+        }
+        diag.push(d);
+        out.row_ptr.push(out.values.len());
+    }
+    out.diag = diag.into_iter().collect();
+    out
 }
 
 /// Complex systems (`Linear System Complex`): the solve on the native
