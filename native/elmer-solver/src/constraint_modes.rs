@@ -20,8 +20,9 @@
 //! `Constraint Modes Single` and mode directions, complex systems, modes over
 //! body forces or components, the external loops (`Nonlinear System`,
 //! `Steady State` and `Run Control Constraint Modes`), linkage, writing the
-//! lumped matrix to a file, symmetric Dirichlet elimination, p elements and
-//! parallel runs.
+//! lumped matrix to a file, symmetric Dirichlet elimination and p elements.
+//! In a partitioned run each mode's flux row is summed over the ranks
+//! (`CommunicateConstraintModesFluxes`) and the lowest rank writes the file.
 
 use std::collections::BTreeMap;
 
@@ -174,9 +175,6 @@ fn refuse(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
     }
     if p.get("nonlinear post solvers").is_some() {
         return Err(SolverError::Unsupported("Constraint Modes Analysis with Nonlinear Post Solvers".into()));
-    }
-    if ctx.comm.size() > 1 {
-        return Err(SolverError::Unsupported("constraint modes in parallel".into()));
     }
     Ok(())
 }
@@ -433,6 +431,11 @@ fn flux_row(ctx: &SolverCtx<'_>, modes: &Modes, n: i32) -> Result<Vec<f64>, Solv
         }
         row[n as usize - 1] += flux;
     }
+    // CommunicateConstraintModesFluxes: MPI_ALLREDUCE(SUM) of the row. Each
+    // rank's partial rows of its mode dofs sum to the global rows.
+    if ctx.comm.size() > 1 {
+        ctx.comm.sum_f64(&mut row);
+    }
     Ok(row)
 }
 
@@ -476,7 +479,8 @@ fn finalize(ctx: &mut SolverCtx<'_>, mut c: Vec<Vec<f64>>) {
         .string("constraint modes fluxes filename")
         .or_else(|| p.string("constraint modes matrix filename"))
         .map(str::to_string);
-    if let Some(file) = file {
+    // Written by the lowest rank (`ParallelReduction(MyPe, 1)`).
+    if let Some(file) = file.filter(|_| ctx.comm.rank() == 0) {
         let text: String = c
             .iter()
             .map(|row| row.iter().map(|&v| elmer_saveio::fortran::list_real(v)).collect::<String>() + "\n")
