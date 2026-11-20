@@ -35,6 +35,7 @@ pub fn register(registry: &mut SolverRegistry) {
     let (lib, entry) = crate::REGISTRY_ENTRY;
     registry.register(lib, entry, factory);
     registry.register("Stokes", "StokesSolver", crate::stokes::factory);
+    registry.register("StreamSolver", "StreamSolver", crate::stream::factory);
     registry.register("FixTangentVelo", "FixTangentVelo", crate::fix_tangent::factory);
 }
 

@@ -36,6 +36,7 @@ pub mod fix_tangent;
 pub mod free_surface;
 pub mod solver;
 pub mod stokes;
+pub mod stream;
 
 pub use boundary::{flow_boundary_local, outward_normal, FlowBoundaryInput};
 pub use bulk::{flow_bulk_local, Discretization, FlowBulkInput, StabParams};
