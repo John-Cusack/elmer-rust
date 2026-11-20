@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use elmer_core::{MeshView, ParamMap, Value};
+use elmer_core::{normalize_key, MeshView, ParamMap, Value};
 use elmer_sif::{section_to_param_map, Section};
 use elmer_solver::Model;
 
@@ -43,10 +43,25 @@ fn single(section: &Option<Section>) -> ParamMap {
     section.as_ref().map(section_to_param_map).unwrap_or_default()
 }
 
-/// `-distribute` (SetNormalizedKeywords, MainUtils.F90:224) divides the
-/// value by the area or volume it acts on, and `Real Cubic Monotone` picks
-/// a monotone spline. Both live only on `elmer-sif`'s entries, so they are
-/// refused here.
+/// The `-distribute` keywords (SetNormalizedKeywords, MainUtils.F90:224,
+/// applied by `elmer-run`'s setup) of the sections whose weights scale them;
+/// elsewhere the tag changes nothing (`ListSetParameters` has no weights
+/// for them).
+fn distributed(m: &elmer_sif::Model) -> Vec<(elmer_solver::model::DistEntity, usize, String)> {
+    use elmer_solver::model::DistEntity as D;
+    let mut out = Vec::new();
+    for (kind, secs) in [(D::Body, &m.bodies), (D::BodyForce, &m.body_forces), (D::BoundaryCondition, &m.bcs), (D::Material, &m.materials)] {
+        for s in secs.iter() {
+            for e in s.entries.iter().filter(|e| e.distribute) {
+                out.push((kind, s.id as usize, normalize_key(&e.name)));
+            }
+        }
+    }
+    out
+}
+
+/// `Real Cubic Monotone` picks a monotone spline, which lives only on
+/// `elmer-sif`'s entries, so it is refused here.
 fn refuse_distribute(m: &elmer_sif::Model) -> Result<(), String> {
     let numbered: [(&str, &[Section]); 7] = [
         ("Solver", &m.solvers),
@@ -63,12 +78,6 @@ fn refuse_distribute(m: &elmer_sif::Model) -> Result<(), String> {
         .flat_map(|(kind, v)| v.iter().map(move |s| (*kind, s)))
         .chain(singles.iter().filter_map(|(kind, s)| s.as_ref().map(|s| (*kind, s))));
     for (kind, s) in all {
-        if let Some(e) = s.entries.iter().find(|e| e.distribute) {
-            return Err(format!(
-                "{kind} {}: {} = -distribute: keyword normalisation by area or volume is not implemented",
-                s.id, e.name
-            ));
-        }
         // `elmer-core`'s tables carry `cubic` only, so a monotone spline
         // would be evaluated as the plain cubic one.
         if let Some(e) = s.entries.iter().find(|e| matches!(&e.value, elmer_sif::Value::Table(t) if t.monotone)) {
@@ -100,6 +109,7 @@ pub fn to_model(m: &elmer_sif::Model) -> Result<Model, String> {
         initial_conditions: numbered("Initial Condition", &m.ics)?,
         boundary_conditions: numbered("Boundary Condition", &m.bcs)?,
         components: numbered("Component", &m.components)?,
+        distributed: distributed(m),
     })
 }
 

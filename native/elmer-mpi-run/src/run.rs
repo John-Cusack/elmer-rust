@@ -71,6 +71,9 @@ fn preflight(model: &Model, registry: &elmer_solver::SolverRegistry) -> Result<(
     // The solver sections go to the Simulation as given; the parallel
     // switches are applied once the variables exist (`prepare_slot`).
     crate::levels::splits(sim, &model.boundary_conditions)?;
+    if !model.distributed.is_empty() {
+        return Err(unsupported("-distribute keywords in parallel (the entity weights' reduction)"));
+    }
     // `Post File` is a ResultOutputSolver section by now (`prepare_vtu_output`).
     for key in ["post file", "coordinate transformation", "extruded mesh levels"] {
         if sim.get(key).is_some() {
