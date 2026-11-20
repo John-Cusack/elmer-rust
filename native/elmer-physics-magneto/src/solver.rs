@@ -60,23 +60,30 @@ pub fn whitney_kind(params: &ParamMap) -> Option<bool> {
 /// for the lowest-order (non-Piola) Whitney basis when the section gives
 /// none: `n:1 e:1`, or `n:0 e:1` in steady state without `Static
 /// Conductivity` (explicit, else set by a velocity body force or an
-/// `Electric Current Density` BC). Sections with the options that pick
+/// `Electric Current Density` BC). With `Use Piola Transform` alone (steady
+/// state, no Lagrange gauge) the first-order Piola one of
+/// [`crate::piola::init_element`]. Sections with the options that pick
 /// other bases are left alone (the solvers refuse them).
 pub fn whitney_init_section(params: &mut ParamMap, body_forces: &[ParamMap], bcs: &[ParamMap]) {
     let Some(harmonic) = whitney_kind(params) else { return };
     if params.get("element").is_some() {
         return;
     }
-    for k in ["use piola transform", "quadratic approximation", "second kind basis", "use tree gauge"] {
-        if params.logical(k) == Some(true) {
-            return;
-        }
-    }
     let prefix = |s: &ParamMap, p: &str| s.0.keys().any(|k| k.starts_with(p));
     let static_cond = params.logical("static conductivity").unwrap_or_else(|| {
         body_forces.iter().any(|b| prefix(b, "angular velocity") || prefix(b, "lorentz velocity"))
             || bcs.iter().any(|b| prefix(b, "electric current density"))
     });
+    let on = |k: &str| params.logical(k) == Some(true);
+    if on("use tree gauge") || on("quadratic approximation") || on("second kind basis") {
+        return;
+    }
+    if on("use piola transform") {
+        if !harmonic && !on("use lagrange gauge") {
+            params.insert("Element", Value::Str(crate::piola::init_element(static_cond).into()));
+        }
+        return;
+    }
     let e = if harmonic || static_cond { "n:1 e:1" } else { "n:0 e:1" };
     params.insert("Element", Value::Str(e.into()));
 }
@@ -201,6 +208,9 @@ impl Solver for WhitneyAv {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, transient: bool) -> Result<(), SolverError> {
         if transient {
             return Err(SolverError::Unsupported("transient WhitneyAVSolver".into()));
+        }
+        if !self.harmonic && crate::piola::is_piola(ctx.params()) {
+            return crate::piola::solve(ctx);
         }
         let case = Case::from_view(ctx.mesh, &ctx.sim.model);
         let id = ctx.solver_id();
