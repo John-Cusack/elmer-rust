@@ -29,6 +29,9 @@ pub(crate) struct Selected<'a> {
     pub dofs: usize,
     /// Components written: `max(dofs, 3)` for vectors, 1 for scalars.
     pub sdofs: usize,
+    /// A DG field written as cell data (DG saving off): the mesh's DG
+    /// indexes and whether only the corners count (`SaveLinear`).
+    pub dg: Option<(std::sync::Arc<crate::DgLayout>, bool)>,
 }
 
 pub(crate) struct Plan<'a> {
@@ -74,7 +77,7 @@ fn resolve<'a>(
         }
     };
     let sdofs = if dofs > 1 { dofs.max(3) } else { 1 };
-    Some(Selected { name: name.to_string(), comps, packed, dofs, sdofs })
+    Some(Selected { name: name.to_string(), comps, packed, dofs, sdofs, dg: None })
 }
 
 /// `CheckAnyDGField`: whether a `Scalar Field` / `Vector Field` name (or
@@ -144,11 +147,20 @@ pub(crate) fn plan<'a>(fields: &[FieldRef<'a>], opts: &VtuOptions, discont: bool
                 FieldKind::Elemental => p.cell.push(s),
                 FieldKind::Dg | FieldKind::Ip if discont => {}
                 FieldKind::Ip => p.cell.push(s),
-                FieldKind::Dg => {
-                    return Err(unsupported(format!(
-                        "DG field {name}: elmer-core::MeshView has no per-element DG indexes"
-                    )))
-                }
+                FieldKind::Dg => match &opts.dg_layout {
+                    // VtuOutputSolver.F90:1443-1447, 1629-1655: without DG
+                    // saving a DG field is cell data, the element mean.
+                    Some(l) => {
+                        let mut s = s;
+                        s.dg = Some((l.clone(), opts.save_linear));
+                        p.cell.push(s);
+                    }
+                    None => {
+                        return Err(unsupported(format!(
+                            "DG field {name}: elmer-core::MeshView has no per-element DG indexes"
+                        )))
+                    }
+                },
                 FieldKind::Nodal | FieldKind::Global | FieldKind::Edge => {}
             }
         }
@@ -262,7 +274,38 @@ impl Selected<'_> {
                     }
                 }
             }
-            _ => unreachable!("planned cell fields are elemental or integration-point"),
+            FieldKind::Dg => {
+                // ElemInd = Perm(DGIndexes(1:n)), a boundary element through
+                // its parent (Left, else Right); the mean when all are set.
+                let (layout, linear) = self.dg.as_ref().expect("planned DG cell fields carry the layout");
+                let n = crate::celltype::written_node_count(el.etype, *linear).min(el.nodes.len());
+                let ix = layout.index.get(e).ok_or_else(|| invalid(format!("no DG indexes for element {}", e + 1)))?;
+                let mut slots = Vec::with_capacity(n);
+                for &d in ix.iter().take(n) {
+                    let s = if d == NO_DOF {
+                        None
+                    } else {
+                        match f.perm {
+                            None => Some(d as usize),
+                            Some(p) => p.get(d as usize).copied().filter(|&s| s != NO_DOF).map(|s| s as usize),
+                        }
+                    };
+                    match s {
+                        Some(s) => slots.push(s),
+                        None => return Ok(()),
+                    }
+                }
+                if slots.len() == n && n > 0 {
+                    for (k, o) in out.iter_mut().enumerate().take(self.dofs) {
+                        let mut sum = 0.0;
+                        for &s in &slots {
+                            sum += self.at(s, k)?;
+                        }
+                        *o = sum / n as f64;
+                    }
+                }
+            }
+            _ => unreachable!("planned cell fields are elemental, integration-point or DG"),
         }
         Ok(())
     }
