@@ -26,11 +26,20 @@ pub(crate) struct AssemblyState {
 }
 
 /// Whether `DefaultFinishBulkAssembly` keeps the bulk system: `Calculate
-/// Loads` (unless `Calculate Loads Slot` names another stage) or `Control
-/// Use Loads` (DefUtils.F90:7797-7808). The other triggers (`Constant Bulk
-/// System`, ...) are refused where they are read.
+/// Loads` (unless `Calculate Loads Slot` names another stage), `Constant
+/// Bulk System`, `Save Bulk System`, `Constant Bulk Matrix`, `Constraint
+/// Modes Analysis` or `Control Use Loads` (DefUtils.F90:7797-7808).
 pub(crate) fn keeps_bulk(p: &ParamMap) -> Result<bool, SolverError> {
-    if p.logical("control use loads") == Some(true) || p.logical("constraint modes analysis") == Some(true) {
+    if [
+        "control use loads",
+        "constraint modes analysis",
+        "constant bulk system",
+        "save bulk system",
+        "constant bulk matrix",
+    ]
+    .iter()
+    .any(|k| p.logical(k) == Some(true))
+    {
         return Ok(true);
     }
     if p.logical("calculate loads") != Some(true) {

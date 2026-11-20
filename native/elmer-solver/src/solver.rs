@@ -759,6 +759,7 @@ impl<'a> SolverCtx<'a> {
         if !slot.asm.bulk_done && crate::loads::keeps_bulk(&slot.params)? {
             if let Some(sys) = slot.system.as_ref() {
                 slot.asm.bulk = Some((sys.matrix.values.clone(), sys.rhs.clone()));
+                slot.saved_bulk = slot.asm.bulk.clone();
             }
         }
         slot.asm.bulk_done = true;
@@ -782,6 +783,15 @@ impl<'a> SolverCtx<'a> {
         if !self.sim.slots[self.slot].asm.boundary_done {
             self.sim.set_nodal_loads(self.slot, self.mesh)?;
             self.sim.slots[self.slot].asm.boundary_done = true;
+            // DefUtils.F90:7917: `Constant System` keeps the whole system
+            // (bulk and boundary, before the Dirichlet conditions) in
+            // `BulkValues` / `BulkRHS`.
+            let slot = &mut self.sim.slots[self.slot];
+            if slot.params.logical("constant system") == Some(true) {
+                if let Some(sys) = slot.system.as_ref() {
+                    slot.saved_bulk = Some((sys.matrix.values.clone(), sys.rhs.clone()));
+                }
+            }
         }
         Ok(())
     }
@@ -1153,9 +1163,17 @@ impl<'a> SolverCtx<'a> {
 
     /// `DefaultDirichletBCs` + `EnforceDirichletConditions`.
     pub fn default_dirichlet(&mut self) -> Result<(), SolverError> {
+        self.default_dirichlet_after(&[])
+    }
+
+    /// [`default_dirichlet`](Self::default_dirichlet) after the solver set
+    /// `first` itself (`SetDirichletPoint` before `DefaultDirichletBCs`):
+    /// the boundary conditions' own values win where both set a dof.
+    pub fn default_dirichlet_after(&mut self, first: &[(u32, f64)]) -> Result<(), SolverError> {
         self.default_finish_boundary_assembly()?;
         let (values, rows) = self.dirichlet_values_with_rows()?;
-        let mut fixed: BTreeMap<u32, f64> = values.into_iter().collect();
+        let mut fixed: BTreeMap<u32, f64> = first.iter().copied().collect();
+        fixed.extend(values);
         self.passive_values(&mut fixed)?;
         crate::constraint_modes::set_boundaries(self, &mut fixed)?;
         let fixed: Vec<(u32, f64)> = fixed.into_iter().collect();
@@ -1649,6 +1667,44 @@ impl<'a> SolverCtx<'a> {
         self.sim.slots[self.slot]
             .variable
             .is_some_and(|id| self.sim.vars.by_id(id).conv.nonlin_converged > 0)
+    }
+
+    /// `A % BulkValues` and `A % BulkRHS`: the last bulk snapshot of this
+    /// solver's matrix, kept across assemblies.
+    pub fn saved_bulk(&self) -> Option<&(Vec<f64>, Vec<f64>)> {
+        self.sim.slots[self.slot].saved_bulk.as_ref()
+    }
+
+    /// `Solver % Matrix % Values = Solver % Matrix % BulkValues` (and the
+    /// right-hand side from `BulkRHS` when `rhs`), after `DefaultInitialize`.
+    /// `false` when no bulk system has been saved yet.
+    pub fn restore_saved_bulk(&mut self, rhs: bool) -> bool {
+        let slot = &mut self.sim.slots[self.slot];
+        let (Some((values, brhs)), Some(sys)) = (slot.saved_bulk.as_ref(), slot.system.as_mut()) else {
+            return false;
+        };
+        if values.len() != sys.matrix.values.len() || brhs.len() != sys.rhs.len() {
+            return false;
+        }
+        sys.matrix.values.copy_from_slice(values);
+        if rhs {
+            sys.rhs.copy_from_slice(brhs);
+        }
+        true
+    }
+
+    /// The bulk assembly of this pass is the restored one: a solver that
+    /// skips its bulk loop (`Constant Bulk System`) does not call
+    /// `DefaultFinishBulkAssembly`, so the saved bulk system stays as it was.
+    /// With `boundary` the boundary assembly is restored too (`Constant
+    /// System`): its nodal loads are in the saved right-hand side already.
+    pub fn reuse_bulk_assembly(&mut self, boundary: bool) {
+        let slot = &mut self.sim.slots[self.slot];
+        slot.asm.bulk = slot.saved_bulk.clone();
+        slot.asm.bulk_done = true;
+        if boundary {
+            slot.asm.boundary_done = true;
+        }
     }
 
     /// The assembled system, if any.
