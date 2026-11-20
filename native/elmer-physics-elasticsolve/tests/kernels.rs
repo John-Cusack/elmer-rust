@@ -192,6 +192,7 @@ fn small_strain_stiffness_is_the_linear_one() {
             want_mass: false,
             np: None,
             ip: None,
+            geometric: None,
         };
         let mut lin = LocalSystem::zeros(0);
         stress_bulk_local(&P1Basis, &Gauss, &inp, &mut lin).unwrap();

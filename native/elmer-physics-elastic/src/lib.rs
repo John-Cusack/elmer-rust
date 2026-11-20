@@ -33,7 +33,7 @@ pub mod solver;
 mod spring_assembly;
 
 pub use boundary::{stress_boundary_local, stress_boundary_local_p, Spring, StressBoundaryInput};
-pub use bulk::{shape_at_points, stress_bulk_local, stress_bulk_local_p, CoordSystem, IpProps, StressBulkInput};
+pub use bulk::{shape_at_points, stress_bulk_local, stress_bulk_local_p, CoordSystem, Geometric, IpProps, StressBulkInput};
 pub use error::StressError;
 pub use material::{diagonal_c, ElasticLaw};
 pub use solver::{install_fe, register, FeServices, StressSolver};

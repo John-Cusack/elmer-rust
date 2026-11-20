@@ -116,7 +116,6 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
         ("calculate pangle", "principal angle postprocessing"),
         ("update reference displacement", "staged construction"),
         ("legacy assembly", "legacy assembly"),
-        ("geometric stiffness", "geometric stiffness"),
         ("calculate loads", "load postprocessing"),
     ] {
         if flag(Some(p), key) {
@@ -766,8 +765,37 @@ impl Solver for StressSolver {
         } else {
             None
         };
-        let iters = if lumping { 6 } else { 1 };
+        // "Geometric Stiffness" (ElasticSolve.F90:1169, which StressSolve
+        // delegates to): two passes, a static solve with the eigen analysis
+        // switched off, then the eigen analysis with the geometric stiffness
+        // of the first pass's displacement added to the stiffness.
+        let geometric = flag(Some(ctx.params()), "geometric stiffness");
+        if geometric {
+            if axi {
+                return Err(SolverError::fatal(
+                    CALLER,
+                    "The geometric stiffness is implemented in cartesian coordinates only, as in StressSolve",
+                ));
+            }
+            if lumping || cs || cbs || cbm || transient || ctx.solver_dofs().is_some() {
+                return Err(unsupported("geometric stiffness with Model Lumping, the Constant keywords, a transient run or p elements"));
+            }
+        }
+        let orig_eigen = ctx.params().logical("eigen analysis") == Some(true);
+        let iters = if lumping { 6 } else if geometric { 2 } else { 1 };
         for iter in 1..=iters {
+            let geometric_active = geometric && iter > 1;
+            if geometric {
+                ctx.params_mut().insert("Eigen Analysis", elmer_core::Value::Logical(geometric_active && orig_eigen));
+            }
+            let eigen = ctx.nof_eigen() > 0 && ctx.params().logical("eigen analysis") == Some(true);
+            // The displacement of the previous pass, for the geometric term.
+            // (values, perm) of the previous pass's displacement.
+            type Field = (Vec<f64>, Option<Vec<u32>>);
+            let disp: Option<Field> = geometric_active.then(|| {
+                let v = ctx.primary().expect("the solver has its displacement");
+                (v.values.to_vec(), v.perm.map(<[u32]>::to_vec))
+            });
             ctx.default_initialize()?;
             // Reuse what an earlier pass saved (StressSolve.F90:919-936).
             let cbm_in_use = cbm && ctx.saved_bulk().is_some();
@@ -793,6 +821,23 @@ impl Solver for StressSolver {
                     return Err(unsupported("material or body force values at integration points on p elements"));
                 }
                 let plane_stress = flag(ctx.body_params(e).and_then(|b| b.equation), "plane stress");
+                let nodal_u: Option<Vec<[f64; 3]>> = disp.as_ref().map(|(vals, perm)| {
+                    nodes
+                        .iter()
+                        .map(|&nn| {
+                            let slot = perm.as_ref().map_or(Some(nn as usize), |p| {
+                                p.get(nn as usize).copied().filter(|&s| s != elmer_core::NO_DOF).map(|s| s as usize)
+                            });
+                            let mut u = [0.0; 3];
+                            if let Some(s) = slot {
+                                for (i, ui) in u.iter_mut().enumerate().take(cdim) {
+                                    *ui = vals[cdim * s + i];
+                                }
+                            }
+                            u
+                        })
+                        .collect()
+                });
                 let inp = StressBulkInput {
                     etype: el.etype,
                     xyz: &xyz,
@@ -812,6 +857,7 @@ impl Solver for StressSolver {
                     want_mass: transient || eigen,
                     np: None,
                     ip: d.ip.as_ref(),
+                    geometric: nodal_u.as_deref().map(|u| crate::bulk::Geometric { displacement: u, stability: false }),
                 };
                 let mut local = LocalSystem::zeros(0);
                 let fe = self.fe();
