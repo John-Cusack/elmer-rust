@@ -7,7 +7,7 @@ use elmer_cli::{ElmerLogger, ExitCode};
 use elmer_core::{LinalgError, MeshView, SerialComm};
 use elmer_solver::{Model, SolverError};
 
-use crate::case::{run_case, Case};
+use crate::case::Case;
 
 /// A case read from disk.
 pub struct LoadedCase {
@@ -17,6 +17,9 @@ pub struct LoadedCase {
     pub mesh: Box<dyn MeshView>,
     pub case_dir: PathBuf,
     pub mesh_dir: PathBuf,
+    /// The meshes solvers name with `Mesh` (`Model % Meshes` after the
+    /// first), by name.
+    pub solver_meshes: Vec<(String, Box<dyn MeshView>)>,
 }
 
 /// The `.sif` parser and mesh reader (S1's `elmer-sif` and `elmer-mesh`).
@@ -54,7 +57,7 @@ impl Engine for NativeEngine {
             case_dir: loaded.case_dir,
             mesh_dir: loaded.mesh_dir,
         };
-        match run_case(case, log, &SerialComm) {
+        match crate::case::run_case_with_meshes(case, loaded.solver_meshes, log, &SerialComm) {
             // Fortran exits 0 whatever the reference verdict; TEST.PASSED carries it.
             Ok(_) => EngineOutcome::Done(ExitCode::Pass),
             Err(

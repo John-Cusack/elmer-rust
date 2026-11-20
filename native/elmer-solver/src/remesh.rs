@@ -85,6 +85,9 @@ impl Simulation {
 
     /// Checks that the run can move to another mesh at all.
     fn check_swappable(&self, comm: &dyn Communicator) -> Result<(), SolverError> {
+        if !self.meshes.is_empty() {
+            return Err(unsupported("solver-specific meshes"));
+        }
         if comm.size() > 1 {
             return Err(unsupported("more than one partition"));
         }
