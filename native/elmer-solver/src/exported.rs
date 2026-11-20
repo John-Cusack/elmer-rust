@@ -285,6 +285,12 @@ pub fn dg_edges(mesh: &dyn MeshView) -> Result<Vec<(ElemId, Option<ElemId>, Vec<
             }
         }
     }
+    if let Some(keys) = mesh.edge_order().filter(|k| k.len() == out.len()) {
+        let mut ix: Vec<usize> = (0..out.len()).collect();
+        ix.sort_by_key(|&i| keys[i]);
+        let mut slots: Vec<Option<(ElemId, Option<ElemId>, Vec<u32>)>> = out.into_iter().map(Some).collect();
+        out = ix.into_iter().map(|i| slots[i].take().expect("a permutation")).collect();
+    }
     Ok(out)
 }
 
@@ -777,7 +783,7 @@ impl Simulation {
         let dofs = v.dofs;
         let n = mesh.n_nodes();
         let mut sum = vec![0.0f64; n];
-        let mut count = vec![0u32; n];
+        let mut count = vec![0.0f64; n];
         let slot = |t: usize, l: usize| {
             let d = dg.index[t][l];
             (d != NO_DOF).then(|| perm[d as usize]).filter(|&s| s != NO_DOF).map(|s| s as usize)
@@ -785,21 +791,27 @@ impl Simulation {
         for body in 1..=n_bodies {
             for k in 0..dofs {
                 sum.iter_mut().for_each(|x| *x = 0.0);
-                count.iter_mut().for_each(|x| *x = 0);
+                count.iter_mut().for_each(|x| *x = 0.0);
                 for t in (0..nb).filter(|&t| bodies[t] == Some(body)) {
                     for (l, &node) in mesh.element(ElemId(t as u32)).nodes.iter().enumerate() {
                         if let Some(s) = slot(t, l) {
                             sum[node as usize] += v.values[dofs * s + k];
-                            count[node as usize] += 1;
+                            count[node as usize] += 1.0;
                         }
                     }
                 }
-                if count.iter().all(|&c| c == 0) {
+                // Parallel: the interface nodes' sums and counts of the
+                // other partitions, halo elements included on every holder.
+                if let Some(nodes) = &self.backends.nodes {
+                    nodes.sum_shared(&mut sum)?;
+                    nodes.sum_shared(&mut count)?;
+                }
+                if count.iter().all(|&c| c == 0.0) {
                     continue;
                 }
                 for (x, &c) in sum.iter_mut().zip(&count) {
-                    if c > 0 {
-                        *x /= f64::from(c);
+                    if c > 0.0 {
+                        *x /= c;
                     }
                 }
                 for t in (0..nb).filter(|&t| bodies[t] == Some(body)) {

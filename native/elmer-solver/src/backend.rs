@@ -514,6 +514,19 @@ pub struct Backends {
     /// Mortar contact for solvers with `Apply Contact BCs`
     /// (`elmer-mortar`'s `DetermineContact`).
     pub contact: Option<Arc<dyn ContactBackend>>,
+    /// Sums over the mesh nodes shared between partitions; `None` in a
+    /// serial run.
+    pub nodes: Option<Box<dyn NodeInterface>>,
+}
+
+/// Nodal exchange between the partitions of a parallel run.
+pub trait NodeInterface: Send + Sync {
+    /// Adds the other partitions' values of each shared mesh node to this
+    /// rank's: its own value first, then the other holders' in ascending
+    /// rank order (`SendInterface` / `RecvInterface` of
+    /// `CalculateBodyAverage`, MeshBasics.F90). `v` has one value per local
+    /// mesh node. Collective.
+    fn sum_shared(&self, v: &mut [f64]) -> Result<(), SolverError>;
 }
 
 /// The three places the library calls into mortar contact during a
@@ -558,6 +571,7 @@ impl Default for Backends {
             dofs: None,
             conforming: None,
             contact: None,
+            nodes: None,
         }
     }
 }

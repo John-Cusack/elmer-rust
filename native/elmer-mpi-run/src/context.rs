@@ -28,6 +28,8 @@ pub struct RankContext {
     node_gid: Vec<u64>,
     node_owner: Vec<usize>,
     matrices: RefCell<Vec<Registered>>,
+    /// The mesh nodes as dofs, built on first use.
+    nodes: RefCell<Option<Rc<DofLayout>>>,
 }
 
 thread_local! {
@@ -47,7 +49,7 @@ impl RankContext {
     /// Makes this the thread's context until the guard drops. `node_gid`
     /// and `node_owner` describe the local mesh nodes.
     pub fn install(ex: Box<dyn Exchange>, node_gid: Vec<u64>, node_owner: Vec<usize>) -> (Rc<Self>, ContextGuard) {
-        let ctx = Rc::new(RankContext { ex, node_gid, node_owner, matrices: RefCell::new(Vec::new()) });
+        let ctx = Rc::new(RankContext { ex, node_gid, node_owner, matrices: RefCell::new(Vec::new()), nodes: RefCell::new(None) });
         CONTEXT.with(|c| *c.borrow_mut() = Some(Rc::clone(&ctx)));
         (ctx, ContextGuard(()))
     }
@@ -85,6 +87,31 @@ impl RankContext {
             owner,
             layout: None,
         });
+    }
+
+    /// Records a matrix whose rows have the global dof ids `gid` and owners
+    /// `owner` given directly (a DG solver's, [`MatrixParallelInfoDG`]).
+    pub fn register_rows(&self, gid: Vec<u64>, owner: Vec<usize>, a: &CsrMatrix<f64>) {
+        let mut m = self.matrices.borrow_mut();
+        m.retain(|r| r.row_ptr != a.row_ptr || r.col_idx != a.col_idx);
+        m.push(Registered { row_ptr: a.row_ptr.clone(), col_idx: a.col_idx.clone(), gid, owner, layout: None });
+    }
+
+    /// Every holder's value of each shared mesh node summed into each copy,
+    /// own value first, then the other holders' in ascending rank order.
+    /// Collective (and again on first use, to build the node layout).
+    pub fn sum_shared_nodes(&self, v: &mut [f64]) -> Result<(), DistError> {
+        let built = self.nodes.borrow().clone();
+        let layout = match built {
+            Some(l) => l,
+            None => {
+                let l = Rc::new(DofLayout::new(&*self.ex, self.node_gid.clone(), self.node_owner.clone())?);
+                *self.nodes.borrow_mut() = Some(Rc::clone(&l));
+                l
+            }
+        };
+        layout.sum_shared(&*self.ex, v);
+        Ok(())
     }
 
     /// The dof layout of a matrix registered with [`register`](Self::register),

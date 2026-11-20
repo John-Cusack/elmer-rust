@@ -50,6 +50,8 @@ pub mod unported;
 pub use case::{fixture_case, run_case, run_case_with, Case, Outcome, RunEnv};
 /// The test-local plugin ports, for runners built on this crate.
 pub use elmer_fixtures;
+/// The p and DG dofs backend, for the partitioned runner.
+pub use elmer_pdofs;
 pub use compose::{coordinate_system, fe_backend, fe_provider, install_fe, solver_registry, solver_registry_for};
 pub use matc::SifMatc;
 pub use engine::{Frontend, LoadedCase, NativeEngine};

@@ -46,4 +46,10 @@ pub trait MeshView: Sync {
     fn element_faces(&self, _e: ElemId) -> Option<&[u32]> {
         None
     }
+    /// A partitioned mesh's global number of each DG edge, in the order the
+    /// edges are first met over the bulk elements: `ElmerSolver_mpi` sorts
+    /// its edge table by these (`SParEdgeNumbering`). `None` keeps that order.
+    fn edge_order(&self) -> Option<&[u64]> {
+        None
+    }
 }

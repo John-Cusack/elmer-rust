@@ -235,6 +235,9 @@ pub struct SolverSlot {
     /// `Solver % PeriodicFlipActive`: the solver numbers its dofs by the
     /// conforming map and some of its nodes are flipped.
     pub(crate) conforming_flip: bool,
+    /// Ownership of the system's rows when the run gives it per row (a DG
+    /// solver's, owned by the element's partition), for the consistent norm.
+    pub owned_rows: Option<Arc<[bool]>>,
     /// The slot's mesh: 0 for the run's first mesh, else the solver mesh
     /// of its `Mesh` keyword ([`crate::multimesh`]).
     pub mesh_ix: usize,
@@ -293,6 +296,7 @@ impl SolverSlot {
             conforming_flip: false,
             mesh_ix: 0,
             weights_done: false,
+            owned_rows: None,
         })
     }
 
@@ -413,6 +417,9 @@ pub struct Simulation {
     pub(crate) save_current: Option<Box<dyn SaveCurrent>>,
     /// Whether this rank owns each mesh node ([`Simulation::set_node_owned`]).
     node_owned: Option<Arc<[bool]>>,
+    /// Elements of another partition (`Element % PartIndex /= myPE`): the
+    /// halo of an `ElmerGrid -halo` partitioning ([`Simulation::set_halo_elements`]).
+    halo: Option<Arc<[bool]>>,
     /// ARPACK's saved state (`dgetv0`'s seed), kept across eigen solves as
     /// in one ElmerSolver process.
     pub(crate) arpack: elmer_eigen::arpack::saupd::Arpack,
@@ -531,6 +538,7 @@ impl Simulation {
             block_tot: None,
             save_current: None,
             node_owned: None,
+            halo: None,
             arpack: Default::default(),
             zarpack: Default::default(),
             extra_meshes: Vec::new(),
@@ -613,6 +621,40 @@ impl Simulation {
 
     pub fn set_node_owned(&mut self, owned: Arc<[bool]>) {
         self.node_owned = Some(owned);
+    }
+
+    /// Marks the elements (bulk then boundary, mesh order) that belong to
+    /// another partition, before [`setup`](Simulation::setup). They are
+    /// left out of every solver's active elements (`SetActiveElementsTable`
+    /// skips `PartIndex /= myPE`), but a DG solver numbers their DG nodes
+    /// (`InitialPermutation`'s DG branch tests only the equation), and a face
+    /// between partitions is assembled at half weight on both
+    /// ([`SolverCtx::partition_share`](crate::SolverCtx::partition_share)).
+    pub fn set_halo_elements(&mut self, halo: Arc<[bool]>) {
+        self.halo = Some(halo);
+    }
+
+    /// [`Simulation::set_halo_elements`]'s flags, `None` without halo.
+    pub fn halo_elements(&self) -> Option<&[bool]> {
+        self.halo.as_deref()
+    }
+
+    /// The solver's active elements and, in a run with halo elements, the
+    /// halo bulk elements whose body has the solver: the elements
+    /// `InitialPermutation` numbers (it tests the equation, not
+    /// `PartIndex`), in mesh order.
+    pub(crate) fn active_with_halo(&self, slot: &SolverSlot, mesh: &dyn MeshView) -> Vec<ElemId> {
+        let Some(h) = self.halo.as_ref() else { return slot.active.clone() };
+        let mut v = slot.active.clone();
+        v.extend((0..mesh.n_bulk() as u32).map(ElemId).filter(|e| {
+            h[e.0 as usize]
+                && self
+                    .model
+                    .body_of_tag(mesh.element(*e).tag)
+                    .is_some_and(|b| self.model.solver_active_on_body(slot.id, b))
+        }));
+        v.sort_unstable_by_key(|e| e.0);
+        v
     }
 
     /// [`Simulation::set_node_owned`]'s flags, `None` in a serial run.
@@ -809,6 +851,7 @@ impl Simulation {
                 let body = if (e.0 as usize) < nb { self.model.body_of_tag(tag) } else { self.model.boundary_body(tag) };
                 body.is_some_and(|b| self.model.solver_active_on_body(i + 1, b))
             })
+            .filter(|e| self.halo.as_ref().is_none_or(|h| !h[e.0 as usize]))
             .collect();
         if self.is_transient() {
             self.set_time_order(&mut slot)?;
@@ -897,7 +940,9 @@ impl Simulation {
                 FieldKind::Nodal => {
                     let perm: Arc<[u32]> = match &slot.perm {
                         Some(p) => p.clone(),
-                        None => node_order_perm(mesh, &slot.active).perm.into(),
+                        // `InitialPermutation` tests the equation only, so
+                        // the nodes of halo elements are numbered too.
+                        None => node_order_perm(mesh, &self.active_with_halo(slot, mesh)).perm.into(),
                     };
                     let n = perm.iter().filter(|&&s| s != NO_DOF).count();
                     let mut values = vec![0.0; n * spec.dofs];
@@ -1264,9 +1309,13 @@ impl Simulation {
         if spec.kind != FieldKind::Nodal {
             return Err(SolverError::Unsupported(format!("{:?} solver variable", spec.kind)));
         }
+        // A DG solver also numbers the DG nodes of its halo elements.
+        let dg_halo = slot.params.logical("discontinuous galerkin") == Some(true) && self.halo.is_some();
+        let with_halo = if dg_halo { self.active_with_halo(slot, mesh) } else { Vec::new() };
+        let layout_active: &[ElemId] = if dg_halo { &with_halo } else { &slot.active };
         let layout: Option<Arc<dyn crate::SolverDofs>> = match &self.backends.dofs {
             Some(b) => b
-                .for_solver_id(mesh, &self.model, slot.id, &slot.params, &slot.active, spec.dofs)
+                .for_solver_id(mesh, &self.model, slot.id, &slot.params, layout_active, spec.dofs)
                 .transpose()?
                 .map(Arc::from),
             None => None,
@@ -1602,6 +1651,7 @@ impl Simulation {
             rhs: sys.map(|s| s.rhs.as_slice()),
             n_nodes: mesh.n_nodes(),
             node_owned: self.node_owned.as_deref(),
+            row_owned: slot.owned_rows.as_deref(),
             log,
             comm,
         };

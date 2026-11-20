@@ -224,10 +224,37 @@ impl<'a> SolverCtx<'a> {
         self.sim.vars.strided_mut(name)
     }
 
+    /// The share of a face (or boundary) element's contribution this
+    /// partition assembles (`DefaultUpdateEquations` in parallel,
+    /// DefUtils.F90:4815): `None` when its parents are all on other
+    /// partitions, `0.5` when one of two is, else `1.0`. Always `1.0`
+    /// without halo elements.
+    pub fn partition_share(&self, parents: [Option<ElemId>; 2]) -> Option<f64> {
+        let Some(h) = self.sim.halo_elements() else { return Some(1.0) };
+        let halo = |e: ElemId| h[e.0 as usize];
+        match parents {
+            [Some(l), Some(r)] => match (halo(l), halo(r)) {
+                (true, true) => None,
+                (false, false) => Some(1.0),
+                _ => Some(0.5),
+            },
+            [Some(p), None] | [None, Some(p)] => (!halo(p)).then_some(1.0),
+            [None, None] => Some(1.0),
+        }
+    }
+
     /// Bulk elements the solver is active on, in mesh order
     /// (`Solver % ActiveElements`).
     pub fn active_elements(&self) -> impl Iterator<Item = ElemId> + '_ {
         self.sim.slots[self.slot].active.iter().copied()
+    }
+
+    /// The active elements plus, in a partitioned run with halo elements,
+    /// the halo bulk elements whose body has the solver: what
+    /// `CheckElementEquation` loops (`InitialPermutation`, `CreateNodalPerm`)
+    /// take, in mesh order.
+    pub fn equation_elements(&self) -> Vec<ElemId> {
+        self.sim.active_with_halo(&self.sim.slots[self.slot], self.mesh)
     }
 
     /// Boundary elements that carry a boundary condition, in mesh order.
