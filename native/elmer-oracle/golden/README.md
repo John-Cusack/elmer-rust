@@ -44,7 +44,10 @@ directories for `quick` is wrong: it also finds tests behind
 - The variable scale is the largest `‖·‖∞` over the components of the
   solver variable the field belongs to, taken from the result file's
   preamble (`flow solution[velocity:3 pressure:1]` groups `velocity 1..3`
-  and `pressure`).
+  and `pressure`). Component names may hold spaces:
+  `potential[potential re:1 potential im:1]` groups `potential re` and
+  `potential im`, and `coilpot grad[coilpot grad:2]` groups
+  `coilpot grad 1..2`.
 - A scalar variable is its own scale, so its metric is unchanged.
 - **Exact zeros stay exact.** A golden field that is identically zero keeps
   the exact-zero rule. Any candidate value beyond one ulp of its variable's
@@ -64,9 +67,14 @@ Both sensitivity arms, graded as candidates, pass all 467 tests that have
 fields.
 
 **Kill/escalate check (§5.2), signed off through firstmate (D11).**
-- **With the floor: 25/482 (5.2%)** tests have σ_F > 0.1 × their RefNorm
+- **With the floor: 24/482 (5.0%)** tests have σ_F > 0.1 × their RefNorm
   tolerance once eigen tests are graded by eigen mode; the raw count is
-  30/482.
+  29/482. The count was 25/482 (30 raw) until the preamble groups kept
+  spaced component names: before that fix, 44 tests had groups that named
+  no saved field (`grad 1` for `coilpot grad 1`, `re`/`im` for
+  `potential re`/`im`), so those components had no variable-scale floor.
+  With the floor, mgdyn_steady_2ndorder's σ_F drops from 4.3e-4 to under
+  0.1 × 1e-5, and it leaves `tier-a-unfit`.
 - **Before the floor** (signed off with
   https://github.com/John-Cusack/elmer-rust/pull/212), the count was 46/482
   (9.5%), or 51/482 (10.6%) raw. The 5 eigen tests are excluded because an
@@ -74,7 +82,7 @@ fields.
   up to rotation): a legitimate reordering can flip it, which gives O(1)
   raw distance. §4.1 grades them by eigen mode (sort eigenvalues, normalise
   signs, compare clusters by principal angles).
-- The 25 are classed `tier-a-unfit` or `structure-differs` in `classes.tsv`
+- The 24 are classed `tier-a-unfit` or `structure-differs` in `classes.tsv`
   and graded by O1+O4+O6, as §5.2 prescribes.
 
 ## Mutation suite
