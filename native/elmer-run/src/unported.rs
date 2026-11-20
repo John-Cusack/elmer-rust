@@ -10,6 +10,8 @@ use elmer_solver::sim::parse_variable_spec;
 use elmer_solver::{Model, SolverError};
 
 enum Test {
+    // No rule tests a bare presence at the moment.
+    #[allow(dead_code)]
     Present,
     True,
 }
@@ -20,6 +22,7 @@ struct Rule {
     reason: &'static str,
 }
 
+#[allow(dead_code)]
 const fn present(key: &'static str, reason: &'static str) -> Rule {
     Rule { key, test: Test::Present, reason }
 }
@@ -38,10 +41,6 @@ const SOLVER: &[Rule] = &[
     // reproduces to all digits without the keyword.
     flag("Follow P Curvature", "curved p-element boundaries are not implemented"),
     flag("Adaptive Mesh Refinement", "mesh refinement is not implemented"),
-    // SolverBasics.F90:6859: integration-point fields projected to
-    // `<name>_nodal` / elemental / DG variables after the solve; nothing
-    // creates them, so the case would run without them (IpVariable2).
-    present("Project Variable 1", "projections of integration-point variables are not implemented"),
 ];
 
 /// `Solver i :: Mesh`: a solver of its own mesh (`elmer_solver::multimesh`)
