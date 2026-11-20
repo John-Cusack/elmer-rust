@@ -88,7 +88,9 @@ fn check(case: &Case, sp: &ParamMap) -> Result<(), MagnetoError> {
             Some(_) => return Err(MagnetoError::unsupported(format!("WhitneyAVHarmonicSolver option '{k}'"))),
         }
     }
-    if sp.get("element").is_some() {
+    // `_Init0`'s own `n:1 e:1` (elmer-run sets it) is the basis ported.
+    let element = sp.string("element").map(|e| e.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase());
+    if element.is_some_and(|e| e != "n:1 e:1") {
         return Err(MagnetoError::unsupported("an explicit 'Element' definition"));
     }
     if sp.logical("linear system complex") == Some(false) {
@@ -143,6 +145,14 @@ fn check(case: &Case, sp: &ParamMap) -> Result<(), MagnetoError> {
 /// `WhitneyAVHarmonicSolver` for solver section `solver_id`, one
 /// nonlinear iteration (exact for linear materials).
 pub fn solve_harmonic(case: &Case, solver_id: usize) -> Result<HarmonicSolution, MagnetoError> {
+    solve_harmonic_ordered(case, solver_id, None)
+}
+
+/// [`solve_harmonic`] with the system renumbered before the Dirichlet and
+/// solve steps: `order[i]` is Elmer's slot of layout slot `i` (`Element =
+/// n:1 e:1`, InitialPermutation + OptimizeBandwidth), so the solve sees
+/// Elmer's row order. The returned values are in layout order.
+pub fn solve_harmonic_ordered(case: &Case, solver_id: usize, order: Option<&[u32]>) -> Result<HarmonicSolution, MagnetoError> {
     let sp = case
         .solver(solver_id)
         .ok_or_else(|| MagnetoError::Input(format!("no Solver {solver_id}")))?;
@@ -313,6 +323,12 @@ pub fn solve_harmonic(case: &Case, solver_id: usize) -> Result<HarmonicSolution,
         });
     }
 
+    if let Some(order) = order {
+        a = crate::layout::permute_matrix(&a, order);
+        rhs = crate::layout::to_order(&rhs, order);
+        fixed = crate::layout::to_order(&fixed, order);
+    }
+
     // ConstrainUnused (WhitneyAVHarmonicSolver.F90:795).
     let diag = a.diag.clone().expect("diagonal");
     for r in 0..n {
@@ -327,6 +343,9 @@ pub fn solve_harmonic(case: &Case, solver_id: usize) -> Result<HarmonicSolution,
 
     let mut x: Vec<Complex64> = fixed.iter().map(|v| v.unwrap_or_default()).collect();
     let stats = solve_complex(sp, &mut a, &mut rhs, &mut x)?;
+    if let Some(order) = order {
+        x = crate::layout::from_order(&x, order);
+    }
 
     let mut s = 0.0;
     for v in &x {

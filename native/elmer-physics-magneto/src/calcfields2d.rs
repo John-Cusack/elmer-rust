@@ -961,17 +961,29 @@ fn edge_points(
         .ok_or_else(|| SolverError::fatal(CALLER, "a CalcFields element outside the potential's elements"))?;
     let np = if lay.with_v { n } else { 0 };
     let pv = ctx.sim.vars.by_id(pvar);
+    // The element's slots: the target's framework layout (`GetElementDOFs`
+    // of `Element = n:1 e:1`, nodes then edges, as elmer-run sets it), else
+    // its own AvLayout.
+    let target = ctx.sim.slots.iter().position(|s| s.variable == Some(pvar)).and_then(|ix| ctx.sim.slot_dofs(ix));
+    let slots: Vec<u32> = match &target {
+        Some(d) => {
+            let mut v = Vec::new();
+            d.element_slots(e, &mut v);
+            v
+        }
+        None => lay.dofs_of(&el.nodes, &eids),
+    };
+    if slots.len() != np + eids.len() || slots.contains(&elmer_core::NO_DOF) {
+        return Err(SolverError::fatal(CALLER, "the potential's element DOFs do not match its layout"));
+    }
     let mut solv = vec![vec![0.0; np]; vdofs];
     let mut sole = vec![vec![0.0; eids.len()]; vdofs];
     for k in 0..vdofs {
-        for (i, &nd) in el.nodes.iter().take(np).enumerate() {
-            let slot = lay.node_slot[nd as usize];
-            if slot != u32::MAX {
-                solv[k][i] = pv.values[vdofs * slot as usize + k];
-            }
+        for i in 0..np {
+            solv[k][i] = pv.values[vdofs * slots[i] as usize + k];
         }
-        for (j, &ed) in eids.iter().enumerate() {
-            sole[k][j] = pv.values[vdofs * (lay.n_nodal + ed as usize) + k];
+        for j in 0..eids.len() {
+            sole[k][j] = pv.values[vdofs * slots[np + j] as usize + k];
         }
     }
     let (xyz, gindex) = crate::layout::geometry(case, &el.nodes);
