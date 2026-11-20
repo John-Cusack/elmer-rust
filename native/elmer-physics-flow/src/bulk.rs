@@ -70,6 +70,15 @@ pub struct FlowBulkInput<'a> {
     /// `Viscosity Model = power law` (EffectiveViscosity,
     /// MaterialModels.F90), `None` for a Newtonian viscosity.
     pub power_law: Option<PowerLaw<'a>>,
+    /// Legacy bubbles (`Stabilization Method = bubbles`): `2n` basis
+    /// functions, the nodal ones times the element bubble (ElementInfo's
+    /// `EvalBubbleBasis`), on the `GaussPoints2` rule, without
+    /// stabilization. `out` is `2n * (dim + 1)`; FlowSolve condenses the
+    /// bubbles (`NSCondensate`).
+    pub bubbles: bool,
+    /// `Porous Media`: `Porous Resistivity` at the nodes, the drag `mu *
+    /// Drag(i) * u_i` in momentum equation `i`.
+    pub porous: Option<&'a [[f64; 3]]>,
 }
 
 /// The nodal parameters of the power-law viscosity `mu = Viscosity *
@@ -116,7 +125,15 @@ pub fn flow_bulk_local(
         return Err(FlowError::Unsupported(format!("coordinate dimension {dim}")));
     }
 
-    let nd = n * c;
+    if inp.bubbles && inp.power_law.is_some() {
+        return Err(FlowError::Unsupported("a power-law viscosity with legacy bubbles".into()));
+    }
+    if let Some(d) = inp.porous {
+        check_len("porous resistivity", n, d.len())?;
+    }
+    // NBasis.
+    let nbs = if inp.bubbles { 2 * n } else { n };
+    let nd = nbs * c;
     out.n = nd;
     out.stiff.clear();
     out.stiff.resize(nd * nd, 0.0);
@@ -140,7 +157,8 @@ pub fn flow_bulk_local(
         dnodal[k].copy_from_slice(&be.dbasis_dx[..n]);
     }
 
-    let points = quad.gauss_points(inp.etype, inp.np);
+    let np = if inp.bubbles { Some(def.gauss_points2) } else { inp.np };
+    let points = quad.gauss_points(inp.etype, np);
     if points.is_empty() {
         return Err(FlowError::NoQuadrature(inp.etype.0));
     }
@@ -162,6 +180,12 @@ pub fn flow_bulk_local(
         let s = be.det_j * qp.weight;
         let phi = &be.basis[..n];
         let dphi = &be.dbasis_dx[..n];
+        // The basis of the assembly loops: the nodal one, then the bubbles.
+        let (bphi, bdphi) = if inp.bubbles {
+            bubble_basis(inp.etype, phi, dphi)?
+        } else {
+            (phi.to_vec(), dphi.to_vec())
+        };
 
         let interp = |v: &dyn Fn(usize) -> f64| (0..n).map(|k| v(k) * phi[k]).sum::<f64>();
         let rho = interp(&|k| inp.density[k]);
@@ -228,11 +252,18 @@ pub fn flow_bulk_local(
 
         // Stabilization: Tau, Delta and the residual (SU) and weight (SW)
         // operators of each basis function.
+        // Drag(i) = SUM(NodalDrag(i,1:n) * Basis(1:n)).
+        let drag: [f64; 3] = match inp.porous {
+            Some(d) => std::array::from_fn(|i| (0..n).fold(0.0, |acc, k| acc + d[k][i] * phi[k])),
+            None => [0.0; 3],
+        };
         let mut dmudx = [0.0; 3];
         for (i, d) in dmudx.iter_mut().enumerate() {
             *d = (0..n).map(|k| inp.viscosity[k] * dphi[k][i]).sum();
         }
-        let (tau, delta) = if inp.convect {
+        let (tau, delta) = if inp.bubbles {
+            (0.0, 0.0)
+        } else if inp.convect {
             let vnorm = velo[..dim].iter().map(|v| v * v).sum::<f64>().sqrt().max(1.0e-12);
             let re = (rho * mk * hk * vnorm / (4.0 * mu)).min(1.0);
             (hk * re / (2.0 * rho * vnorm), rho * re * hk * vnorm)
@@ -253,6 +284,9 @@ pub fn flow_bulk_local(
             let conv: f64 = (0..dim).map(|j| dphi[p][j] * velo[j]).sum();
             for i in 0..dim {
                 u[i][dim] += dphi[p][i];
+                if inp.porous.is_some() {
+                    u[i][i] += mu * drag[i] * phi[p];
+                }
                 if inp.convect {
                     u[i][i] += rho * conv;
                 }
@@ -285,16 +319,16 @@ pub fn flow_bulk_local(
 
         let a = &mut out.stiff;
         let disc = inp.discretization;
-        for p in 0..n {
-            for q in 0..n {
+        for p in 0..nbs {
+            for q in 0..nbs {
                 // Viscous term.
                 for i in 0..dim {
                     for j in 0..dim {
-                        a[ij(at(p, i), at(q, i))] += s * mu * dphi[q][j] * dphi[p][j];
+                        a[ij(at(p, i), at(q, i))] += s * mu * bdphi[q][j] * bdphi[p][j];
                         if disc.div {
-                            a[ij(at(p, i), at(q, j))] += s * mu * dphi[q][j] * dphi[p][i];
+                            a[ij(at(p, i), at(q, j))] += s * mu * bdphi[q][j] * bdphi[p][i];
                         } else if !disc.laplace {
-                            a[ij(at(p, i), at(q, j))] += s * mu * dphi[q][i] * dphi[p][j];
+                            a[ij(at(p, i), at(q, j))] += s * mu * bdphi[q][i] * bdphi[p][j];
                         }
                     }
                 }
@@ -304,9 +338,9 @@ pub fn flow_bulk_local(
                 if inp.convect {
                     for i in 0..dim {
                         for j in 0..dim {
-                            a[ij(at(p, i), at(q, i))] += s * rho * dphi[q][j] * velo[j] * phi[p];
+                            a[ij(at(p, i), at(q, i))] += s * rho * bdphi[q][j] * velo[j] * bphi[p];
                             if inp.newton {
-                                a[ij(at(p, i), at(q, j))] += s * rho * grad[i][j] * phi[q] * phi[p];
+                                a[ij(at(p, i), at(q, j))] += s * rho * grad[i][j] * bphi[q] * bphi[p];
                             }
                         }
                     }
@@ -315,23 +349,28 @@ pub fn flow_bulk_local(
                 let cont = if inp.convect { rho } else { 1.0 };
                 for i in 0..dim {
                     if disc.gradp {
-                        a[ij(at(p, i), at(q, dim))] += s * dphi[q][i] * phi[p];
-                        a[ij(at(p, dim), at(q, i))] -= s * rho * phi[q] * dphi[p][i];
+                        a[ij(at(p, i), at(q, dim))] += s * bdphi[q][i] * bphi[p];
+                        a[ij(at(p, dim), at(q, i))] -= s * rho * bphi[q] * bdphi[p][i];
                     } else {
-                        a[ij(at(p, i), at(q, dim))] -= s * phi[q] * dphi[p][i];
-                        a[ij(at(p, dim), at(q, i))] += s * cont * dphi[q][i] * phi[p];
+                        a[ij(at(p, i), at(q, dim))] -= s * bphi[q] * bdphi[p][i];
+                        a[ij(at(p, dim), at(q, i))] += s * cont * bdphi[q][i] * bphi[p];
+                    }
+                }
+                if inp.porous.is_some() {
+                    for i in 0..dim {
+                        a[ij(at(p, i), at(q, i))] += s * mu * drag[i] * bphi[q] * bphi[p];
                     }
                 }
                 if let Some(m) = mass.as_mut() {
                     for i in 0..dim {
-                        m[ij(at(p, i), at(q, i))] += s * rho * phi[q] * phi[p];
+                        m[ij(at(p, i), at(q, i))] += s * rho * bphi[q] * bphi[p];
                     }
                 }
                 // Coriolis (NavierStokes.F90:971-1002). The Fortran's last 3D
                 // update writes A(1,3) once more where A(3,1) is meant, so
                 // A(1,3) nets out and A(3,1) stays unset; kept as it is.
                 if let Some(om) = inp.omega {
-                    let mc = 2.0 * s * rho * phi[q] * phi[p];
+                    let mc = 2.0 * s * rho * bphi[q] * bphi[p];
                     a[ij(at(p, 0), at(q, 1))] -= mc * om[2];
                     a[ij(at(p, 1), at(q, 0))] += mc * om[2];
                     if dim == 3 {
@@ -343,6 +382,9 @@ pub fn flow_bulk_local(
                 }
 
                 // Stabilization.
+                if inp.bubbles {
+                    continue;
+                }
                 for i in 0..c {
                     for j in 0..c {
                         let swsu: f64 = (0..dim).map(|k| sw[p][i][k] * su[q][k][j]).sum();
@@ -352,21 +394,24 @@ pub fn flow_bulk_local(
                 if let Some(m) = mass.as_mut() {
                     for j in 0..c {
                         for i in 0..dim {
-                            m[ij(at(p, j), at(q, i))] += s * tau * rho * phi[q] * sw[p][j][i];
+                            m[ij(at(p, j), at(q, i))] += s * tau * rho * bphi[q] * sw[p][j][i];
                         }
                     }
                 }
                 for i in 0..dim {
                     for j in 0..dim {
-                        a[ij(at(p, j), at(q, i))] += s * delta * dphi[q][i] * dphi[p][j];
+                        a[ij(at(p, j), at(q, i))] += s * delta * bdphi[q][i] * bdphi[p][j];
                     }
                 }
             }
         }
 
-        for p in 0..n {
+        for p in 0..nbs {
             for (i, f) in force.iter().enumerate().take(c) {
-                out.force[at(p, i)] += s * rho * f * phi[p];
+                out.force[at(p, i)] += s * rho * f * bphi[p];
+            }
+            if inp.bubbles {
+                continue;
             }
             for i in 0..dim {
                 for j in 0..c {
@@ -391,6 +436,48 @@ pub fn flow_bulk_local(
     }
     out.mass = mass;
     Ok(())
+}
+
+/// `EvalBubbleBasis` (ElemInfo.F90): the `n` bubble functions `Basis(i) *
+/// Bubble` after the nodal ones, `Bubble` the product of the linear
+/// element's functions at opposite corners (all of them on a simplex).
+#[allow(clippy::type_complexity)]
+fn bubble_basis(etype: ElementType, phi: &[f64], dphi: &[[f64; 3]]) -> Result<(Vec<f64>, Vec<[f64; 3]>), FlowError> {
+    let n = phi.len();
+    // The factors of the bubble: LinBasis indices (0-based).
+    let f: &[usize] = match etype.0 {
+        202 => &[0, 1],
+        303 => &[0, 1, 2],
+        404 => &[0, 2],
+        504 => &[0, 1, 2, 3],
+        808 => &[0, 6],
+        t => {
+            return Err(FlowError::Unsupported(format!(
+                "legacy bubbles on element type {t} (only linear elements; ElementInfo would evaluate the linear sub-element)"
+            )))
+        }
+    };
+    let bubble = f.iter().skip(1).fold(phi[f[0]], |acc, &k| acc * phi[k]);
+    let mut b = phi.to_vec();
+    let mut db = dphi.to_vec();
+    for i in 0..n {
+        b.push(phi[i] * bubble);
+        let mut g = [0.0; 3];
+        for (j, gj) in g.iter_mut().enumerate() {
+            *gj = dphi[i][j] * bubble;
+            // + Basis(i) * dLinBasisdx(f_m, j) * (product of the other factors).
+            for m in 0..f.len() {
+                let others = f.iter().enumerate().filter(|&(l, _)| l != m).map(|(_, &k)| phi[k]);
+                let mut t = phi[i] * dphi[f[m]][j];
+                for o in others {
+                    t *= o;
+                }
+                *gj += t;
+            }
+        }
+        db.push(g);
+    }
+    Ok((b, db))
 }
 
 /// `EffectiveViscosity` for `power law` in cartesian coordinates: replaces

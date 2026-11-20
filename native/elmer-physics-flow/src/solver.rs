@@ -131,7 +131,9 @@ fn check_stabilization(p: &ParamMap) -> Result<(), SolverError> {
         // NavierStokesCylindricalCompose's p bubbles; the solver checks the
         // coordinates and the elements.
         "pbubbles" => Ok(()),
-        "bubbles" | "p2/p1" | "p2p1" | "vms" => {
+        // Legacy bubbles; the solver checks the coordinates and elements.
+        "bubbles" => Ok(()),
+        "p2/p1" | "p2p1" | "vms" => {
             Err(unsupported(format!("Stabilization Method = {method}")))
         }
         other => Err(SolverError::fatal(CALLER, format!("Unknown \"stabilization method\": {other}"))),
@@ -177,9 +179,6 @@ fn check_body(eq: Option<&ParamMap>, mat: Option<&ParamMap>, bf: Option<&ParamMa
         {
             return Err(unsupported("Viscosity Model other than power law (non-newtonian or anisotropic viscosity)"));
         }
-        if flag(Some(m), "porous media") {
-            return Err(unsupported("porous media"));
-        }
     }
     if let Some(b) = bf {
         for (key, what) in [
@@ -221,6 +220,41 @@ fn surface_tension(ctx: &SolverCtx<'_>, bc: &ParamMap, e: ElemId, n: usize) -> R
         None => alpha.clone(),
     };
     Ok((alpha, beta))
+}
+
+/// FlowSolve.F90:940-958: with `Porous Media`, `Porous Resistivity` at the
+/// nodes: a constant array (one value for every component, else one per
+/// component), or `Porous Resistivity 1..dim`.
+fn porous_resistivity(
+    ctx: &SolverCtx<'_>,
+    mat: Option<&ParamMap>,
+    e: ElemId,
+    n: usize,
+    vdim: usize,
+) -> Result<Option<Vec<[f64; 3]>>, SolverError> {
+    let Some(m) = mat.filter(|m| flag(Some(m), "porous media")) else {
+        return Ok(None);
+    };
+    let mut drag = vec![[0.0; 3]; n];
+    match m.get("porous resistivity") {
+        Some(Value::Real { rows, cols: 1, data }) => {
+            for d in drag.iter_mut() {
+                for (i, x) in d.iter_mut().enumerate().take(vdim) {
+                    *x = if *rows == 1 { data[0] } else if i < *rows { data[i] } else { 0.0 };
+                }
+            }
+        }
+        Some(_) => return Err(unsupported("a non-constant Porous Resistivity array")),
+        None => {
+            for i in 0..vdim {
+                let v = nodal(ctx, Some(m), &format!("porous resistivity {}", i + 1), e, n)?;
+                for (d, x) in drag.iter_mut().zip(v) {
+                    d[i] = x;
+                }
+            }
+        }
+    }
+    Ok(Some(drag))
 }
 
 /// Boundary-condition options this crate does not port.
@@ -575,6 +609,19 @@ impl Solver for FlowSolver {
 
                 let density = nodal(ctx, mat, "density", e, n)?;
                 let viscosity = nodal(ctx, mat, "viscosity", e, n)?;
+                let porous = porous_resistivity(ctx, mat, e, n, vdim)?;
+                if porous.is_some() && cyl {
+                    return Err(unsupported("porous media in Cylindric Symmetric coordinates"));
+                }
+                let bubbles = !cyl && stabilize_flag == "bubbles";
+                if bubbles {
+                    if pe.is_some() {
+                        return Err(unsupported("Bubbles on p elements (element bubbles)"));
+                    }
+                    if transient {
+                        return Err(unsupported("transient legacy bubbles (NSCondensateTransientH)"));
+                    }
+                }
                 let power_law = mat.is_some_and(|m| m.get("viscosity model").is_some()) && !newtonian;
                 let (exponent, critical, nominal) = if power_law {
                     if cyl {
@@ -670,6 +717,8 @@ impl Solver for FlowSolver {
                     want_mass: transient,
                     np: None,
                     omega: angular_velocity(bf)?,
+                    bubbles,
+                    porous: porous.as_deref(),
                     power_law: power_law.then_some(PowerLaw {
                         exponent: &exponent,
                         critical: critical.as_deref(),
@@ -677,6 +726,11 @@ impl Solver for FlowSolver {
                     }),
                 };
                 match &pe {
+                    None if bubbles => {
+                        flow_bulk_local(basis, quad, &inp, &mut self.local)?;
+                        // FlowSolve.F90:1159, 1222: nb = n, NSCondensate.
+                        ns_condensate(n, n, vdim, &mut self.local)?;
+                    }
                     None => flow_bulk_local(basis, quad, &inp, &mut self.local)?,
                     Some(p) => {
                         flow_bulk_local(&*p.basis, &FixedRule(p.rule.clone()), &inp, &mut self.local)?;

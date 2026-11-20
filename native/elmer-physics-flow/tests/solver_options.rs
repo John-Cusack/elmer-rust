@@ -33,8 +33,8 @@ fn assert_unsupported(r: Result<elmer_solver::Simulation, SolverError>, what: &s
 fn refuses_unported_options() {
     let it = ("Nonlinear System Max Iterations", ints(&[1]));
     assert_unsupported(
-        stokes(&[it.clone(), ("Stabilization Method", st("Bubbles"))], water(), vec![]),
-        "bubbles",
+        stokes(&[it.clone(), ("Stabilization Method", st("VMS"))], water(), vec![]),
+        "vms",
     );
     let mut gas = water();
     gas.insert("Compressibility Model", st("Perfect Gas"));
