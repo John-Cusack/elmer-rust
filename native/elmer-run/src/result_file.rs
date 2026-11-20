@@ -335,6 +335,11 @@ impl ResultWriter {
             }
         };
         let fresh = self.saves_done == 0;
+        if fresh {
+            if let Some(d) = self.path.parent() {
+                std::fs::create_dir_all(d).map_err(io)?;
+            }
+        }
         open(&self.path, fresh).and_then(|mut f| f.write_all(&data)).map_err(io)?;
         open(&pos_path, fresh).and_then(|mut f| f.write_all(&pos)).map_err(io)?;
         self.saves_done += 1;

@@ -166,7 +166,10 @@ impl Frontend for SifFrontend {
         }
         let case_dir = sif.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
         let (db, name) = first.header.mesh_db.clone().ok_or("no Mesh DB in Header")?;
-        let mesh_dir = case_dir.join(db).join(name);
+        let mesh_dir = case_dir.join(db).join(&name);
+        // `Mesh % Name`: the Output File goes to `<case>/<name>/`, whatever
+        // the Mesh DB directory (ElmerSolver.F90:3886).
+        model.header.insert("Mesh Name", elmer_core::Value::Str(name.clone()));
         let intersection = first.bcs.iter().any(|b| b.get("intersection bc").is_some());
         let mesh: Box<dyn MeshView> = if intersection {
             Box::new(load_with_transforms(&mesh_dir, first, &mut model)?)
