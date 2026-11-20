@@ -462,11 +462,15 @@ impl Solver for VtuSolver {
             return self.write_mode_files(ctx);
         }
         // Without `Eigen Analysis`, Elmer adds `<name> EigenMode<i>` /
-        // `ConstraintMode<i>` arrays to the one piece; not written here.
+        // `ConstraintMode<i>` arrays to the one piece. Written here: the
+        // constraint modes of a frozen variable ([`frozen_mode_fields`]).
+        let frozen = frozen_variables(ctx.sim);
         if !ctx.sim.model.solvers[self.out.index].logical("ignore eigenmodes").unwrap_or(false) {
             let mm = max_modes(&ctx.sim.model, &ctx.sim.model.solvers[self.out.index]);
-            let has_modes = ctx.sim.vars.iter().any(|(_, v)| {
-                v.output && ((mm > 0 && !v.eigen_vectors.is_empty()) || !v.constraint_modes.is_empty())
+            let has_modes = ctx.sim.vars.iter().any(|(id, v)| {
+                v.output
+                    && ((mm > 0 && !v.eigen_vectors.is_empty())
+                        || (!v.constraint_modes.is_empty() && !frozen.contains(&id)))
             });
             if has_modes {
                 return Err(SolverError::Unsupported(
@@ -481,6 +485,7 @@ impl Solver for VtuSolver {
             owned.vector_fields = vectors;
         }
         prepare_discontinuous(ctx, &mut owned)?;
+        let mode_fields = frozen_mode_fields(ctx.sim, &frozen, &ctx.sim.model.solvers[self.out.index], &mut owned)?;
         let opts = &owned;
         let index = self.indexer.advance(opts);
         let naming = VtuNaming {
@@ -495,7 +500,8 @@ impl Solver for VtuSolver {
         // discontinuous write as DG fields (`Ip2DgSwapper`).
         let ip_dg = if opts.dg_layout.is_some() { ip_fields_as_dg(ctx, opts)? } else { Vec::new() };
         let swapped = IpAsDg { inner: &plain, over: ip_dg };
-        let variables = &swapped;
+        let with_modes = ExtraFields { inner: &swapped, extra: mode_fields };
+        let variables = &with_modes;
         let part = if self.parts > 1 {
             // VtuOutputSolver.F90:622-627 then :633: the .pvtu first.
             if self.part == 0 {
@@ -835,6 +841,83 @@ impl FieldSource for ElmerVariables<'_> {
 
 /// `(name, dofs, perm over DG indexes, values)` of a swapped field.
 type DgField = (String, usize, Vec<u32>, Vec<f64>);
+
+/// The solver variables whose `Constraint Modes Analysis Frozen` keeps
+/// their (zero) constraint modes (`Var % FrozenMode`).
+fn frozen_variables(sim: &Simulation) -> Vec<VarId> {
+    sim.slots
+        .iter()
+        .filter(|s| s.params.logical("constraint modes analysis frozen") == Some(true))
+        .filter_map(|s| s.variable)
+        .filter(|&id| !sim.vars.by_id(id).constraint_modes.is_empty())
+        .collect()
+}
+
+/// VtuOutputSolver.F90:1068-1200 for a frozen variable: after its own
+/// field (`iField0 = 0` with `FrozenMode`), `<field> ConstraintMode<i>` for
+/// `i = 1..MIN(MaxModes2, NumberOfConstraintModes)` (`Active Constraint
+/// Modes` refused), each inserted after the field's name in `opts` and
+/// returned as an extra array on the variable's numbering.
+fn frozen_mode_fields(
+    sim: &Simulation,
+    frozen: &[VarId],
+    params: &ParamMap,
+    opts: &mut VtuOptions,
+) -> Result<Vec<DgField>, SolverError> {
+    if frozen.is_empty() {
+        return Ok(Vec::new());
+    }
+    if params.get("active constraint modes").is_some() {
+        return Err(SolverError::Unsupported("VTU output: Active Constraint Modes".into()));
+    }
+    let max2 = max_constraint_modes(sim);
+    let mut extra = Vec::new();
+    for list in [&mut opts.scalar_fields, &mut opts.vector_fields] {
+        let mut out = Vec::with_capacity(list.len());
+        for name in list.drain(..) {
+            let id = field_variable(&sim.vars, &name).filter(|id| frozen.contains(id));
+            out.push(name.clone());
+            let Some(id) = id else { continue };
+            let v = sim.vars.by_id(id);
+            if !name.trim().eq_ignore_ascii_case(&v.name) {
+                return Err(SolverError::Unsupported(format!("VTU output: constraint modes of the component field {name}")));
+            }
+            let perm: Vec<u32> = match v.perm.as_deref() {
+                Some(p) => p.to_vec(),
+                None => (0..(v.values.len() / v.dofs.max(1)) as u32).collect(),
+            };
+            for (i, mode) in v.constraint_modes.iter().take(max2).enumerate() {
+                let mname = format!("{} ConstraintMode{}", name.trim(), i + 1);
+                out.push(mname.clone());
+                extra.push((mname, v.dofs, perm.clone(), mode.clone()));
+            }
+        }
+        *list = out;
+    }
+    Ok(extra)
+}
+
+/// `inner`'s fields and nodal `extra` arrays.
+struct ExtraFields<'a> {
+    inner: &'a dyn FieldSource,
+    extra: Vec<DgField>,
+}
+
+impl FieldSource for ExtraFields<'_> {
+    fn fields(&self) -> Vec<FieldRef<'_>> {
+        let mut out = self.inner.fields();
+        for (name, dofs, perm, values) in &self.extra {
+            out.push(FieldRef { name, kind: FieldKind::Nodal, dofs: *dofs, perm: Some(perm), values });
+        }
+        out
+    }
+    fn time(&self) -> f64 {
+        self.inner.time()
+    }
+    fn step(&self) -> usize {
+        self.inner.step()
+    }
+}
 
 /// A field source whose integration-point fields are replaced by their DG
 /// projections, under their own and their components' names.
