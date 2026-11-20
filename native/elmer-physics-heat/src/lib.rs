@@ -42,6 +42,7 @@ mod bulk;
 mod bulk_vec;
 mod condense;
 mod error;
+mod info_vec;
 mod legacy;
 mod legacy_compose;
 mod linear_forms;
@@ -55,6 +56,7 @@ pub use boundary::heat_boundary_local;
 pub use bulk::heat_bulk_local;
 pub use bulk_vec::heat_bulk_local_vec;
 pub use error::HeatError;
+pub use info_vec::ElementInfoVec;
 pub use material::{
     CompressModel, Compressibility, Conductivity, HeatBcAtNodes, HeatBoundaryConfig,
     HeatBulkConfig, HeatMaterialAtNodes, JouleHeat, Stabilization,

@@ -13,6 +13,7 @@ use elmer_core::{
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
 use crate::condense::{condensate_p, condensate_p_transient};
+use crate::info_vec::ElementInfoVec;
 use crate::material::{
     Conductivity, HeatBcAtNodes, HeatBoundaryConfig, HeatBulkConfig, Stabilization,
 };
@@ -655,7 +656,12 @@ impl Solver for HeatSolver {
         // HeatSolver_init (HeatSolve.F90:201): `Calculate Conductance
         // Matrix` is the library's constraint-mode lumping, with the
         // `Conductivity Body` of the BCs as the modes.
-        elmer_solver::constraint_modes_lumping(ctx, "calculate conductance matrix", "ThermalConductanceMatrix.dat", "Constraint Mode Temperature");
+        elmer_solver::constraint_modes_lumping(
+            ctx,
+            "calculate conductance matrix",
+            "ThermalConductanceMatrix.dat",
+            "Constraint Mode Temperature",
+        );
         axisymmetric(ctx)?;
         let elems: Vec<ElemId> = ctx.active_elements().collect();
         let mut bodies: Vec<usize> = Vec::new();
@@ -768,6 +774,7 @@ impl Solver for HeatSolver {
             }
         }
         let var_name = ctx.variable_name().unwrap_or_default().to_string();
+        let info_vec = ElementInfoVec { cdim: dim };
         let bnd_cfg = HeatBoundaryConfig {
             axisymmetric: axisym,
             quad_points: None,
@@ -830,9 +837,10 @@ impl Solver for HeatSolver {
                 let pe = p_element(ctx, e)?;
                 let (nd, nb) = pe.as_ref().map_or((n, 0), |p| (p.nd, p.nb));
                 bulk_cfg.extra_functions = nd + nb - n;
+                // LocalMatrixVec evaluates the basis with ElementInfoVec.
                 let (basis, quad): (&dyn ElementBasis, &dyn Quadrature) = match &pe {
                     Some(p) => (&*p.basis, &p.rule),
-                    None => (&*self.basis, &*self.quad),
+                    None => (&info_vec, &*self.quad),
                 };
                 heat_bulk_local_vec(
                     basis,
