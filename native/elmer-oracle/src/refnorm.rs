@@ -375,7 +375,8 @@ pub fn primary_mesh(text: &str) -> Option<String> {
 /// Which of several result files holding a solver's variable is the
 /// solver's own: the one in its `Mesh`'s directory, after adaptive
 /// refinement the last refined mesh (`RefinedMesh<N>`, highest N), else the
-/// one in the `Mesh DB` mesh's directory. `None` when that leaves no single
+/// CutFEM cut mesh `<mesh>-cutfem` when there is one, else the one in the
+/// `Mesh DB` mesh's directory. `None` when that leaves no single
 /// file.
 pub fn own_file<'a>(paths: &[&'a str], solver_mesh: Option<&str>, primary: Option<&str>, adaptive: bool) -> Option<&'a str> {
     let dir = |p: &str| p.split('/').next().unwrap_or("").to_lowercase();
@@ -396,7 +397,11 @@ pub fn own_file<'a>(paths: &[&'a str], solver_mesh: Option<&str>, primary: Optio
             return Some(p);
         }
     }
-    pick(primary?)
+    let primary = primary?;
+    // A CutFEM solver (ModelPDECutFEM) solves on the cut mesh it builds,
+    // `<mesh>-cutfem`; its norm is that mesh's (CutFEMPoisson1: 0.374375920
+    // there, 0.234 on the background mesh).
+    pick(&format!("{primary}-cutfem")).or_else(|| pick(primary))
 }
 
 /// Every solver's lowercased `Equation`, by solver number.
@@ -673,6 +678,8 @@ mod tests {
     fn own_file_follows_the_solver_mesh() {
         let p = ["square-tri/case.result", "square-tri-isomesh/case.result", "RefinedMesh2/case.result", "RefinedMesh10/case.result"];
         assert_eq!(own_file(&p, None, Some("square-tri"), false), Some("square-tri/case.result"));
+        let cut = ["square-tri/case.result", "square-tri-cutfem/case.result"];
+        assert_eq!(own_file(&cut, None, Some("square-tri"), false), Some("square-tri-cutfem/case.result"));
         assert_eq!(own_file(&p, Some("square-tri-isomesh"), Some("square-tri"), false), Some("square-tri-isomesh/case.result"));
         assert_eq!(own_file(&p, None, Some("square-tri"), true), Some("RefinedMesh10/case.result"));
         assert_eq!(own_file(&p, Some("global"), None, false), None);
