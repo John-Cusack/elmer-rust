@@ -89,10 +89,16 @@ pub struct HeatMaterialAtNodes {
     /// Body force `Volumetric Heat Source`. When present it replaces
     /// `Heat Source` and is not scaled by density.
     pub volumetric_heat_source: Option<Vec<f64>>,
-    /// Convection velocity, already minus any mesh velocity. `Some` turns
-    /// convection on (`Convection = Constant` or `Computed`); components
-    /// beyond `dim` are ignored.
+    /// Convection velocity. `Some` turns convection on (`Convection =
+    /// Constant` or `Computed`); components beyond `dim` are ignored.
     pub convection_velocity: Option<Vec<[f64; 3]>>,
+    /// `Convection = Computed`: the velocity is a solution field, which
+    /// [`crate::heat_bulk_local_vec`] always interpolates, where a
+    /// `Convection Velocity i` constant over the element is used as given.
+    pub convection_computed: bool,
+    /// The `Mesh Velocity` field, subtracted from the convection velocity
+    /// (`MeshVeloField_h`).
+    pub mesh_velocity: Option<Vec<[f64; 3]>>,
     /// `Heat Transfer Multiplier`, scaling the whole local system (for
     /// lower-dimensional elements embedded in a larger mesh).
     pub heat_transfer_multiplier: Option<Vec<f64>>,

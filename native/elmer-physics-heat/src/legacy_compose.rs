@@ -2,7 +2,7 @@
 //! (DiffuseConvectiveAnisotropic.F90:57) forms it, for the cases without
 //! convection.
 //!
-//! The vectorised kernel ([`crate::heat_bulk_local`]) integrates the same
+//! The per-point kernel ([`crate::heat_bulk_local`]) integrates the same
 //! terms, but in a different order: it multiplies the weight by the
 //! conductivity before the gradient product, and it interpolates source and
 //! density separately. The legacy routine instead builds per `(p,q)`

@@ -7,7 +7,10 @@ use crate::material::{
 };
 
 /// Bulk element matrices of `LocalMatrixVec` (HeatSolve.F90:1006) for an
-/// element with `nd = n` nodes (no bubble degrees of freedom).
+/// element with `nd = n` nodes (no bubble degrees of freedom), summed one
+/// integration point at a time: the kernel of the `Legacy Assembly` path.
+/// [`crate::heat_bulk_local_vec`] forms the same matrices in the summation
+/// order of `LocalMatrixVec` itself.
 ///
 /// `out` is reset to `n x n`: `stiff` holds diffusion plus convection (plus
 /// SUPG), `force` the heat source, and `mass` (set only when
@@ -53,6 +56,19 @@ pub fn heat_bulk_local(
     if ips.is_empty() {
         return Err(HeatError::NoQuadrature(etype.0));
     }
+
+    // The velocity relative to the mesh, at the nodes.
+    let conv_nodes: Option<Vec<[f64; 3]>> =
+        mat.convection_velocity
+            .as_ref()
+            .map(|v| match &mat.mesh_velocity {
+                Some(m) => v
+                    .iter()
+                    .zip(m)
+                    .map(|(a, b)| [a[0] - b[0], a[1] - b[1], a[2] - b[2]])
+                    .collect(),
+                None => v.clone(),
+            });
 
     let mut be = BasisEval::default();
     let mut stream = vec![0.0; n];
@@ -183,7 +199,7 @@ pub fn heat_bulk_local(
 
         // Convection: (rho cp v.grad u, v).
         let mut vel = [0.0; 3];
-        if let Some(v) = &mat.convection_velocity {
+        if let Some(v) = &conv_nodes {
             for (i, vi) in vel.iter_mut().enumerate().take(dim) {
                 *vi = phi.iter().zip(v).map(|(b, vn)| b * vn[i]).sum();
             }
@@ -291,7 +307,7 @@ pub fn heat_bulk_local(
     Ok(())
 }
 
-fn reset(out: &mut LocalSystem, n: usize, transient: bool) {
+pub(crate) fn reset(out: &mut LocalSystem, n: usize, transient: bool) {
     out.n = n;
     out.stiff.clear();
     out.stiff.resize(n * n, 0.0);
@@ -308,7 +324,7 @@ fn reset(out: &mut LocalSystem, n: usize, transient: bool) {
     };
 }
 
-fn interp_diag(phi: &[f64], k: &[[f64; 3]]) -> [f64; 3] {
+pub(crate) fn interp_diag(phi: &[f64], k: &[[f64; 3]]) -> [f64; 3] {
     let mut r = [0.0; 3];
     for (b, kn) in phi.iter().zip(k) {
         for i in 0..3 {
@@ -318,7 +334,7 @@ fn interp_diag(phi: &[f64], k: &[[f64; 3]]) -> [f64; 3] {
     r
 }
 
-fn interp_full(phi: &[f64], k: &[[[f64; 3]; 3]]) -> [[f64; 3]; 3] {
+pub(crate) fn interp_full(phi: &[f64], k: &[[[f64; 3]; 3]]) -> [[f64; 3]; 3] {
     let mut r = [[0.0; 3]; 3];
     for (b, kn) in phi.iter().zip(k) {
         for i in 0..3 {
@@ -330,7 +346,7 @@ fn interp_full(phi: &[f64], k: &[[[f64; 3]; 3]]) -> [[f64; 3]; 3] {
     r
 }
 
-fn check_nodal_inputs(n: usize, mat: &HeatMaterialAtNodes) -> Result<(), HeatError> {
+pub(crate) fn check_nodal_inputs(n: usize, mat: &HeatMaterialAtNodes) -> Result<(), HeatError> {
     if let Some(k) = &mat.conductivity {
         check_len("heat conductivity", n, k.len())?;
     }
@@ -341,6 +357,9 @@ fn check_nodal_inputs(n: usize, mat: &HeatMaterialAtNodes) -> Result<(), HeatErr
     check_opt("heat transfer multiplier", n, &mat.heat_transfer_multiplier)?;
     if let Some(v) = &mat.convection_velocity {
         check_len("convection velocity", n, v.len())?;
+    }
+    if let Some(v) = &mat.mesh_velocity {
+        check_len("mesh velocity", n, v.len())?;
     }
     if let Some(c) = &mat.compressibility {
         check_len("temperature", n, c.temperature.len())?;

@@ -14,7 +14,7 @@ use crate::preflight::stabilized;
 use crate::radiation::{is_diffuse_gray, temps4, DiffuseGray};
 use crate::radiators::{is_radiator_bc, Radiators};
 use crate::{
-    check_supported, heat_boundary_local, heat_bulk_local, CompressModel, Compressibility,
+    check_supported, heat_boundary_local, heat_bulk_local_vec, CompressModel, Compressibility,
     HeatError, HeatMaterialAtNodes, HeatSections, PROCEDURE,
 };
 
@@ -220,13 +220,14 @@ pub(crate) fn bulk_inputs(
         heat_source,
         volumetric_heat_source,
         convection_velocity: match (&flow, convected) {
-            (Some(f), _) => Some(minus_mesh_velocity(ctx, e, f.velocity.clone())),
-            (None, true) => Some(minus_mesh_velocity(
-                ctx,
-                e,
-                convection_velocity(ctx, m, e, n)?,
-            )),
+            (Some(f), _) => Some(f.velocity.clone()),
+            (None, true) => Some(convection_velocity(ctx, m, e, n)?),
             (None, false) => None,
+        },
+        convection_computed: flow.is_some(),
+        mesh_velocity: match (&flow, convected) {
+            (None, false) => None,
+            _ => mesh_velocity(ctx, e),
         },
         compressibility: match m {
             Some(m) => compressibility(ctx, m, e, flow, dt)?,
@@ -325,31 +326,27 @@ fn flow_at_nodes(
     })
 }
 
-/// Convection is relative to a moving mesh: the `Mesh Velocity` field, where
-/// it covers every node of `e`, is subtracted (`MeshVeloField_h`).
-fn minus_mesh_velocity(ctx: &SolverCtx<'_>, e: ElemId, mut v: Vec<[f64; 3]>) -> Vec<[f64; 3]> {
-    let Some(mv) = ctx.sim.vars.get("Mesh Velocity") else {
-        return v;
-    };
+/// The `Mesh Velocity` field at the nodes of `e`, which convection is
+/// relative to (`MeshVeloField_h`); `None` unless it covers every node.
+fn mesh_velocity(ctx: &SolverCtx<'_>, e: ElemId) -> Option<Vec<[f64; 3]>> {
+    let mv = ctx.sim.vars.get("Mesh Velocity")?;
     let dim = ctx.mesh.dim();
     let nodes = ctx.mesh.element(e).nodes;
-    let slots: Option<Vec<usize>> = nodes
+    nodes
         .iter()
         .map(
             |&nn| match mv.perm.as_deref().map_or(nn, |p| p[nn as usize]) {
                 NO_DOF => None,
-                k => Some(k as usize),
+                k => {
+                    let mut v = [0.0; 3];
+                    for (i, vi) in v.iter_mut().enumerate().take(mv.dofs.min(dim)) {
+                        *vi = mv.values[mv.dofs * k as usize + i];
+                    }
+                    Some(v)
+                }
             },
         )
-        .collect();
-    if let Some(slots) = slots {
-        for (vn, k) in v.iter_mut().zip(slots) {
-            for (i, vi) in vn.iter_mut().enumerate().take(mv.dofs.min(dim)) {
-                *vi -= mv.values[mv.dofs * k + i];
-            }
-        }
-    }
-    v
+        .collect()
 }
 
 /// The material's `Compressibility Model` (`Thermal`, `Perfect Gas` or
@@ -580,7 +577,7 @@ impl Solver for HeatSolver {
                 } else {
                     Stabilization::None
                 };
-                heat_bulk_local(
+                heat_bulk_local_vec(
                     &*self.basis,
                     &*self.quad,
                     el.etype,
