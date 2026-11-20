@@ -570,9 +570,6 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         if bf_potential {
             return Err(unsupported("'Impose Body Force Potential'"));
         }
-        if impose_bf_current && cd.any() {
-            return Err(unsupported("body-force current density in the current density of an edge-element target"));
-        }
         if piola {
             if vdofs != 1 {
                 return Err(unsupported("a harmonic Piola edge-element target"));
@@ -614,16 +611,32 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         let material = bp.as_ref().and_then(|b| b.material).cloned();
         let body_force = bp.as_ref().and_then(|b| b.body_force).cloned();
         omega = angular_frequency(ctx, &psp, e)?.unwrap_or(0.0);
-        // BodyForceCurrDens(3, 1:n), complex.
-        let mut bf_cd = (vec![0.0; n], vec![0.0; n]);
+        // BodyForceCurrDens(3, 1:n), complex: in 3D `GetComplexVector(...,
+        // 'Current Density')` (components `1..3`, `im 1..3`), in 2D the z
+        // component from the scalar.
+        let mut bf_cd: [(Vec<f64>, Vec<f64>); 3] = std::array::from_fn(|_| (vec![0.0; n], vec![0.0; n]));
         if impose_bf_current {
             if let Some(bf) = &body_force {
-                bf_cd.0 = scalar_at_nodes(ctx, bf, "current density", e, n)?;
-                if vdofs == 2 {
-                    bf_cd.1 = scalar_at_nodes(ctx, bf, "current density im", e, n)?;
+                if dim == 3 {
+                    if bf.get("current density").is_some() || bf.get("current density im").is_some() {
+                        return Err(unsupported("a 'Current Density' array in 3D"));
+                    }
+                    for (c, cd_c) in bf_cd.iter_mut().enumerate() {
+                        cd_c.0 = scalar_at_nodes(ctx, bf, &format!("current density {}", c + 1), e, n)?;
+                        if vdofs == 2 {
+                            cd_c.1 = scalar_at_nodes(ctx, bf, &format!("current density im {}", c + 1), e, n)?;
+                        }
+                    }
+                } else {
+                    bf_cd[2].0 = scalar_at_nodes(ctx, bf, "current density", e, n)?;
+                    if vdofs == 2 {
+                        bf_cd[2].1 = scalar_at_nodes(ctx, bf, "current density im", e, n)?;
+                    }
                 }
                 if let Some(mult) = ctx.creal(bf, "current density multiplier")? {
-                    bf_cd.0.iter_mut().chain(bf_cd.1.iter_mut()).for_each(|v| *v *= mult);
+                    for cd_c in bf_cd.iter_mut() {
+                        cd_c.0.iter_mut().chain(cd_c.1.iter_mut()).for_each(|v| *v *= mult);
+                    }
                 }
             }
         }
@@ -675,15 +688,19 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
                 cmat_re[k][k] = c_re_ip;
                 cmat_im[k][k] = c_im_ip;
             }
-            let bf_ip = if impose_bf_current { [dot(&bf_cd.0, basis), dot(&bf_cd.1, basis)] } else { [0.0, 0.0] };
+            let bf_ip: [[f64; 2]; 3] = if impose_bf_current {
+                std::array::from_fn(|l| [dot(&bf_cd[l].0, basis), dot(&bf_cd[l].1, basis)])
+            } else {
+                [[0.0; 2]; 3]
+            };
             // JatIp (the circuit term CC_J is zero without circuits).
             let mut jat = [[0.0f64; 3]; 2];
             for l in 0..3 {
                 if real {
-                    jat[0][l] = dot(&cmat_re[l], &ev[0]) + 0.0 + bf_re(l, bf_ip);
+                    jat[0][l] = dot(&cmat_re[l], &ev[0]) + 0.0 + bf_ip[l][0];
                 } else {
-                    jat[0][l] = dot(&cmat_re[l], &ev[0]) - dot(&cmat_im[l], &ev[1]) + bf_re(l, bf_ip);
-                    jat[1][l] = dot(&cmat_im[l], &ev[0]) + dot(&cmat_re[l], &ev[1]) + bf_im(l, bf_ip);
+                    jat[0][l] = dot(&cmat_re[l], &ev[0]) - dot(&cmat_im[l], &ev[1]) + bf_ip[l][0];
+                    jat[1][l] = dot(&cmat_im[l], &ev[0]) + dot(&cmat_re[l], &ev[1]) + bf_ip[l][1];
                 }
             }
             let joule_from_current = np == 0;
@@ -1207,22 +1224,6 @@ fn piola_points(ctx: &SolverCtx<'_>, pvar: elmer_solver::VarId, e: ElemId, degre
         out.push(Ip { s, basis, b, e: ef, vp });
     }
     Ok((out, np))
-}
-
-fn bf_re(l: usize, bf: [f64; 2]) -> f64 {
-    if l == 2 {
-        bf[0]
-    } else {
-        0.0
-    }
-}
-
-fn bf_im(l: usize, bf: [f64; 2]) -> f64 {
-    if l == 2 {
-        bf[1]
-    } else {
-        0.0
-    }
 }
 
 #[cfg(test)]
