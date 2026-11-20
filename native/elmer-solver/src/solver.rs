@@ -497,6 +497,7 @@ impl<'a> SolverCtx<'a> {
         // RefineMesh, before the solver displaces the mesh.
         let coords = (0..self.mesh.n_nodes() as u32).map(|k| self.mesh.coord(k)).collect();
         self.sim.adaptive.pending_coords = Some(coords);
+        self.sim.adaptive.pending_var = self.primary().map(|f| f.name.to_string());
         self.sim.adaptive.pending = Some(change);
     }
 
