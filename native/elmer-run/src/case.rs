@@ -197,6 +197,10 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if is(params, elmer_physics_shell::PROCEDURE) {
             elmer_physics_shell::solver_defaults(params, &mut model.simulation);
         }
+        // `ParticleDynamics_Init`: the global pseudo variable.
+        if is(params, elmer_physics_particle::PROCEDURE) {
+            elmer_physics_particle::solver_defaults(params);
+        }
         // `MixedPoisson_Init0`: the face element, the global bubbles and the
         // exported potential and flux.
         if is(params, elmer_pdofs::mixed_poisson::PROCEDURE) {

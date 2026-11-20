@@ -71,6 +71,13 @@ pub fn initialize_random_seed(seed: i32) {
     STREAM.with(|s| *s.borrow_mut() = Some(Rng::new(u64::from(seed as u32))));
 }
 
+/// `EvenRandom()` (GeneralUtils.F90:2746): the next `RANDOM_NUMBER` of this
+/// thread's stream, the same stream IDR(s) draws from, seeded with the
+/// default `Random Number Seed` if nothing seeded it.
+pub fn even_random() -> f64 {
+    with_stream(314_159_265, |r| r.uniform())
+}
+
 /// Runs `f` on this thread's stream, seeding it from `seed` first if
 /// nothing has.
 pub(crate) fn with_stream<R>(seed: u64, f: impl FnOnce(&mut Rng) -> R) -> R {
