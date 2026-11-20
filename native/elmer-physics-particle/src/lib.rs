@@ -14,7 +14,8 @@
 //! and more than one partition. `ParticleStatistics` and
 //! `ParticleInformation` only write Info lines and are not ported.
 #![forbid(unsafe_code)]
-#![allow(clippy::needless_range_loop)]
+// The ports keep the Fortran's loops and status tests.
+#![allow(clippy::needless_range_loop, clippy::manual_range_contains)]
 
 mod faces;
 mod particles;

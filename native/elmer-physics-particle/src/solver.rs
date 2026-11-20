@@ -29,7 +29,10 @@ pub fn factory(_params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
 /// `ParticleDynamics_Init`: the solver's global pseudo variable.
 pub fn solver_defaults(p: &mut ParamMap) {
     if p.get("variable").is_none() {
-        p.insert("Variable", Value::Str("-nooutput -global ParticleDynamics_var".into()));
+        p.insert(
+            "Variable",
+            Value::Str("-nooutput -global ParticleDynamics_var".into()),
+        );
     }
 }
 
@@ -91,10 +94,15 @@ pub struct ParticleDynamics {
 
 /// `ParticleElementInfo`: the basis (and its gradient) of bulk element `e1`
 /// at the global point `coord`, `None` when the point is not in it.
-fn particle_element_info(ctx: &SolverCtx<'_>, e1: usize, coord: V3) -> Result<Option<elmer_core::BasisEval>, SolverError> {
+fn particle_element_info(
+    ctx: &SolverCtx<'_>,
+    e1: usize,
+    coord: V3,
+) -> Result<Option<elmer_core::BasisEval>, SolverError> {
     let el = ctx.mesh.element(ElemId((e1 - 1) as u32));
     let x = element_nodes(ctx.mesh, e1);
-    let shape = Shape::get(el.etype.0).ok_or_else(|| unsupported(&format!("element type {}", el.etype.0)))?;
+    let shape = Shape::get(el.etype.0)
+        .ok_or_else(|| unsupported(&format!("element type {}", el.etype.0)))?;
     let tol = PointTol {
         global: Some(-1.0),
         local: Some(1.0e3),
@@ -107,7 +115,12 @@ fn particle_element_info(ctx: &SolverCtx<'_>, e1: usize, coord: V3) -> Result<Op
     Ok(Some(basis_at(ctx, e1, &x, probe.uvw)?))
 }
 
-fn basis_at(ctx: &SolverCtx<'_>, e1: usize, x: &[V3], uvw: V3) -> Result<elmer_core::BasisEval, SolverError> {
+fn basis_at(
+    ctx: &SolverCtx<'_>,
+    e1: usize,
+    x: &[V3],
+    uvw: V3,
+) -> Result<elmer_core::BasisEval, SolverError> {
     let el = ctx.mesh.element(ElemId((e1 - 1) as u32));
     let fe = ctx
         .sim
@@ -156,12 +169,20 @@ fn nodal(var: &Variable, nodes: &[u32], dofs: usize, k: usize) -> Option<Vec<f64
 /// point of element `e1` with `basis`, the first `dummy.len()` arguments
 /// given (`DummyVals`): a constant, or a MATC function of the dummies and
 /// coordinates or globals, the latter at the point.
-fn element_real_at(ctx: &SolverCtx<'_>, v: &Value, e1: usize, basis: &[f64], dummy: &[f64]) -> Result<f64, SolverError> {
+fn element_real_at(
+    ctx: &SolverCtx<'_>,
+    v: &Value,
+    e1: usize,
+    basis: &[f64],
+    dummy: &[f64],
+) -> Result<f64, SolverError> {
     match v {
         Value::Real { data, .. } if !data.is_empty() => Ok(data[0]),
         Value::Dependent(d) => {
             let DependentKind::Matc(expr) = &d.kind else {
-                return Err(unsupported("a particle source other than a constant or MATC"));
+                return Err(unsupported(
+                    "a particle source other than a constant or MATC",
+                ));
             };
             let nodes = ctx.mesh.element(ElemId((e1 - 1) as u32)).nodes;
             let x = element_nodes(ctx.mesh, e1);
@@ -177,15 +198,18 @@ fn element_real_at(ctx: &SolverCtx<'_>, v: &Value, e1: usize, basis: &[f64], dum
             for name in names.iter().skip(dummy.len()) {
                 let name = name.clone();
                 if let Some(c) = name.strip_prefix("coordinate ") {
-                    let k: usize = c.parse().map_err(|_| unsupported(&format!("argument {name}")))?;
+                    let k: usize = c
+                        .parse()
+                        .map_err(|_| unsupported(&format!("argument {name}")))?;
                     let f: Vec<f64> = x.iter().map(|p| p[k - 1]).collect();
                     t.push(sum_basis(basis, &f));
                 } else if let Some(var) = ctx.sim.vars.get(&name) {
                     if var.kind == FieldKind::Global {
                         t.push(var.values[0]);
                     } else {
-                        let f = nodal(var, nodes, var.dofs, 0)
-                            .ok_or_else(|| unsupported(&format!("argument {name} without a dof at a node")))?;
+                        let f = nodal(var, nodes, var.dofs, 0).ok_or_else(|| {
+                            unsupported(&format!("argument {name} without a dof at a node"))
+                        })?;
                         t.push(sum_basis(basis, &f));
                     }
                 } else {
@@ -198,10 +222,14 @@ fn element_real_at(ctx: &SolverCtx<'_>, v: &Value, e1: usize, basis: &[f64], dum
                 .matc
                 .as_deref()
                 .ok_or_else(|| SolverError::NotWired("MATC".into()))?;
-            let r = matc.eval(expr, &t).map_err(|m| SolverError::fatal("GetMatcReal", m))?;
+            let r = matc
+                .eval(expr, &t)
+                .map_err(|m| SolverError::fatal("GetMatcReal", m))?;
             Ok(r.first().copied().unwrap_or(0.0))
         }
-        _ => Err(unsupported("a particle source other than a constant or MATC")),
+        _ => Err(unsupported(
+            "a particle source other than a constant or MATC",
+        )),
     }
 }
 
@@ -270,17 +298,29 @@ impl Solver for ParticleDynamics {
         }
         let model = &ctx.sim.model;
         for bc in &model.boundary_conditions {
-            for k in ["particle outlet", "particle wall", "particle reflect", "particle tangent", "particle interact"] {
+            for k in [
+                "particle outlet",
+                "particle wall",
+                "particle reflect",
+                "particle tangent",
+                "particle interact",
+            ] {
                 if flag(bc, k) {
                     return Err(unsupported(&format!("the boundary condition {k}")));
                 }
             }
         }
-        if model.body_forces.iter().any(|b| b.get("particle initialization weight").is_some()) {
+        if model
+            .body_forces
+            .iter()
+            .any(|b| b.get("particle initialization weight").is_some())
+        {
             return Err(unsupported("Particle Initialization Weight"));
         }
         if ctx.mesh.dim() != 2 {
-            return Err(unsupported("three-dimensional meshes (2-D face march only)"));
+            return Err(unsupported(
+                "three-dimensional meshes (2-D face march only)",
+            ));
         }
         if ctx.comm.size() > 1 {
             return Err(unsupported("more than one partition"));
@@ -288,7 +328,12 @@ impl Solver for ParticleDynamics {
         Ok(())
     }
 
-    fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, _transient: bool) -> Result<(), SolverError> {
+    fn solve(
+        &mut self,
+        ctx: &mut SolverCtx<'_>,
+        dt: f64,
+        _transient: bool,
+    ) -> Result<(), SolverError> {
         ctx.info(CALLER, "-----------------------------------------", 4);
         ctx.info(CALLER, "Following the path of the particles", 4);
         self.visited += 1;
@@ -345,15 +390,26 @@ impl ParticleDynamics {
     fn locate(&mut self, ctx: &SolverCtx<'_>, p: &ParamMap) {
         let mp = MarchParams {
             stop_at_face: false,
-            max_trials: int_of(p, "max particle search trials").map_or(ctx.mesh.n_bulk(), |v| v.max(0) as usize),
+            max_trials: int_of(p, "max particle search trials")
+                .map_or(ctx.mesh.n_bulk(), |v| v.max(0) as usize),
             eps: p.real("particle hit tolerance").unwrap_or(1.0e-8),
         };
         let faces = self.faces.as_ref().expect("set up on the first visit");
-        locate_particles(ctx.mesh, faces, &mp, &mut self.particles, flag(p, "particle accurate always"));
+        locate_particles(
+            ctx.mesh,
+            faces,
+            &mp,
+            &mut self.particles,
+            flag(p, "particle accurate always"),
+        );
     }
 
     /// `SetParticlePreliminaries`: the mesh bounding box and its edges.
-    fn set_preliminaries(&mut self, ctx: &SolverCtx<'_>, time_order: i32) -> Result<(), SolverError> {
+    fn set_preliminaries(
+        &mut self,
+        ctx: &SolverCtx<'_>,
+        time_order: i32,
+    ) -> Result<(), SolverError> {
         let pt = &mut self.particles;
         pt.time_order = time_order;
         pt.dim = ctx.mesh.dim();
@@ -376,12 +432,21 @@ impl ParticleDynamics {
     }
 
     /// `InitializeParticles` without groups, masks or weights.
-    fn initialize_particles(&mut self, ctx: &SolverCtx<'_>, p: &ParamMap) -> Result<(), SolverError> {
+    fn initialize_particles(
+        &mut self,
+        ctx: &SolverCtx<'_>,
+        p: &ParamMap,
+    ) -> Result<(), SolverError> {
         const C: &str = "InitializeParticles";
         let dim = self.particles.dim;
-        let method = p.string("coordinate initialization method").map(elmer_core::normalize_key).unwrap_or_default();
+        let method = p
+            .string("coordinate initialization method")
+            .map(elmer_core::normalize_key)
+            .unwrap_or_default();
         if !matches!(method.as_str(), "box random" | "box uniform cubic") {
-            return Err(unsupported(&format!("Coordinate Initialization Method = {method}")));
+            return Err(unsupported(&format!(
+                "Coordinate Initialization Method = {method}"
+            )));
         }
         let pt = &self.particles;
         let eps = ctx.creal(p, "wall particle radius")?.unwrap_or(1.0e-8);
@@ -421,7 +486,9 @@ impl ParticleDynamics {
             (nx * ny * nz) as usize
         } else {
             int_of(p, "number of particles")
-                .ok_or_else(|| unsupported("the number of particles other than Number of Particles"))?
+                .ok_or_else(|| {
+                    unsupported("the number of particles other than Number of Particles")
+                })?
                 .max(0) as usize
         };
         if new == 0 {
@@ -457,14 +524,20 @@ impl ParticleDynamics {
         }
         if let Some((rows, cols, data)) = real_array(p, "initial velocity") {
             if cols != dim {
-                return Err(SolverError::fatal("ParticleTracker", "Wrong dimension in Initial Velocity"));
+                return Err(SolverError::fatal(
+                    "ParticleTracker",
+                    "Wrong dimension in Initial Velocity",
+                ));
             }
             if rows == 1 {
                 for v in pt.velo.iter_mut() {
                     v[..dim].copy_from_slice(&data[..dim]);
                 }
             } else if rows != new {
-                return Err(SolverError::fatal("ParticleTracker", "Wrong number of particles in Initial Velocity"));
+                return Err(SolverError::fatal(
+                    "ParticleTracker",
+                    "Wrong number of particles in Initial Velocity",
+                ));
             } else {
                 for (i, v) in pt.velo.iter_mut().enumerate() {
                     v[..dim].copy_from_slice(&data[i * dim..(i + 1) * dim]);
@@ -488,15 +561,28 @@ impl ParticleDynamics {
 
     /// `ParticleVariableInitialize` from the `Initial Condition` keyword of
     /// the same name (there is no mesh variable of it).
-    fn variable_initialize(&mut self, ctx: &SolverCtx<'_>, p: &ParamMap, name: &str) -> Result<(), SolverError> {
-        if self.particles.element[..self.particles.number].iter().any(|&e| e == 0) {
+    fn variable_initialize(
+        &mut self,
+        ctx: &SolverCtx<'_>,
+        p: &ParamMap,
+        name: &str,
+    ) -> Result<(), SolverError> {
+        if self.particles.element[..self.particles.number].contains(&0) {
             // LocateParticles without a wall kernel.
             self.locate(ctx, p);
         }
         if ctx.sim.vars.get(name).is_some() {
-            return Err(unsupported(&format!("{name} initialised from a mesh variable")));
+            return Err(unsupported(&format!(
+                "{name} initialised from a mesh variable"
+            )));
         }
-        if !ctx.sim.model.initial_conditions.iter().any(|ic| ic.get(name).is_some()) {
+        if !ctx
+            .sim
+            .model
+            .initial_conditions
+            .iter()
+            .any(|ic| ic.get(name).is_some())
+        {
             return Ok(());
         }
         let iv = self.particles.var(name).expect("created");
@@ -509,7 +595,10 @@ impl ParticleDynamics {
                 continue;
             };
             let bp = ctx.body_params(ElemId((e1 - 1) as u32));
-            let Some(v) = bp.and_then(|b| b.initial_condition).and_then(|ic| ic.get(name)) else {
+            let Some(v) = bp
+                .and_then(|b| b.initial_condition)
+                .and_then(|ic| ic.get(name))
+            else {
                 // ListGetElementReal of an absent keyword: its default 0.
                 self.particles.vars[iv].values[i] = 0.0;
                 continue;
@@ -535,7 +624,10 @@ impl ParticleDynamics {
             self.tprev = 0.0;
         }
         let Some(tfin) = tfin else {
-            return Err(SolverError::fatal("GetParticleTimeStep", "Cannot determine timestep size!"));
+            return Err(SolverError::fatal(
+                "GetParticleTimeStep",
+                "Cannot determine timestep size!",
+            ));
         };
         let mut dt = tfin / nstep as f64;
         if dt + self.tprev > tfin {
@@ -566,11 +658,30 @@ impl ParticleDynamics {
                     .2;
                 self.gravity = Some([g[3] * g[0], g[3] * g[1], g[3] * g[2]]);
             }
-            let var_name = |a: &str, b: &str| p.string(a).or_else(|| p.string(b)).map(elmer_core::normalize_key);
+            let var_name = |a: &str, b: &str| {
+                p.string(a)
+                    .or_else(|| p.string(b))
+                    .map(elmer_core::normalize_key)
+            };
             for (slot, a, b, what) in [
-                (0, "potential variable name", "potential variable", "Potential"),
-                (1, "secondary potential variable name", "secondary potential variable", "Potential"),
-                (2, "magnetic field variable name", "magnetic field variable", "Magnetic"),
+                (
+                    0,
+                    "potential variable name",
+                    "potential variable",
+                    "Potential",
+                ),
+                (
+                    1,
+                    "secondary potential variable name",
+                    "secondary potential variable",
+                    "Potential",
+                ),
+                (
+                    2,
+                    "magnetic field variable name",
+                    "magnetic field variable",
+                    "Magnetic",
+                ),
             ] {
                 if let Some(n) = var_name(a, b) {
                     if ctx.sim.vars.get(&n).is_none() {
@@ -594,7 +705,9 @@ impl ParticleDynamics {
                     ));
                 }
                 for i in 1..=MAXPARFIELDS {
-                    let Some(mode) = p.string(&format!("field {i}")) else { break };
+                    let Some(mode) = p.string(&format!("field {i}")) else {
+                        break;
+                    };
                     let mode = elmer_core::normalize_key(mode);
                     let (oper, particle_var) = match mode.as_str() {
                         "weight" => (1, None),
@@ -607,20 +720,30 @@ impl ParticleDynamics {
                         "force" => (8, None),
                         m if m.starts_with("particle") => match self.particles.var(m) {
                             Some(_) => (9, Some(m.to_string())),
-                            None => return Err(unsupported(&format!("field mode {m} without its particle variable"))),
+                            None => {
+                                return Err(unsupported(&format!(
+                                    "field mode {m} without its particle variable"
+                                )))
+                            }
                         },
                         m => return Err(SolverError::fatal(C, format!("Unknown field mode: {m}"))),
                     };
                     if p.logical(&format!("field normalize {i}")) == Some(true) {
                         return Err(unsupported("Field Normalize with Particle Nodal Weights"));
                     }
-                    let var = particle_var.clone().unwrap_or_else(|| format!("particle {mode}"));
+                    let var = particle_var
+                        .clone()
+                        .unwrap_or_else(|| format!("particle {mode}"));
                     if ctx.sim.vars.get(&var).is_none() {
                         ctx.info(C, &format!("Creating variable: {var}"), 4);
                         let n = ctx.mesh.n_nodes();
-                        ctx.sim
-                            .vars
-                            .add(Variable::new(&var, FieldKind::Nodal, 1, None, vec![0.0; n]))?;
+                        ctx.sim.vars.add(Variable::new(
+                            &var,
+                            FieldKind::Nodal,
+                            1,
+                            None,
+                            vec![0.0; n],
+                        ))?;
                     }
                     self.fields.push(ActiveField {
                         oper,
@@ -628,7 +751,11 @@ impl ParticleDynamics {
                         particle_var,
                     });
                 }
-                ctx.info(C, &format!("Number of particle fields: {}", self.fields.len()), 6);
+                ctx.info(
+                    C,
+                    &format!("Number of particle fields: {}", self.fields.len()),
+                    6,
+                );
             }
             self.pfi_visited = true;
         }
@@ -639,7 +766,9 @@ impl ParticleDynamics {
                 }
             }
         }
-        let user_coeff = ctx.creal(p, "particle to field coefficient")?.unwrap_or(1.0);
+        let user_coeff = ctx
+            .creal(p, "particle to field coefficient")?
+            .unwrap_or(1.0);
         let mass = ctx.creal(p, "particle mass")?;
         let damping = ctx.creal(p, "particle damping")?;
         let charge = ctx.creal(p, "particle charge")?;
@@ -732,7 +861,7 @@ impl ParticleDynamics {
                         force[2] = 0.0;
                     }
                 }
-                            if let Some(pv) = &self.pot2_var {
+                if let Some(pv) = &self.pot2_var {
                     pot_at = scalar(pv, &mut force);
                 }
             }
@@ -813,19 +942,24 @@ impl ParticleDynamics {
         let dist_var = pt.var("particle distance");
         let (mass, drag) = match pt.time_order {
             2 => (
-                p.real("particle mass").ok_or_else(|| SolverError::fatal(C, "> Particle Mass < should be given!"))?,
+                p.real("particle mass")
+                    .ok_or_else(|| SolverError::fatal(C, "> Particle Mass < should be given!"))?,
                 0.0,
             ),
             1 => (
                 0.0,
-                p.real("particle drag coefficient")
-                    .ok_or_else(|| SolverError::fatal(C, "> Particle Drag Coefficient < should be given!"))?,
+                p.real("particle drag coefficient").ok_or_else(|| {
+                    SolverError::fatal(C, "> Particle Drag Coefficient < should be given!")
+                })?,
             ),
             _ => (0.0, 0.0),
         };
         for no in 0..pt.number {
             let status = pt.status[no];
-            if status >= PARTICLE_LOST || status <= PARTICLE_INITIATED || status == PARTICLE_WALLBOUNDARY {
+            if status >= PARTICLE_LOST
+                || status <= PARTICLE_INITIATED
+                || status == PARTICLE_WALLBOUNDARY
+            {
                 continue;
             }
             if let Some(tv) = time_var {
@@ -943,13 +1077,17 @@ impl ParticleDynamics {
                 continue;
             }
             let el = ctx.mesh.element(ElemId((e1 - 1) as u32));
-            let Some(bf) = ctx.body_params(ElemId((e1 - 1) as u32)).and_then(|b| b.body_force) else {
+            let Some(bf) = ctx
+                .body_params(ElemId((e1 - 1) as u32))
+                .and_then(|b| b.body_force)
+            else {
                 continue;
             };
             let x = element_nodes(ctx.mesh, e1);
             let shape = Shape::get(el.etype.0).ok_or_else(|| unsupported("element type"))?;
             let coord = self.particles.coord[no];
-            let probe = point_in_element(shape, &x, coord, PointTol::default(), false, ctx.mesh.dim());
+            let probe =
+                point_in_element(shape, &x, coord, PointTol::default(), false, ctx.mesh.dim());
             if !probe.inside {
                 continue;
             }
@@ -960,7 +1098,8 @@ impl ParticleDynamics {
             if let Some(tv) = tv {
                 if let Some(v) = bf.get("particle time integral source") {
                     let dummy = [self.particles.vars[tv].values[no]];
-                    let source = element_real_at(ctx, v, e1, basis, if use_dummy { &dummy } else { &[] })?;
+                    let source =
+                        element_real_at(ctx, v, e1, basis, if use_dummy { &dummy } else { &[] })?;
                     self.particles.vars[tv].values[no] += dtime * source;
                 }
             }
@@ -972,7 +1111,8 @@ impl ParticleDynamics {
                 let ds = ds.sqrt();
                 if let Some(v) = bf.get("particle distance integral source") {
                     let dummy = [self.particles.vars[dv].values[no]];
-                    let source = element_real_at(ctx, v, e1, basis, if use_dummy { &dummy } else { &[] })?;
+                    let source =
+                        element_real_at(ctx, v, e1, basis, if use_dummy { &dummy } else { &[] })?;
                     self.particles.vars[dv].values[no] += ds * source;
                 }
             }

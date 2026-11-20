@@ -4,7 +4,9 @@
 
 use elmer_core::MeshView;
 
-use crate::faces::{center, element_nodes, segment_element_inside, segment_element_intersection2, Faces, V3};
+use crate::faces::{
+    center, element_nodes, segment_element_inside, segment_element_intersection2, Faces, V3,
+};
 
 pub(crate) const PARTICLE_ALLOCATED: i32 = 1;
 pub(crate) const PARTICLE_INITIATED: i32 = 3;
@@ -81,7 +83,9 @@ impl Particles {
         if prev == 0 {
             return;
         }
-        let keep: Vec<usize> = (0..prev).filter(|&i| self.status[i] != PARTICLE_LOST).collect();
+        let keep: Vec<usize> = (0..prev)
+            .filter(|&i| self.status[i] != PARTICLE_LOST)
+            .collect();
         if keep.len() == prev {
             return;
         }
@@ -135,14 +139,13 @@ pub(crate) fn march(
     velo: &mut V3,
 ) {
     let mut do_init = init;
-    let use_center;
-    if *elem == 0 {
+    let use_center = if *elem == 0 {
         do_init = true;
         *elem = 1;
-        use_center = true;
+        true
     } else {
-        use_center = !accurate_at_face;
-    }
+        !accurate_at_face
+    };
     if !use_center {
         let mut ds2 = 0.0;
         for d in 0..3 {
@@ -189,7 +192,11 @@ pub(crate) fn march(
         let fc = &faces.faces[f];
         let next;
         if fc.left != 0 && fc.right != 0 {
-            next = if element == fc.left { fc.right } else { fc.left };
+            next = if element == fc.left {
+                fc.right
+            } else {
+                fc.left
+            };
             if mp.stop_at_face && !do_init {
                 *status = PARTICLE_FACEBOUNDARY;
             }
@@ -244,7 +251,11 @@ pub(crate) fn locate_particles(
             continue;
         }
         let init_location = status < PARTICLE_LOCATED;
-        let accurate_now = if status == PARTICLE_INITIATED { false } else { accurate_always };
+        let accurate_now = if status == PARTICLE_INITIATED {
+            false
+        } else {
+            accurate_always
+        };
         let mut element = particles.element[no];
         let mut rfin = particles.coord[no];
         let mut velo = particles.velo[no];

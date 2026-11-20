@@ -69,7 +69,11 @@ impl Faces {
 
 /// The node coordinates of bulk element `e1` (1-based).
 pub(crate) fn element_nodes(mesh: &dyn MeshView, e1: usize) -> Vec<V3> {
-    mesh.element(ElemId((e1 - 1) as u32)).nodes.iter().map(|&k| mesh.coord(k)).collect()
+    mesh.element(ElemId((e1 - 1) as u32))
+        .nodes
+        .iter()
+        .map(|&k| mesh.coord(k))
+        .collect()
 }
 
 /// `SUM( x(1:n) ) / n` per coordinate.
@@ -139,7 +143,8 @@ pub(crate) fn segment_element_intersection2(
     let mut min_lambda = -f64::MAX;
     let mut face = None;
     for &f in &faces.of_element[e1 - 1] {
-        let Some(lambda) = line_face_intersection2(face_coords(mesh, &faces.faces[f]), rinit, rfin) else {
+        let Some(lambda) = line_face_intersection2(face_coords(mesh, &faces.faces[f]), rinit, rfin)
+        else {
             continue;
         };
         if lambda > min_lambda {
@@ -159,7 +164,12 @@ pub(crate) fn segment_element_intersection2(
 
 /// `SegmentElementInside`: `rfin` is inside element `e1` when it passes the
 /// bounding box and the segment from the centre reaches no face before it.
-pub(crate) fn segment_element_inside(mesh: &dyn MeshView, faces: &Faces, e1: usize, rfin: V3) -> bool {
+pub(crate) fn segment_element_inside(
+    mesh: &dyn MeshView,
+    faces: &Faces,
+    e1: usize,
+    rfin: V3,
+) -> bool {
     let eps = f64::EPSILON;
     let x = element_nodes(mesh, e1);
     let edim = 2;
@@ -179,7 +189,8 @@ pub(crate) fn segment_element_inside(mesh: &dyn MeshView, faces: &Faces, e1: usi
     let mut hits = 0;
     let mut min_lambda = f64::MAX;
     for &f in &faces.of_element[e1 - 1] {
-        let Some(lambda) = line_face_intersection2(face_coords(mesh, &faces.faces[f]), rinit, rfin) else {
+        let Some(lambda) = line_face_intersection2(face_coords(mesh, &faces.faces[f]), rinit, rfin)
+        else {
             continue;
         };
         hits += 1;
@@ -188,4 +199,78 @@ pub(crate) fn segment_element_inside(mesh: &dyn MeshView, faces: &Faces, e1: usi
         }
     }
     hits > 0 && min_lambda > 1.0 - eps && min_lambda > -eps
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elmer_core::{ElementRef, ElementType};
+
+    /// Two unit squares side by side: nodes 0-1-2 at y = 0, 3-4-5 at y = 1.
+    struct TwoQuads;
+
+    const NODES: [[f64; 3]; 6] = [
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [2.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [1.0, 1.0, 0.0],
+        [2.0, 1.0, 0.0],
+    ];
+    const ELEMS: [[u32; 4]; 2] = [[0, 1, 4, 3], [1, 2, 5, 4]];
+
+    impl MeshView for TwoQuads {
+        fn dim(&self) -> usize {
+            2
+        }
+        fn n_nodes(&self) -> usize {
+            6
+        }
+        fn coord(&self, node: u32) -> [f64; 3] {
+            NODES[node as usize]
+        }
+        fn n_bulk(&self) -> usize {
+            2
+        }
+        fn n_boundary(&self) -> usize {
+            0
+        }
+        fn element(&self, e: ElemId) -> ElementRef<'_> {
+            ElementRef {
+                etype: ElementType(404),
+                nodes: &ELEMS[e.0 as usize],
+                tag: 1,
+                parents: [None, None],
+            }
+        }
+    }
+
+    /// The shared edge 1-4 is one face with both parents, first met by
+    /// element 1 in its node order.
+    #[test]
+    fn faces_follow_find_mesh_edges_2d() {
+        let f = Faces::build(&TwoQuads).unwrap();
+        assert_eq!(f.faces.len(), 7);
+        let shared = f.of_element[0][1];
+        assert_eq!(f.of_element[1][3], shared);
+        assert_eq!(f.faces[shared].nodes, [1, 4]);
+        assert_eq!((f.faces[shared].left, f.faces[shared].right), (1, 2));
+    }
+
+    /// A segment across x = 1 meets that edge halfway; one parallel to it
+    /// does not.
+    #[test]
+    fn line_crosses_the_shared_edge() {
+        let face = [NODES[1], NODES[4]];
+        let l = line_face_intersection2(face, [0.5, 0.5, 0.0], [1.5, 0.5, 0.0]).unwrap();
+        assert!((l - 0.5).abs() < 1e-15);
+        assert!(line_face_intersection2(face, [0.5, 0.0, 0.0], [0.5, 1.0, 0.0]).is_none());
+    }
+
+    #[test]
+    fn inside_test_of_the_robust_march() {
+        let f = Faces::build(&TwoQuads).unwrap();
+        assert!(segment_element_inside(&TwoQuads, &f, 2, [1.5, 0.25, 0.0]));
+        assert!(!segment_element_inside(&TwoQuads, &f, 1, [1.5, 0.25, 0.0]));
+    }
 }
