@@ -345,6 +345,21 @@ pub fn solve(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
     let fixed = edge_dirichlet(ctx, &var, degree, &|p| nodal.get(&p.0).copied().unwrap_or(0))?;
     ctx.default_dirichlet_after(&fixed)?;
     constrain_unused(ctx)?;
+    if let Ok(dir) = std::env::var("ELMER_RS_DUMP") {
+        use std::io::Write;
+        let sys = ctx.system().unwrap();
+        let a = &sys.matrix;
+        let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{dir}/rs_a.dat")).unwrap());
+        for r in 0..a.nrows {
+            for k in a.row_ptr[r]..a.row_ptr[r + 1] {
+                writeln!(f, "{} {} {:e}", r + 1, a.col_idx[k] + 1, a.values[k]).unwrap();
+            }
+        }
+        let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{dir}/rs_b.dat")).unwrap());
+        for (r, v) in sys.rhs.iter().enumerate() {
+            writeln!(f, "{} {:e}", r + 1, v).unwrap();
+        }
+    }
     ctx.default_solve()?;
     if nodal.values().all(|&np| np == 0) {
         // WhitneyAVSolver_Init0: `Variable Output = False` without the
