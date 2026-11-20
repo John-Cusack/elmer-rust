@@ -116,7 +116,6 @@ pub(crate) fn ip_perm(
     // Integration Points`, else `Bulk Relative Integration Order` over
     // `Relative Integration Order`.
     for (key, what) in [
-        ("element integration points", "Element Integration Points"),
         ("element relative integration order", "Element Relative Integration Order"),
         ("adaptive integration variable", "adaptive integration"),
     ] {
@@ -125,6 +124,10 @@ pub(crate) fn ip_perm(
         }
     }
     let np = slot.params.integer("number of integration points").filter(|&n| n > 0).map(|n| n as usize);
+    let family_np = match slot.params.string("element integration points") {
+        Some(def) => parse_elemental_gauss_rules(def)?,
+        None => [0; 9],
+    };
     let rel = match slot.params.get("bulk relative integration order") {
         Some(_) => slot.params.integer("bulk relative integration order"),
         None => slot.params.integer("relative integration order"),
@@ -145,6 +148,11 @@ pub(crate) fn ip_perm(
             };
         if on {
             let etype = mesh.element(ElemId(t as u32)).etype;
+            // `ElementalGaussNp` over the base count.
+            let np = match family_np.get(etype.family() as usize) {
+                Some(&k) if k > 0 => Some(k),
+                _ => np,
+            };
             count += match (n_ip, np) {
                 (Some(k), _) => k as u32,
                 (None, Some(_)) => fe.quadrature.gauss_points(etype, np).len() as u32,
@@ -163,6 +171,23 @@ pub(crate) fn ip_perm(
         offsets[t + 1] = count;
     }
     Ok(offsets)
+}
+
+/// `ParseElementalGaussRules`: the count after `-line`, `-tri`, `-quad`,
+/// `-tetra`, `-pyramid`, `-prism`, `-brick`, by element family (2..8).
+fn parse_elemental_gauss_rules(def: &str) -> Result<[usize; 9], SolverError> {
+    let def = def.to_ascii_lowercase();
+    let mut out = [0; 9];
+    let names = ["-line", "-tri", "-quad", "-tetra", "-pyramid", "-prism", "-brick"];
+    for (k, name) in names.iter().enumerate() {
+        let Some(j) = def.find(name) else { continue };
+        let rest = def[j + name.len()..].trim_start();
+        let num: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '-' || *c == '+').collect();
+        out[k + 2] = num.parse::<i64>().map(|n| n.max(0) as usize).map_err(|_| {
+            SolverError::fatal("ParseElementalGaussRules", format!("Problems reading integer from: {rest}"))
+        })?;
+    }
+    Ok(out)
 }
 
 /// The fields as seen at one point of an element: every variable and the
