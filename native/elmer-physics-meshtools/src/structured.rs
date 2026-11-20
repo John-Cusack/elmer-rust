@@ -3,15 +3,18 @@
 //! top surface (and optionally a mid surface), or between several fixed
 //! layers, by linear interpolation along each column of nodes.
 //!
-//! Not ported, and refused: `Mapping Mask Variable` / `Mapping Mask Name`,
-//! `Mapping Coordinate Transformation`, `Mapping Original Coordinates`,
+//! `Mapping Mask Variable` / `Mapping Mask Name` restrict the mapping to the
+//! masked nodes (two surfaces only, no mesh velocity or update variable),
+//! through the `Extruded Coordinate` variable.
+//!
+//! Not ported, and refused: `Mapping Coordinate Transformation`, `Mapping Original Coordinates`,
 //! `Base Displacement Variable`, `Mapped Mesh Name`, `Mesh Height Map` and
 //! `Correct Surface Mask`.
 
 use elmer_core::{ElemId, FieldKind, MeshView, ParamMap, Params, Value};
 use elmer_solver::{Solver, SolverCtx, SolverError, Variable};
 
-use crate::structure::{detect_extruded_structure, Structure, Want};
+use crate::structure::{detect_extruded_structure, extruded_coordinate, mapping_mask, Mask, Structure, Want};
 use crate::util::{apply_coords, coords_of};
 
 const CALLER: &str = "StructuredMeshMapper";
@@ -31,6 +34,8 @@ pub struct StructuredMeshMapper {
     field: Option<Vec<f64>>,
     /// `MinHeight` of the current visit.
     min_height: f64,
+    /// `MaskPerm` of `Mapping Mask Variable` / `Name`.
+    mask: Option<Mask>,
 }
 
 fn unsupported(what: &str) -> SolverError {
@@ -138,8 +143,6 @@ impl Solver for StructuredMeshMapper {
 
         let params = ctx.params().clone();
         for k in [
-            "mapping mask variable",
-            "mapping mask name",
             "mapping coordinate transformation",
             "mapping original coordinates",
             "base displacement variable",
@@ -182,7 +185,14 @@ impl Solver for StructuredMeshMapper {
                 mid: !multi_layer,
             };
             ctx.info(CALLER, "Determining extruded structure", 6);
-            let mut s = detect_extruded_structure(ctx.mesh, &ctx.sim.model, unit, eps, want)?;
+            self.mask = mapping_mask(ctx, &params)?;
+            if let Some(m) = &self.mask {
+                if multi_layer {
+                    return Err(fatal("Mask not available yet for multiple layers!"));
+                }
+                extruded_coordinate(ctx, m, dir)?;
+            }
+            let mut s = detect_extruded_structure(ctx.mesh, &ctx.sim.model, unit, eps, want, self.mask.as_ref())?;
             if let Some(mut f) = fixed {
                 s.layers += 1;
                 if f[0] != 1 {
@@ -245,6 +255,11 @@ impl StructuredMeshMapper {
         if params.get("base displacement first").is_some() {
             return Err(unsupported("Base Displacement First"));
         }
+        if self.mask.is_some()
+            && (params.get("mesh velocity variable").is_some() || params.get("mesh update variable").is_some())
+        {
+            return Err(unsupported("Mesh Velocity / Update Variable with a mapping mask"));
+        }
         let velo = velocity_or_update(ctx, "mesh velocity variable", nnodes, dim)?;
         let update = velocity_or_update(ctx, "mesh update variable", nnodes, dim)?;
         let displacement_mode = params.logical("displacement mode").unwrap_or(false);
@@ -290,17 +305,18 @@ impl StructuredMeshMapper {
                 &mut limited,
             )?;
         }
+        let nsize = self.mask.as_ref().map_or(nnodes, |m| m.size);
         if limited > 0 {
             ctx.info(
                 CALLER,
-                &format!("There seems to be {limited} (out of {nnodes}) limited heights!"),
+                &format!("There seems to be {limited} (out of {nsize}) limited heights!"),
                 6,
             );
         }
         if tangled > 0 {
             ctx.info(
                 CALLER,
-                &format!("There seems to be {tangled} (out of {nnodes}) tangled nodes!"),
+                &format!("There seems to be {tangled} (out of {nsize}) tangled nodes!"),
                 5,
             );
         }
@@ -313,6 +329,18 @@ impl StructuredMeshMapper {
         }) {
             for n in 0..nnodes {
                 v.set(ctx, n, 0.0);
+            }
+        }
+        // With a mask the mapped coordinate lives in `Extruded Coordinate`
+        // and goes to the mesh at the masked nodes only.
+        if let Some(m) = &self.mask {
+            if let Some(v) = ctx.sim.vars.get_mut("extruded coordinate") {
+                for (n, &sl) in m.perm.iter().enumerate() {
+                    if sl != elmer_core::NO_DOF {
+                        v.values[sl as usize] = coord[n];
+                    }
+                }
+                v.values_changed = true;
             }
         }
         let mut new = all.clone();
@@ -332,6 +360,7 @@ impl StructuredMeshMapper {
         key: &str,
         nnodes: usize,
     ) -> Result<(), SolverError> {
+        let mask = self.mask.clone();
         let field = self.field.get_or_insert_with(|| vec![0.0; nnodes]);
         let elems: Vec<ElemId> = ctx.boundary_elements().collect();
         for e in elems {
@@ -339,7 +368,12 @@ impl StructuredMeshMapper {
             let Some(vals) = ctx.real_at_nodes(bc, key, e)? else {
                 continue;
             };
-            for (&n, &x) in ctx.mesh.element(e).nodes.iter().zip(&vals) {
+            let nodes = ctx.mesh.element(e).nodes;
+            // With a mask, only elements all of whose nodes are masked.
+            if mask.as_ref().is_some_and(|m| nodes.iter().any(|&n| m.perm[n as usize] == elmer_core::NO_DOF)) {
+                continue;
+            }
+            for (&n, &x) in nodes.iter().zip(&vals) {
                 field[n as usize] = x;
             }
         }
@@ -414,7 +448,11 @@ impl StructuredMeshMapper {
             }
         };
 
+        let mask = self.mask.clone();
         for i in 0..nnodes {
+            if mask.as_ref().is_some_and(|m| m.perm[i] == elmer_core::NO_DOF) {
+                continue;
+            }
             let (itop, ibot) = (s.top[i], s.bot[i]);
             let (x0top, x0bot, x0loc) = (orig[itop], orig[ibot], orig[i]);
             let fld = |n: usize| field.as_ref().map_or(0.0, |f| f[n]);
@@ -448,7 +486,14 @@ impl StructuredMeshMapper {
             } else {
                 top_val - mid_val
             };
-            if dx < min_height {
+            let mut tangled = dx < min_height;
+            if mask.is_some() && tangled {
+                if detangle {
+                    ctx.warn(CALLER, "Cancelling tanglement when mask exists!");
+                }
+                tangled = false;
+            }
+            if tangled {
                 if dx < f64::MIN_POSITIVE {
                     *tangled_count += 1;
                 }
