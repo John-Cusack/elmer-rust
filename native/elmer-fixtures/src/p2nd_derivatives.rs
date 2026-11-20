@@ -147,6 +147,11 @@ impl Solver for TestSolver {
             for qpt in &rule {
                 basis.eval(el.etype, &xyz, qpt.uvw, &mut ev).map_err(|m| SolverError::fatal("ElementInfo", m))?;
                 let w = qpt.weight * ev.det_j;
+                if code == 504 && qp == 8 && std::ptr::eq(qpt, &rule[0]) {
+                    eprintln!("BAS {:?}", &ev.basis[..12]);
+                    eprintln!("BAS2 {:?}", &ev.basis[nd - 6..nd]);
+                    eprintln!("UVW {:?}", qpt.uvw);
+                }
                 let at = |c: usize| (0..nd).fold(0.0, |a, i| a + xyz[i][c] * ev.basis[i]);
                 let (x, y, z) = (at(0), at(1), at(2));
                 let (fx, _, _) = poly(edim, qp, x, y, z);
