@@ -37,6 +37,7 @@ pub mod linsys;
 pub mod live;
 mod loads;
 mod lumped;
+mod matvec;
 mod monolithic;
 mod multigrid;
 pub mod model;
