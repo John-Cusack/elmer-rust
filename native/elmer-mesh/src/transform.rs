@@ -5,14 +5,16 @@
 //! - `MapBodiesAndBCs` (Target Bodies/Boundaries, `MeshLoad.F90:230`),
 //! - `MapInternalExternalBCs` (`MeshLoad.F90:466`),
 //! - `CreateIntersectionBCs` in 2D, both modes (`MeshTagging.F90:52`),
-//! - `IncreaseElementOrder` (`MeshBasics.F90:3564`).
+//! - `IncreaseElementOrder` (`MeshBasics.F90:3564`),
+//! - `SplitMeshQuads` (`MeshSplit.F90:2058`): `Split Mesh Quads` (2D) and
+//!   `Split Mesh Prisms` (3D).
 //!
 //! Explicitly out of scope for this PR: 3D intersection BCs (need face
-//! tables), `SplitMeshQuads`, `TagBCsUsingRule`, curved-boundary
+//! tables), `TagBCsUsingRule`, curved-boundary
 //! following, and all parallel handling. Those are capability refusals
 //! in a later lane, not silent skips.
 
-use crate::mesh::{BoundElem, Mesh, MeshError};
+use crate::mesh::{BoundElem, Elem, Mesh, MeshError};
 use elmer_sif::model::{Entry, Model, Section, Value};
 
 fn fatal(msg: String) -> MeshError {
@@ -47,6 +49,7 @@ pub fn transform(mesh: &mut Mesh, model: &Model) -> Result<(), MeshError> {
     map_coordinates(mesh, model)?;
     map_bodies_and_bcs(mesh, model)?;
     map_internal_external_bcs(mesh, model)?;
+    split_mesh_quads(mesh, model)?;
     create_intersection_bcs(mesh, model)?;
     if sim_logical(model, "increase element order") {
         increase_element_order(mesh)?;
@@ -60,6 +63,204 @@ fn sim_logical(model: &Model, name: &str) -> bool {
 
 fn sim_section(model: &Model) -> Option<&Section> {
     model.simulation.as_ref()
+}
+
+/// `WedgeFaceMap(3:5, 1:4)` (MeshBasics.F90:4182-4184): the quadrilateral
+/// faces of a prism, 0-based.
+const WEDGE_QUAD_FACES: [[usize; 4]; 3] = [[0, 1, 4, 3], [2, 1, 4, 5], [2, 0, 3, 5]];
+
+/// The split of a prism by the cut corners of its three quadrilateral faces
+/// (MeshSplit.F90:2329-2405): `CutComb` and the three tetrahedra.
+fn cut_comb(nodes: &[u32], cut: [u32; 3]) -> u32 {
+    let is24 = cut[0] == nodes[1] || cut[0] == nodes[3];
+    let is26 = cut[1] == nodes[1] || cut[1] == nodes[5];
+    let is16 = cut[2] == nodes[0] || cut[2] == nodes[3];
+    111 + if is24 { 0 } else { 100 } + if is26 { 0 } else { 10 } + if is16 { 0 } else { 1 }
+}
+
+fn prism_cut(nodes: &[u32], cut: [u32; 3]) -> Result<(u32, [[usize; 4]; 3]), MeshError> {
+    let comb = cut_comb(nodes, cut);
+    let maps: [[usize; 4]; 3] = match comb {
+        111 => [[1, 2, 4, 6], [2, 5, 4, 6], [1, 2, 3, 6]],
+        112 => [[1, 2, 4, 3], [2, 5, 4, 6], [2, 3, 6, 4]],
+        122 => [[1, 2, 4, 3], [2, 5, 4, 3], [4, 5, 3, 6]],
+        221 => [[1, 2, 5, 3], [1, 5, 4, 6], [1, 3, 5, 6]],
+        222 => [[1, 2, 5, 3], [1, 5, 4, 3], [4, 5, 3, 6]],
+        211 => [[1, 2, 5, 6], [1, 5, 4, 6], [1, 2, 3, 6]],
+        c => return Err(fatal(format!("SplitMeshQuads: Unknown case for split: {c}"))),
+    };
+    Ok((comb, maps))
+}
+
+/// `SplitMeshQuads(Mesh, Model % Simulation)` (MeshSplit.F90:2058): with
+/// `Split Mesh Quads` (2D) the quadrilaterals become two triangles each;
+/// with `Split Mesh Prisms` (3D) each prism becomes three tetrahedra and
+/// each boundary quadrilateral two triangles. The diagonal of a
+/// quadrilateral face goes through its cut corner: the smallest node
+/// (`Split Mesh Prisms Min/Max`: the shorter or longer diagonal), changed
+/// prism by prism until every prism can be cut. A boundary quadrilateral is
+/// split in the node order of its face as `FindMeshFaces3D` stores it (that
+/// of the first element with the face), and its parents become the new
+/// elements that contain it. Pyramids and hexahedra are refused, as in
+/// Elmer.
+fn split_mesh_quads(mesh: &mut Mesh, model: &Model) -> Result<(), MeshError> {
+    let dim = mesh.dim;
+    if dim < 2 {
+        return Ok(());
+    }
+    if !sim_logical(model, if dim == 2 { "split mesh quads" } else { "split mesh prisms" }) {
+        return Ok(());
+    }
+    let mut cnt = [0usize; 9];
+    for code in mesh.bulk.iter().map(|e| e.code).chain(mesh.boundary.iter().map(|e| e.code)) {
+        cnt[(code / 100) as usize] += 1;
+    }
+    if cnt[6] + cnt[8] > 0 {
+        return Err(fatal("SplitMeshQuads: Not implemented yet for pyramids and hexahedrons!".into()));
+    }
+    if dim == 3 && cnt[7] == 0 {
+        return Ok(());
+    }
+    if mesh.bulk.iter().chain(std::iter::empty()).any(|e| ![101, 202, 303, 404, 504, 706].contains(&e.code))
+        || mesh.boundary.iter().any(|e| ![101, 202, 303, 404].contains(&e.code))
+    {
+        return Err(fatal("SplitMeshQuads: higher-order elements are not split".into()));
+    }
+    // FindMeshFaces3D: the quadrilateral faces, in the node order of the
+    // first element that has them; MinCorner and CutCorner.
+    let mut face_of: std::collections::HashMap<[u32; 4], usize> = std::collections::HashMap::new();
+    let mut face_nodes: Vec<[u32; 4]> = Vec::new();
+    let mut elem_faces: Vec<[usize; 3]> = vec![[0; 3]; mesh.bulk.len()];
+    for (i, e) in mesh.bulk.iter().enumerate() {
+        if e.code != 706 {
+            continue;
+        }
+        for (f, map) in WEDGE_QUAD_FACES.iter().enumerate() {
+            let fnodes = map.map(|k| e.nodes[k]);
+            let mut key = fnodes;
+            key.sort_unstable();
+            let id = *face_of.entry(key).or_insert_with(|| {
+                face_nodes.push(fnodes);
+                face_nodes.len() - 1
+            });
+            elem_faces[i][f] = id;
+        }
+    }
+    let min_corner: Vec<u32> = face_nodes.iter().map(|f| *f.iter().min().unwrap()).collect();
+    let mut cut = min_corner.clone();
+    let do_max = if sim_logical(model, "split mesh prisms max") {
+        -1.0
+    } else if sim_logical(model, "split mesh prisms min") {
+        1.0
+    } else {
+        0.0
+    };
+    if do_max != 0.0 {
+        let d2 = |a: u32, b: u32| {
+            let (p, q) = (mesh.nodes[a as usize], mesh.nodes[b as usize]);
+            (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)
+        };
+        for (f, n) in face_nodes.iter().enumerate() {
+            let (d13, d24) = (d2(n[0], n[2]), d2(n[1], n[3]));
+            cut[f] = if do_max * d13 < do_max * d24 { n[0].min(n[2]) } else { n[1].min(n[3]) };
+        }
+    }
+    if dim == 3 {
+        loop {
+            let mut changes = 0;
+            for (i, e) in mesh.bulk.iter().enumerate() {
+                if e.code != 706 {
+                    continue;
+                }
+                let lc = elem_faces[i].map(|f| cut[f]);
+                let comb = cut_comb(&e.nodes, lc);
+                if comb == 121 || comb == 212 {
+                    let mx = *lc.iter().max().unwrap();
+                    let k = lc.iter().position(|&c| c == mx).unwrap() + 1;
+                    let icut = match (k, comb) {
+                        (1, 121) => 1,
+                        (1, _) => 2,
+                        (2, 121) => 2,
+                        (2, _) => 3,
+                        (3, 121) => 3,
+                        (_, _) => 1,
+                    };
+                    cut[elem_faces[i][k - 1]] = e.nodes[icut - 1];
+                    changes += 1;
+                }
+            }
+            if changes == 0 {
+                break;
+            }
+        }
+    }
+    // The new elements: bulk first, then boundary, in the old order.
+    let mut bulk: Vec<Elem> = Vec::with_capacity(mesh.bulk.len() + 2 * cnt[7] + cnt[4]);
+    let mut offset = vec![0usize; mesh.bulk.len()];
+    for (i, e) in mesh.bulk.iter().enumerate() {
+        offset[i] = bulk.len();
+        let mut child = |code: u16, nodes: Vec<u32>| {
+            bulk.push(Elem { code, body: e.body, nodes, tag: e.tag, edges: Vec::new() });
+        };
+        match e.code {
+            404 => {
+                for map in [[0, 1, 2], [2, 3, 0]] {
+                    child(303, map.iter().map(|&k| e.nodes[k]).collect());
+                }
+            }
+            706 => {
+                let (_, maps) = prism_cut(&e.nodes, elem_faces[i].map(|f| cut[f]))?;
+                for map in maps {
+                    child(504, map.iter().map(|&k| e.nodes[k - 1]).collect());
+                }
+            }
+            c => child(c, e.nodes.clone()),
+        }
+    }
+    let n_cands = |code: u16| match code {
+        404 => 2,
+        706 => 3,
+        _ => 1,
+    };
+    let mut boundary: Vec<BoundElem> = Vec::with_capacity(mesh.boundary.len() + cnt[4]);
+    for b in &mesh.boundary {
+        let pieces: Vec<(u16, Vec<u32>)> = match b.code {
+            404 => {
+                // The face of the parent with these nodes, and its cut.
+                let mut key = [b.nodes[0], b.nodes[1], b.nodes[2], b.nodes[3]];
+                key.sort_unstable();
+                let f = *face_of
+                    .get(&key)
+                    .ok_or_else(|| fatal("SplitMeshQuads: boundary quadrilateral without a prism face".into()))?;
+                let fnodes = face_nodes[f];
+                let odd = cut[f] == fnodes[0] || cut[f] == fnodes[2];
+                let maps = if odd { [[0, 1, 2], [2, 3, 0]] } else { [[3, 0, 1], [1, 2, 3]] };
+                maps.iter().map(|m| (303, m.iter().map(|&k| fnodes[k]).collect())).collect()
+            }
+            c => vec![(c, b.nodes.clone())],
+        };
+        for (code, nodes) in pieces {
+            let mut parents = [None, None];
+            for (j, p) in b.parents.iter().enumerate() {
+                let Some(p) = *p else { continue };
+                let off = offset[p];
+                let hit = (off..off + n_cands(mesh.bulk[p].code))
+                    .find(|&c| nodes.iter().all(|n| bulk[c].nodes.contains(n)))
+                    .ok_or_else(|| {
+                        fatal(format!("UpdateParentElements: Could not find parent for type {}", mesh.bulk[p].code))
+                    })?;
+                parents[j] = Some(hit);
+            }
+            boundary.push(BoundElem { code, constraint: b.constraint, parents, nodes, tag: b.tag, edges: Vec::new() });
+        }
+    }
+    mesh.bulk = bulk;
+    mesh.boundary = boundary;
+    if mesh.edges.is_some() {
+        mesh.edges = None;
+        mesh.find_edges();
+    }
+    Ok(())
 }
 
 fn map_coordinates(mesh: &mut Mesh, model: &Model) -> Result<(), MeshError> {
@@ -701,5 +902,56 @@ mod tests {
         let model = sim_model(vec![], Some(logical_section("increase element order")));
         let err = transform(&mut mesh, &model).unwrap_err();
         assert!(err.msg.contains("got 4 nodes"), "unexpected: {err:?}");
+    }
+
+    fn tet_volume(m: &Mesh, n: &[u32]) -> f64 {
+        let p = |i: usize| m.nodes[n[i] as usize];
+        let d = |a: [f64; 3], b: [f64; 3]| [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let (u, v, w) = (d(p(0), p(1)), d(p(0), p(2)), d(p(0), p(3)));
+        (u[0] * (v[1] * w[2] - v[2] * w[1]) - u[1] * (v[0] * w[2] - v[2] * w[0]) + u[2] * (v[0] * w[1] - v[1] * w[0]))
+            .abs()
+            / 6.0
+    }
+
+    /// `Split Mesh Prisms`: a prism becomes three tetrahedra filling it,
+    /// and its boundary quadrilateral two triangles, each with the new
+    /// tetrahedron that contains it as its parent.
+    #[test]
+    fn split_mesh_prisms_fills_the_prism() {
+        let mut mesh = Mesh {
+            dim: 3,
+            max_dim: 3,
+            nodes: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 2.0],
+                [1.0, 0.0, 2.0],
+                [0.0, 1.0, 2.0],
+            ],
+            node_tags: (1..=6).collect(),
+            bulk: vec![Elem { code: 706, body: 1, nodes: (0..6).collect(), tag: 1, edges: vec![] }],
+            boundary: vec![BoundElem {
+                code: 404,
+                constraint: 1,
+                parents: [Some(0), None],
+                nodes: vec![0, 1, 4, 3],
+                tag: 1,
+                edges: vec![],
+            }],
+            edges: None,
+        };
+        let model = Model { simulation: Some(logical_section("split mesh prisms")), ..Model::default() };
+        split_mesh_quads(&mut mesh, &model).unwrap();
+        assert_eq!(mesh.bulk.len(), 3);
+        assert!(mesh.bulk.iter().all(|e| e.code == 504));
+        let vol: f64 = mesh.bulk.iter().map(|e| tet_volume(&mesh, &e.nodes)).sum();
+        assert!((vol - 1.0).abs() < 1e-12, "{vol}");
+        assert_eq!(mesh.boundary.len(), 2);
+        for b in &mesh.boundary {
+            assert_eq!(b.code, 303);
+            let p = b.parents[0].expect("parent");
+            assert!(b.nodes.iter().all(|n| mesh.bulk[p].nodes.contains(n)));
+        }
     }
 }

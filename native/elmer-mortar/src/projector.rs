@@ -161,10 +161,8 @@ pub fn nodal_projector(
 
 /// Projector families of `PeriodicProjector` that are not ported (the
 /// radial, flat and plane ones are, see [`crate::level`]).
-const REFUSED: [&str; 9] = [
+const REFUSED: [&str; 7] = [
     "normal projector",
-    "rotational projector",
-    "anti rotational projector",
     "cylindrical projector",
     "axial projector",
     "anti axial projector",
@@ -247,12 +245,14 @@ pub fn periodic_projector(
             "{k} (only the generic, radial, flat and plane projectors are ported)"
         )));
     }
+    let anti_rotational = flag(bc, "anti rotational projector");
+    let rotational = anti_rotational || flag(bc, "rotational projector");
     let anti_radial = flag(bc, "anti radial projector");
     let radial = anti_radial || flag(bc, "radial projector");
     let flat = flag(bc, "flat projector");
     let anti_plane = flag(bc, "anti plane projector");
     let plane = anti_plane || flag(bc, "plane projector");
-    let family = radial || flat || plane;
+    let family = rotational || radial || flat || plane;
     // `Mortar BC Scaling`, -1 by default for the anti projectors.
     let node_scale = bc
         .real("mortar bc scaling")
@@ -279,14 +279,18 @@ pub fn periodic_projector(
             Some(true) => {}
         }
     }
-    if radial {
+    let (mut radius, mut full_circle, mut periods) = (1.0, false, None);
+    if rotational {
+        (radius, full_circle, periods) =
+            crate::level::rotational_interface_meshes(&mut b1, &mut b2, bc, env.simulation, env.log)?;
+    } else if radial {
         crate::level::radial_interface_meshes(&mut b1, &mut b2, env.log);
     } else if flat {
         crate::level::flat_interface_meshes(&mut b1, &mut b2, bc, env.coord_dim, env.log);
     } else if plane {
         crate::level::plane_interface_meshes(&mut b1, &mut b2, bc, env.coord_dim, env.coord_dim, env.log)?;
     }
-    if bc.get("mesh rotate 3").is_some() {
+    if !rotational && bc.get("mesh rotate 3").is_some() {
         return Err(MortarError::Fatal(format!(
             "{CALLER}: Only \"Rotational Projector\" has the \"Mesh Rotate 3\" trick implemented"
         )));
@@ -311,6 +315,13 @@ pub fn periodic_projector(
             n_nodes: env.mesh.n_nodes(),
             coord_dim: env.coord_dim,
             node_scale,
+            repeating: rotational && !full_circle,
+            anti_repeating: rotational
+                && !full_circle
+                && bc.logical("antisymmetric bc").unwrap_or(anti_rotational),
+            full_circle,
+            radius,
+            periods,
         };
         crate::level::level_projector(&b1, &b2, &o, env.log)?
     } else if weak {
