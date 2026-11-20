@@ -4,6 +4,10 @@
 //! (`MPI_ALLREDUCE`, one call per reduction, as the Fortran makes them).
 //!
 //! The serial routines take a [`Par`] and run unchanged when it is `None`.
+//!
+//! Under PARPACK a rank may hold no rows (`n = 0`): it takes part in every
+//! reduction with empty vectors, where Elmer leaves such a partition out of
+//! the solver's communicator (`comm_active`); the argument checks accept it.
 
 use elmer_core::Communicator;
 

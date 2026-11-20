@@ -658,7 +658,7 @@ fn saupd(
     let mut mxiter = iparam[2];
     let mode = iparam[6];
     let mut ierr = 0;
-    if n == 0 {
+    if n == 0 && par.is_none() {
         ierr = -1;
     } else if nev == 0 {
         ierr = -2;

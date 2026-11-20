@@ -903,7 +903,7 @@ fn naupd(
     let mut mxiter = iparam[2];
     let mode = iparam[6];
     let lworkl = 3 * ncv * ncv + 6 * ncv;
-    let ierr = if n == 0 {
+    let ierr = if n == 0 && par.is_none() {
         -1
     } else if nev == 0 {
         -2

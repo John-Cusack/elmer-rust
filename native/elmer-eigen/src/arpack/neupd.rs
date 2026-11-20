@@ -111,7 +111,7 @@ fn neupd(
     let mut ierr = 0;
     if nconv_in <= 0 {
         ierr = -14;
-    } else if n == 0 {
+    } else if n == 0 && par.is_none() {
         ierr = -1;
     } else if nev == 0 {
         ierr = -2;

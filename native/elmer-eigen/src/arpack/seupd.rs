@@ -91,7 +91,7 @@ fn seupd(
         return (d, 0);
     }
     let mut ierr = 0;
-    if n == 0 {
+    if n == 0 && par.is_none() {
         ierr = -1;
     }
     if nev == 0 {
