@@ -60,6 +60,7 @@ fn bulk(etype: u16, xyz: &[[f64; 3]], cdim: usize, coord: CoordSystem, large: bo
         want_mass: false,
         np: None,
         ip: None,
+        geometric: None,
     };
     let mut out = LocalSystem::zeros(0);
     elastic_bulk_local(&P1Basis, &Gauss, &inp, &mut out).unwrap();
