@@ -95,6 +95,9 @@ pub struct PeriodicTarget<'a> {
     pub ndofs: usize,
     /// Parent node -> 0-based node slot, [`NO_DOF`] when absent.
     pub perm: &'a [u32],
+    /// `CalculateNodalWeights` of `Periodic BC Coefficient <name>` by node
+    /// slot, for the jump rows.
+    pub jump_weights: Option<&'a [f64]>,
 }
 
 /// The `ActivePart` test of `SetDirichletBoundaries`: does boundary
@@ -183,14 +186,6 @@ pub fn set_periodic_boundaries(
         if flag(*bc, "periodic bc explicit") {
             return Err(MortarError::Unsupported("periodic bc explicit".into()));
         }
-        if bc
-            .get(&format!("periodic bc coefficient {}", t.name))
-            .is_some()
-        {
-            return Err(MortarError::Unsupported(
-                "Periodic BC Coefficient (jump)".into(),
-            ));
-        }
     }
     let row = |node: u32| -> Option<usize> {
         let s = t.perm[node as usize];
@@ -258,21 +253,46 @@ pub fn set_periodic_boundaries(
         let offset = bc
             .real(&format!("periodic bc offset {}", t.name))
             .unwrap_or(0.0);
+        // `Periodic BC Coefficient`: the row keeps its equation and gains
+        // `w c (u - P u_master)`, w the node's boundary weight.
+        let jump_key = format!("periodic bc coefficient {}", t.name);
+        let jump = match bc.get(&jump_key) {
+            None => None,
+            Some(_) => {
+                let c = bc.real(&jump_key).ok_or_else(|| {
+                    MortarError::Unsupported("a non-constant Periodic BC Coefficient".into())
+                })?;
+                let w = t.jump_weights.ok_or_else(|| {
+                    MortarError::Fatal(
+                        "SetPeriodicBoundariesPass1: Nodal weights needed for setting jumps!"
+                            .into(),
+                    )
+                })?;
+                Some((c, w))
+            }
+        };
+        let scale = if jump.is_some() { -1.0 } else { scale };
         for i in 0..p.n_rows() {
             let ii = p.inv_perm[i];
             if ii == NO_DOF {
                 continue;
             }
             if let (false, Some(k)) = (done[ii as usize], row(ii)) {
-                let r = a.row_ptr[k]..a.row_ptr[k + 1];
-                a.values[r].fill(0.0);
-                b[k] = 0.0;
+                let val = match jump {
+                    Some((c, w)) => -w[t.perm[ii as usize] as usize] * c,
+                    None => {
+                        let r = a.row_ptr[k]..a.row_ptr[k + 1];
+                        a.values[r].fill(0.0);
+                        b[k] = 0.0;
+                        1.0
+                    }
+                };
                 for (c, w) in p.row(i) {
                     let Some(m) = row(c) else { continue };
-                    add(&a.row_ptr, &a.col_idx, &mut a.values, k, m as u32, w)?;
+                    add(&a.row_ptr, &a.col_idx, &mut a.values, k, m as u32, val * w)?;
                 }
                 b[k] -= offset;
-                add(&a.row_ptr, &a.col_idx, &mut a.values, k, k as u32, scale)?;
+                add(&a.row_ptr, &a.col_idx, &mut a.values, k, k as u32, scale * val)?;
             }
             done[ii as usize] = true;
         }
