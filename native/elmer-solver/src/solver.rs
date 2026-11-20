@@ -1111,9 +1111,11 @@ impl<'a> SolverCtx<'a> {
     /// boundary integral of each basis function over the boundaries that
     /// give the coefficient, kept as the variable of that name (on the
     /// solver's Perm) and handed to the backend for the jump rows.
-    fn periodic_jump_weights(&mut self) -> Result<(), SolverError> {
+    /// Returns the weights by permutation slot, `None` when no boundary
+    /// gives a coefficient.
+    pub fn periodic_jump_weights(&mut self) -> Result<Option<Vec<f64>>, SolverError> {
         const CALLER: &str = "CalculateNodalWeights";
-        let Some(id) = self.sim.slots[self.slot].variable else { return Ok(()) };
+        let Some(id) = self.sim.slots[self.slot].variable else { return Ok(None) };
         let var = self.sim.vars.by_id(id);
         let key = normalize_key(&format!("periodic bc coefficient {}", var.name));
         let model = &self.sim.model;
@@ -1124,7 +1126,7 @@ impl<'a> SolverCtx<'a> {
                 || bc.get(&format!("periodic bc scale {n}")).is_some()
         };
         if !model.boundary_conditions.iter().any(|bc| bc.get(&key).is_some() && periodic(bc)) {
-            return Ok(());
+            return Ok(None);
         }
         if var.dofs != 1 {
             return Err(SolverError::Unsupported("Periodic BC Coefficient on a multi-component field".into()));
@@ -1170,12 +1172,12 @@ impl<'a> SolverCtx<'a> {
             backend.set_periodic_jump_weights(&self.sim.vars.by_id(id).name, &w);
         }
         match self.sim.vars.id(&key) {
-            Some(wid) => self.sim.vars.by_id_mut(wid).values = w,
+            Some(wid) => self.sim.vars.by_id_mut(wid).values = w.clone(),
             None => {
-                self.sim.vars.add(crate::Variable::new(&key, elmer_core::FieldKind::Nodal, 1, Some(perm), w))?;
+                self.sim.vars.add(crate::Variable::new(&key, elmer_core::FieldKind::Nodal, 1, Some(perm), w.clone()))?;
             }
         }
-        Ok(())
+        Ok(Some(w))
     }
 
     /// `DefaultDirichletBCs` + `EnforceDirichletConditions`.

@@ -53,6 +53,9 @@ pub struct Projector {
     /// `MortarBC % Rhs` by row (`Mortar BC Offset`); the constraint row gets
     /// that weight times it.
     pub rhs: Option<Vec<f64>>,
+    /// `MortarBC % Diag` by row (lumped, `MortarBC % LumpedDiag`): the
+    /// constraint row gets `-diag * wsum` on its own multiplier.
+    pub diag: Option<Vec<f64>>,
 }
 
 impl Projector {
@@ -147,6 +150,7 @@ pub fn nodal_projector(
         master_scale: 1.0,
         mortar_perm: false,
         rhs: None,
+        diag: None,
     })
 }
 
@@ -354,6 +358,7 @@ pub fn nodal_projector_discont(discont_perm: &[u32], bc: usize) -> Projector {
         master_scale: 1.0,
         mortar_perm: false,
         rhs: None,
+        diag: None,
     }
 }
 
@@ -539,6 +544,7 @@ mod tests {
             master_scale: 1.0,
             mortar_perm: false,
             rhs: None,
+            diag: None,
         };
         p.set_rowsum();
         assert_eq!(p.values, vec![0.25, -0.75, 1.0]);

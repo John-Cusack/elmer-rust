@@ -292,7 +292,14 @@ pub fn set_periodic_boundaries(
                     add(&a.row_ptr, &a.col_idx, &mut a.values, k, m as u32, val * w)?;
                 }
                 b[k] -= offset;
-                add(&a.row_ptr, &a.col_idx, &mut a.values, k, k as u32, scale * val)?;
+                add(
+                    &a.row_ptr,
+                    &a.col_idx,
+                    &mut a.values,
+                    k,
+                    k as u32,
+                    scale * val,
+                )?;
             }
             done[ii as usize] = true;
         }

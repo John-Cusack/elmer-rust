@@ -54,7 +54,10 @@ pub(crate) struct MortarSolver {
 }
 
 impl MortarSolver {
-    fn constraint_matrix(&self, ctx: &SolverCtx<'_>) -> Result<Option<ConstraintMatrix>, SolverError> {
+    fn constraint_matrix(&self, ctx: &mut SolverCtx<'_>) -> Result<Option<ConstraintMatrix>, SolverError> {
+        // CalculateNodalWeights for a `Periodic BC Coefficient` jump.
+        let weights = ctx.periodic_jump_weights()?;
+        let ctx = &*ctx;
         let model = &ctx.sim.model;
         let bcs: Vec<&dyn Params> = model.boundary_conditions.iter().map(|b| b as &dyn Params).collect();
         let bc_of = |tag: i32| model.bc_of_tag(tag);
@@ -80,11 +83,6 @@ impl MortarSolver {
             if !is_lagrange(*bc, name) {
                 continue;
             }
-            if bc.get(&format!("periodic bc coefficient {name}")).is_some() {
-                return Err(SolverError::Unsupported(
-                    "Periodic BC Coefficient with Periodic BC Use Lagrange Coefficient (MortarBC Diag)".into(),
-                ));
-            }
             if projectors[i].is_some() {
                 return Err(SolverError::Unsupported(format!(
                     "Boundary {}: both a mortar and a Lagrange periodic projector",
@@ -97,6 +95,31 @@ impl MortarSolver {
             p.slave_scale = -scale;
             p.master_scale = -1.0;
             p.mortar_perm = true;
+            // `Periodic BC Coefficient`: Diag = 1 / (weight * coeff) at the
+            // row's node.
+            let key = format!("periodic bc coefficient {name}");
+            if bc.get(&key).is_some() {
+                let coeff = bc
+                    .real(&key)
+                    .ok_or_else(|| SolverError::Unsupported("a non-constant Periodic BC Coefficient".into()))?;
+                let w = weights.as_deref().ok_or_else(|| {
+                    SolverError::fatal("SetPeriodicBoundariesPass1", "Nodal weights needed for setting jumps!")
+                })?;
+                let var = ctx.variable(name).ok_or_else(|| SolverError::fatal("SetPeriodicBoundariesPass1", "no variable"))?;
+                let perm = var.perm.ok_or_else(|| SolverError::Unsupported("mortar BCs on a variable without Perm".into()))?;
+                let diag = p
+                    .inv_perm
+                    .iter()
+                    .map(|&k| match k {
+                        elmer_core::NO_DOF => 0.0,
+                        k => match perm[k as usize] {
+                            elmer_core::NO_DOF => 0.0,
+                            s => 1.0 / (w[s as usize] * coeff),
+                        },
+                    })
+                    .collect();
+                p.diag = Some(diag);
+            }
             projectors[i] = Some(p);
         }
         // SetWeightedProjectorJump: `Mortar BC Offset` at the nodes of the
