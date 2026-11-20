@@ -181,6 +181,10 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if is(params, elmer_physics_shell::SMITC_PROCEDURE) {
             elmer_physics_shell::smitc_defaults(params);
         }
+        // FacetShellSolve's `ShellSolver_Init0`: six-dof `Deflection`.
+        if is(params, elmer_physics_shell::FACET_PROCEDURE) {
+            elmer_physics_shell::facet_defaults(params);
+        }
         // `TopoOpt_init0` / `_init`: the elemental topology fields.
         if is(params, elmer_physics_topoopt::PROCEDURE) {
             elmer_physics_topoopt::solver_defaults(params);

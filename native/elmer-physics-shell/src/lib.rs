@@ -22,7 +22,9 @@
 //! mass (transient, harmonic, eigen) and more than one partition.
 //!
 //! Also `SmitcSolver` (Smitc.F90, module `smitc`): the Reissner-Mindlin
-//! plate equations with MITC shear on linear triangles and quadrilaterals.
+//! plate equations with MITC shear on linear triangles and quadrilaterals,
+//! and the facet shell `ShellSolver` of FacetShellSolve.F90 (module
+//! `facetshell`).
 #![forbid(unsafe_code)]
 // The ports index several parallel arrays with the Fortran loop variables.
 // The expressions keep the Fortran's shape (and so its rounding order).
@@ -35,12 +37,14 @@
 )]
 
 mod beam;
+mod facetshell;
 mod geom;
 mod kernel;
 pub mod motion;
 mod smitc;
 mod solver;
 
+pub use facetshell::{facet_defaults, facet_factory, register_facet, FacetShellSolver, FACET_PROCEDURE};
 pub use smitc::{register_smitc, smitc_defaults, smitc_factory, SmitcSolver, SMITC_PROCEDURE};
 pub use solver::{factory, register, solver_defaults, ShellSolver, PROCEDURE};
 
