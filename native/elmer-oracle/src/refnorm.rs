@@ -218,6 +218,49 @@ pub fn reference_solvers(text: &str) -> Result<Vec<RefSolver>, String> {
         .collect())
 }
 
+/// Expand top-level `include <file>` lines, as Elmer's sif reader does
+/// textually, when the included file only defines MATC variables (`$`
+/// lines), comments and blank lines: `params.sif` constants, or the
+/// `mesh.names` that ElmerGrid writes. Each name is tried against `bases`
+/// in order (the golden run dir holds generated meshes, the source dir the
+/// rest). An include that defines sections, or that cannot be read, is an
+/// error, because the override goes into the main sif.
+pub fn expand_includes(text: &str, bases: &[&std::path::Path]) -> Result<String, String> {
+    let mut out = String::with_capacity(text.len());
+    let mut in_section = false;
+    for raw in text.lines() {
+        let code = strip_sif_comment(raw).trim();
+        let lower = code.to_lowercase();
+        if !in_section && lower.starts_with("include") && !lower.starts_with("include path") {
+            let name = code[7..].trim().trim_matches('"').trim();
+            let body = bases
+                .iter()
+                .find_map(|b| std::fs::read(b.join(name)).ok())
+                .ok_or_else(|| format!("sif uses Include {name} (not found)"))?;
+            let body: String = body.iter().map(|&b| char::from(b)).collect();
+            for line in body.lines() {
+                let c = strip_sif_comment(line).trim();
+                if !(c.is_empty() || c.starts_with('$')) {
+                    return Err(format!("sif uses Include {name} (defines more than $ variables)"));
+                }
+            }
+            out.push_str(&body);
+            if !body.ends_with('\n') {
+                out.push('\n');
+            }
+            continue;
+        }
+        if in_section {
+            in_section = lower != "end";
+        } else if !(lower.is_empty() || lower.starts_with('$') || lower.contains("::") || lower == "run") {
+            in_section = true;
+        }
+        out.push_str(raw);
+        out.push('\n');
+    }
+    Ok(out)
+}
+
 /// Every solver's lowercased `Equation`, by solver number.
 pub fn solver_equations(text: &str) -> Vec<(u32, String)> {
     let mut out = Vec::new();
@@ -453,6 +496,22 @@ mod tests {
         let quoted = reference_solvers("Solver 1\n Variable = -dofs 3 \"Displacement\"\n Reference Norm = 1\nEnd\n").unwrap();
         assert_eq!(quoted[0].variable.as_deref(), Ok("displacement"));
         assert_eq!(solver_equations(sif), vec![(1, "heat".into()), (3, "heat equation".into())]);
+    }
+
+    #[test]
+    fn includes_of_matc_variables_expand() {
+        let dir = std::env::temp_dir().join(format!("refnorm-include-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("m")).unwrap();
+        std::fs::write(dir.join("params.sif"), "! constants\n$ h = 0.1\n\n").unwrap();
+        std::fs::write(dir.join("m/mesh.names"), "$ wall = 3\n").unwrap();
+        std::fs::write(dir.join("bad.sif"), "Solver 1\n Variable = T\nEnd\n").unwrap();
+        let sif = "include params.sif\nINCLUDE m/mesh.names\nHeader\n  Include Path \"\"\nEnd\nSolver 1\n Variable = T\n Reference Norm = 1\nEnd\n";
+        let e = expand_includes(sif, &[&dir]).unwrap();
+        assert!(e.contains("$ h = 0.1") && e.contains("$ wall = 3") && e.contains("Include Path"));
+        assert_eq!(reference_solvers(&e).unwrap().len(), 1);
+        assert!(expand_includes("include bad.sif\n", &[&dir]).unwrap_err().contains("defines more"));
+        assert!(expand_includes("include none.sif\n", &[&dir]).unwrap_err().contains("not found"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
