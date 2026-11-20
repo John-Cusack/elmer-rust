@@ -355,6 +355,11 @@ pub fn solve(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
                 writeln!(f, "{} {} {:e}", r + 1, a.col_idx[k] + 1, a.values[k]).unwrap();
             }
         }
+        let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{dir}/rs_d.dat")).unwrap());
+        for (r, v) in &ctx.sim.slots[ix].asm.constrained {
+            writeln!(f, "{} {:e}", r + 1, v).unwrap();
+        }
+        let sys = ctx.system().unwrap();
         let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{dir}/rs_b.dat")).unwrap());
         for (r, v) in sys.rhs.iter().enumerate() {
             writeln!(f, "{} {:e}", r + 1, v).unwrap();

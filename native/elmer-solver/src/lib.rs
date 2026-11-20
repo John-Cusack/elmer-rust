@@ -45,7 +45,7 @@ pub mod expr;
 pub mod fortran_fmt;
 pub mod linsys;
 pub mod live;
-mod loads;
+pub mod loads;
 mod lumped;
 mod matvec;
 mod monolithic;

@@ -12,7 +12,7 @@ use crate::variable::{VarId, Variable};
 
 /// Per-assembly bookkeeping of one slot, reset by `DefaultInitialize`.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct AssemblyState {
+pub struct AssemblyState {
     /// `A % BulkValues`, `A % BulkRHS`.
     pub bulk: Option<(Vec<f64>, Vec<f64>)>,
     /// `DefaultFinishBulkAssembly` has run for this assembly.

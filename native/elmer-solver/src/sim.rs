@@ -196,7 +196,7 @@ pub struct SolverSlot {
     pub state: SolverState,
     pub system: Option<LinearSystem>,
     pub(crate) instance: Option<Box<dyn Solver>>,
-    pub(crate) asm: crate::loads::AssemblyState,
+    pub asm: crate::loads::AssemblyState,
     /// `A % BulkValues`, `A % BulkRHS` as the matrix keeps them across
     /// assemblies: the last `DefaultFinishBulkAssembly` snapshot (`Constant
     /// Bulk System` and friends reuse it).
