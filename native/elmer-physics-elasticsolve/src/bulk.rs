@@ -56,6 +56,12 @@ pub struct BulkInput<'a> {
     /// Gauss points per element; `None` is the Elmer default rule.
     pub np: Option<usize>,
     pub ip: Option<&'a IpProps>,
+    /// The geometric stiffness of the current displacement (the second
+    /// pass of `Geometric Stiffness` / `Stability Analysis`,
+    /// ElasticSolve.F90:4759): `Some(false)` adds it to the stiffness,
+    /// `Some(true)` (stability analysis) subtracts it in the mass slot, where
+    /// no density mass is then assembled.
+    pub geometric: Option<bool>,
 }
 
 /// The displacement gradient `Grad(a,b) = d u_a / d x_b` (with the hoop term
@@ -133,7 +139,14 @@ pub fn elastic_bulk_local(
     let large = inp.large_deflection;
 
     *out = LocalSystem::zeros(ndof);
-    if inp.want_mass {
+    let stability = inp.geometric == Some(true);
+    if inp.geometric.is_some() && (axi || inp.large_deflection) {
+        return Err(ElasticError::Input(
+            "The geometric stiffness is implemented in cartesian coordinates and without Large Deflection only".into(),
+        ));
+    }
+    let density_mass = inp.want_mass && !stability;
+    if inp.want_mass || stability {
         out.mass = Some(vec![0.0; ndof * ndof]);
         if inp.damping.is_some() {
             out.damp = Some(vec![0.0; ndof * ndof]);
@@ -327,6 +340,8 @@ pub fn elastic_bulk_local(
             strain = t3::add(&strain, &t3::scale(&t3::mul(&t3::transpose(&grad), &grad), 0.5));
         }
         let mut stress2 = law.stress(dim, false, &strain);
+        // `GeomStress = Stress2`: before the affine offset.
+        let geom_stress = stress2;
         if got_offset {
             stress2 = t3::add(&stress2, &stress_offset);
         }
@@ -388,7 +403,7 @@ pub fn elastic_bulk_local(
             }
         }
 
-        if inp.want_mass {
+        if density_mass {
             for p in 0..n {
                 for q in 0..n {
                     for i in 0..cdim {
@@ -397,6 +412,28 @@ pub fn elastic_bulk_local(
                         mm[idx] += bas[p] * bas[q] * density * s;
                         if let Some(dm) = out.damp.as_mut() {
                             dm[idx] += bas[p] * bas[q] * damping * s;
+                        }
+                    }
+                }
+            }
+        }
+
+        if inp.geometric.is_some() {
+            for p in 0..n {
+                for q in 0..n {
+                    let mut inner = 0.0;
+                    for i in 0..dim {
+                        for j in 0..dim {
+                            inner += db[p][i] * db[q][j] * geom_stress[i][j];
+                        }
+                    }
+                    for k in 0..cdim {
+                        let idx = (cdim * p + k) * ndof + cdim * q + k;
+                        if stability {
+                            let mm = out.mass.as_mut().unwrap();
+                            mm[idx] -= s * inner;
+                        } else {
+                            out.stiff[idx] += s * inner;
                         }
                     }
                 }

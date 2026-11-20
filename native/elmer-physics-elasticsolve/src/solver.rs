@@ -140,12 +140,9 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
     for (key, what) in [
         ("mixed formulation", "mixed (pressure) formulation"),
         ("incompressible", "incompressible formulation"),
-        ("stability analysis", "stability analysis"),
-        ("eigen analysis", "eigen analysis"),
         ("harmonic analysis", "harmonic analysis"),
         ("harmonic mode", "harmonic analysis"),
         ("calculate pangle", "principal angle postprocessing"),
-        ("geometric stiffness", "geometric stiffness"),
         ("local matrix storage", "local matrix storage"),
         ("adaptive mesh refinement", "adaptive mesh refinement"),
         ("use hencky strain", "Hencky strain"),
@@ -796,6 +793,43 @@ impl Solver for ElasticSolver {
         };
         let global_pseudo = flag(Some(ctx.params()), "pseudo-traction");
 
+        // GEOMETRIC STIFFNESS and STABILITY ANALYSIS (ElasticSolve.F90:1169):
+        // two passes, a static solve with the eigen analysis switched off and
+        // the eigen analysis with the geometric stiffness of that solve's
+        // displacement, added to the stiffness or (stability) subtracted in
+        // the mass slot in place of the density mass.
+        let stability = flag(Some(ctx.params()), "stability analysis");
+        let geometric_stiffness = flag(Some(ctx.params()), "geometric stiffness");
+        let geometric = stability || geometric_stiffness;
+        if geometric {
+            if stability && geometric_stiffness {
+                return Err(fatal(
+                    "\"Stability Analysis\" and \"Geometric Stiffness\" are the same term in different matrices and cannot both be active",
+                ));
+            }
+            if axi {
+                return Err(fatal("The geometric stiffness is implemented in cartesian coordinates only, as in StressSolve"));
+            }
+            if model.large {
+                return Err(fatal(
+                    "The geometric stiffness is already part of the tangent under \"Large Deflection\", where it comes from the current iterate rather than from a prestressed state. Set \"Large Deflection = False\" to ask for the prestressed eigen analysis these keywords mean",
+                ));
+            }
+            if model.neo_hookean {
+                return Err(fatal("The geometric stiffness is implemented by LocalMatrix, so not with UMAT or the neo-Hookean model"));
+            }
+            if lumping || cs || cbs || cbm || transient {
+                return Err(unsupported("geometric stiffness with Model Lumping, the Constant keywords or a transient run"));
+            }
+            max_iter = 2;
+            min_iter = 2;
+        }
+        let orig_eigen = ctx.params().logical("eigen analysis") == Some(true);
+        let eigen_now = |ctx: &SolverCtx<'_>| ctx.nof_eigen() > 0 && ctx.params().logical("eigen analysis") == Some(true);
+        if eigen_now(ctx) && (transient || lumping || cs || cbs || cbm || post_flags(ctx).any()) {
+            return Err(unsupported("eigen analysis in a transient run, with Model Lumping, the Constant keywords or stress postprocessing"));
+        }
+
         // Snapshot the temperature field (read-only) before the mutable assembly.
         let temp_owned = Self::temperature_field(ctx);
         let temp_ref = temp_owned.as_ref().map(|(p, v)| FieldRef {
@@ -807,6 +841,12 @@ impl Solver for ElasticSolver {
         });
 
         for iter in 1..=max_iter {
+            // The keyword is rewritten: the core reads it when the system is solved.
+            let geometric_active = geometric && iter > 1;
+            if geometric {
+                ctx.params_mut().insert("Eigen Analysis", Value::Logical(geometric_active && orig_eigen));
+            }
+            let eigen = eigen_now(ctx);
             ctx.info(CALLER, &format!("ELASTICITY ITERATION {iter}"), 4);
             ctx.default_initialize()?;
             // Reuse what an earlier pass saved (:1636-1680): the matrix, and
@@ -860,7 +900,7 @@ impl Solver for ElasticSolver {
                         damping: d.damping.as_deref(),
                         load: &d.load,
                         inertial: d.inertial.as_deref(),
-                        want_mass: transient,
+                        want_mass: transient || eigen,
                         np: rel_np(&*fe.quad, el.etype, RelOrders::of(ctx.params()).bulk)?,
                     };
                     neo_hookean_local(&*fe.basis, &*fe.quad, &inp, &mut local).map_err(|x| fatal(x.to_string()))?;
@@ -888,9 +928,10 @@ impl Solver for ElasticSolver {
                         gpa: d.gpa.as_deref(),
                         temperature: d.temperature.as_deref(),
                         heat_expansion: d.heat_expansion.as_deref(),
-                        want_mass: transient,
+                        want_mass: transient || (eigen && !stability),
                         np: bulk_np,
                         ip: d.ip.as_ref(),
+                        geometric: geometric_active.then_some(stability),
                     };
                     elastic_bulk_local(&*fe.basis, &*fe.quad, &inp, &mut local).map_err(|x| fatal(x.to_string()))?;
                 }
@@ -922,6 +963,12 @@ impl Solver for ElasticSolver {
                         local.mass = Some(damp);
                         ctx.default_first_order_time(&mut local, e, dt)?;
                     }
+                }
+                if eigen {
+                    // DefaultUpdateMass: the density mass, or minus the
+                    // geometric stiffness under stability analysis.
+                    let mass = local.mass.take().unwrap_or_else(|| vec![0.0; local.n * local.n]);
+                    ctx.default_update_mass(&mass, e)?;
                 }
                 if cbm_in_use {
                     // DefaultUpdateForce: the matrix was restored wholesale.
