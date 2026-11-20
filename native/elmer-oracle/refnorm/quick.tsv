@@ -34,7 +34,7 @@ CapacitanceMatrix4	bitwise	1	solver 3: norm option show norm
 CapacitanceMatrix4_np3	out-of-class	0	MPI
 CavityLid	bitwise	1	solver 1: flow solution (default)
 ChannelFlowCoulomb	out-of-class	0	custom runtest (replay)
-CoilSolver1	grader-gap-solver-norm	2	solver 1: no explicit Variable; 2 variables of equation "coilsolver"; solver 2: coilpot grad (default); solver 3: div coilcurrent (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 8.80415922E-01  RefNorm = 6.97063017E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!
+CoilSolver1	bitwise	1	solver 1: no explicit Variable; 2 variables of equation "coilsolver"; solver 2: coilpot grad (default); solver 3: div coilcurrent (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 8.80415922E-01  RefNorm = 6.97063017E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!; solver 2: sets its own norm, not validated
 CoilSolver1_np2	out-of-class	0	MPI
 CoilSolver1_np4	out-of-class	0	MPI
 CoilSolver2	out-of-class	0	two Solver 1 sections (merged by Elmer)
@@ -227,7 +227,7 @@ MarchingODE4	out-of-class	0	solver 2: integrator: 143 values, 66 saved (non-noda
 MatDepMat	bitwise	1	
 MeshColour	out-of-class	0	solver 1: no explicit Variable; no saved variable of equation "colour"
 MeshLevelsRestart	out-of-class	0	several solver runs
-MgDynDiscontBCs	grader-gap-solver-norm	1	WARNING:: CompareToReferenceSolution: Solver 1 FAILED:  Norm = 2.06923835E-04  RefNorm = 1.89945318E-04; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!
+MgDynDiscontBCs	grader-gap-solver-norm	1	WARNING:: CompareToReferenceSolution: Solver 1 FAILED:  Norm = 2.06923835E-04  RefNorm = 1.89945318E-04; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!; solver 1: sets its own norm, not validated
 MinimalExample	bitwise	1	
 MixedPoisson2D	bitwise	1	
 MixedPoisson3D	bitwise	1	
@@ -373,7 +373,7 @@ TopoOptHeat2DCompMin2	bitwise	2
 UMAT_StVenant_2D	bitwise	1	
 UMAT_StVenant_axials	bitwise	1	
 UMAT_linear_isotropic_2D	bitwise	1	
-VectorHelmholtzWaveguideNodal	grader-gap-solver-norm	1	solver 1: elfield (default); WARNING:: CompareToReferenceSolution: Solver 1 FAILED:  Norm = 4.44414009E-01  RefNorm = 4.44414009E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!
+VectorHelmholtzWaveguideNodal	grader-gap-solver-norm	1	solver 1: elfield (default); WARNING:: CompareToReferenceSolution: Solver 1 FAILED:  Norm = 4.44414009E-01  RefNorm = 4.44414009E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!; solver 1: sets its own norm, not validated
 WaveEqu	bitwise	1	
 WeightComputation	out-of-class	0	solver 3: norm option show norm
 a-posteriori-recovery-2D	out-of-class	0	solver 1: temperature in several result files
@@ -398,9 +398,9 @@ el_adaptivity	out-of-class	0	custom runtest (replay)
 elasticity	bitwise	1	
 elasticity_with_springs	bitwise	1	
 elstat_source	bitwise	1	
-fluxsolver	grader-gap-solver-norm	1	solver 2: temperature flux (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 1.98814065E-01  RefNorm = 1.98814066E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 2!
-fluxsolver-multimesh	grader-gap-solver-norm	2	solver 2: temperature flux (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 1.92500433E-01  RefNorm = 1.92500433E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 2!
-fluxsolver2	grader-gap-solver-norm	1	solver 2: temperature grad (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 6.62713550E-02  RefNorm = 6.62713552E-02; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!
+fluxsolver	grader-gap-solver-norm	1	solver 2: temperature flux (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 1.98814065E-01  RefNorm = 1.98814066E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 2!; solver 2: sets its own norm, not validated
+fluxsolver-multimesh	bitwise	1	solver 2: temperature flux (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 1.92500433E-01  RefNorm = 1.92500433E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 2!; solver 2: sets its own norm, not validated
+fluxsolver2	grader-gap-solver-norm	1	solver 2: temperature grad (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 6.62713550E-02  RefNorm = 6.62713552E-02; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!; solver 2: sets its own norm, not validated
 freesurf_int	bitwise	1	solver 1: flow solution (default)
 geomstiff	out-of-class	0	solver 2: norm option show norm
 gmultg	bitwise	1	
@@ -420,7 +420,7 @@ mgdyn_airgap	out-of-class	0	sif uses Include
 mgdyn_airgap_harmonic	out-of-class	0	sif uses Include
 mgdyn_dg_b_velocity	out-of-class	0	sif uses Include
 mgdyn_nodalforce2d	bitwise	1	solver 3: no explicit Variable; 10 variables of equation "computeb"; solver 5: norm option show norm index
-mgdyn_steady_2ndorder	grader-gap-solver-norm	1	WARNING:: CompareToReferenceSolution: Solver 1 FAILED:  Norm = 1.30579458E-02  RefNorm = 6.21681304E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!
+mgdyn_steady_2ndorder	grader-gap-solver-norm	1	WARNING:: CompareToReferenceSolution: Solver 1 FAILED:  Norm = 1.30579458E-02  RefNorm = 6.21681304E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!; solver 1: sets its own norm, not validated
 mgdyn_steady_piolaversion	out-of-class	0	solver 1: p not in any result file
 mgdyn_thinsheet_harmonic	out-of-class	0	sif uses Include
 multimesh	out-of-class	0	solver 3: localt in several result files
