@@ -220,32 +220,49 @@ fn refnorm_one(
     let mut refnorms = Vec::new();
     let mut notes = Vec::new();
     let mut non_nodal = false;
+    let equations = elmer_oracle::refnorm::solver_equations(&text);
+    // Each result file once: (name, parsed, preamble, nodes).
+    let parsed: Vec<_> = files
+        .iter()
+        .filter_map(|f| {
+            let path = golden_run.join(f);
+            let buf = std::fs::read(&path).ok()?;
+            let r = elmer_oracle::result::parse_result_bytes(&buf, &path.display().to_string()).ok()?;
+            let vars = elmer_oracle::result::preamble_vars(&buf);
+            let nodes = elmer_oracle::result::number_of_nodes(&buf);
+            Some((r, vars, nodes))
+        })
+        .collect();
     for s in &solvers {
-        let var = match &s.variable {
-            Ok(v) => v,
-            Err(why) => {
-                notes.push(format!("solver {}: {why}", s.number));
-                continue;
-            }
-        };
         // The variable must live in exactly one result file: several
         // meshes carrying one name leave the solver's own copy ambiguous.
+        // A solver without `Variable` takes the preamble's single variable
+        // of its equation, which must agree across the files it appears in.
         let mut found = Vec::new();
         let mut why = String::from("not in any result file");
-        for f in &files {
-            let path = golden_run.join(f);
-            let (Ok(r), Ok(buf)) =
-                (elmer_oracle::result::read_result_file(&path), std::fs::read(&path))
-            else {
-                continue;
+        let mut inferred = std::collections::BTreeSet::new();
+        for (r, vars, nodes) in &parsed {
+            let var = match &s.variable {
+                Ok(v) => v.clone(),
+                Err(e) if e == elmer_oracle::refnorm::NO_VARIABLE => {
+                    match elmer_oracle::refnorm::default_variable(vars, s, &equations) {
+                        Ok(v) => {
+                            inferred.insert(v.clone());
+                            v
+                        }
+                        Err(e) => {
+                            why = e;
+                            continue;
+                        }
+                    }
+                }
+                Err(_) => break,
             };
-            if !r.steps.iter().any(|st| st.vars.iter().any(|v| v.name.to_lowercase() == *var)) {
+            if !vars.iter().any(|v| v.base_name() == var) {
                 continue;
             }
-            let sizes = elmer_oracle::result::value_sizes(&buf);
-            let nodes = elmer_oracle::result::number_of_nodes(&buf);
-            non_nodal |= elmer_oracle::refnorm::non_nodal(&r, nodes, var);
-            match elmer_oracle::refnorm::golden_norm(&r, &sizes, var) {
+            non_nodal |= elmer_oracle::refnorm::non_nodal(vars, *nodes, &var);
+            match elmer_oracle::refnorm::golden_norm(r, vars, &var, |d| s.norm_opts(d)) {
                 Ok(n) => found.push(n),
                 Err(e) => {
                     why = e;
@@ -253,11 +270,30 @@ fn refnorm_one(
                 }
             }
         }
+        if inferred.len() > 1 {
+            notes.push(format!("solver {}: default variable differs between result files", s.number));
+            continue;
+        }
+        let var = match (&s.variable, inferred.first()) {
+            (Ok(v), _) => v.clone(),
+            (Err(_), Some(v)) => format!("{v} (default)"),
+            (Err(e), None) if e == elmer_oracle::refnorm::NO_VARIABLE && !parsed.is_empty() => {
+                notes.push(format!("solver {}: {why}", s.number));
+                continue;
+            }
+            (Err(e), None) => {
+                notes.push(format!("solver {}: {e}", s.number));
+                continue;
+            }
+        };
         match found.as_slice() {
             [n] if !n.is_nan() => refnorms.push((s.number, *n)),
             [_] => notes.push(format!("solver {}: {var}: {why}", s.number)),
             [] => notes.push(format!("solver {}: {var} {why}", s.number)),
             _ => notes.push(format!("solver {}: {var} in several result files", s.number)),
+        }
+        if !inferred.is_empty() && matches!(found.as_slice(), [n] if !n.is_nan()) {
+            notes.push(format!("solver {}: {var}", s.number));
         }
     }
     if refnorms.is_empty() {
@@ -273,28 +309,64 @@ fn refnorm_one(
     if run_dir.exists() {
         return skip("run dir exists; use a fresh out-root");
     }
-    let mut staging = Staging {
-        inject: Some(SifInject { o2: true, ..SifInject::default() }),
-        mkdirs: Vec::new(),
-        refnorms: refnorms.clone(),
+    let run = |run_dir: &Path, refnorms: &[(u32, f64)]| {
+        let mut staging = Staging {
+            inject: Some(SifInject { o2: true, ..SifInject::default() }),
+            mkdirs: Vec::new(),
+            refnorms: refnorms.to_vec(),
+        };
+        // Same in-memory-mesh retry as `capture`.
+        let mut result = run_plan(arm, &spec, &plan, &src, run_dir, &staging);
+        if result.as_ref().is_ok_and(|o| !o.passed) {
+            let missing = missing_output_dirs(run_dir);
+            if !missing.is_empty() && std::fs::remove_dir_all(run_dir).is_ok() {
+                staging.mkdirs = missing;
+                result = run_plan(arm, &spec, &plan, &src, run_dir, &staging);
+            }
+        }
+        result
     };
     let solvers_n = refnorms.len();
-    // Same in-memory-mesh retry as `capture`.
-    let mut result = run_plan(arm, &spec, &plan, &src, &run_dir, &staging);
-    if result.as_ref().is_ok_and(|o| !o.passed) {
-        let missing = missing_output_dirs(&run_dir);
-        if !missing.is_empty() && std::fs::remove_dir_all(&run_dir).is_ok() {
-            staging.mkdirs = missing;
-            result = run_plan(arm, &spec, &plan, &src, &run_dir, &staging);
-        }
-    }
-    match result {
+    match run(&run_dir, &refnorms) {
         Ok(o) if o.passed => (String::from("bitwise"), solvers_n, notes.join("; ")),
         Ok(o) => {
-            notes.extend(o.compare_lines.iter().filter(|l| l.contains("FAILED")).cloned());
-            // A known grader gap, not a capture failure: edge, face and DG
-            // unknowns follow solver-specific norm paths.
-            let verdict = if non_nodal { "grader-gap-non-nodal" } else { "MISMATCH" };
+            let failed: Vec<&String> = o.compare_lines.iter().filter(|l| l.contains("FAILED")).collect();
+            // Known grader gaps, not capture failures: a solver that sets
+            // its own norm, and edge, face and DG unknowns, follow
+            // solver-specific norm paths.
+            let failed_solvers: Vec<u32> = failed
+                .iter()
+                .filter_map(|l| l.split("Solver ").nth(1)?.split_whitespace().next()?.parse().ok())
+                .collect();
+            let self_norm = !failed_solvers.is_empty()
+                && failed_solvers
+                    .iter()
+                    .all(|n| solvers.iter().any(|s| s.number == *n && s.self_norm()));
+            notes.extend(failed.into_iter().cloned());
+            if self_norm {
+                // The other solvers can still be validated: rerun with the
+                // self-norming ones left at their own sif Reference Norm.
+                let rest: Vec<(u32, f64)> =
+                    refnorms.iter().copied().filter(|(n, _)| !failed_solvers.contains(n)).collect();
+                for n in &failed_solvers {
+                    notes.push(format!("solver {n}: sets its own norm, not validated"));
+                }
+                if !rest.is_empty() {
+                    let retry = out_root.join(format!("{test}.without-self-norm"));
+                    if let Ok(o) = run(&retry, &rest) {
+                        if o.passed {
+                            return (String::from("bitwise"), rest.len(), notes.join("; "));
+                        }
+                    }
+                }
+            }
+            let verdict = if self_norm {
+                "grader-gap-solver-norm"
+            } else if non_nodal {
+                "grader-gap-non-nodal"
+            } else {
+                "MISMATCH"
+            };
             (String::from(verdict), solvers_n, notes.join("; "))
         }
         Err(e) => (String::from("ERROR"), solvers_n, e.to_string()),

@@ -163,25 +163,19 @@ fn norm_core(
                 }
                 return Ok(m);
             }
+            // `Norm = Norm + SUM(...)`: each component sums on its own,
+            // then adds to the running norm.
             1 => {
                 let mut acc = 0.0;
                 for &c in &comps {
-                    let mut k = c - 1;
-                    while k < full {
-                        acc += x[k].abs();
-                        k += dofs;
-                    }
+                    acc += x[c - 1..full].iter().step_by(dofs).fold(0.0, |s, v| s + v.abs());
                 }
                 return Ok(acc / nscale);
             }
             d => {
                 let mut acc = 0.0;
                 for &c in &comps {
-                    let mut k = c - 1;
-                    while k < full {
-                        acc += x[k].powi(d);
-                        k += dofs;
-                    }
+                    acc += x[c - 1..full].iter().step_by(dofs).fold(0.0, |s, v| s + v.powi(d));
                 }
                 return Ok((acc / nscale).powf(1.0 / d as f64));
             }
@@ -316,6 +310,19 @@ mod tests {
         let n = compute_norm(&v, None, 2, 2, &opts).unwrap();
         let expected = (25.0f64 / 2.0).sqrt();
         assert!((n - expected).abs() < 1e-15, "got {n}, want {expected}");
+    }
+
+    #[test]
+    fn strided_norm_sums_each_component_on_its_own() {
+        // Fortran: Norm = (0 + SUM(ABS(x(1::3)))) + SUM(ABS(x(2::3))).
+        // Component 1 sums to 2e16 (ulp 4). Component 2's own SUM is 3,
+        // and 2e16 + 3 rounds to 2e16 + 4; one running sum would add 1.5
+        // twice and round each away, leaving 2e16.
+        let v = vec![1e16, 1.5, 9.0, 1e16, 1.5, 9.0];
+        let opts = NormOpts { degree: 1, norm_dofs: Some(2), ..Default::default() };
+        let n = compute_norm(&v, None, 3, 2, &opts).unwrap();
+        assert_eq!(n, (2e16 + 4.0) / 4.0);
+        assert_ne!(n, 2e16 / 4.0);
     }
 
     #[test]

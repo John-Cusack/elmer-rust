@@ -413,6 +413,94 @@ pub fn value_sizes(buf: &[u8]) -> Vec<(String, usize)> {
     preamble_sizes(&buf[..end])
 }
 
+/// One `Degrees of freedom:` preamble line (`name : size permsize dofs :
+/// equation`). Vectors (`DOFs > 1`) are listed although only their
+/// one-dof components are saved.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreambleVar {
+    /// Full name as written, brackets included (`flow solution[velocity:2 pressure:1]`).
+    pub name: String,
+    /// `SIZE(Var % Values)`.
+    pub size: usize,
+    pub perm_size: usize,
+    pub dofs: usize,
+    /// `Equation` of the owning solver, or `no equation`.
+    pub equation: String,
+}
+
+impl PreambleVar {
+    /// Name without the bracketed component list, lowercased: the form a
+    /// solver's `Variable` keyword gives.
+    pub fn base_name(&self) -> String {
+        self.name.split('[').next().unwrap_or("").trim().to_lowercase()
+    }
+
+    /// Names of the saved one-dof components, in dof order, or `None` when
+    /// they cannot be listed. A bracketed vector lists them (`a:n` gives
+    /// `a 1..a n`, or `a` when `n` is 1); an unbracketed one has
+    /// `<name> 1..<name> dofs`.
+    pub fn components(&self) -> Option<Vec<String>> {
+        if self.dofs == 1 {
+            return Some(vec![self.base_name()]);
+        }
+        let mut out = Vec::new();
+        if let (Some(open), Some(close)) = (self.name.find('['), self.name.rfind(']')) {
+            // Component names may hold spaces (`potential re:1`): words
+            // gather until one carries the `:n` count.
+            let mut words: Vec<&str> = Vec::new();
+            for word in self.name[open + 1..close].split_whitespace() {
+                let Some((last, n)) = word.rsplit_once(':') else {
+                    words.push(word);
+                    continue;
+                };
+                words.push(last);
+                let c = words.join(" ").to_lowercase();
+                words.clear();
+                let n: usize = n.parse().ok()?;
+                if n == 1 {
+                    out.push(c);
+                } else {
+                    out.extend((1..=n).map(|k| format!("{c} {k}")));
+                }
+            }
+            if !words.is_empty() {
+                return None;
+            }
+        } else {
+            out.extend((1..=self.dofs).map(|k| format!("{} {k}", self.base_name())));
+        }
+        (out.len() == self.dofs).then_some(out)
+    }
+}
+
+/// The `Degrees of freedom:` lines of a result file's preamble (either form).
+pub fn preamble_vars(buf: &[u8]) -> Vec<PreambleVar> {
+    let end = buf
+        .iter()
+        .position(|&b| b == 0)
+        .or_else(|| buf.windows(6).position(|w| w == b"\nTime:"))
+        .unwrap_or(buf.len());
+    let text = String::from_utf8_lossy(&buf[..end]);
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let mut parts = line.splitn(3, " : ");
+        let (Some(name), Some(nums), Some(eq)) = (parts.next(), parts.next(), parts.next()) else {
+            continue;
+        };
+        let n: Vec<usize> = nums.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+        if let [size, perm_size, dofs] = n[..] {
+            out.push(PreambleVar {
+                name: name.trim().to_string(),
+                size,
+                perm_size,
+                dofs,
+                equation: eq.trim().to_lowercase(),
+            });
+        }
+    }
+    out
+}
+
 /// `Number Of Nodes:` from a result file's preamble (the mesh's nodal
 /// count; a longer Perm carries edge, face or DG entries).
 pub fn number_of_nodes(buf: &[u8]) -> Option<usize> {
