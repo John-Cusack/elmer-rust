@@ -242,12 +242,14 @@ pub fn solve_harmonic_ordered(case: &Case, solver_id: usize, order: Option<&[u32
         if !is_active(b.parents[0]) && !is_active(b.parents[1]) {
             continue;
         }
+        // `Mesh % Faces(k)`: the mesh face's node order.
+        let fnodes = crate::layout::face_nodes(case, b);
         let eids = lay
             .edges
-            .of_element(b.code, &b.nodes)
+            .of_element(b.code, &fnodes)
             .ok_or_else(|| MagnetoError::Input("boundary element outside the active elements".into()))?;
-        let nn = b.nodes.len();
-        let (xyz, gindex) = geometry(case, &b.nodes);
+        let nn = fnodes.len();
+        let (xyz, gindex) = geometry(case, &fnodes);
         let (loc, damp) = if let Some(gap) = gap {
             let mu = const_real(bc, "air gap relative permeability")?.unwrap_or(1.0);
             (local::air_gap_matrix(b.code, &xyz, &gindex, nn, &vec![gap; nn], &vec![mu; nn])?, None)
@@ -272,7 +274,7 @@ pub fn solve_harmonic_ordered(case: &Case, solver_id: usize, order: Option<&[u32
             None => loc.stiff.iter().map(|&v| Complex64::new(v, 0.0)).collect(),
         };
         let force: Vec<Complex64> = loc.force.iter().map(|&v| Complex64::new(v, 0.0)).collect();
-        glue(&mut a, &mut rhs, &lay.dofs_of(&b.nodes, &eids), &stiff, &force);
+        glue(&mut a, &mut rhs, &lay.dofs_of(&fnodes, &eids), &stiff, &force);
     }
 
     // DefaultDirichletBCs, per component: nodal values and zero edge values.

@@ -181,3 +181,36 @@ pub fn to_order<T: Clone>(v: &[T], order: &[u32]) -> Vec<T> {
 pub fn from_order<T: Clone>(v: &[T], order: &[u32]) -> Vec<T> {
     order.iter().map(|&o| v[o as usize].clone()).collect()
 }
+
+/// The node order of the mesh face a boundary triangle stands for
+/// (`Mesh % Faces(GetBoundaryFaceIndex(Element))`, which the Whitney
+/// solvers' boundary loops use): `FindMeshFaces3D` (MeshBasics.F90:4135)
+/// creates each face from the first element that has it, bulk elements
+/// first, i.e. the boundary element's lowest-numbered parent, in that
+/// parent's face map order (tetrahedra: `[1,2,3], [1,2,4], [2,3,4],
+/// [3,1,4]`). The order changes the rounding of the face integrals. Other
+/// faces keep the boundary element's own order.
+pub fn face_nodes(case: &Case, b: &elmer_mesh::BoundElem) -> Vec<u32> {
+    const TETRA_FACES: [[usize; 3]; 4] = [[0, 1, 2], [0, 1, 3], [1, 2, 3], [2, 0, 3]];
+    if b.code / 100 != 3 {
+        return b.nodes.clone();
+    }
+    let Some(parent) = b.parents.iter().flatten().copied().filter(|&p| p < case.mesh.bulk.len()).min() else {
+        return b.nodes.clone();
+    };
+    let p = &case.mesh.bulk[parent];
+    if p.code != 504 {
+        return b.nodes.clone();
+    }
+    let mut own = b.nodes.clone();
+    own.sort_unstable();
+    for f in TETRA_FACES {
+        let nodes: Vec<u32> = f.iter().map(|&i| p.nodes[i]).collect();
+        let mut sorted = nodes.clone();
+        sorted.sort_unstable();
+        if sorted == own {
+            return nodes;
+        }
+    }
+    b.nodes.clone()
+}

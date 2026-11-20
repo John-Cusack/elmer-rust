@@ -216,13 +216,15 @@ pub fn solve_steady_ordered(case: &Case, solver_id: usize, order: Option<&[u32]>
         if !is_active(b.parents[0]) && !is_active(b.parents[1]) {
             continue;
         }
+        // `Mesh % Faces(k)`: the mesh face's node order.
+        let fnodes = crate::layout::face_nodes(case, b);
         let eids = lay
             .edges
-            .of_element(b.code, &b.nodes)
+            .of_element(b.code, &fnodes)
             .ok_or_else(|| MagnetoError::Input("boundary element outside the active elements".into()))?;
-        let nn = b.nodes.len();
+        let nn = fnodes.len();
         let np = if with_v { nn } else { 0 };
-        let (xyz, gindex) = geometry(case, &b.nodes);
+        let (xyz, gindex) = geometry(case, &fnodes);
         let loc = if let Some(gap) = gap {
             let mu = const_real(bc, "air gap relative permeability")?.unwrap_or(1.0);
             local::air_gap_matrix(b.code, &xyz, &gindex, np, &vec![gap; nn], &vec![mu; nn])?
@@ -234,7 +236,7 @@ pub fn solve_steady_ordered(case: &Case, solver_id: usize, order: Option<&[u32]>
             };
             local::bc_matrix(b.code, &xyz, &gindex, np, &co)?
         };
-        glue(&mut a, &mut rhs, &lay.dofs_of(&b.nodes, &eids), &loc.stiff, &loc.force);
+        glue(&mut a, &mut rhs, &lay.dofs_of(&fnodes, &eids), &loc.stiff, &loc.force);
     }
 
     // DefaultDirichletBCs: nodal `V` values and `V {e}` edge values.
