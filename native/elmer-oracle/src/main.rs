@@ -220,32 +220,49 @@ fn refnorm_one(
     let mut refnorms = Vec::new();
     let mut notes = Vec::new();
     let mut non_nodal = false;
+    let equations = elmer_oracle::refnorm::solver_equations(&text);
+    // Each result file once: (name, parsed, preamble, nodes).
+    let parsed: Vec<_> = files
+        .iter()
+        .filter_map(|f| {
+            let path = golden_run.join(f);
+            let buf = std::fs::read(&path).ok()?;
+            let r = elmer_oracle::result::parse_result_bytes(&buf, &path.display().to_string()).ok()?;
+            let vars = elmer_oracle::result::preamble_vars(&buf);
+            let nodes = elmer_oracle::result::number_of_nodes(&buf);
+            Some((r, vars, nodes))
+        })
+        .collect();
     for s in &solvers {
-        let var = match &s.variable {
-            Ok(v) => v,
-            Err(why) => {
-                notes.push(format!("solver {}: {why}", s.number));
-                continue;
-            }
-        };
         // The variable must live in exactly one result file: several
         // meshes carrying one name leave the solver's own copy ambiguous.
+        // A solver without `Variable` takes the preamble's single variable
+        // of its equation, which must agree across the files it appears in.
         let mut found = Vec::new();
         let mut why = String::from("not in any result file");
-        for f in &files {
-            let path = golden_run.join(f);
-            let (Ok(r), Ok(buf)) =
-                (elmer_oracle::result::read_result_file(&path), std::fs::read(&path))
-            else {
-                continue;
+        let mut inferred = std::collections::BTreeSet::new();
+        for (r, vars, nodes) in &parsed {
+            let var = match &s.variable {
+                Ok(v) => v.clone(),
+                Err(e) if e == elmer_oracle::refnorm::NO_VARIABLE => {
+                    match elmer_oracle::refnorm::default_variable(vars, s, &equations) {
+                        Ok(v) => {
+                            inferred.insert(v.clone());
+                            v
+                        }
+                        Err(e) => {
+                            why = e;
+                            continue;
+                        }
+                    }
+                }
+                Err(_) => break,
             };
-            if !r.steps.iter().any(|st| st.vars.iter().any(|v| v.name.to_lowercase() == *var)) {
+            if !vars.iter().any(|v| v.base_name() == var) {
                 continue;
             }
-            let sizes = elmer_oracle::result::value_sizes(&buf);
-            let nodes = elmer_oracle::result::number_of_nodes(&buf);
-            non_nodal |= elmer_oracle::refnorm::non_nodal(&r, nodes, var);
-            match elmer_oracle::refnorm::golden_norm(&r, &sizes, var) {
+            non_nodal |= elmer_oracle::refnorm::non_nodal(vars, *nodes, &var);
+            match elmer_oracle::refnorm::golden_norm(r, vars, &var) {
                 Ok(n) => found.push(n),
                 Err(e) => {
                     why = e;
@@ -253,11 +270,30 @@ fn refnorm_one(
                 }
             }
         }
+        if inferred.len() > 1 {
+            notes.push(format!("solver {}: default variable differs between result files", s.number));
+            continue;
+        }
+        let var = match (&s.variable, inferred.first()) {
+            (Ok(v), _) => v.clone(),
+            (Err(_), Some(v)) => format!("{v} (default)"),
+            (Err(e), None) if e == elmer_oracle::refnorm::NO_VARIABLE && !parsed.is_empty() => {
+                notes.push(format!("solver {}: {why}", s.number));
+                continue;
+            }
+            (Err(e), None) => {
+                notes.push(format!("solver {}: {e}", s.number));
+                continue;
+            }
+        };
         match found.as_slice() {
             [n] if !n.is_nan() => refnorms.push((s.number, *n)),
             [_] => notes.push(format!("solver {}: {var}: {why}", s.number)),
             [] => notes.push(format!("solver {}: {var} {why}", s.number)),
             _ => notes.push(format!("solver {}: {var} in several result files", s.number)),
+        }
+        if !inferred.is_empty() && matches!(found.as_slice(), [n] if !n.is_nan()) {
+            notes.push(format!("solver {}: {var}", s.number));
         }
     }
     if refnorms.is_empty() {
