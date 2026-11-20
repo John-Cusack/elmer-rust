@@ -23,7 +23,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use elmer_core::{normalize_key, FieldKind, Logger, MeshView, ParamMap, Params, NO_DOF};
+use elmer_core::{normalize_key, FieldKind, Logger, MeshView, Params, NO_DOF};
 use elmer_solver::variable::{VarHandle, VarId};
 use elmer_solver::{Model, SaveCurrent, Simulation, SolverError};
 
@@ -51,8 +51,8 @@ fn unsupported(model: &Model) -> Option<String> {
         return Some("output variable list".into());
     }
     for p in &model.solvers {
-        if p.get("output file").is_some() || p.get("mesh").is_some() {
-            return Some("solver-specific meshes or output files".into());
+        if p.get("output file").is_some() {
+            return Some("solver-specific output files".into());
         }
         if p.logical("harmonic analysis") == Some(true) {
             return Some("harmonic analysis".into());
@@ -158,14 +158,8 @@ fn entries<'a>(
 }
 
 fn variable_entries<'a>(sim: &'a Simulation, over: Option<(VarId, &'a [f64])>) -> Vec<Entry<'a>> {
-    let equation = |id| {
-        sim.slots
-            .iter()
-            .find(|s| s.variable == Some(id))
-            .and_then(|s| sim.model.solvers.get(s.id - 1))
-            .and_then(|p: &ParamMap| p.string("equation"))
-            .map_or_else(|| "no equation".to_string(), normalize_key)
-    };
+    // `Var % Solver`'s equation, on the mesh being saved.
+    let equation = |id| sim.equation_of(id).unwrap_or_else(|| "no equation".to_string());
     sim.vars
         .names_in_order()
         .into_iter()

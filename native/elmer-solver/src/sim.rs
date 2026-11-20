@@ -231,6 +231,9 @@ pub struct SolverSlot {
     /// `Solver % PeriodicFlipActive`: the solver numbers its dofs by the
     /// conforming map and some of its nodes are flipped.
     pub(crate) conforming_flip: bool,
+    /// The slot's mesh: 0 for the run's first mesh, else the solver mesh
+    /// of its `Mesh` keyword ([`crate::multimesh`]).
+    pub mesh_ix: usize,
 }
 
 impl SolverSlot {
@@ -279,6 +282,7 @@ impl SolverSlot {
             nt: None,
             block_matrix: false,
             conforming_flip: false,
+            mesh_ix: 0,
         })
     }
 
@@ -396,7 +400,7 @@ pub struct Simulation {
     /// `SetNormalizedKeywords` has run (`Mesh % EntityWeightsComputed`).
     pub(crate) keywords_normalized: bool,
     /// The `Output File` writer ([`Simulation::set_save_current`]).
-    save_current: Option<Box<dyn SaveCurrent>>,
+    pub(crate) save_current: Option<Box<dyn SaveCurrent>>,
     /// Whether this rank owns each mesh node ([`Simulation::set_node_owned`]).
     node_owned: Option<Arc<[bool]>>,
     /// ARPACK's saved state (`dgetv0`'s seed), kept across eigen solves as
@@ -418,6 +422,8 @@ pub struct Simulation {
     /// Adaptive mesh refinement: the pending mesh change and the current
     /// mesh's state ([`crate::remesh`]).
     pub(crate) adaptive: crate::remesh::AdaptiveMeshes,
+    /// Solver-specific meshes and their variable lists ([`crate::multimesh`]).
+    pub(crate) meshes: crate::multimesh::Meshes,
 }
 
 /// `mesh` with its elements' nodes in a p layout's order.
@@ -514,6 +520,7 @@ impl Simulation {
             p_ndeg_parts: None,
             p_element_nodes: None,
             adaptive: Default::default(),
+            meshes: Default::default(),
         }
     }
 
@@ -691,21 +698,54 @@ impl Simulation {
         if n_ext > 0 {
             log.info(MAP, &format!("\"Default External BC\" count: {}", crate::fortran_fmt::i2s(n_ext as i64)), 6);
         }
+        // AddSolvers: each solver on its mesh (`Solver % Mesh`), with that
+        // mesh's variable list.
         for i in 0..self.model.solvers.len() {
-            if let Some(slot) = self.build_slot(i, mesh, Some(registry), true)? {
+            let m = self.mesh_index_of(&self.model.solvers[i].clone())?;
+            let mr = self.mesh_ref(m, mesh);
+            self.enter_mesh(m);
+            let built = self.build_slot(i, mr.get(), Some(registry), true);
+            self.enter_mesh(0);
+            if let Some(mut slot) = built? {
+                slot.mesh_ix = m;
                 self.slots.push(slot);
             }
         }
         for ix in 0..self.slots.len() {
-            self.init_slot(ix, mesh, log, comm)?;
+            let m = self.slots[ix].mesh_ix;
+            let mr = self.mesh_ref(m, mesh);
+            self.enter_mesh(m);
+            let r = self.init_slot(ix, mr.get(), log, comm);
+            self.enter_mesh(0);
+            r?;
         }
         // ElmerSolver.F90:578-585, after the initial conditions.
         for ix in 0..self.slots.len() {
             if self.slots[ix].params.logical("initialize exported variables") == Some(true) {
-                self.update_exported_variables(ix, mesh, log)?;
+                let m = self.slots[ix].mesh_ix;
+                let mr = self.mesh_ref(m, mesh);
+                self.enter_mesh(m);
+                let r = self.update_exported_variables(ix, mr.get(), log);
+                self.enter_mesh(0);
+                r?;
             }
         }
-        self.initialize_dirichlet(mesh)
+        if self.meshes.is_empty() {
+            return self.initialize_dirichlet(mesh);
+        }
+        // SetInitialConditions on every mesh, in `Model % Meshes` order; the
+        // Dirichlet values read the other meshes' fields through copies.
+        for m in 0..=self.solver_meshes().len() {
+            let mr = self.mesh_ref(m, mesh);
+            self.enter_mesh(m);
+            let r = self
+                .make_mesh_copies(m, mr.get())
+                .and_then(|_| self.refresh_mesh_copies(mr.get(), mesh, log))
+                .and_then(|_| self.initialize_dirichlet(mr.get()));
+            self.enter_mesh(0);
+            r?;
+        }
+        Ok(())
     }
 
     /// The slot of `Solver i+1` (`AddEquationBasics`): procedure from the
@@ -1604,6 +1644,36 @@ impl Simulation {
         log: &dyn Logger,
         comm: &dyn Communicator,
     ) -> Result<(), SolverError> {
+        if self.meshes.is_empty() {
+            return self.solver_activate_on(ix, dt, transient, mesh, log, comm);
+        }
+        // A solver of its own mesh (`mesh` is the run's first mesh): that
+        // mesh's variables, with the other meshes' fields it reads
+        // interpolated again where they changed.
+        let m = self.slots[ix].mesh_ix;
+        let prev = self.meshes.active;
+        let mr = self.mesh_ref(m, mesh);
+        self.enter_mesh(m);
+        let r = self
+            .refresh_mesh_copies(mr.get(), mesh, log)
+            .and_then(|_| self.solver_activate_on(ix, dt, transient, mr.get(), log, comm));
+        if r.is_ok() {
+            self.invalidate_mesh_copies(ix);
+        }
+        self.enter_mesh(prev);
+        r
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn solver_activate_on(
+        &mut self,
+        ix: usize,
+        dt: f64,
+        transient: bool,
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+        comm: &dyn Communicator,
+    ) -> Result<(), SolverError> {
         let p = &self.slots[ix].params;
         if p.get("start time").is_some() {
             return Err(SolverError::fatal("SolverActivate", "Use > Exec Condition = Real < instead of > Start Time <"));
@@ -2045,6 +2115,10 @@ impl Simulation {
             }
             done.iter_mut().for_each(|d| *d = false);
             for k in 0..ns {
+                // The slot's own mesh and variable list (solver meshes).
+                let mr = self.mesh_ref(self.slots[k].mesh_ix, mesh);
+                self.enter_mesh(self.slots[k].mesh_ix);
+                let slot_mesh = mr.get();
                 let s = &self.slots[k];
                 if !s.has_procedure() {
                     log.warn("SolveEquations", "No routine related to solver!");
@@ -2082,7 +2156,7 @@ impl Simulation {
                 }
                 let mut transient_solver = transient;
                 if transient {
-                    if let Some(c) = self.creal(p, "steady state condition", mesh)? {
+                    if let Some(c) = self.creal(p, "steady state condition", slot_mesh)? {
                         if c > 0.0 {
                             transient_solver = false;
                             log.info("SolveEquations", "Running solver in steady state", 6);
@@ -2113,7 +2187,7 @@ impl Simulation {
                     test_convergence = true;
                 }
                 if test_convergence || calc_derivative {
-                    self.compute_change(k, true, None, false, mesh, log, comm)?;
+                    self.compute_change(k, true, None, false, slot_mesh, log, comm)?;
                 }
                 if test_convergence {
                     done[k] = self.slots[k]
@@ -2128,6 +2202,7 @@ impl Simulation {
                     break;
                 }
             }
+            self.enter_mesh(0);
             if divergence_exit || done.iter().all(|&d| d) {
                 break;
             }
@@ -2367,11 +2442,7 @@ impl Simulation {
         comm: &dyn Communicator,
     ) -> Result<(), SolverError> {
         self.exec_slots(ExecWhen::BeforeSaving, dt, transient, mesh, log, comm)?;
-        if let Some(mut writer) = self.save_current.take() {
-            let saved = writer.save(self, mesh, log);
-            self.save_current = Some(writer);
-            saved?;
-        }
+        self.save_meshes(mesh, log)?;
         self.exec_slots(ExecWhen::AfterSaving, dt, transient, mesh, log, comm)
     }
 

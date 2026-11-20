@@ -951,6 +951,29 @@ fn periodic_in_use(sim: &Simulation) -> bool {
 }
 
 pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Result<Outcome, SolverError> {
+    run_case_meshes(case, Vec::new(), log, env)
+}
+
+/// [`run_case`] with the meshes the case's solvers name (`Solver i :: Mesh`),
+/// as the front end read them.
+pub fn run_case_with_meshes(
+    case: Case<'_>,
+    solver_meshes: Vec<(String, Box<dyn MeshView>)>,
+    log: &dyn Logger,
+    comm: &dyn Communicator,
+) -> Result<Outcome, SolverError> {
+    if comm.size() > 1 {
+        return Err(SolverError::Unsupported("more than one MPI rank".into()));
+    }
+    run_case_meshes(case, solver_meshes, log, &RunEnv { job: comm, globals: Vec::new() })
+}
+
+fn run_case_meshes(
+    case: Case<'_>,
+    solver_meshes: Vec<(String, Box<dyn MeshView>)>,
+    log: &dyn Logger,
+    env: &RunEnv<'_>,
+) -> Result<Outcome, SolverError> {
     let (rank, size) = (env.job.rank(), env.job.size());
     let comm: &dyn Communicator = if size == 1 { env.job } else { &SerialComm };
     let Case { mut model, reloads, mesh, case_dir, mesh_dir } = case;
@@ -1054,6 +1077,10 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
         }
     }
     let mut sim = Simulation::new(model);
+    let mesh_names: Vec<String> = solver_meshes.iter().map(|(n, _)| n.clone()).collect();
+    for (name, m) in solver_meshes {
+        sim.add_solver_mesh(&name, Arc::from(m));
+    }
     sim.backends.fe = Some(fe_backend(coords.dim));
     // Solver sections with a non-nodal `Element`; `p:%f` degrees are
     // `GetMatcReal(f, 4, [body, x, y, z], 'cx')` (MeshBasics.F90).
@@ -1115,6 +1142,12 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
                 .map(|w| Box::new(w) as Box<dyn elmer_solver::sim::SaveCurrent>))
         }));
     }
+    // Each solver mesh saves its own `<mesh name>/<Output File>`.
+    for (k, name) in mesh_names.iter().enumerate() {
+        if let Some(writer) = crate::result_file::writer(&sim.model, &case_dir.join(name), rank, size, log) {
+            sim.set_solver_mesh_writer(k + 1, Box::new(writer));
+        }
+    }
     if let Some((id, coarse)) = mg_coarse {
         sim.set_multigrid_meshes(id, coarse)?;
     }
@@ -1172,11 +1205,7 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     }
     let written = std::mem::take(&mut *written.lock().unwrap());
     let passed = finalize_reference(&sim.reference, &case_dir, log, env.job)?;
-    let norms = sim
-        .slots
-        .iter()
-        .filter_map(|s| Some((s.id, sim.vars.by_id(s.variable?).conv.norm)))
-        .collect();
+    let norms = (0..sim.slots.len()).filter_map(|ix| Some((sim.slots[ix].id, sim.slot_norm(ix)?))).collect();
     Ok(Outcome { report, norms, passed, written })
 }
 

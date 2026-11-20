@@ -32,7 +32,6 @@ const SIMULATION: &[Rule] = &[];
 
 /// Read by the solver's own procedure; skipped for `Exec Solver = Never`.
 const SOLVER: &[Rule] = &[
-    present("Mesh", "solver-specific meshes are not implemented"),
     // The p-element coordinates fitted to a curved boundary
     // (`Follow P Curvature`) are not computed: CurvedBoundaryP misses its
     // SaveScalars norm (7.697 vs 8.172), which the pristine solver
@@ -49,6 +48,26 @@ const SOLVER: &[Rule] = &[
     // vs 9.9e-3).
     flag("Apply Contact BCs", "contact mechanics is not implemented"),
 ];
+
+/// `Solver i :: Mesh`: a solver of its own mesh (`elmer_solver::multimesh`)
+/// names one mesh directory under the `Mesh DB`. Not composed: the
+/// keyword's other forms, and output solvers (VTU output, SaveData) on
+/// another mesh, which interpolate every field there.
+fn check_solver_mesh(i: usize, s: &ParamMap) -> Result<(), SolverError> {
+    if s.get("mesh").is_none() {
+        return Ok(());
+    }
+    let refuse = |what: &str| Err(SolverError::Unsupported(format!("Solver {i}: Mesh: {what}")));
+    let Some(name) = s.string("mesh") else { return refuse("not a mesh name") };
+    if name.split_whitespace().count() != 1 {
+        return refuse("a mesh with options or a directory and a name");
+    }
+    let proc = s.get("procedure").map(|p| format!("{p:?}").to_ascii_lowercase()).unwrap_or_default();
+    if ["resultoutput", "savedata", "savescalars", "saveline"].iter().any(|k| proc.contains(k)) {
+        return refuse("output on another mesh (fields interpolated to it) is not implemented");
+    }
+    Ok(())
+}
 
 const BODY_FORCE: &[Rule] = &[];
 
@@ -105,6 +124,7 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
             continue;
         }
         scan("Solver", i + 1, s, SOLVER)?;
+        check_solver_mesh(i + 1, s)?;
     }
     for (i, b) in model.body_forces.iter().enumerate() {
         scan("Body Force", i + 1, b, BODY_FORCE)?;

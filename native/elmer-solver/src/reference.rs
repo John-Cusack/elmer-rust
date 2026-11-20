@@ -30,6 +30,8 @@ pub fn compare_to_reference(
         return Ok(());
     }
     for ix in 0..sim.slots.len() {
+        // A solver of a solver mesh reads its field from that mesh's list.
+        sim.enter_mesh(sim.slots[ix].mesh_ix);
         let slot = &sim.slots[ix];
         let p = &slot.params;
         let solver_id = slot.id;
@@ -162,6 +164,7 @@ pub fn compare_to_reference(
             sim.reference.pass_count += 1;
         }
     }
+    sim.enter_mesh(0);
     Ok(())
 }
 

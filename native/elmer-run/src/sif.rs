@@ -164,7 +164,7 @@ impl Frontend for SifFrontend {
         }
         let case_dir = sif.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
         let (db, name) = first.header.mesh_db.clone().ok_or("no Mesh DB in Header")?;
-        let mesh_dir = case_dir.join(db).join(&name);
+        let mesh_dir = case_dir.join(&db).join(&name);
         // `Mesh % Name`: the Output File goes to `<case>/<name>/`, whatever
         // the Mesh DB directory (ElmerSolver.F90:3886).
         model.header.insert("Mesh Name", elmer_core::Value::Str(name.clone()));
@@ -174,7 +174,18 @@ impl Frontend for SifFrontend {
         } else {
             (self.mesh)(&mesh_dir, &model.simulation)?
         };
-        Ok(LoadedCase { model, reloads, mesh, case_dir, mesh_dir })
+        // `Solver i :: Mesh = "<name>"`: the mesh `<name>` under the Mesh DB
+        // directory, read once (LoadModel's solver meshes).
+        let mut solver_meshes: Vec<(String, Box<dyn MeshView>)> = Vec::new();
+        for s in &model.solvers {
+            let Some(name) = elmer_core::Params::string(s, "mesh").map(str::trim) else { continue };
+            if name.split_whitespace().count() != 1 || solver_meshes.iter().any(|(n, _)| n == name) {
+                continue;
+            }
+            let dir = case_dir.join(&db).join(name);
+            solver_meshes.push((name.to_string(), (self.mesh)(&dir, &model.simulation)?));
+        }
+        Ok(LoadedCase { model, reloads, mesh, case_dir, mesh_dir, solver_meshes })
     }
 }
 
