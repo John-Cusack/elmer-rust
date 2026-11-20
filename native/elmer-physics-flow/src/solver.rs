@@ -149,7 +149,9 @@ fn check_stabilization(p: &ParamMap) -> Result<(), SolverError> {
     }
 }
 
-/// Solver-section options this crate does not port.
+/// Solver-section options this crate does not port. `Adaptive Mesh
+/// Refinement` is elmer-run's wrapper around this solver (`RefineMesh` after
+/// the solve, with elmer-adaptive's FlowSolve estimators).
 fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
     check_stabilization(p)?;
     if p.get("solver coordinate system").is_some() {
@@ -157,7 +159,6 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
     }
     for (key, what) in [
         ("out of plane flow", "out of plane flow"),
-        ("adaptive mesh refinement", "adaptive mesh refinement"),
         ("nonlinear system linesearch", "nonlinear line search"),
     ] {
         if flag(Some(p), key) {

@@ -78,7 +78,7 @@ fn runs(solver: &ParamMap) -> bool {
 pub fn check(model: &Model) -> Result<(), SolverError> {
     scan("Simulation", 1, &model.simulation, SIMULATION)?;
     for (i, s) in model.solvers.iter().enumerate().filter(|(_, s)| runs(s)) {
-        // HeatSolve, ElasticSolve, StressSolve, StatElecSolve and StatCurrentSolve refine through elmer-adaptive (its own checks refuse
+        // HeatSolve, ElasticSolve, StressSolve, StatElecSolve, StatCurrentSolve and FlowSolve refine through elmer-adaptive (its own checks refuse
         // the remeshing paths); the other solvers do not yet.
         let heat = elmer_solver::solver::procedure_of(s).is_some_and(|(l, e)| {
 (l.eq_ignore_ascii_case("heatsolve") && e.eq_ignore_ascii_case("heatsolver"))
@@ -86,6 +86,7 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
                 || (l.eq_ignore_ascii_case("stresssolve") && e.eq_ignore_ascii_case("stresssolver"))
                 || (l.eq_ignore_ascii_case("statelecsolve") && e.eq_ignore_ascii_case("statelecsolver"))
                 || (l.eq_ignore_ascii_case("statcurrentsolve") && e.eq_ignore_ascii_case("statcurrentsolver"))
+                || (l.eq_ignore_ascii_case("flowsolve") && e.eq_ignore_ascii_case("flowsolver"))
         });
         if heat && s.logical("adaptive mesh refinement") == Some(true) {
             let mut s2 = s.clone();

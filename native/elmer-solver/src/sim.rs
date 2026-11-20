@@ -2483,6 +2483,12 @@ impl Simulation {
                 // RefineMesh's new mesh: the results above were the old
                 // mesh's; the run goes on with the new one.
                 if let Some(change) = self.adaptive.pending.take() {
+                    // The refining slot's parameters as its solve left them
+                    // (FlowSolve adds `Nonlinear System Norm Dofs`).
+                    let refining = self.adaptive.pending_var.clone().and_then(|name| {
+                        let s = self.slots.iter().find(|s| s.variable.is_some_and(|id| self.vars.by_id(id).name.eq_ignore_ascii_case(&name)))?;
+                        Some((name, s.params.clone()))
+                    });
                     let new_mesh = self.wrap_mesh(change.mesh.clone());
                     match self.adaptive.pending_coords.take() {
                         Some(c) => {
@@ -2490,6 +2496,20 @@ impl Simulation {
                             self.swap_mesh(&old, &*new_mesh, log, comm)?;
                         }
                         None => self.swap_mesh(mesh, &*new_mesh, log, comm)?,
+                    }
+                    // Elmer's RefineMesh hands the solver its new variable
+                    // before the steady-state ComputeChange, whose norm of the
+                    // interpolated values the next nonlinear change compares
+                    // against.
+                    if let Some((name, params)) = refining {
+                        if let Some(ix) = self.slots.iter().position(|s| {
+                            s.variable.is_some_and(|id| self.vars.by_id(id).name.eq_ignore_ascii_case(&name))
+                        }) {
+                            let id = self.slots[ix].variable.expect("found by its variable");
+                            let n_nodes = new_mesh.n_nodes();
+                            let norm = crate::change::steady_norm(&params, self.vars.by_id(id), n_nodes, comm, log);
+                            self.vars.by_id_mut(id).conv.norm = norm;
+                        }
                     }
                     self.adaptive.depth += 1;
                     self.adaptive.finished = false;

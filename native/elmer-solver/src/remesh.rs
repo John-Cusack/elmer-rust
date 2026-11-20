@@ -261,6 +261,9 @@ impl Simulation {
                 continue;
             };
             s.instance = o.instance.take();
+            // `Solver % Values` lives on across RefineMesh, with what the
+            // solver added to it (FlowSolve's `Nonlinear System Norm Dofs`).
+            s.params = std::mem::take(&mut o.params);
             s.times_visited = o.times_visited;
             s.done_time = o.done_time;
             s.dt = o.dt;
@@ -348,7 +351,21 @@ impl Simulation {
                     ov.name
                 )));
             }
-            let old_perm: Option<Vec<u32>> = ov.perm.as_deref().map(|p| p.to_vec());
+            // The refining solver's vector variable (`Var % DOFs > 1`, RefineMesh's
+            // "Interpolate vectors" path) on a mesh an earlier RefineMesh made
+            // keeps the identity Perm it was interpolated with, while the
+            // solver (UpdateSolverMesh) writes it in its own,
+            // bandwidth-optimised order: the next RefineMesh takes the value
+            // at equation j for node j. Scalars keep their Perm.
+            let refining = self.adaptive.depth > 0
+                && ov.dofs > 1
+                && self.adaptive.pending_var.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(&ov.name));
+            let old_perm: Option<Vec<u32>> = match ov.perm.as_deref() {
+                // An explicit identity: the projection still places the
+                // values through the new Perm.
+                Some(p) if refining && p.iter().all(|&k| k != NO_DOF) => Some((0..p.len() as u32).collect()),
+                p => p.map(<[u32]>::to_vec),
+            };
             let new_perm: Option<Vec<u32>> = nv.perm.as_deref().map(|p| p.to_vec());
             let nslots_old = ov.values.len() / dofs;
             let nslots_new = nv.values.len() / dofs;
