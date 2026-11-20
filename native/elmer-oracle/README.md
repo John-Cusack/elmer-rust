@@ -18,7 +18,7 @@ through firstmate (D11).
 | Mutation suite | 14,634/14,634 detectable mutations caught (near-zero floor); below-floor and vacuous counts kept visible | `golden/mutation-summary.txt` |
 | 6 Capability matrix | 482/482 LISTUSAGE runs | `capability/` |
 | 7 O6 restart round trip | 5/5 restart tests bit-stable | `golden/o6.txt`, `scripts/o6-proof.sh` |
-| 8 O7 kernel harness | not covered by this lane | — |
+| 8 O7 kernel harness | Rust tests call the pristine `GaussPoints` rule builders and `ElementInfo` through a `BIND(C)` shim; Release reproduces 89 rules and 792 `ElementInfo` calls on 21 types (all S1 types) at 0 ulp, the FMA arm does not | `o7/`, `src/o7.rs`, `tests/o7.rs` |
 | 9 Held-out seal and determinism | 190 directories sealed with a hash commitment; pristine-vs-pristine determinism of quick, non-quick and ice tests | `heldout/`, `determinism/` |
 | 10 Benchmark baselines | **deferred** (see below) | — |
 | 11 ABI harvest | not covered by this lane | — |
