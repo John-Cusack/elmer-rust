@@ -327,10 +327,26 @@ fn refnorm_one(
     match result {
         Ok(o) if o.passed => (String::from("bitwise"), solvers_n, notes.join("; ")),
         Ok(o) => {
-            notes.extend(o.compare_lines.iter().filter(|l| l.contains("FAILED")).cloned());
-            // A known grader gap, not a capture failure: edge, face and DG
-            // unknowns follow solver-specific norm paths.
-            let verdict = if non_nodal { "grader-gap-non-nodal" } else { "MISMATCH" };
+            let failed: Vec<&String> = o.compare_lines.iter().filter(|l| l.contains("FAILED")).collect();
+            // Known grader gaps, not capture failures: a solver that sets
+            // its own norm, and edge, face and DG unknowns, follow
+            // solver-specific norm paths.
+            let failed_solvers: Vec<u32> = failed
+                .iter()
+                .filter_map(|l| l.split("Solver ").nth(1)?.split_whitespace().next()?.parse().ok())
+                .collect();
+            let self_norm = !failed_solvers.is_empty()
+                && failed_solvers
+                    .iter()
+                    .all(|n| solvers.iter().any(|s| s.number == *n && s.self_norm()));
+            notes.extend(failed.into_iter().cloned());
+            let verdict = if self_norm {
+                "grader-gap-solver-norm"
+            } else if non_nodal {
+                "grader-gap-non-nodal"
+            } else {
+                "MISMATCH"
+            };
             (String::from(verdict), solvers_n, notes.join("; "))
         }
         Err(e) => (String::from("ERROR"), solvers_n, e.to_string()),

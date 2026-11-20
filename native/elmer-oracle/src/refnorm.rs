@@ -32,8 +32,58 @@ pub struct RefSolver {
     /// Lowercased basename of the `Procedure` file, or the legacy
     /// solver's when the equation name selects one.
     pub procedure: Option<String>,
+    /// Lowercased entry subroutine of the `Procedure` (its second string).
+    pub entry: Option<String>,
     /// `Coupled Solver = True`: the norm runs over the coupled unknowns.
     pub coupled: bool,
+}
+
+/// Solver entries that assign `Solver % Variable % Norm` themselves
+/// instead of leaving it to `ComputeNorm` (pristine `fem/src/modules`,
+/// grep `Variable % Norm =`, keyed by the enclosing solver subroutine).
+/// A mismatch in one of these is a grader gap, not a capture failure.
+const SELF_NORM: [&str; 34] = [
+    "acousticssolver",
+    "compressibilityscale",
+    "solidphasecons",
+    "craigbamptonsolver",
+    "distancesolver1",
+    "emportsolver",
+    "fixtangentvelo",
+    "fluxsolver",
+    "freesurfacereduced",
+    "helmholtzbemsolver",
+    "isosurfacesolver",
+    "levelsetdistance",
+    "levelsetintegrate",
+    "bsolver",
+    "magnetodynamicscalcfields",
+    "whitneyavsolver",
+    "advdiffsolver",
+    "particleadvector",
+    "particledynamics",
+    "phasechangesolve",
+    "poissonbemsolver",
+    "poissonboltzmannsolve",
+    "parallelprojecttoplane",
+    "projecttoplane",
+    "elmerpostoutputsolver",
+    "richardspostprocess",
+    "savedependence",
+    "saveline",
+    "savescalars",
+    "statcurrentsolverlegacy",
+    "steadyphasechange",
+    "transientcost",
+    "vectorhelmholtznodal",
+    "vorticitysolver",
+];
+
+impl RefSolver {
+    /// Whether the solver's entry sets its own norm (see [`SELF_NORM`]).
+    pub fn self_norm(&self) -> bool {
+        self.entry.as_deref().is_some_and(|e| SELF_NORM.contains(&e))
+    }
 }
 
 /// Elmer's legacy equation names (`MainUtils.F90`, `AddEquationBasics`):
@@ -160,6 +210,7 @@ pub fn reference_solvers(text: &str) -> Result<Vec<RefSolver>, String> {
                     let eq = equation.as_deref()?;
                     LEGACY.iter().find(|l| l.0 == eq).map(|l| l.2.to_string())
                 }),
+                entry: keys_entry(&k),
                 coupled: k.iter().any(|(k, v)| k == "coupled solver" && v.to_lowercase().contains("true")),
                 equation,
             }
@@ -189,6 +240,12 @@ pub fn solver_equations(text: &str) -> Vec<(u32, String)> {
         }
     }
     out
+}
+
+/// Entry subroutine of the `Procedure` (its second quoted string).
+fn keys_entry(keys: &[(String, String)]) -> Option<String> {
+    let (_, v) = keys.iter().rev().find(|(k, _)| k == "procedure")?;
+    Some(v.split('"').nth(3)?.trim().to_lowercase())
 }
 
 /// Basename of the `Procedure` file, without directory or extension.
@@ -373,6 +430,7 @@ mod tests {
             variable: Ok(variable.into()),
             equation: equation.map(Into::into),
             procedure: None,
+            entry: None,
             coupled: false,
         }
     }
@@ -384,6 +442,9 @@ mod tests {
         assert_eq!(s.len(), 5);
         assert_eq!(s[0], rs(1, "temperature", Some("heat")));
         assert_eq!(s[2].procedure.as_deref(), Some("heatsolve"));
+        let flux = reference_solvers("Solver 2\n Procedure = \"FluxSolver\" \"FluxSolver\"\n Reference Norm = 1\nEnd\n").unwrap();
+        assert_eq!(flux[0].entry.as_deref(), Some("fluxsolver"));
+        assert!(flux[0].self_norm() && !s[0].self_norm());
         assert!(s[1].variable.as_ref().unwrap_err().contains("norm option"));
         assert_eq!(s[2].variable.as_ref().unwrap_err(), NO_VARIABLE);
         assert_eq!(s[2].equation.as_deref(), Some("heat equation"));
