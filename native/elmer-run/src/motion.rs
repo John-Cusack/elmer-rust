@@ -67,7 +67,8 @@ impl OwnedMovableMesh {
         let c = self.coords.clone();
         free_surface::install_node_mover(Some(Arc::new(move |x: &[[f64; 3]]| c.set_coords(x))));
         let c = self.coords.clone();
-        elmer_physics_elastic::motion::install_node_mover(Some(Arc::new(move |x: &[[f64; 3]]| c.set_coords(x))));
+        // The run goes on: StressSolve/ElasticSolve keep `AllocationsDone`.
+        elmer_physics_elastic::motion::switch_node_mover(Some(Arc::new(move |x: &[[f64; 3]]| c.set_coords(x))));
         let c = self.coords.clone();
         elmer_physics_shell::motion::install_node_mover(Some(Arc::new(move |x: &[[f64; 3]]| c.set_coords(x))));
     }
