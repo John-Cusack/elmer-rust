@@ -107,7 +107,7 @@ pub fn periodic_active(bc: &dyn Params, name: &str) -> bool {
 
 /// The sign tying the slave to the master side, or `None` when the boundary
 /// condition does not constrain `name`.
-fn periodic_scale(bc: &dyn Params, name: &str) -> Option<f64> {
+pub fn periodic_scale(bc: &dyn Params, name: &str) -> Option<f64> {
     if flag(bc, &format!("periodic bc {name}")) {
         Some(if flag(bc, "antisymmetric bc") {
             1.0
@@ -161,7 +161,13 @@ pub fn set_periodic_boundaries(
     t: &PeriodicTarget<'_>,
     n_nodes: usize,
 ) -> Result<usize, MortarError> {
-    let active: Vec<bool> = bcs.iter().map(|bc| periodic_active(*bc, t.name)).collect();
+    // A Lagrange boundary is the solver's constraint, not eliminated here.
+    let active: Vec<bool> = bcs
+        .iter()
+        .map(|bc| {
+            periodic_active(*bc, t.name) && !flag(*bc, "periodic bc use lagrange coefficient")
+        })
+        .collect();
     if !active.iter().any(|&x| x) {
         return Ok(0);
     }
@@ -169,13 +175,13 @@ pub fn set_periodic_boundaries(
         if !on {
             continue;
         }
-        for k in [
-            "periodic bc explicit",
-            "periodic bc use lagrange coefficient",
-        ] {
-            if flag(*bc, k) {
-                return Err(MortarError::Unsupported(k.into()));
-            }
+        // SetPeriodicBoundariesPass1 hands a Lagrange boundary to the
+        // solver's constraints (`MortarBCs`) and pass 2 skips it.
+        if flag(*bc, "periodic bc use lagrange coefficient") {
+            continue;
+        }
+        if flag(*bc, "periodic bc explicit") {
+            return Err(MortarError::Unsupported("periodic bc explicit".into()));
         }
         if bc
             .get(&format!("periodic bc coefficient {}", t.name))

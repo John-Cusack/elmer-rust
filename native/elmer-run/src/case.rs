@@ -589,7 +589,9 @@ fn mesh_density(sim: &ParamMap, t: f64) -> Result<f64, String> {
 /// the `MapBodiesAndBCs` tags and leaves body and BC indices as the new
 /// mesh's tags, so the model's `Target Bodies` / `Target Boundaries` become
 /// the identity. `None` when the mesh is used as loaded.
-fn transform_mesh(model: &mut Model, mesh: &dyn MeshView) -> Result<Option<LevelsMesh>, SolverError> {
+/// `discont_perm` is set to `Mesh % DiscontPerm` when `CreateDiscontMesh`
+/// split the mesh and no later transform renumbered its nodes.
+fn transform_mesh(model: &mut Model, mesh: &dyn MeshView, discont_perm: &mut Option<Vec<u32>>) -> Result<Option<LevelsMesh>, SolverError> {
     let err = |e: MeshLevelsError| match e {
         MeshLevelsError::Unsupported(m) => SolverError::Unsupported(m),
         MeshLevelsError::Invalid(m) => SolverError::fatal("LoadModel", m),
@@ -612,6 +614,9 @@ fn transform_mesh(model: &mut Model, mesh: &dyn MeshView) -> Result<Option<Level
         let d = create_discont_mesh(&MappedTags::new(mesh, model), &model.simulation, &model.boundary_conditions)
             .map_err(ops_err)?;
         if let Some(d) = d {
+            if d.discont_mesh {
+                *discont_perm = Some(d.perm);
+            }
             base = Some(d.mesh);
             identity_targets(model);
         }
@@ -621,6 +626,9 @@ fn transform_mesh(model: &mut Model, mesh: &dyn MeshView) -> Result<Option<Level
         None => mesh,
     };
     let split = mesh_levels(discont, &model.simulation, &model.boundary_conditions).map_err(err)?;
+    if split.is_some() {
+        *discont_perm = None;
+    }
     let split = split.or(base);
     let current: &dyn MeshView = match &split {
         Some(m) => m,
@@ -629,10 +637,12 @@ fn transform_mesh(model: &mut Model, mesh: &dyn MeshView) -> Result<Option<Level
     let mut density = |t: f64| mesh_density(&model.simulation, t);
     let Some(opts) = ExtrudeOptions::from_params(&model.simulation, current.dim(), Some(&mut density)).map_err(err)? else {
         if model.simulation.logical("increase element order") == Some(true) {
+            *discont_perm = None;
             return Ok(Some(increase_element_order(current).map_err(ops_err)?));
         }
         return Ok(split);
     };
+    *discont_perm = None;
     let extruded = extrude(&MappedTags::new(current, model), &opts).map_err(err)?;
     identity_targets(model);
     Ok(Some(extruded))
@@ -686,6 +696,7 @@ fn periodic_assembly(
     coord_dim: usize,
     case_dir: &Path,
     log: &dyn Logger,
+    discont_perm: Option<&[u32]>,
 ) -> Result<Option<PeriodicAssembly>, SolverError> {
     if !model.boundary_conditions.iter().any(|bc| bc.get("periodic bc").is_some()) {
         return Ok(None);
@@ -700,6 +711,7 @@ fn periodic_assembly(
         solver: model.solvers.first().map(|s| s as &dyn Params),
         coord_dim,
         log,
+        discont_perm,
     };
     let (projectors, stop) = generate_periodic_projectors(&env, case_dir, 0)?;
     if stop {
@@ -727,6 +739,7 @@ fn conforming_map(
         solver: model.solvers.first().map(|s| s as &dyn Params),
         coord_dim,
         log,
+        discont_perm: None,
     };
     Ok(generate_conforming_map(&env)?)
 }
@@ -807,7 +820,8 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     let registry = solver_registry_for(&fixture_case);
     read_target_names(&mesh_dir.join("mesh.names"), &model.simulation, &mut model.bodies, &mut model.boundary_conditions)
         .map_err(|e| SolverError::fatal("ReadTargetNames", e.to_string()))?;
-    let transformed = transform_mesh(&mut model, mesh)?;
+    let mut discont_perm: Option<Vec<u32>> = None;
+    let transformed = transform_mesh(&mut model, mesh, &mut discont_perm)?;
     let mesh: &dyn MeshView = match &transformed {
         Some(m) => m,
         None => mesh,
@@ -816,6 +830,9 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
         Some((id, coarse, fine)) => (Some((id, coarse)), Some(fine)),
         None => (None, None),
     };
+    if mg_fine.is_some() {
+        discont_perm = None;
+    }
     let mesh: &dyn MeshView = match &mg_fine {
         Some(m) => m,
         None => mesh,
@@ -833,7 +850,7 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     check_reloads(&model, &reloads, &registry)?;
     install_fe(coords.dim)?;
 
-    let periodic = periodic_assembly(&model, mesh, coords.dim, &case_dir, log)?;
+    let periodic = periodic_assembly(&model, mesh, coords.dim, &case_dir, log, discont_perm.as_deref())?;
     let conforming = conforming_map(&model, mesh, coords.dim, log)?;
 
     // The test-local plugins' `<Proc>_init` section edits (before Elmer
@@ -882,10 +899,12 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
             .ok_or_else(|| SolverError::fatal("ResultOutputSolver", format!("no slot for Solver {id}")))?;
         slot.set_instance(Box::new(out.into_solver(Arc::clone(&written)).in_job(rank, size)));
     }
-    // `Apply Mortar BCs`: the slot's solver behind the mortar constraints.
+    // `Apply Mortar BCs`, or a `Periodic BC Use Lagrange Coefficient` of its
+    // variable: the slot's solver behind the mortar constraints.
+    let discont_perm = discont_perm.map(Arc::new);
     for slot in &mut sim.slots {
         let params = &sim.model.solvers[slot.id - 1];
-        if !crate::mortar::applies(params) {
+        if !crate::mortar::applies(params) && !crate::mortar::lagrange_periodic(params, &sim.model.boundary_conditions) {
             continue;
         }
         let factory = procedure_of(params)
@@ -897,6 +916,8 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
             coord_dim: coords.dim,
             case_dir: case_dir.clone(),
             ready: false,
+            discont_perm: discont_perm.clone(),
+            jump: Default::default(),
         }));
     }
     let mut report = sim.run(mesh, log, comm)?;

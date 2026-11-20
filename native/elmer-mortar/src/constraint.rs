@@ -120,6 +120,7 @@ pub fn generate_constraint_matrix(
     }
 
     let mut rows: Vec<Vec<(u32, f64)>> = Vec::new();
+    let mut rhs: Vec<f64> = Vec::new();
     let mut inv_perm: Vec<usize> = Vec::new();
     let mut sum_perm: Vec<i64> = vec![0; t.n_rows];
     let (mut eliminated, mut neglected) = (0usize, 0usize);
@@ -161,7 +162,8 @@ pub fn generate_constraint_matrix(
         if !bc.logical(&format!("mortar bc {}", t.name)).unwrap_or(true) {
             continue;
         }
-        // MasterScale and SlaveScale keep their defaults (1).
+        // MasterScale and SlaveScale: 1 unless the projector is a
+        // Lagrange periodic constraint.
         let create_self = !p.galerkin;
         if summed && create_self {
             return Err(MortarError::Fatal(format!(
@@ -180,11 +182,23 @@ pub fn generate_constraint_matrix(
             (kk != NO_DOF).then_some(kk as usize)
         };
 
+        // MortarBC % Perm: the nodes of the projector's rows.
+        let slave_nodes: std::collections::HashSet<u32> = if p.mortar_perm {
+            p.inv_perm
+                .iter()
+                .copied()
+                .filter(|&k| k != NO_DOF)
+                .collect()
+        } else {
+            Default::default()
+        };
+
         // Number the summed rows.
         if summed {
             for kk in (0..p.n_rows()).filter_map(slot) {
                 if sum_perm[kk] == 0 {
                     rows.push(Vec::new());
+                    rhs.push(0.0);
                     inv_perm.push(0);
                     sum_perm[kk] = rows.len() as i64;
                 } else if priority != prev_priority && sum_perm[kk] < 0 {
@@ -215,6 +229,7 @@ pub fn generate_constraint_matrix(
                 row as usize - 1
             } else {
                 rows.push(Vec::new());
+                rhs.push(0.0);
                 inv_perm.push(0);
                 rows.len() - 1
             };
@@ -238,11 +253,30 @@ pub fn generate_constraint_matrix(
                 if col2 == NO_DOF {
                     continue;
                 }
-                wsum += val;
-                rows[row].push((col2, val));
+                // A nodal projector's target side takes MasterScale; with
+                // MortarBC % Perm a Galerkin row's own nodes take
+                // SlaveScale and only they count in the weight.
+                let scale = if create_self {
+                    wsum += val;
+                    p.master_scale
+                } else if p.mortar_perm {
+                    if slave_nodes.contains(&col) {
+                        wsum += val;
+                        p.slave_scale
+                    } else {
+                        p.master_scale
+                    }
+                } else {
+                    wsum += val;
+                    1.0
+                };
+                rows[row].push((col2, scale * val));
             }
             if create_self {
-                rows[row].push((kk as u32, wsum));
+                rows[row].push((kk as u32, p.slave_scale * wsum));
+            }
+            if let Some(r) = &p.rhs {
+                rhs[row] += wsum * r[i];
             }
         }
         if !summed {
@@ -275,7 +309,7 @@ pub fn generate_constraint_matrix(
         rows: vec![0],
         cols: Vec::new(),
         values: Vec::new(),
-        rhs: vec![0.0; rows.len()],
+        rhs,
         inv_perm,
     };
     for r in rows {

@@ -39,6 +39,20 @@ pub struct Projector {
     pub projector_bc: usize,
     /// `ProjectorType == PROJECTOR_TYPE_GALERKIN`.
     pub galerkin: bool,
+    /// `MortarBC % SlaveScale` and `MortarBC % MasterScale` (both 1 by
+    /// default) when the projector is a constraint of the solver: a
+    /// `Periodic BC Use Lagrange Coefficient` boundary gives `-Scale` and
+    /// `-1`.
+    pub slave_scale: f64,
+    pub master_scale: f64,
+    /// `MortarBC % Perm` is set (a Lagrange periodic boundary or a mortar
+    /// jump): a Galerkin row then scales the columns of its own rows' nodes
+    /// by `slave_scale`, the rest by `master_scale`, and sums the former
+    /// into the weight of `rhs`.
+    pub mortar_perm: bool,
+    /// `MortarBC % Rhs` by row (`Mortar BC Offset`); the constraint row gets
+    /// that weight times it.
+    pub rhs: Option<Vec<f64>>,
 }
 
 impl Projector {
@@ -85,6 +99,10 @@ pub struct ProjectorEnv<'a> {
     /// `CoordinateSystemDimension()`.
     pub coord_dim: usize,
     pub log: &'a dyn Logger,
+    /// `Mesh % DiscontPerm` when `CreateDiscontMesh` split the mesh
+    /// (`Mesh % DisContMesh`): for each original node, the 1-based number of
+    /// its copy, 0 if none. `None` otherwise.
+    pub discont_perm: Option<&'a [u32]>,
 }
 
 impl ProjectorEnv<'_> {
@@ -125,6 +143,10 @@ pub fn nodal_projector(
         inv_perm: b1.inv_perm.clone(),
         projector_bc: 0,
         galerkin: false,
+        slave_scale: 1.0,
+        master_scale: 1.0,
+        mortar_perm: false,
+        rhs: None,
     })
 }
 
@@ -168,10 +190,29 @@ pub fn periodic_projector(
     }
     let bc = env.bc(this);
     let weak = galerkin.unwrap_or_else(|| flag(bc, "galerkin projector"));
+    // A split mesh projects the discontinuous boundary onto its own copy; a
+    // doubled one (no split) takes the ordinary path to its target.
     if flag(bc, "discontinuous boundary") {
-        return Err(MortarError::Unsupported(
-            "Discontinuous Boundary projector".into(),
-        ));
+        if let Some(perm) = env.discont_perm {
+            let p = if weak {
+                crate::weighted::weighted_projector_discont(
+                    env.mesh,
+                    env.bc_of,
+                    this,
+                    perm,
+                    bc,
+                    env.solver,
+                    env.simulation,
+                    env.coord_dim,
+                    env.log,
+                )?
+            } else {
+                Some(nodal_projector_discont(perm, this))
+            };
+            let Some(mut p) = p else { return Ok(None) };
+            finish(env, bc, &mut p);
+            return Ok(Some(p));
+        }
     }
     if target == 0 {
         return Ok(None);
@@ -186,7 +227,8 @@ pub fn periodic_projector(
         .simulation
         .logical("mortar bcs split quadratic")
         .unwrap_or(false);
-    let Some((mut b1, mut b2)) = create_interface_meshes(env.mesh, env.bc_of, this, target, split)?
+    let Some((mut b1, mut b2)) =
+        create_interface_meshes(env.mesh, env.bc_of, env.bcs.len(), this, target, split)?
     else {
         return Ok(None);
     };
@@ -264,6 +306,13 @@ pub fn periodic_projector(
     };
 
     p.projector_bc = this;
+    finish(env, bc, &mut p);
+    Ok(Some(p))
+}
+
+/// The end of `PeriodicProjector` (label 100): `Projector Set Rowsum` and
+/// `Projector Multiplier`.
+fn finish(env: &ProjectorEnv<'_>, bc: &dyn Params, p: &mut Projector) {
     if flag(bc, "projector set rowsum") {
         p.set_rowsum();
     }
@@ -276,7 +325,36 @@ pub fn periodic_projector(
         }
     }
     env.log.info(CALLER, "Projector created, now exiting...", 8);
-    Ok(Some(p))
+}
+
+/// `NodalProjectorDiscont(Mesh, bc)`: row `j` ties the original node whose
+/// copy is node `j` of `Mesh % DiscontPerm` (`InvPerm(j)`) to that copy,
+/// node `n + j` (`n` the original node count), with weight 1.
+pub fn nodal_projector_discont(discont_perm: &[u32], bc: usize) -> Projector {
+    let n = discont_perm.len();
+    let m = discont_perm.iter().filter(|&&j| j > 0).count();
+    let mut cols = vec![0u32; m];
+    let mut inv_perm = vec![elmer_core::NO_DOF; m];
+    for (i, &j) in discont_perm.iter().enumerate() {
+        if j == 0 {
+            continue;
+        }
+        let j = j as usize - 1;
+        cols[j] = (n + j) as u32;
+        inv_perm[j] = i as u32;
+    }
+    Projector {
+        rows: (0..=m).collect(),
+        cols,
+        values: vec![1.0; m],
+        inv_perm,
+        projector_bc: bc,
+        galerkin: false,
+        slave_scale: 1.0,
+        master_scale: 1.0,
+        mortar_perm: false,
+        rhs: None,
+    }
 }
 
 /// The projectors of a model, `[i]` from boundary condition `i + 1`, and
@@ -457,9 +535,26 @@ mod tests {
             inv_perm: vec![0, 1],
             projector_bc: 1,
             galerkin: false,
+            slave_scale: 1.0,
+            master_scale: 1.0,
+            mortar_perm: false,
+            rhs: None,
         };
         p.set_rowsum();
         assert_eq!(p.values, vec![0.25, -0.75, 1.0]);
         assert_eq!(p.row(0).collect::<Vec<_>>(), vec![(4, 0.25), (5, -0.75)]);
+    }
+
+    /// Nodes 1 and 3 of four were doubled, as copies 2 and 1: rows follow
+    /// the copies, each tying the original node to node `4 + copy - 1`.
+    #[test]
+    fn discont_projector_ties_each_node_to_its_copy() {
+        let p = nodal_projector_discont(&[0, 2, 0, 1], 3);
+        assert_eq!(p.rows, vec![0, 1, 2]);
+        assert_eq!(p.cols, vec![4, 5]);
+        assert_eq!(p.values, vec![1.0, 1.0]);
+        assert_eq!(p.inv_perm, vec![3, 1]);
+        assert_eq!(p.projector_bc, 3);
+        assert!(!p.galerkin);
     }
 }

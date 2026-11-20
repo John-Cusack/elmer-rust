@@ -149,5 +149,159 @@ pub fn weighted_projector(
         inv_perm,
         projector_bc: 0,
         galerkin: true,
+        slave_scale: 1.0,
+        master_scale: 1.0,
+        mortar_perm: false,
+        rhs: None,
     })
+}
+
+/// `WeightedProjectorDiscont(Mesh, bc)` for nodal degrees of freedom of a
+/// serial mesh split by `CreateDiscontMesh`: row `j` (the `j`-th copy of
+/// `discont_perm`) integrates `N_p (u - scale * u_copy)` over the boundary
+/// elements of `this` (`Mortar BC Scaling`, default -1). With `Mortar BC
+/// Diag` (or `Use Biorthogonal Basis`, or the solver's `Eliminate Linear
+/// Constraints`) the row is lumped onto the node and its copy. Columns
+/// ascending (`CRS_SortMatrix`). `None` when nothing was integrated.
+#[allow(clippy::too_many_arguments)]
+pub fn weighted_projector_discont(
+    mesh: &dyn MeshView,
+    bc_of: &dyn Fn(i32) -> Option<usize>,
+    this: usize,
+    discont_perm: &[u32],
+    bc: &dyn elmer_core::Params,
+    solver: Option<&dyn elmer_core::Params>,
+    simulation: &dyn elmer_core::Params,
+    coord_dim: usize,
+    log: &dyn Logger,
+) -> Result<Option<Projector>, MortarError> {
+    const CALLER: &str = "WeightedProjectorDiscont";
+    log.info(
+        CALLER,
+        &format!("Creating projector for discontinuous boundary {this}"),
+        7,
+    );
+    let sflag = |k: &str| solver.is_some_and(|s| s.logical(k) == Some(true));
+    let skip = |k: &str| sflag(k) || bc.logical(k) == Some(true);
+    if sflag("hcurl basis") && !skip("projector skip edges") {
+        return Err(MortarError::Unsupported(
+            "WeightedProjectorDiscont edge degrees of freedom".into(),
+        ));
+    }
+    if skip("projector skip nodes") {
+        return Ok(None);
+    }
+    let scale = bc.real("mortar bc scaling").unwrap_or(-1.0);
+    // Axisymmetric weighting depends on Projector Metrics and the nodal
+    // jump keywords (`ListCheckPrefix`).
+    let cs = simulation
+        .string("coordinate system")
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if cs.contains("symmetric") {
+        return Err(MortarError::Unsupported(
+            "WeightedProjectorDiscont in axisymmetric coordinates".into(),
+        ));
+    }
+    let set_diag = bc
+        .logical("mortar bc diag")
+        .or_else(|| bc.logical("use biorthogonal basis"))
+        .unwrap_or_else(|| sflag("eliminate linear constraints"));
+
+    let n_orig = discont_perm.len();
+    let m = discont_perm.iter().filter(|&&j| j > 0).count();
+    if m == 0 {
+        return Ok(None);
+    }
+    let mut list: Vec<BTreeMap<u32, f64>> = vec![BTreeMap::new(); m];
+    let mut inv_perm = vec![elmer_core::NO_DOF; m];
+    let mut out = BasisEval::default();
+    let nb = mesh.n_bulk();
+    for t in 0..mesh.n_boundary() {
+        let el = mesh.element(ElemId((nb + t) as u32));
+        if bc_of(el.tag) != Some(this) {
+            continue;
+        }
+        // Serial: every parent is active, so the weight is 1 (0/0 without
+        // parents, as in the Fortran).
+        let pos = el.parents.iter().flatten().count();
+        let coeff = if pos == 0 { f64::NAN } else { 1.0 };
+        let nodes = el.nodes;
+        if nodes.iter().all(|&i| discont_perm[i as usize] == 0) {
+            continue;
+        }
+        let copy = |i: u32| -> u32 {
+            match discont_perm[i as usize] {
+                0 => i,
+                j => (n_orig + j as usize - 1) as u32,
+            }
+        };
+        let def = element_type(el.etype.0).map_err(fe)?;
+        let rule = gauss_points_rel(el.etype, 0).map_err(fe)?;
+        let xyz: Vec<[f64; 3]> = nodes.iter().map(|&i| mesh.coord(i)).collect();
+        let mut st = MetricStatus::default();
+        for j in 0..rule.s.len() {
+            let uvw = [rule.u[j], rule.v[j], rule.w[j]];
+            element_info(def, &xyz, uvw, coord_dim, &mut st, &mut out).map_err(fe)?;
+            let weight = coeff * out.det_j * rule.s[j];
+            for (p, &np) in nodes.iter().enumerate() {
+                let indp = discont_perm[np as usize];
+                if indp == 0 {
+                    continue;
+                }
+                let indp = indp as usize - 1;
+                let val = weight * out.basis[p];
+                inv_perm[indp] = np;
+                let row = &mut list[indp];
+                if set_diag {
+                    add(row, np, val);
+                    add(row, copy(np), scale * val);
+                } else {
+                    for (q, &nq) in nodes.iter().enumerate() {
+                        if discont_perm[nq as usize] == 0 {
+                            continue;
+                        }
+                        add(row, nq, out.basis[q] * val);
+                        add(row, copy(nq), scale * out.basis[q] * val);
+                    }
+                }
+            }
+        }
+    }
+    log.info(
+        CALLER,
+        &format!("Created projector for {m} discontinuous nodes"),
+        10,
+    );
+    // List_ToCRSMatrix keeps the rows up to the last one touched.
+    let n_rows = list
+        .iter()
+        .rposition(|r| !r.is_empty())
+        .map_or(0, |i| i + 1);
+    if n_rows == 0 {
+        return Ok(None);
+    }
+    let mut rows = vec![0usize];
+    let mut cols = Vec::new();
+    let mut values = Vec::new();
+    for row in list.into_iter().take(n_rows) {
+        for (c, v) in row {
+            cols.push(c);
+            values.push(v);
+        }
+        rows.push(cols.len());
+    }
+    inv_perm.truncate(n_rows);
+    Ok(Some(Projector {
+        rows,
+        cols,
+        values,
+        inv_perm,
+        projector_bc: this,
+        galerkin: true,
+        slave_scale: 1.0,
+        master_scale: 1.0,
+        mortar_perm: false,
+        rhs: None,
+    }))
 }

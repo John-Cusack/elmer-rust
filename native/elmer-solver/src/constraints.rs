@@ -435,8 +435,6 @@ pub(crate) fn refuse_options(p: &ParamMap) -> Result<(), SolverError> {
         "linear system residual mode",
         "linear system complex",
         "linear system block mode",
-        "nonlinear system convergence without constraints",
-        "nonlinear system consistent norm",
         "nonlinear system aitken relaxation",
     ] {
         if p.logical(k) == Some(true) {

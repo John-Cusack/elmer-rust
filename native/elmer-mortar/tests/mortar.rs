@@ -208,6 +208,7 @@ fn check(case: &str, pristine: f64, tol_t: f64, tol_l: f64) {
         solver: Some(&solver),
         coord_dim: coords.dim,
         log: &NullLogger,
+        discont_perm: None,
     };
     let (projectors, _) = generate_mortar_projectors(&env, &[], false, &dir, 0)
         .unwrap()
