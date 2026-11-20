@@ -1251,6 +1251,8 @@ impl<'a> SolverCtx<'a> {
             log.info("SolveWithLinearRestriction", "Now solving the linear system with constraints!", 10);
             let env = BlockEnv {
                 dofs: var.dofs,
+                // CollectionMatrix comes from AllocateMatrix: ndeg -1.
+                ndeg: 0,
                 simulation: &sim.model.simulation,
                 schur: schur.as_ref(),
                 multigrid: mg.as_deref(),
@@ -1302,6 +1304,7 @@ impl<'a> SolverCtx<'a> {
             let x = &mut var.values[..n];
             let env = BlockEnv {
                 dofs: var.dofs,
+                ndeg: var.dofs,
                 simulation: &sim.model.simulation,
                 schur: schur.as_ref(),
                 multigrid: mg.as_deref(),
@@ -1360,8 +1363,13 @@ impl<'a> SolverCtx<'a> {
 /// What `Linear System Solver = Block` needs beyond the section
 /// (`BlockSolveExt`): the variable's components, the Simulation section and
 /// the matrix of the `Block Matrix Schur Variable` solver.
+#[derive(Clone, Copy)]
 pub(crate) struct BlockEnv<'a> {
     pub dofs: usize,
+    /// The matrix's `A % ndeg` for the Krylov product ([`crate::matvec`]):
+    /// the variable's dofs for the solver matrix (`CRS_CreateMatrix`), 0
+    /// for one built without it.
+    pub ndeg: usize,
     pub simulation: &'a ParamMap,
     pub schur: Option<&'a elmer_core::CsrMatrix<f64>>,
     /// The interpolation operators of geometric multigrid, level 2 up.
@@ -1495,7 +1503,9 @@ pub(crate) fn eliminate_dirichlet(
         u.iter_mut().for_each(|v| *v = 0.0);
         true
     } else {
-        solve_linear(linear, block, p, &mut bm, &mut f, &mut u, fnorm, nullify, log, comm)?
+        // Bmatrix comes from AllocateMatrix: ndeg -1.
+        let block = BlockEnv { ndeg: 0, ..*block };
+        solve_linear(linear, &block, p, &mut bm, &mut f, &mut u, fnorm, nullify, log, comm)?
     };
     for i in 0..n {
         x[i] = if new[i] == usize::MAX { b[i] / a.values[diag[i]] } else { u[new[i]] };
@@ -1642,8 +1652,9 @@ pub(crate) fn solve_linear(
                 };
                 m.and_then(|m| {
                     // `Variable % LinConverged` (IterSolve.F90:1646, 1664).
+                    let a = crate::matvec::ElmerMatvec::new(matrix, block.ndeg);
                     solver
-                        .solve(matrix, &*m, b, x, comm)
+                        .solve(&a, &*m, b, x, comm)
                         .map(|s| matches!(s.status, elmer_core::SolveStatus::Converged))
                         .map_err(SolverError::from)
                 })
@@ -1688,7 +1699,7 @@ mod eliminate_tests {
         p.insert("Linear System Direct Method", Value::Str("umfpack".into()));
         let linear = crate::linsys::elmer_registry();
         let sim = ParamMap::new();
-        let env = BlockEnv { dofs: 1, simulation: &sim, schur: None, multigrid: None };
+        let env = BlockEnv { dofs: 1, ndeg: 1, simulation: &sim, schur: None, multigrid: None };
         let mut x = vec![0.0; n];
         eliminate_dirichlet(&linear, &env, &p, &a, &b, &mut x, false, &NullLogger, &SerialComm).unwrap();
         assert_eq!((x[0], x[n - 1]), (0.5, -0.25));
