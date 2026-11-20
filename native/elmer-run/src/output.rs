@@ -449,14 +449,19 @@ impl Solver for VtuSolver {
             ..VtuNaming::default()
         };
         std::fs::create_dir_all(&self.out.dir)?;
-        let variables = ElmerVariables::new(&ctx.sim.vars);
+        let plain = ElmerVariables::new(&ctx.sim.vars);
+        // VtuOutputSolver.F90:965: integration-point fields of a
+        // discontinuous write as DG fields (`Ip2DgSwapper`).
+        let ip_dg = if opts.dg_layout.is_some() { ip_fields_as_dg(ctx, opts)? } else { Vec::new() };
+        let swapped = IpAsDg { inner: &plain, over: ip_dg };
+        let variables = &swapped;
         let part = if self.parts > 1 {
             // VtuOutputSolver.F90:622-627 then :633: the .pvtu first.
             if self.part == 0 {
                 let pvtu = self.out.dir.join(naming.file_name(&opts.output_file_name, ".pvtu", index, None, false));
                 let pieces: Vec<String> =
                     (1..=self.parts).map(|p| naming.file_name(&opts.output_file_name, ".vtu", index, Some(p), true)).collect();
-                elmer_vtu::write_pvtu(&pvtu, &variables, opts, &pieces)?;
+                elmer_vtu::write_pvtu(&pvtu, variables, opts, &pieces)?;
                 self.written.lock().unwrap().push(pvtu);
             }
             Some(self.part + 1)
@@ -467,13 +472,13 @@ impl Solver for VtuSolver {
         let path = self.out.dir.join(name);
         let mapped = MappedTags { mesh: ctx.mesh, model: &ctx.sim.model };
         let lagrange = if opts.lagrange_degree > 0 {
-            Some(crate::lagrange::build(ctx.sim, &mapped, &ctx.sim.vars, &variables, opts)?)
+            Some(crate::lagrange::build(ctx.sim, &mapped, &ctx.sim.vars, variables, opts)?)
         } else {
             None
         };
         let (mapped, variables): (&dyn MeshView, &dyn FieldSource) = match &lagrange {
             Some((m, f)) => (m, f),
-            None => (&mapped, &variables),
+            None => (&mapped, variables),
         };
         let Some(reference) = self.out.reference else {
             elmer_vtu::write_vtu(&path, mapped, variables, opts)?;
@@ -785,6 +790,157 @@ impl FieldSource for ElmerVariables<'_> {
     fn step(&self) -> usize {
         Snapshot { store: self.store }.step()
     }
+}
+
+/// `(name, dofs, perm over DG indexes, values)` of a swapped field.
+type DgField = (String, usize, Vec<u32>, Vec<f64>);
+
+/// A field source whose integration-point fields are replaced by their DG
+/// projections, under their own and their components' names.
+struct IpAsDg<'a> {
+    inner: &'a dyn FieldSource,
+    over: Vec<DgField>,
+}
+
+impl FieldSource for IpAsDg<'_> {
+    fn fields(&self) -> Vec<FieldRef<'_>> {
+        let mut out = Vec::new();
+        for f in self.inner.fields() {
+            match self.over.iter().find(|o| o.0.eq_ignore_ascii_case(f.name)) {
+                Some((name, dofs, perm, values)) => out.push(FieldRef {
+                    name,
+                    kind: FieldKind::Dg,
+                    dofs: *dofs,
+                    perm: Some(perm),
+                    values,
+                }),
+                None => out.push(f),
+            }
+        }
+        out
+    }
+    fn time(&self) -> f64 {
+        self.inner.time()
+    }
+    fn step(&self) -> usize {
+        self.inner.step()
+    }
+}
+
+/// `Ip2DgSwapper(Mesh, Var, TmpSolDg, Variable_on_nodes_on_elements)`
+/// (SolverBasics.F90:9222) of every output integration-point variable and
+/// its components: per bulk element with points, the nodal values of the
+/// local L2 projection on `GaussPoints(Element, nip)` (`Ip2DgFieldInElement`,
+/// solved with `LuSolve`), numbered over the elements' DG indexes in index
+/// order.
+fn ip_fields_as_dg(
+    ctx: &SolverCtx<'_>,
+    opts: &VtuOptions,
+) -> Result<Vec<DgField>, SolverError> {
+    if opts.discontinuous_bodies {
+        if ctx.sim.vars.iter().any(|(_, v)| v.output && v.kind == FieldKind::Ip) {
+            return Err(SolverError::Unsupported(
+                "VTU output: integration-point fields with Discontinuous Bodies (CalculateBodyAverage)".into(),
+            ));
+        }
+        return Ok(Vec::new());
+    }
+    let Some(layout) = opts.dg_layout.as_ref() else { return Ok(Vec::new()) };
+    let fe = ctx
+        .sim
+        .backends
+        .fe
+        .as_ref()
+        .ok_or_else(|| SolverError::NotWired("basis and quadrature for Ip2DgSwapper (elmer-fe)".into()))?;
+    let mesh = ctx.mesh;
+    let nb = mesh.n_bulk();
+    let axi = ctx
+        .sim
+        .model
+        .simulation
+        .string("coordinate system")
+        .is_some_and(|c| matches!(elmer_core::normalize_key(c).as_str(), "axi symmetric" | "cylindric symmetric"));
+    let mut out = Vec::new();
+    for (id, v) in ctx.sim.vars.iter() {
+        if !v.output || v.kind != FieldKind::Ip {
+            continue;
+        }
+        let offs = v.perm.as_deref().ok_or_else(|| SolverError::fatal("Ip2DgSwapper", "IP field without a permutation"))?;
+        let dofs = v.dofs.max(1);
+        // TmpVar % Perm over the DG indexes of the elements with points.
+        let size: usize = layout.index.iter().take(nb).map(|ix| ix.len()).sum::<usize>().max(1);
+        let mut perm = vec![0u32; size.max(layout.index.iter().take(nb).flatten().map(|&d| d as usize + 1).max().unwrap_or(0))];
+        for t in 0..nb {
+            if offs[t + 1] > offs[t] {
+                for &d in &layout.index[t] {
+                    perm[d as usize] = 1;
+                }
+            }
+        }
+        let mut j = 0u32;
+        for p in perm.iter_mut() {
+            if *p != 0 {
+                *p = j + 1;
+                j += 1;
+            }
+        }
+        let mut values = vec![0.0; j as usize * dofs];
+        let mut be = elmer_core::BasisEval::default();
+        for t in 0..nb {
+            let m = (offs[t + 1] - offs[t]) as usize;
+            if m == 0 {
+                continue;
+            }
+            let el = mesh.element(ElemId(t as u32));
+            let n = el.nodes.len();
+            let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| mesh.coord(k)).collect();
+            let points = fe.quadrature.gauss_points(el.etype, Some(m));
+            if points.len() != m {
+                return Err(SolverError::fatal("Ip2DgFieldInElement", "no rule with the field's number of points"));
+            }
+            // MASS and the basis at the points, the same for each component.
+            let mut mass = vec![0.0; n * n];
+            let mut wb = Vec::with_capacity(m);
+            for qp in &points {
+                fe.basis.eval(el.etype, &xyz, qp.uvw, &mut be).map_err(|e| SolverError::fatal("ElementInfo", e))?;
+                let mut w = qp.weight * be.det_j;
+                if axi {
+                    w *= (0..n).map(|k| be.basis[k] * xyz[k][0]).sum::<f64>();
+                }
+                for p in 0..n {
+                    for q in 0..n {
+                        mass[p * n + q] += w * be.basis[q] * be.basis[p];
+                    }
+                }
+                wb.push((w, be.basis[..n].to_vec()));
+            }
+            for k in 0..dofs {
+                let mut load = vec![0.0; n];
+                for (i, (w, bas)) in wb.iter().enumerate() {
+                    let fip = v.values[dofs * (offs[t] as usize + i) + k];
+                    for p in 0..n {
+                        load[p] += w * bas[p] * fip;
+                    }
+                }
+                let mut a = mass.clone();
+                elmer_solver::lu_solve(n, &mut a, &mut load)?;
+                for (i, &d) in layout.index[t].iter().enumerate() {
+                    let s = perm[d as usize];
+                    if s > 0 {
+                        values[dofs * (s as usize - 1) + k] = load[i];
+                    }
+                }
+            }
+        }
+        let perm0: Vec<u32> = perm.iter().map(|&p| if p == 0 { elmer_core::NO_DOF } else { p - 1 }).collect();
+        let comps = ctx.sim.vars.component_names(id);
+        for (c, name) in comps.iter().enumerate() {
+            let cv: Vec<f64> = values.iter().skip(c).step_by(dofs).copied().collect();
+            out.push((name.clone(), 1, perm0.clone(), cv));
+        }
+        out.push((v.name.clone(), dofs, perm0, values));
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

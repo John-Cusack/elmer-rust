@@ -45,21 +45,18 @@ fn factory(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     if FE.get().is_none() {
         return Err(SolverError::NotWired("element basis and quadrature (elmer-fe)".into()));
     }
-    Ok(Box::new(StressSolver { fe: None, allocations_done: false }))
+    Ok(Box::new(StressSolver { fe: None }))
 }
 
 /// The linear elasticity solver.
 pub struct StressSolver {
     fe: Option<FeServices>,
-    /// `AllocationsDone`: the mesh carries this solver's displacement from
-    /// the previous call.
-    allocations_done: bool,
 }
 
 impl StressSolver {
     /// A solver that owns its basis and quadrature.
     pub fn new(fe: FeServices) -> Self {
-        Self { fe: Some(fe), allocations_done: false }
+        Self { fe: Some(fe) }
     }
 
     fn fe(&self) -> &FeServices {
@@ -788,10 +785,9 @@ impl Solver for StressSolver {
         let displace = ctx.params().logical("displace mesh").unwrap_or(
             !(flag(Some(ctx.params()), "eigen analysis") || flag(Some(ctx.params()), "harmonic analysis")),
         );
-        if self.allocations_done && displace {
+        if crate::motion::allocations_done("StressSolver") && displace {
             Self::displace_mesh(ctx, -1.0)?;
         }
-        self.allocations_done = true;
         // StressSolve.F90:1505: an eigen analysis adds the element mass to
         // `MassValues` (DefaultUpdateMass) instead of a time scheme.
         let eigen = ctx.nof_eigen() > 0 && ctx.params().logical("eigen analysis") == Some(true);

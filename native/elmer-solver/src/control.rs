@@ -186,7 +186,7 @@ pub(crate) fn control_node(ctx: &mut SolverCtx<'_>, i: usize) -> Option<usize> {
 
 /// `LuSolve(n, A, x)`: Gaussian elimination with partial pivoting; `a` is
 /// row-major `n x n`.
-fn lu_solve(n: usize, a: &mut [f64], x: &mut [f64]) -> Result<(), SolverError> {
+pub fn lu_solve(n: usize, a: &mut [f64], x: &mut [f64]) -> Result<(), SolverError> {
     for k in 0..n {
         let piv = (k..n)
             .max_by(|&i, &j| a[i * n + k].abs().total_cmp(&a[j * n + k].abs()))

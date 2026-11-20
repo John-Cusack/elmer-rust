@@ -42,13 +42,12 @@ fn factory(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     if FE.get().is_none() {
         return Err(SolverError::NotWired("element basis and quadrature (elmer-fe)".into()));
     }
-    Ok(Box::new(ElasticSolver { fe: None, mesh_note: false, umat: None }))
+    Ok(Box::new(ElasticSolver { fe: None, umat: None }))
 }
 
 /// The elasticity solver.
 pub struct ElasticSolver {
     fe: Option<FeServices>,
-    mesh_note: bool,
     /// A UMAT material's committed integration-point state.
     umat: Option<UmatSaved>,
 }
@@ -66,7 +65,7 @@ struct UmatSaved {
 impl ElasticSolver {
     /// A solver that owns its basis and quadrature.
     pub fn new(fe: FeServices) -> Self {
-        Self { fe: Some(fe), mesh_note: false, umat: None }
+        Self { fe: Some(fe), umat: None }
     }
 
     fn fe(&self) -> &FeServices {
@@ -689,6 +688,11 @@ impl ElasticSolver {
             time,
             dt,
             element_index: e.0 as usize + 1,
+            large: model_of(ctx.params()).large,
+            axi: ctx
+                .simulation_params()
+                .string("coordinate system")
+                .is_some_and(|c| matches!(elmer_core::normalize_key(c).as_str(), "axi symmetric" | "cylindric symmetric")),
         };
         let ndof = n * cdim;
         let mut local = LocalSystem::zeros(ndof);
@@ -849,6 +853,7 @@ impl ElasticSolver {
                     ntens,
                     ncomp,
                     model.large,
+                    axi,
                 )
                 .map_err(fatal)?
             } else {
@@ -1031,9 +1036,14 @@ impl Solver for ElasticSolver {
             other => return Err(unsupported(&format!("coordinate system '{other}'"))),
         };
         let coord = if axi { CoordSystem::AxiSymmetric } else { CoordSystem::Cartesian };
-        if !self.mesh_note && ctx.params().logical("displace mesh") != Some(false) {
-            self.mesh_note = true;
-            ctx.warn(CALLER, "'Displace Mesh' is not applied: the mesh stays undisplaced for the solvers that follow");
+        // ElasticSolve.F90:655-688: `Displace Mesh` (default: not in an eigen
+        // or harmonic analysis) takes the previous call's displacement off
+        // the mesh first; PostProcess puts the new one on (:2780).
+        let displace = ctx.params().logical("displace mesh").unwrap_or(
+            !(flag(Some(ctx.params()), "eigen analysis") || flag(Some(ctx.params()), "harmonic analysis")),
+        );
+        if elmer_physics_elastic::motion::allocations_done("ElasticSolver") && displace {
+            displace_mesh(ctx, -1.0, cdim)?;
         }
 
         let mut max_iter = ctx.params().integer("nonlinear system max iterations").unwrap_or(1).max(1);
@@ -1138,8 +1148,6 @@ impl Solver for ElasticSolver {
                 return Err(fatal("UMAT version does not yet support transient simulation"));
             }
             for (bad, what) in [
-                (model.large, "Large Deflection"),
-                (axi, "axial symmetry"),
                 (flag(Some(ctx.params()), "use hencky strain"), "Hencky strain"),
                 (flag(Some(ctx.params()), "initialize state variables"), "Initialize State Variables"),
                 (flag(Some(ctx.params()), "linear system symmetric"), "Linear System Symmetric"),
@@ -1678,6 +1686,20 @@ impl Solver for ElasticSolver {
         if flags.any() {
             self.postprocess(ctx, flags, cdim, axi, model, &temp_ref)?;
         }
+        if displace {
+            displace_mesh(ctx, 1.0, cdim)?;
+        }
         Ok(())
     }
+}
+
+/// `DisplaceMesh(Mesh, Displacement, sgn, StressPerm, STDOFs, UpdateDirs=dim)`
+/// through the runner's node mover (nothing without one).
+fn displace_mesh(ctx: &mut SolverCtx<'_>, sgn: f64, dim: usize) -> Result<(), SolverError> {
+    let f = ctx.primary().ok_or_else(|| fatal("solver has no displacement variable"))?;
+    let Some(perm) = f.perm else { return Ok(()) };
+    let n = ctx.mesh.n_nodes().min(perm.len());
+    let coords: Vec<[f64; 3]> = (0..ctx.mesh.n_nodes() as u32).map(|i| ctx.mesh.coord(i)).collect();
+    elmer_physics_elastic::motion::displace_mesh(&coords, f.values, sgn, &perm[..n], f.dofs, dim);
+    Ok(())
 }
