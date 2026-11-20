@@ -1,5 +1,7 @@
 //! Expected-output files: `== name` headers, then the pristine harness lines.
 
+#![allow(dead_code)]
+
 use std::collections::BTreeMap;
 
 pub fn data(name: &str) -> String {
@@ -51,4 +53,35 @@ pub fn check(expected: &BTreeMap<String, String>, name: &str, got: &str) {
         got.lines().count(),
         "{name}: line count"
     );
+}
+
+/// FNV-1a 64 of one output line (the hashed expected files store
+/// `<tag> <hash>` per line, generated from the pristine harness output).
+pub fn fnv1a(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Compare against a hashed expected file; report the first differing line.
+pub fn check_hashed(expected: &BTreeMap<String, String>, name: &str, got: &str) {
+    let want = expected
+        .get(name)
+        .unwrap_or_else(|| panic!("no expected output for {name}"));
+    let mut n = 0;
+    for (w, g) in want.lines().zip(got.lines()) {
+        let tag = g.split(' ').next().unwrap_or("");
+        let line = format!("{tag} {:016x}", fnv1a(g));
+        assert_eq!(
+            w, line,
+            "{name}: line `{tag}` differs from the pristine library (got: {:.200})",
+            g
+        );
+        n += 1;
+    }
+    assert_eq!(want.lines().count(), n, "{name}: line count");
+    assert_eq!(got.lines().count(), n, "{name}: line count");
 }

@@ -63,7 +63,13 @@
     clippy::too_many_arguments,
     clippy::needless_range_loop,
     clippy::needless_late_init,
-    non_snake_case
+    clippy::if_same_then_else,
+    clippy::explicit_counter_loop,
+    clippy::neg_cmp_op_on_partial_ord,
+    non_snake_case,
+    non_upper_case_globals
 )]
 
 pub mod amd;
+pub mod ptr;
+pub mod umf;
