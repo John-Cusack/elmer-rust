@@ -40,6 +40,9 @@ pub struct RefSolver {
     pub mesh: Option<String>,
     /// `CutFem = True`: the solver solves on a cut mesh `<mesh>-cutfem`.
     pub cutfem: bool,
+    /// `Variable = -global ...`: a global variable, saved only with
+    /// `Output Global Variables`.
+    pub global: bool,
 }
 
 /// Solver entries that assign `Solver % Variable % Norm` themselves
@@ -282,6 +285,7 @@ pub fn reference_solvers(text: &str) -> Result<Vec<RefSolver>, String> {
                 }),
                 entry: keys_entry(&k),
                 cutfem: k.iter().any(|(k, v)| k == "cutfem" && v.to_lowercase().contains("true")),
+                global: k.iter().rev().find(|(k, _)| k == "variable").is_some_and(|(_, v)| v.to_lowercase().contains("-global")),
                 mesh: k.iter().rev().find(|(k, _)| k == "mesh").and_then(|(_, v)| {
                     v.split_whitespace().next().map(|m| m.trim_matches('"').to_lowercase())
                 }),
@@ -575,7 +579,14 @@ pub fn golden_values(file: &ResultFile, vars: &[PreambleVar], variable: &str) ->
         if matches.next().is_some() {
             return Err(format!("{comp} appears twice"));
         }
-        let pairs = var.perm.as_ref().ok_or("NULL Perm")?;
+        // A global variable (`SIZE(Values) == DOFs`) has a NULL Perm and
+        // stores its values as they are.
+        let Some(pairs) = var.perm.as_ref() else {
+            if comps.len() != 1 || entry.size != var.values.len() {
+                return Err(String::from("NULL Perm"));
+            }
+            return Ok((var.values.clone(), Vec::new(), dofs));
+        };
         match first_pairs {
             None => first_pairs = Some(pairs),
             Some(p) if p == pairs => {}
@@ -629,6 +640,7 @@ mod tests {
             coupled: false,
             mesh: None,
             cutfem: false,
+            global: false,
         }
     }
 
@@ -689,6 +701,17 @@ mod tests {
         assert_eq!(own_file(&p, Some("global"), None, false), None);
         assert_eq!(primary_mesh("Header\n  Mesh DB \".\" \"Square-Tri\"\n!  Mesh DB \".\" \"q\"\nEnd\n").as_deref(), Some("square-tri"));
         assert_eq!(primary_mesh("Header :: Mesh DB \".\" \"strip\"\n").as_deref(), Some("strip"));
+    }
+
+    #[test]
+    fn global_variables_rebuild_from_a_null_perm() {
+        let file = step(vec![VariableData { name: "ode".into(), perm: None, perm_size: 0, values: vec![-3.0] }]);
+        let pre = [pv("ode", 1, 0, 1, "ode solver")];
+        let n = golden_norm(&file, &pre, "ode", |_| NormOpts::default()).unwrap();
+        assert_eq!(n, 3.0);
+        let s = reference_solvers("Solver 1\n Variable = -global Ode\n Reference Norm = 1\nEnd\n").unwrap();
+        assert!(s[0].global);
+        assert_eq!(s[0].variable.as_deref(), Ok("ode"));
     }
 
     #[test]

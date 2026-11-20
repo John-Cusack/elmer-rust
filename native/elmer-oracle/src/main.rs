@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 fn usage() -> ! {
     eprintln!("usage:");
     eprintln!("  elmer-oracle plan <tests-dir> <test> [--np N]");
-    eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N] [--o2] [--o2m] [--per-run] [--max-output L] [--solver CANDIDATE] [--exit-verdict]");
-    eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N] [--o2] [--o2m] [--per-run] [--max-output L] [--solver CANDIDATE] [--exit-verdict]");
+    eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N] [--o2] [--o2m] [--per-run] [--globals] [--max-output L] [--solver CANDIDATE] [--exit-verdict]");
+    eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N] [--o2] [--o2m] [--per-run] [--globals] [--max-output L] [--solver CANDIDATE] [--exit-verdict]");
     eprintln!("  elmer-oracle registry <build-dir> [--label L|'!L'] [--suite fem/tests|elmerice]");
     eprintln!("  elmer-oracle refnorm-validate <build-dir> <tests-dir> <golden-root> <out-root>");
     eprintln!("  elmer-oracle grade-tree <tests-dir> <golden-root> <candidate-root> <tolerances.json> [--fallback X]");
@@ -92,6 +92,7 @@ fn execute(args: &[String]) -> Executed {
             "--o2" => inj.o2 = true,
             "--o2m" => inj.o2m = true,
             "--per-run" => inj.per_run = true,
+            "--globals" => inj.globals = true,
             "--exit-verdict" => exit_verdict = true,
             _ => {}
         }
@@ -585,9 +586,12 @@ fn refnorm_one(
     if run_dir.exists() {
         return skip("run dir exists; use a fresh out-root");
     }
+    // Global variables are saved only on request: the golden of such a
+    // test is captured with `--globals`, and the rerun matches it.
+    let any_global = solvers.iter().any(|s| s.global);
     let run = |run_dir: &Path, refnorms: &[(u32, f64)], run_refnorms: &[(usize, u32, f64)]| {
         let mut staging = Staging {
-            inject: Some(SifInject { o2: true, per_run: runs > 1, ..SifInject::default() }),
+            inject: Some(SifInject { o2: true, per_run: runs > 1, globals: any_global, ..SifInject::default() }),
             mkdirs: Vec::new(),
             refnorms: refnorms.to_vec(),
             run_refnorms: run_refnorms.to_vec(),

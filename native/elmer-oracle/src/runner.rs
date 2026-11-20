@@ -463,6 +463,10 @@ pub struct SifInject {
     /// `Simulation :: Output File` change between RUNs, which a candidate
     /// need not support, so it serves the Fortran per-RUN golden only.
     pub per_run: bool,
+    /// With `o2`, also save global variables (`Output Global Variables`),
+    /// which `SaveResult` skips by default. For the refnorm golden of
+    /// solvers whose `Variable` is `-global`.
+    pub globals: bool,
 }
 
 impl SifInject {
@@ -760,6 +764,9 @@ fn inject_text_single(text: &str, inj: &SifInject, result_name: &str, refnorms: 
         if inj.o2 && is_simulation && !has_output {
             out.push_str(&format!("  Output File = \"{result_name}\"\n"));
             out.push_str("  Binary Output = Logical True\n");
+            if inj.globals && !keys.iter().any(|k| k == "output global variables") {
+                out.push_str("  Output Global Variables = Logical True\n");
+            }
         }
         let number: Option<u32> = section
             .strip_prefix("solver")
@@ -1479,7 +1486,7 @@ mod tests {
     #[test]
     fn max_output_raises_never_lowers() {
         let sif = "Simulation\n  Max Output Level = 3\nEnd\n";
-        let inj = SifInject { o2: false, o2m: false, max_output: Some(5), per_run: false };
+        let inj = SifInject { o2: false, o2m: false, max_output: Some(5), per_run: false, globals: false };
         let once = inject_text(sif, &inj, "case.result");
         assert!(once.contains("Max Output Level = 5"));
         assert_eq!(inject_text(&once, &inj, "case.result"), once);
@@ -1517,7 +1524,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut sif = b"! Bj\xf6rn's case\nSimulation\n  Simulation Type = Steady\nEnd\n".to_vec();
         std::fs::write(dir.join("case.sif"), &sif).unwrap();
-        let inj = SifInject { o2: true, o2m: false, max_output: None, per_run: false };
+        let inj = SifInject { o2: true, o2m: false, max_output: None, per_run: false, globals: false };
         inject_sif(&dir, &inj).unwrap();
         let out = std::fs::read(dir.join("case.sif")).unwrap();
         let tail = b"  Output File = \"case.result\"\n  Binary Output = Logical True\nEnd\n";
@@ -1530,7 +1537,7 @@ mod tests {
     #[test]
     fn table_end_does_not_close_the_section() {
         let sif = "Simulation\n  Density = Variable Coordinate 1\n    Real\n      0 1\n      1 2\n    End\n  Max Output Level = 5\nEnd\n";
-        let inj = SifInject { o2: true, o2m: false, max_output: None, per_run: false };
+        let inj = SifInject { o2: true, o2m: false, max_output: None, per_run: false, globals: false };
         let out = inject_text(sif, &inj, "case.result");
         let table_end = out.find("    End\n").unwrap();
         let output = out.find("Output File").unwrap();
@@ -1545,7 +1552,7 @@ mod tests {
     #[test]
     fn directives_and_comments_do_not_hide_sections() {
         let sif = "Check Keywords \"Warn\"\n\nHeader :: Mesh DB \".\" \"square\"\n\nSimulation\n! Output File = \"old.dat\"\n! Max Output Level = 3\n  Max Output Level = 4\nEnd\n/*\nSolver 9\nEnd\n*/\nSolver 1 :: Reference Norm = 1.0\nRUN\n";
-        let inj = SifInject { o2: true, o2m: true, max_output: Some(5), per_run: false };
+        let inj = SifInject { o2: true, o2m: true, max_output: Some(5), per_run: false, globals: false };
         let out = inject_text(sif, &inj, "case.result");
         assert!(out.contains("  Output File = \"case.result\"\n"), "{out}");
         assert!(out.contains("! Max Output Level = 3\n"), "comment rewritten: {out}");
@@ -1657,7 +1664,7 @@ mod tests {
     #[test]
     fn injection_targets_sections_and_is_idempotent() {
         let sif = "Header\n  Mesh DB = \".\" \"m\"\nEnd\n\nSimulation\n  Simulation Type = \"Steady State\"\nEnd\n\nSolver 1\n  Equation = \"Heat Equation\"\nEnd\n";
-        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false };
+        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false, globals: false };
         let once = inject_text(sif, &inj, "case.result");
         assert!(once.contains("Output File = \"case.result\""));
         assert!(once.contains("Binary Output = Logical True"));
@@ -1675,7 +1682,7 @@ mod tests {
     #[test]
     fn injection_skips_files_without_target_sections() {
         let sif = "Header\n  Mesh DB = \".\" \"m\"\nEnd\n";
-        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false };
+        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false, globals: false };
         assert_eq!(inject_text(sif, &inj, "case.result"), sif);
     }
 
@@ -1685,9 +1692,9 @@ mod tests {
         // section; a bare word like RUN must not eat them (HeatControl2
         // lost its Reference Norm this way and graded vacuous).
         let sif = "Solver 1\n  Equation = \"Heat Equation\"\nEnd\n\nSolver 1 :: Reference Norm = 428.79\nRUN\n";
-        let idle = SifInject { o2: false, o2m: false, max_output: None, per_run: false };
+        let idle = SifInject { o2: false, o2m: false, max_output: None, per_run: false, globals: false };
         assert_eq!(inject_text(sif, &idle, "case.result"), sif);
-        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false };
+        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false, globals: false };
         let once = inject_text(sif, &inj, "case.result");
         assert!(once.contains("Solver 1 :: Reference Norm = 428.79"));
         assert!(once.contains("\nRUN\n"));
