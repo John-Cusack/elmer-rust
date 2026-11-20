@@ -172,6 +172,23 @@ impl Simulation {
             })
             .collect();
         let mut wanted: Vec<String> = Vec::new();
+        // The fields an output solver of this mesh names (`Scalar Field n`,
+        // `Vector Field n` of ResultOutputSolver, `Variable n` of SaveData).
+        for slot in self.slots.iter().filter(|s| s.mesh_ix == m) {
+            for (k, v) in &slot.params.0 {
+                let mut w = k.rsplitn(2, ' ');
+                let (Some(num), Some(head)) = (w.next(), w.next()) else { continue };
+                if !num.bytes().all(|c| c.is_ascii_digit()) || !["scalar field", "vector field", "variable"].contains(&head) {
+                    continue;
+                }
+                if let Value::Str(name) | Value::File(name) = v {
+                    let name = elmer_core::normalize_key(name.trim_matches('"'));
+                    if !wanted.contains(&name) {
+                        wanted.push(name);
+                    }
+                }
+            }
+        }
         for bc in &self.model.boundary_conditions {
             for (k, v) in &bc.0 {
                 if !own.iter().any(|o| o == k) {
@@ -305,6 +322,16 @@ impl Simulation {
             None => self.slots.iter().find(|s| s.mesh_ix == m && s.variable == Some(id)),
         };
         slot.and_then(|s| self.model.solvers.get(s.id - 1)).and_then(|p| p.string("equation")).map(elmer_core::normalize_key)
+    }
+
+    /// The variable list of slot `ix`'s mesh.
+    pub fn slot_vars(&self, ix: usize) -> &VariableStore {
+        let m = self.slots[ix].mesh_ix;
+        if m == self.meshes.active {
+            &self.vars
+        } else {
+            self.meshes.parked[m].as_ref().expect("a parked variable list")
+        }
     }
 
     /// The norm of slot `ix`'s variable, from its mesh's variable list.

@@ -145,7 +145,11 @@ pub fn prepare_vtu_output(
             .or_else(|| model.simulation.string("output directory"))
         {
             Some(d) => case_dir.join(d),
-            None => mesh_dir.to_path_buf(),
+            // An output on a solver mesh writes into that mesh's directory.
+            None => match params.string("mesh") {
+                Some(m) => mesh_dir.parent().unwrap_or(case_dir).join(m.trim()),
+                None => mesh_dir.to_path_buf(),
+            },
         };
         outputs.push(VtuOutput { index, opts, dir, reference, mode_files, auto_fields: None });
     }
@@ -231,7 +235,12 @@ impl VtuOutput {
             return Ok(());
         }
         let enforce_vectors = sim.model.solvers[self.index].logical("enforce vectors").unwrap_or(true);
-        let (scalars, vectors) = fields_for_saving(&sim.vars, enforce_vectors, dim)?;
+        // The fields of this output's mesh (a solver mesh's own list).
+        let store = match sim.slots.iter().position(|s| s.id == self.index + 1) {
+            Some(ix) => sim.slot_vars(ix),
+            None => &sim.vars,
+        };
+        let (scalars, vectors) = fields_for_saving(store, enforce_vectors, dim)?;
         self.opts.scalar_fields = scalars;
         self.opts.vector_fields = vectors;
         self.auto_fields = Some((enforce_vectors, dim));
