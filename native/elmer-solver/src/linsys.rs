@@ -46,6 +46,9 @@ pub fn elmer_registry() -> LinearSolverRegistry {
     for m in ["bicgstabl", "gcr", "idrs"] {
         r.register_iterative(m, itermethods);
     }
+    for m in ["gcr", "idrs"] {
+        r.register_iterative_with_matrix(m, itermethods_for);
+    }
     for m in ["jacobi", "richardson", "sgs"] {
         r.register_iterative(m, stationary);
         r.register_iterative_with_matrix(m, stationary_for);
@@ -68,12 +71,84 @@ fn huti(p: &ParamMap) -> Result<Box<dyn IterativeSolver<f64> + Send>, SolverErro
 
 /// IterativeMethods.F90 Krylov methods; IterSolve.F90 routes these names there.
 fn itermethods(p: &ParamMap) -> Result<Box<dyn IterativeSolver<f64> + Send>, SolverError> {
+    refuse_backward_error(p)?;
     let cfg = IterMethodsConfig::from_params(p)?;
     Ok(match cfg.method_name.as_str() {
         "bicgstabl" => Box::new(BiCgStabL::<f64>::new(&cfg)),
         "gcr" => Box::new(Gcr::<f64>::new(&cfg)),
         _ => Box::new(Idrs::<f64>::new(&cfg)),
     })
+}
+
+/// GCR and IDR(s) with `Linear System Componentwise Backward Error`: HUTI's
+/// user stop criterion `ComponentwiseBackwardError` (BackwardError.F90:170)
+/// on the assembled matrix. Without the keyword, `None` defers to
+/// [`itermethods`].
+fn itermethods_for(p: &ParamMap, a: &CsrMatrix<f64>) -> Result<Box<dyn IterativeSolver<f64> + Send>, SolverError> {
+    if p.logical("linear system componentwise backward error") != Some(true) {
+        return itermethods(p);
+    }
+    let cfg = IterMethodsConfig::from_params(p)?;
+    let a = a.clone();
+    let stop: elmer_itermethods::StopFn<f64> =
+        Box::new(move |x: &[f64], b: &[f64], _r: &[f64]| componentwise_backward_error(&a, x, b));
+    Ok(match cfg.method_name.as_str() {
+        "gcr" => Box::new(Gcr::<f64>::new(&cfg).with_stop_criterion(stop)),
+        _ => Box::new(Idrs::<f64>::new(&cfg).with_stop_criterion(stop)),
+    })
+}
+
+/// IterSolve.F90:894 `Linear System Componentwise Backward Error` makes
+/// [`componentwise_backward_error`] the stop criterion; it needs the
+/// assembled matrix, which only [`itermethods_for`] has, and GCR or IDR(s),
+/// which take a user criterion. Anything else is refused rather than run to
+/// the default `||r|| / ||b||`.
+fn refuse_backward_error(p: &ParamMap) -> Result<(), SolverError> {
+    if p.logical("linear system componentwise backward error") == Some(true) {
+        return Err(SolverError::Unsupported(
+            "Linear System Componentwise Backward Error (BackwardError.F90) for this iterative method".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// `ComponentwiseBackwardError( x, b, r )`: `max_i |Ax - b|_i / (|A||x| + |b|)_i`.
+fn componentwise_backward_error(a: &CsrMatrix<f64>, x: &[f64], b: &[f64]) -> f64 {
+    const AEPS: f64 = 10.0 * f64::EPSILON;
+    let n = a.nrows;
+    let mut res = vec![0.0f64; n];
+    crate::matvec::crs_matrix_vector_multiply(a, 1, x, &mut res);
+    let ax: Vec<f64> = x.iter().map(|v| v.abs()).collect();
+    let mut err = 0.0f64;
+    for i in 0..n {
+        let r = res[i] - b[i];
+        // CRS_ABSMatrixVectorMultiply: unrolled by four.
+        let (lo, hi) = (a.row_ptr[i], a.row_ptr[i + 1]);
+        let k = hi - lo;
+        let (mut r1, mut r2, mut r3, mut r4) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        let mut j = lo;
+        while j < lo + 4 * (k / 4) {
+            r1 += ax[a.col_idx[j] as usize] * a.values[j].abs();
+            r2 += ax[a.col_idx[j + 1] as usize] * a.values[j + 1].abs();
+            r3 += ax[a.col_idx[j + 2] as usize] * a.values[j + 2].abs();
+            r4 += ax[a.col_idx[j + 3] as usize] * a.values[j + 3].abs();
+            j += 4;
+        }
+        while j < hi {
+            r1 += ax[a.col_idx[j] as usize] * a.values[j].abs();
+            j += 1;
+        }
+        let d = r1 + r2 + r3 + r4 + b[i].abs();
+        if d.abs() < AEPS {
+            if r.abs() > AEPS {
+                return f64::MAX;
+            }
+            err = err.max(0.0);
+        } else {
+            err = err.max(r.abs() / d);
+        }
+    }
+    err
 }
 
 /// Jacobi, Richardson and SGS outside [`LinearSolverRegistry::select_for`]:
@@ -368,4 +443,37 @@ pub(crate) fn bilu(
     level: usize,
 ) -> Result<Box<dyn Preconditioner<f64> + Send>, SolverError> {
     Ok(Box::new(Ilu::ilu_n(&block_diagonal(a, dofs), level)?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `max_i |Ax - b|_i / (|A||x| + |b|)_i` on a 2 x 2 system; a row with
+    /// `|A||x| + |b|` below AEPS and no residual counts zero.
+    #[test]
+    fn componentwise_backward_error_is_the_worst_row() {
+        let a = CsrMatrix::<f64> {
+            nrows: 2,
+            ncols: 2,
+            row_ptr: vec![0, 2, 3],
+            col_idx: vec![0, 1, 1],
+            values: vec![2.0, -1.0, 4.0],
+            diag: None,
+        };
+        let x = [1.0, 1.0];
+        // Ax = [1, 4]; b = [1, 3]: rows 0 / (3 + 1) and 1 / (4 + 3).
+        let e = componentwise_backward_error(&a, &x, &[1.0, 3.0]);
+        assert_eq!(e, 1.0 / 7.0);
+        let z = CsrMatrix::<f64> {
+            nrows: 1,
+            ncols: 1,
+            row_ptr: vec![0, 1],
+            col_idx: vec![0],
+            values: vec![0.0],
+            diag: None,
+        };
+        assert_eq!(componentwise_backward_error(&z, &[1.0], &[0.0]), 0.0);
+        assert_eq!(componentwise_backward_error(&z, &[1.0], &[1.0]), 1.0);
+    }
 }
