@@ -167,7 +167,7 @@ impl<T: IterScalar> IterativeSolver<T> for BiCgStabL<T> {
                 if !cplx && rho1.is_nan() {
                     return Err(breakdown("rho1 == NaN"));
                 }
-                let beta = alpha * (rho1 / rho0);
+                let beta = alpha * rho1.fortran_div(rho0);
                 rho0 = rho1;
                 for j in 0..k {
                     for i in 0..n {
@@ -189,7 +189,7 @@ impl<T: IterScalar> IterativeSolver<T> for BiCgStabL<T> {
                 if !cplx && sigma.is_nan() {
                     return Err(breakdown("sigma == NaN"));
                 }
-                alpha = rho1 / sigma;
+                alpha = rho1.fortran_div(sigma);
                 axpy(alpha, &w[u], x);
                 for j in 0..k {
                     for i in 0..n {
@@ -305,7 +305,11 @@ impl<T: IterScalar> IterativeSolver<T> for BiCgStabL<T> {
             let varrho = small_dot(&yl, &yv).unscale(kappa0 * kappal);
             let avar = varrho.abs();
             // SIGN(1, varrho) real; unit direction of varrho (1 when zero) complex
-            let hatgamma = if avar > 0.0 {
+            let hatgamma = if avar > 0.0 && cplx {
+                // (varrho/ABS(varrho)) * MAX(ABS(varrho),7d-1) * kappa0/kappal,
+                // left to right with real factors.
+                varrho.unscale(avar).scale(avar.max(0.7)).scale(kappa0).unscale(kappal)
+            } else if avar > 0.0 {
                 varrho.unscale(avar).scale(avar.max(0.7) * kappa0 / kappal)
             } else {
                 T::from_f64(0.7 * kappa0 / kappal)

@@ -82,6 +82,7 @@ pub use error::SolverError;
 pub use expr::{SharedMatc, TextMatc};
 pub use live::LiveModel;
 pub use matvec::crs_matrix_vector_multiply;
+pub use matvec::{crs_complex_matrix_vector_multiply, ElmerComplexMatvec};
 pub use model::{BodyParams, Model};
 pub use norm::{compute_norm, NormSpec};
 pub use reference::{compare_to_reference, finalize_reference, ReferenceTally};

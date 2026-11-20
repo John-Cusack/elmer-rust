@@ -40,13 +40,13 @@ pub(crate) fn lu_factor<T: IterScalar>(a: &mut [Vec<T>]) -> Vec<usize> {
         if cabs1(d) != 0.0 {
             // dgetrf2: DSCAL by ONE / A(1,1) when ABS(A(1,1)) >= SFMIN.
             if d.abs() >= f64::MIN_POSITIVE {
-                let rcp = T::one() / d;
+                let rcp = T::one().fortran_div(d);
                 for i in k + 1..m {
                     a[i][k] = a[i][k] * rcp;
                 }
             } else {
                 for i in k + 1..m {
-                    a[i][k] = a[i][k] / d;
+                    a[i][k] = a[i][k].fortran_div(d);
                 }
             }
         }
@@ -79,7 +79,7 @@ pub(crate) fn lu_solve<T: IterScalar>(a: &[Vec<T>], piv: &[usize], rhs: &mut [T]
     // DTRSM('L','U','N','N'): from the last column back.
     for k in (0..m).rev() {
         if rhs[k] != T::zero() {
-            rhs[k] = rhs[k] / a[k][k];
+            rhs[k] = rhs[k].fortran_div(a[k][k]);
             let bk = rhs[k];
             for i in 0..k {
                 rhs[i] = rhs[i] - bk * a[i][k];

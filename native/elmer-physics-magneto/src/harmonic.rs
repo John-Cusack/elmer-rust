@@ -483,7 +483,10 @@ fn solve_complex(
         }
         other => return Err(MagnetoError::unsupported(format!("complex preconditioner {other}"))),
     };
-    let solved = solver.solve(a, &*precond, b, x, &SerialComm);
+    // IterSolver's complex product: CRS_BlockComplexMatrixVectorMultiply on
+    // the block view (four accumulators per row), as elmer-solver's own
+    // complex path applies it.
+    let solved = solver.solve(&elmer_solver::ElmerComplexMatvec(a), &*precond, b, x, &SerialComm);
     if let Some(rs) = scaling {
         rs.unscale(a, Some(b), Some(x));
     }
