@@ -11,15 +11,20 @@
 //! stops the run, as the Fortran's `STOP`.
 
 use elmer_core::{BasisEval, ElemId, ParamMap, Params};
-use elmer_solver::{Solver, SolverCtx, SolverError};
+use elmer_pdofs::PDofsBackend;
+use elmer_solver::{DofsBackend, Solver, SolverCtx, SolverDofs, SolverError};
 
 const CALLER: &str = "TestSolver";
 
 pub fn factory(_params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
-    Ok(Box::new(TestSolver))
+    Ok(Box::new(TestSolver { layout: None }))
 }
 
-struct TestSolver;
+/// The solver has no variable (`No Matrix`), so it lays its p dofs out
+/// itself, as `elmer-pdofs` would for its section.
+struct TestSolver {
+    layout: Option<Box<dyn SolverDofs>>,
+}
 
 /// `InvertMatrix` of a row-major `n x n` matrix by Gauss-Jordan with
 /// partial pivoting.
@@ -125,8 +130,17 @@ fn poly(edim: usize, qp: i32, x: f64, y: f64, z: f64) -> (f64, [f64; 3], [[f64; 
 }
 
 impl Solver for TestSolver {
+    fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        let active: Vec<ElemId> = ctx.active_elements().collect();
+        let layout = PDofsBackend::new()
+            .for_solver(ctx.mesh, &ctx.sim.model, ctx.params(), &active, 1)
+            .ok_or_else(|| SolverError::Unsupported(format!("{CALLER}: element definition without p dofs")))??;
+        self.layout = Some(layout);
+        Ok(())
+    }
+
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
-        let d = ctx.solver_dofs().ok_or_else(|| SolverError::Unsupported(format!("{CALLER}: without p elements")))?;
+        let d = self.layout.as_deref().ok_or_else(|| SolverError::Unsupported(format!("{CALLER}: without p elements")))?;
         // `MAXVAL(Solver % Def_Dofs(:,1,6))`: the p of the definition.
         let qp: i32 = ctx
             .params()
