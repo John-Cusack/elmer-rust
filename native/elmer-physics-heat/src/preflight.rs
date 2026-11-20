@@ -57,10 +57,6 @@ const SOLVER: &[Rule] = &[
         "mesh refinement is not implemented",
     ),
     flag(
-        "Calculate Conductance Matrix",
-        "constraint modes are not implemented",
-    ),
-    flag(
         "Nonlinear System Linesearch",
         "DefaultLinesearch is not implemented",
     ),

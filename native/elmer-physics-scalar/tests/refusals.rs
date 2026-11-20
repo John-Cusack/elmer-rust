@@ -119,16 +119,6 @@ fn statcurrent_refusals() {
         model(CURRENT, &[], &mat, &[("Farfield Potential", real(0.0))], 1),
         "Farfield Potential",
     );
-    refused(
-        model(
-            CURRENT,
-            &[("Calculate Conductivity Matrix", t.clone())],
-            &mat,
-            &[],
-            1,
-        ),
-        "conductivity matrix",
-    );
 }
 
 #[test]

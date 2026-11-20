@@ -71,6 +71,9 @@ pub struct Variable {
     /// `Var % EigenVectors(i, :)`: the mode of `eigen_values[i]`, one entry
     /// per value of [`values`](Self::values).
     pub eigen_vectors: Vec<Vec<num_complex::Complex64>>,
+    /// `Var % ConstraintModes(m, :)`: the solution of constraint mode `m`
+    /// (`ConstraintModesDriver`), one entry per value; empty otherwise.
+    pub constraint_modes: Vec<Vec<f64>>,
 }
 
 impl Variable {
@@ -91,6 +94,7 @@ impl Variable {
             values_changed: true,
             eigen_values: Vec::new(),
             eigen_vectors: Vec::new(),
+            constraint_modes: Vec::new(),
         }
     }
 
