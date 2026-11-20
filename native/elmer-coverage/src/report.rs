@@ -220,6 +220,28 @@ pub fn render(records: &[Record], meta: &Meta) -> String {
     let _ = writeln!(out, "\n## Matching tests ({})\n", matched.len());
     let _ = writeln!(out, "{}", if matched.is_empty() { "None.".to_string() } else { matched.join(", ") });
 
+    let refused: Vec<&Record> = records.iter().filter(|r| r.verdict == Verdict::Refused).collect();
+    if !refused.is_empty() {
+        let _ = writeln!(
+            out,
+            "\n## Remaining refusals ({})\n\nEach refused test with its first blocker (the run's refusal, else the \
+             static screen's first rule) and, where one is recorded, why it stays.\n\n\
+             | Test | Processes | First blocker | Detail | Cause |\n|---|---:|---|---|---|",
+            refused.len()
+        );
+        for r in refused {
+            let _ = writeln!(
+                out,
+                "| {} | {} | {} | {} | {} |",
+                r.name,
+                r.nprocs,
+                md(r.first().unwrap_or("")),
+                md(&r.detail),
+                known_cause(&r.name)
+            );
+        }
+    }
+
     for (title, v) in [("Mismatches", Verdict::Mismatch), ("Errors", Verdict::Error), ("Ran without a reference", Verdict::NoOracle)] {
         let rows: Vec<&Record> = records.iter().filter(|r| r.verdict == v).collect();
         if rows.is_empty() {
@@ -267,6 +289,12 @@ const KNOWN_CAUSES: &[(&str, &str)] = &[
     ("ElasticAnisotropic2D", "displacement bitwise; stress/strain nodal projection differs by ulps"),
     ("ElasticStressLoad", "displacement bitwise; stress/strain nodal projection differs by ulps"),
     ("StressStressLoad", "displacement within 4e-16 of pristine (not yet traced; UMFPACK solve is the port)"),
+    (
+        "SD_P2ndDerivatives",
+        "kept refused (firstmate decision 040): the test's own L2 projection of the 165x165 p:8 tetrahedron mass \
+         matrix is rounding-chaotic (1.0e-8 against its 1e-8 bar, pristine 5e-10) while the second derivatives are \
+         ~1e-15 from exact; port on fm/elmer-lane-integrator-p2nd",
+    ),
 ];
 
 fn known_cause(test: &str) -> &'static str {
