@@ -39,6 +39,7 @@
 
 pub mod adv_react_dg_p;
 pub mod benchmark_shell;
+pub mod block_lin_elast;
 pub mod bentonite;
 pub mod compute_error;
 pub mod count_solver;

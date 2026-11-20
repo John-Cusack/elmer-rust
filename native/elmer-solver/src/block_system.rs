@@ -70,7 +70,20 @@ impl BlockAssembled {
         let p = ctx.params().clone();
         let ix = ctx.slot;
         if let Some(b) = ctx.sim.backends.dofs.as_ref() {
-            let active = ctx.sim.slots[ix].active.clone();
+            let mut active = ctx.sim.slots[ix].active.clone();
+            if active.is_empty() {
+                // No `Active Solvers` names the section: the bulk elements
+                // whose equation lists `Active Variables` (CreateBlockVariable).
+                let solver_id = ctx.solver_id();
+                active = (0..ctx.mesh.n_bulk() as u32)
+                    .map(ElemId)
+                    .filter(|&e| {
+                        ctx.body_params(e).and_then(|b| b.equation).is_some_and(|eq| {
+                            eq.get(&format!("active variables[{solver_id}]")).or_else(|| eq.get("active variables")).is_some()
+                        })
+                    })
+                    .collect();
+            }
             if let Some(d) = b.for_solver_id(ctx.mesh, &ctx.sim.model, ctx.solver_id(), &p, &active, 1) {
                 let d: Arc<dyn SolverDofs> = Arc::from(d?);
                 let perm = d.perm();
