@@ -113,14 +113,14 @@ fn sd_p_fem_two_solvers_matches_pristine() {
 }
 
 /// `p-FEM_two_solvers` gives its p degrees body-wise (`Solver 1: Element`
-/// in each Body), which the solver's dof layout does not see: the shell
-/// solver refuses instead of running on nodal elements (pristine norm
-/// 9.50681481E-03).
+/// in each Body), which the dof layout resolves as `NonNodalElements` does:
+/// the reference check passes against the pristine norm 9.50681481E-03.
 #[test]
-fn p_fem_two_solvers_body_wise_elements_are_refused() {
-    let dir = case::stage("p-FEM_two_solvers", None);
-    let err = case::run("p-FEM_two_solvers", &dir, "two_solvers.sif").err().expect("refused");
-    assert!(err.to_string().contains("body-wise element definitions"), "{err}");
+fn p_fem_two_solvers_body_wise_elements_match_pristine() {
+    let name = "p-FEM_two_solvers";
+    let dir = case::stage(name, None);
+    let out = case::run(name, &dir, "two_solvers.sif").unwrap_or_else(|e| panic!("{name}: {e}"));
+    assert_eq!(out.passed, Some(true), "reference check\n{}", out.log);
 }
 
 /// `fem/tests/StokesPFEM` (`Stokes1.so`): Stokes on `p:2`. The case as

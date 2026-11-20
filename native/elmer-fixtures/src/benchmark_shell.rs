@@ -178,7 +178,6 @@ pub fn shell_local_matrix(
 
 impl Solver for ShellSolver {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
-        crate::hooks::check_element_definitions(ctx)?;
         let dofs = ctx.params().integer("variable dofs");
         if !matches!(dofs, Some(5 | 6)) {
             return Err(SolverError::fatal(CALLER, format!("Variable DOFs must be 5 or 6, got {dofs:?}")));
