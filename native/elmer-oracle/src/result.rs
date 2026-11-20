@@ -57,11 +57,20 @@ fn preamble_groups(preamble: &[u8]) -> Vec<Vec<String>> {
         let dofs: usize = nums.split_whitespace().nth(2).and_then(|d| d.parse().ok()).unwrap_or(1);
         let mut fields = Vec::new();
         if let (Some(open), Some(close)) = (name.find('['), name.rfind(']')) {
-            for comp in name[open + 1..close].split_whitespace() {
-                let Some((c, n)) = comp.rsplit_once(':') else { continue };
+            // Component names may hold spaces (`potential re:1`,
+            // `coilpot grad:2`): words gather until one carries `:n`.
+            let mut words: Vec<&str> = Vec::new();
+            for word in name[open + 1..close].split_whitespace() {
+                let Some((last, n)) = word.rsplit_once(':') else {
+                    words.push(word);
+                    continue;
+                };
+                words.push(last);
+                let c = words.join(" ");
+                words.clear();
                 let n: usize = n.parse().unwrap_or(1);
                 if n == 1 {
-                    fields.push(c.to_string());
+                    fields.push(c);
                 } else {
                     fields.extend((1..=n).map(|k| format!("{c} {k}")));
                 }
@@ -520,6 +529,23 @@ pub fn read_result_file(path: &Path) -> Result<ResultFile> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preamble_groups_keep_spaced_component_names() {
+        let pre = b"potential[potential re:1 potential im:1] :     4     2   2 : mgharm\n\
+coilpot grad[coilpot grad:2] :     4     2   2 : computeflux\n\
+flow solution[velocity:2 pressure:1] :     6     2   3 : navier-stokes\n\
+mesh update              :     4     2   2 : mesh update\n";
+        assert_eq!(
+            preamble_groups(pre),
+            vec![
+                vec![String::from("potential re"), String::from("potential im")],
+                vec![String::from("coilpot grad 1"), String::from("coilpot grad 2")],
+                vec![String::from("velocity 1"), String::from("velocity 2"), String::from("pressure")],
+                vec![String::from("mesh update 1"), String::from("mesh update 2")],
+            ]
+        );
+    }
 
     fn w_string(out: &mut Vec<u8>, s: &str) {
         out.extend_from_slice(s.as_bytes());

@@ -16,7 +16,7 @@ fn usage() -> ! {
     eprintln!("  elmer-oracle registry <build-dir> [--label L|'!L'] [--suite fem/tests|elmerice]");
     eprintln!("  elmer-oracle refnorm-validate <build-dir> <tests-dir> <golden-root> <out-root>");
     eprintln!("  elmer-oracle grade-tree <tests-dir> <golden-root> <candidate-root> <tolerances.json> [--fallback X]");
-    eprintln!("  elmer-oracle mutation-suite <tests-dir> <golden-root> <tolerances.json> [--fallback X]");
+    eprintln!("  elmer-oracle mutation-suite <tests-dir> <golden-root> <tolerances.json> [--fallback X] [--all]");
     eprintln!("  elmer-oracle sigma-table <tests-dir> <out.json> <golden-root> <arm=root>...");
     eprintln!("  elmer-oracle grade-fields <golden.result> <candidate.result> [--tol X] [--tolerances T --test NAME [--file REL]]");
     eprintln!("  elmer-oracle manifest <dir> <out> --origin NAME");
@@ -791,6 +791,8 @@ fn main() {
             if args.len() >= 7 && args[5] == "--fallback" {
                 fallback = args[6].parse().unwrap_or_else(|_| usage());
             }
+            // --all also lists caught mutations, for before/after tables.
+            let all = args.iter().any(|a| a == "--all");
             let registry = std::fs::read_to_string(golden_root.join("registry.tsv"))
                 .unwrap_or_else(|_| usage());
             let (mut caught, mut escaped, mut below, mut vacuous, mut files) = (0, 0, 0, 0, 0);
@@ -816,7 +818,12 @@ fn main() {
                         use elmer_oracle::mutation::Outcome::*;
                         let m = t.mutation.name();
                         match t.outcome {
-                            Caught => caught += 1,
+                            Caught => {
+                                caught += 1;
+                                if all {
+                                    println!("caught\t{test}\t{rel}\t{m}\t{}\t{}", t.target, t.detail);
+                                }
+                            }
                             Escaped => {
                                 escaped += 1;
                                 println!("ESCAPED\t{test}\t{rel}\t{m}\t{}", t.target);

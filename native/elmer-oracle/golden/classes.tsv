@@ -153,9 +153,8 @@ buckling	eigen	eigen-mode	Eigen Analysis: sort eigenvalues, normalise signs, com
 el_adaptivity	adaptive	O1+O4	Adaptive Mesh Refinement: path-dependent remeshing
 el_adaptivity	replay	cmake-replay	runtest.cmake has custom logic; captured through cmake -P
 geomstiff	eigen	eigen-mode	Eigen Analysis: sort eigenvalues, normalise signs, compare clusters by principal angles
-mgdyn_airgap_harmonic	tier-a-unfit	O1+O4+O6	sigma_F 0.00029 > 0.1 x RefNorm tolerance 1e-05
-mgdyn_steady_2ndorder	tier-a-unfit	O1+O4+O6	sigma_F 0.000433 > 0.1 x RefNorm tolerance 1e-05
-mgdyn_thinsheet_harmonic	tier-a-unfit	O1+O4+O6	sigma_F 0.000417 > 0.1 x RefNorm tolerance 1e-05
+mgdyn_airgap_harmonic	tier-a-unfit	O1+O4+O6	sigma_F 1.32e-05 > 0.1 x RefNorm tolerance 1e-05
+mgdyn_thinsheet_harmonic	tier-a-unfit	O1+O4+O6	sigma_F 7.24e-05 > 0.1 x RefNorm tolerance 1e-05
 p-FEM_two_solvers	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 p-FEM_with_varying_p	test-local-plugin	D12-fixture	compiles a test-local Fortran plugin; Rust fixture port needed
 passive_np3	mpi	per-rank	np=3; result files per partition
