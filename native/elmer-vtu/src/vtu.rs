@@ -269,20 +269,29 @@ pub fn render_vtu(
 ) -> io::Result<Option<Vec<u8>>> {
     check_supported(opts)?;
     let sel = select(mesh, opts, group)?;
-    if sel.nodes.is_empty() {
+    let field_refs = fields.fields();
+    let discont = fields::discontinuous(&field_refs, opts);
+    let dpoints = if discont { Some(discontinuous_points(mesh, &sel, opts)?) } else { None };
+    // `NumberOfDofNodes`: the points written.
+    let point_nodes: &[u32] = dpoints.as_ref().map_or(&sel.nodes, |d| &d.node);
+    if point_nodes.is_empty() {
         return Ok(None);
     }
-    let field_refs = fields.fields();
-    let plan = fields::plan(&field_refs, opts)?;
-    let n_nodes = sel.nodes.len();
+    let plan = fields::plan(&field_refs, opts, discont)?;
+    let n_nodes = point_nodes.len();
     let n_cells = sel.elems.len();
 
-    // Point data.
+    // Point data: a DG field at the DG index of each point (`InvDgPerm`),
+    // any other at its node (`InvNodePerm`).
     let mut point = Vec::new();
     for s in &plan.point {
         let mut v = Vec::with_capacity(n_nodes * s.sdofs);
         let mut buf = vec![0.0; s.sdofs];
-        for &n in &sel.nodes {
+        let at: &[u32] = match &dpoints {
+            Some(d) if s.comps[0].kind == FieldKind::Dg => &d.dg,
+            _ => point_nodes,
+        };
+        for &n in at {
             s.nodal(n as usize, &mut buf)?;
             v.extend_from_slice(&buf);
         }
@@ -317,7 +326,7 @@ pub fn render_vtu(
     }
 
     // Points.
-    let points = Array::real(None, Some(3), coordinates(mesh, &field_refs, &sel, opts)?);
+    let points = Array::real(None, Some(3), coordinates(mesh, &field_refs, point_nodes, opts)?);
 
     // Cells.
     let mut conn = Vec::new();
@@ -335,9 +344,11 @@ pub fn render_vtu(
             let node = *el.nodes.get(local).ok_or_else(|| {
                 invalid(format!("element {} has no local node {}", e.0 + 1, local + 1))
             })?;
-            conn.push(match &sel.node_map {
-                None => node as i32,
-                Some(m) => m[node as usize] as i32,
+            conn.push(match (&dpoints, &sel.node_map) {
+                // `DgPerm(TmpIndexes(j))` of Elmer2VtkIndexes' DG indexes.
+                (Some(d), _) => d.point_of(opts, e, local)? as i32,
+                (None, None) => node as i32,
+                (None, Some(m)) => m[node as usize] as i32,
             });
         }
         offsets.push(conn.len() as i32);
@@ -403,11 +414,105 @@ fn elemental_values(mesh: &dyn MeshView, sel: &Selection, s: &Selected<'_>) -> i
     Ok(v)
 }
 
+/// The points of a discontinuous write (`GenerateSavePermutation` with `DG`
+/// or `DN`, SaveUtils.F90:601).
+struct DiscontinuousPoints {
+    /// `InvNodePerm`: the mesh node of each point.
+    node: Vec<u32>,
+    /// `InvDgPerm`: the DG index each point first took.
+    dg: Vec<u32>,
+    /// `DgPerm`: DG index -> point, `u32::MAX` where none.
+    perm: Vec<u32>,
+}
+
+impl DiscontinuousPoints {
+    fn point_of(&self, opts: &VtuOptions, e: ElemId, local: usize) -> io::Result<u32> {
+        let layout = opts.dg_layout.as_ref().expect("checked when the points were made");
+        let d = layout
+            .index
+            .get(e.0 as usize)
+            .and_then(|ix| ix.get(local))
+            .copied()
+            .filter(|&d| d != elmer_core::NO_DOF)
+            .ok_or_else(|| invalid(format!("element {} has no DG index for local node {}", e.0 + 1, local + 1)))?;
+        match self.perm.get(d as usize) {
+            Some(&p) if p != u32::MAX => Ok(p),
+            _ => Err(invalid(format!("DG index {} of element {} is not saved", d + 1, e.0 + 1))),
+        }
+    }
+}
+
+/// `GenerateSavePermutation(DG, DN)`: over the selected bulk elements, each
+/// element node becomes its own point (`Discontinuous Galerkin`), or each
+/// node once per body, bodies in id order (`Discontinuous Bodies`); the
+/// corners only with `Save Linear Elements`.
+fn discontinuous_points(mesh: &dyn MeshView, sel: &Selection, opts: &VtuOptions) -> io::Result<DiscontinuousPoints> {
+    let layout = opts
+        .dg_layout
+        .as_ref()
+        .ok_or_else(|| invalid("discontinuous saving needs VtuOptions::dg_layout (the mesh's DG indexes)"))?;
+    let n_bulk = mesh.n_bulk();
+    let bulk: Vec<ElemId> = sel.elems.iter().copied().filter(|e| (e.0 as usize) < n_bulk).collect();
+    let total: usize = (0..n_bulk).map(|t| mesh.element(ElemId(t as u32)).nodes.len()).sum();
+    let mut d = DiscontinuousPoints { node: Vec::new(), dg: Vec::new(), perm: vec![u32::MAX; total] };
+    let corners = |e: ElemId| {
+        let el = mesh.element(e);
+        if opts.save_linear {
+            written_node_count(el.etype, true)
+        } else {
+            el.nodes.len()
+        }
+    };
+    let dg_of = |e: ElemId, k: usize| -> io::Result<usize> {
+        layout
+            .index
+            .get(e.0 as usize)
+            .and_then(|ix| ix.get(k))
+            .copied()
+            .filter(|&i| i != elmer_core::NO_DOF && (i as usize) < total)
+            .map(|i| i as usize)
+            .ok_or_else(|| invalid(format!("element {} has no DG index for local node {}", e.0 + 1, k + 1)))
+    };
+    if opts.discontinuous_galerkin {
+        for &e in &bulk {
+            let el = mesh.element(e);
+            for (k, &node) in el.nodes.iter().enumerate().take(corners(e)) {
+                let i = dg_of(e, k)?;
+                d.perm[i] = d.node.len() as u32;
+                d.node.push(node);
+                d.dg.push(i as u32);
+            }
+        }
+    } else {
+        let max_body = bulk.iter().map(|&e| mesh.element(e).tag).max().unwrap_or(0).max(0);
+        let mut visited = vec![u32::MAX; mesh.n_nodes()];
+        for body in 1..=max_body {
+            visited.iter_mut().for_each(|v| *v = u32::MAX);
+            for &e in bulk.iter().filter(|&&e| mesh.element(e).tag == body) {
+                let el = mesh.element(e);
+                for (k, &node) in el.nodes.iter().enumerate().take(corners(e)) {
+                    let i = dg_of(e, k)?;
+                    let n = node as usize;
+                    if visited[n] != u32::MAX {
+                        d.perm[i] = visited[n];
+                        continue;
+                    }
+                    visited[n] = d.node.len() as u32;
+                    d.perm[i] = d.node.len() as u32;
+                    d.node.push(node);
+                    d.dg.push(i as u32);
+                }
+            }
+        }
+    }
+    Ok(d)
+}
+
 /// Node coordinates, `x = scale * (x - displacement) + offset`.
 fn coordinates(
     mesh: &dyn MeshView,
     fields: &[elmer_core::FieldRef<'_>],
-    sel: &Selection,
+    nodes: &[u32],
     opts: &VtuOptions,
 ) -> io::Result<Vec<f64>> {
     let find = |name: &str| {
@@ -423,8 +528,8 @@ fn coordinates(
         update = find("mesh update");
     }
 
-    let mut v = Vec::with_capacity(sel.nodes.len() * 3);
-    for &n in &sel.nodes {
+    let mut v = Vec::with_capacity(nodes.len() * 3);
+    for &n in nodes {
         let mut c = mesh.coord(n);
         let mut done = false;
         if let Some(d) = disp {

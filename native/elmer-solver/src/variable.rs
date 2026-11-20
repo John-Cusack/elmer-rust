@@ -65,6 +65,10 @@ pub struct Variable {
     pub output: bool,
     pub secondary: bool,
     pub values_changed: bool,
+    /// `Var % DgAveraged`: `CalculateBodyAverage` has replaced this DG
+    /// field's values by their body-wise nodal means (never cleared for an
+    /// exported variable, as in Elmer).
+    pub dg_averaged: bool,
     /// `Var % EigenValues` of an `Eigen Analysis` solve, in `Eigen System
     /// Sorting` order; empty otherwise.
     pub eigen_values: Vec<num_complex::Complex64>,
@@ -92,6 +96,7 @@ impl Variable {
             output: true,
             secondary: false,
             values_changed: true,
+            dg_averaged: false,
             eigen_values: Vec::new(),
             eigen_vectors: Vec::new(),
             constraint_modes: Vec::new(),

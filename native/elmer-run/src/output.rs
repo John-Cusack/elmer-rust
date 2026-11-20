@@ -252,6 +252,39 @@ impl VtuSolver {
     }
 }
 
+/// VtuOutputSolver.F90:312-330 for `Discontinuous Galerkin` / `Discontinuous
+/// Bodies`: without a DG or integration-point field among the saved names
+/// (`CheckAnyDGField`, exact names or `name 1`) nothing changes; otherwise
+/// the mesh's DG indexes are made if no DG variable made them
+/// (`CheckAndCreateDGIndexes`), `Average Within Materials` (default true)
+/// replaces each scalar DG field by its body-wise nodal means once
+/// (`AverageBodyFields`), and the writer gets the DG indexes.
+fn prepare_discontinuous(ctx: &mut SolverCtx<'_>, opts: &mut VtuOptions) -> Result<(), SolverError> {
+    if !(opts.discontinuous_galerkin || opts.discontinuous_bodies) {
+        return Ok(());
+    }
+    let store = &ctx.sim.vars;
+    let any = opts.scalar_fields.iter().chain(&opts.vector_fields).any(|name| {
+        store
+            .get(name)
+            .or_else(|| store.get(&format!("{name} 1")))
+            .is_some_and(|v| matches!(v.kind, FieldKind::Dg | FieldKind::Ip))
+    });
+    if !any {
+        ctx.info("VtuOutputSolver", "No DG or IP fields, omitting discontinuity creation!", 6);
+        opts.discontinuous_galerkin = false;
+        opts.discontinuous_bodies = false;
+        return Ok(());
+    }
+    let index = ctx.sim.ensure_dg_indexes(ctx.mesh).index.clone();
+    if opts.average_within_materials {
+        let n = ctx.sim.average_body_fields(ctx.mesh)?;
+        ctx.info("AverageBodyFields", &format!("Reduced {n} elemental fields"), 7);
+    }
+    opts.dg_layout = Some(Arc::new(elmer_vtu::DgLayout { index }));
+    Ok(())
+}
+
 /// `MaxModes` of VtuOutputSolver (F90:506-528): the section's `Eigen System
 /// Values`, else the largest `Eigen System Values` / `Harmonic System
 /// Values` (or `Scanning Loops` with `Save Scanning Modes`) of any solver.
@@ -374,7 +407,9 @@ impl Solver for VtuSolver {
                 ));
             }
         }
-        let opts = &self.out.opts;
+        let mut owned = self.out.opts.clone();
+        prepare_discontinuous(ctx, &mut owned)?;
+        let opts = &owned;
         let index = self.indexer.advance(opts);
         let naming = VtuNaming {
             pes: self.parts,

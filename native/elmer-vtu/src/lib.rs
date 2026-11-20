@@ -8,8 +8,8 @@
 //!
 //! The writers read the model through `elmer-core`'s [`MeshView`] and
 //! [`FieldSource`]. What those traits cannot express is refused rather than
-//! approximated, with an `io::ErrorKind::Unsupported` error: discontinuous
-//! Galerkin saving, eigen/constraint-mode fields, higher-order Lagrange
+//! approximated, with an `io::ErrorKind::Unsupported` error: integration-point
+//! fields in discontinuous saving, eigen/constraint-mode fields, higher-order Lagrange
 //! resampling, saving through a mask, and parallel halo handling. See
 //! [`VtuOptions::unsupported`].
 //!
@@ -32,7 +32,7 @@ pub use collection::{
     pvd_time, render_pvd, render_pvtu, write_pvd, write_pvtu, PvdEntry,
 };
 pub use naming::{vtu_file_name, VtuNaming};
-pub use options::{FileIndexer, GeometryIds, VtuOptions};
+pub use options::{DgLayout, FileIndexer, GeometryIds, VtuOptions};
 pub use post_file::{
     post_file_solver, result_output_formats, result_output_prefix, OutputFormats,
 };

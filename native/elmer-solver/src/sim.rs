@@ -348,6 +348,9 @@ pub struct Simulation {
     /// The solver BlockSolve.F90's `TotMatrix` points at
     /// ([`crate::block_alias`]).
     pub(crate) block_tot: Option<crate::block_alias::BlockOwner>,
+    /// `Element % DGIndexes` of the mesh, once a DG variable asked for them
+    /// ([`crate::exported::DgIndexes`]).
+    pub dg_indexes: Option<crate::exported::DgIndexes>,
 }
 
 /// `SaveCurrent` (ElmerSolver.F90:3700): the `Output File` writer, called
@@ -402,6 +405,7 @@ impl Simulation {
             slots: Vec::new(),
             backends: Backends::default(),
             reference: ReferenceTally::default(),
+            dg_indexes: None,
             prev_sizes: vec![0.0; 5],
             live: None,
             flux_shared_warned: false,
@@ -631,7 +635,9 @@ impl Simulation {
     /// control output. Initial conditions are applied when `apply_ics`.
     /// `-elem` fields live on the active elements, `-ip` ones on their
     /// Gauss points (`exported`), both optionally masked and initialised.
-    /// Masks of other fields, `-dg` and time derivatives are refused.
+    /// `-dg` fields live on the DG indexes of the active elements
+    /// (`CreateDGPerm`), optionally masked. Masks of nodal fields, initial
+    /// conditions of DG fields and time derivatives are refused.
     fn add_exported_variables(&mut self, slot: &SolverSlot, mesh: &dyn MeshView, apply_ics: bool) -> Result<(), SolverError> {
         for l in 1.. {
             let key = format!("exported variable {l}");
@@ -649,7 +655,7 @@ impl Simulation {
                 continue;
             }
             let mask = crate::exported::mask_of(&slot.params, &key);
-            if mask.is_some() && !matches!(spec.kind, FieldKind::Elemental | FieldKind::Ip) {
+            if mask.is_some() && !matches!(spec.kind, FieldKind::Elemental | FieldKind::Ip | FieldKind::Dg) {
                 return Err(SolverError::Unsupported(format!(
                     "Exported Variable {l} mask on a {:?} field (MakePermUsingMask / CreateMaskedPerm)",
                     spec.kind
@@ -691,6 +697,20 @@ impl Simulation {
                         self.exported_initial_values(mesh, &spec, &perm, &mut values)?;
                     }
                     let mut v = Variable::new(&spec.name, spec.kind, spec.dofs, Some(perm.into()), values);
+                    v.output = spec.output;
+                    self.vars.add_with_components(v, &spec.components)?;
+                }
+                FieldKind::Dg => {
+                    if apply_ics && self.model.initial_conditions.iter().any(|ic| {
+                        ic.get(&spec.name).is_some() || spec.components.iter().any(|c| ic.get(c).is_some())
+                    }) {
+                        return Err(SolverError::Unsupported(format!(
+                            "initial condition of the DG exported variable {}",
+                            spec.name
+                        )));
+                    }
+                    let (perm, n) = crate::exported::dg_perm(self, mesh, slot, mask)?;
+                    let mut v = Variable::new(&spec.name, FieldKind::Dg, spec.dofs, Some(perm.into()), vec![0.0; n * spec.dofs]);
                     v.output = spec.output;
                     self.vars.add_with_components(v, &spec.components)?;
                 }

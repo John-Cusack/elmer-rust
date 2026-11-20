@@ -77,8 +77,27 @@ fn resolve<'a>(
     Some(Selected { name: name.to_string(), comps, packed, dofs, sdofs })
 }
 
-/// Select point-data and cell-data arrays for `opts`.
-pub(crate) fn plan<'a>(fields: &[FieldRef<'a>], opts: &VtuOptions) -> io::Result<Plan<'a>> {
+/// `CheckAnyDGField`: whether a `Scalar Field` / `Vector Field` name (or
+/// its `name 1`) is a DG or integration-point variable. Without one,
+/// discontinuous saving is turned off.
+pub(crate) fn any_dg_field(fields: &[FieldRef<'_>], opts: &VtuOptions) -> bool {
+    opts.scalar_fields.iter().chain(&opts.vector_fields).any(|name| {
+        find(fields, name)
+            .or_else(|| find(fields, &format!("{name} 1")))
+            .is_some_and(|f| matches!(f.kind, FieldKind::Dg | FieldKind::Ip))
+    })
+}
+
+/// Whether this write is discontinuous (`DG .OR. DN` after
+/// `CheckAnyDGField`).
+pub(crate) fn discontinuous(fields: &[FieldRef<'_>], opts: &VtuOptions) -> bool {
+    (opts.discontinuous_galerkin || opts.discontinuous_bodies) && any_dg_field(fields, opts)
+}
+
+/// Select point-data and cell-data arrays for `opts`; `discont` is
+/// [`discontinuous`]: DG fields are then point data (with `Save Elemental
+/// Fields`) and only elemental fields are cell data.
+pub(crate) fn plan<'a>(fields: &[FieldRef<'a>], opts: &VtuOptions, discont: bool) -> io::Result<Plan<'a>> {
     let mut p = Plan { point: Vec::new(), cell: Vec::new(), warnings: Vec::new() };
     let order = opts
         .scalar_fields
@@ -92,6 +111,16 @@ pub(crate) fn plan<'a>(fields: &[FieldRef<'a>], opts: &VtuOptions) -> io::Result
                 None => p.warnings.push(format!("Nonexistent variable: {name}")),
                 Some(s) => match s.comps[0].kind {
                     FieldKind::Nodal => p.point.push(s),
+                    FieldKind::Dg if discont => {
+                        if opts.save_elemental {
+                            p.point.push(s);
+                        }
+                    }
+                    FieldKind::Ip if discont => {
+                        return Err(unsupported(format!(
+                            "integration-point field {name} in discontinuous saving (Ip2DgSwapper)"
+                        )))
+                    }
                     // Elemental, DG and integration-point variables are
                     // cell data when DG saving is off; nothing to do here.
                     FieldKind::Elemental | FieldKind::Dg | FieldKind::Ip => {}
@@ -112,7 +141,9 @@ pub(crate) fn plan<'a>(fields: &[FieldRef<'a>], opts: &VtuOptions) -> io::Result
                 continue;
             };
             match s.comps[0].kind {
-                FieldKind::Elemental | FieldKind::Ip => p.cell.push(s),
+                FieldKind::Elemental => p.cell.push(s),
+                FieldKind::Dg | FieldKind::Ip if discont => {}
+                FieldKind::Ip => p.cell.push(s),
                 FieldKind::Dg => {
                     return Err(unsupported(format!(
                         "DG field {name}: elmer-core::MeshView has no per-element DG indexes"
