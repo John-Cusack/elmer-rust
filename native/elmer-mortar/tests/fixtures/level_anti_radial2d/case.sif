@@ -1,0 +1,50 @@
+! mgdyn_nodalforce2d (fem/tests/mgdyn_nodalforce2d, konesec.sif), reduced to
+! what GenerateProjectors reads: the two Anti Radial Galerkin mortar pairs of
+! the periodic sector, with explicit Target Boundaries for the mesh.names
+! entries. expected/ holds the p3/p5 Save Projector files of the full pristine
+! run (Save Projector added next to both Anti Radial Projector lines).
+Header
+  Mesh DB "." "mesh"
+End
+
+Simulation
+  Coordinate System = "Cartesian"
+  Simulation Type = Steady State
+End
+
+Solver 1
+  Equation = MgDyn2D
+  Procedure = "MagnetoDynamics2D" "MagnetoDynamics2D"
+  Variable = Potential
+  Apply Mortar BCs = Logical True
+End
+
+Boundary Condition 3
+  Name = "periodic_stator_bottom"
+  Target Boundaries(1) = 15
+  Mortar BC = 4
+  Mortar BC Static = Logical True
+  Anti Radial Projector = Logical True
+  Galerkin Projector = Logical True
+  Save Projector = Logical True
+End
+
+Boundary Condition 4
+  Name = "periodic_stator_left"
+  Target Boundaries(1) = 14
+End
+
+Boundary Condition 5
+  Name = "periodic_rotor_bottom"
+  Target Boundaries(1) = 13
+  Mortar BC = 6
+  Mortar BC Static = Logical True
+  Anti Radial Projector = Logical True
+  Galerkin Projector = Logical True
+  Save Projector = Logical True
+End
+
+Boundary Condition 6
+  Name = "periodic_rotor_left"
+  Target Boundaries(1) = 12
+End

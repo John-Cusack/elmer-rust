@@ -128,7 +128,9 @@ impl Case {
         let numbered = |s: &[elmer_sif::Section]| {
             let n = s.iter().map(|s| s.id as usize).max().unwrap_or(0);
             let mut out = vec![ParamMap::new(); n];
-            for s in s {
+            // A sif whose sections start above 1 also yields an empty one
+            // numbered 0.
+            for s in s.iter().filter(|s| s.id > 0) {
                 out[s.id as usize - 1] = elmer_sif::section_to_param_map(s);
             }
             out
