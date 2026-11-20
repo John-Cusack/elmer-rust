@@ -15,10 +15,12 @@
 //! Without `DG Reduced Basis` every DG index is its own dof, numbered over
 //! the edges (faces) in mesh order, the left then the right parent's
 //! indexes at first sight (InitialPermutation's DG branch), and the
-//! pattern couples both parents of every edge. Bandwidth optimisation of
-//! that numbering is refused (`Optimize Bandwidth = False` is required).
+//! pattern couples both parents of every edge. `Optimize Bandwidth`
+//! (default on) then renumbers it with Elmer's reverse Cuthill-McKee
+//! (`OptimizeBandwidth`), kept unless it widens the band (or with
+//! `Optimize Bandwidth Use Always`).
 
-use elmer_assembly::{initialize_matrix, ListMatrix};
+use elmer_assembly::{bandwidth, bandwidth_reordered, initialize_matrix, rcm_order, ListMatrix};
 use elmer_core::{CsrMatrix, ElemId, ElementBasis, MeshView, ParamMap, Params, QuadPoint, Quadrature, Value, NO_DOF};
 use elmer_solver::{DgIndexes, Model, Perm, SolverDofs, SolverError};
 
@@ -29,6 +31,8 @@ pub struct DgDofs {
     perm: Vec<u32>,
     n_slots: usize,
     list: ListMatrix,
+    /// The bandwidth optimisation's `new_index` of the list rows.
+    map: Option<Vec<u32>>,
     /// The element nodes and parents, for the slots of boundary elements.
     nodes: Vec<Vec<u32>>,
     parents: Vec<[Option<ElemId>; 2]>,
@@ -49,11 +53,6 @@ impl DgDofs {
     /// `active`.
     pub fn build(mesh: &dyn MeshView, model: &Model, solver: &ParamMap, active: &[ElemId]) -> Result<Self, SolverError> {
         let reduced = solver.logical("dg reduced basis") == Some(true);
-        if !reduced && solver.logical("optimize bandwidth") != Some(false) {
-            return Err(SolverError::Unsupported(
-                "Discontinuous Galerkin without DG Reduced Basis and with Optimize Bandwidth (Cuthill-McKee of DG dofs)".into(),
-            ));
-        }
         let ix = DgIndexes::for_dg_solver(mesh, model)?;
         let nb = mesh.n_bulk();
         let mut is_active = vec![false; nb];
@@ -188,6 +187,20 @@ impl DgDofs {
             let both: Vec<u32> = ix.index[lt].iter().chain(&ix.index[rt]).copied().collect();
             add(&mut list, &both);
         }
+        // OptimizeBandwidth (CreateMatrix suppresses it for a reduced basis).
+        let mut map = None;
+        if !reduced && n_slots > 0 && solver.logical("optimize bandwidth") != Some(false) {
+            let initial = bandwidth(&list) + 1;
+            let new_index = rcm_order(&list);
+            let optimized = bandwidth_reordered(&list, &new_index) + 1;
+            let always = solver.logical("optimize bandwidth use always") == Some(true);
+            if !(initial < optimized && !always) {
+                for p in perm.iter_mut().filter(|p| **p > 0) {
+                    *p = new_index[*p as usize - 1] + 1;
+                }
+                map = Some(new_index);
+            }
+        }
         if indirect {
             for (k1, &k2) in pairs.iter().enumerate() {
                 if k2 == u32::MAX {
@@ -209,7 +222,7 @@ impl DgDofs {
         let nodes = (0..nb + mesh.n_boundary()).map(|t| mesh.element(ElemId(t as u32)).nodes.to_vec()).collect();
         let parents = (0..nb + mesh.n_boundary()).map(|t| mesh.element(ElemId(t as u32)).parents).collect();
         let etypes = (0..nb + mesh.n_boundary()).map(|t| mesh.element(ElemId(t as u32)).etype).collect();
-        Ok(DgDofs { ix, perm, n_slots, list, nodes, parents, etypes, n_bulk: nb, dim: mesh.dim() })
+        Ok(DgDofs { ix, perm, n_slots, list, map, nodes, parents, etypes, n_bulk: nb, dim: mesh.dim() })
     }
 
     fn push_slots(&self, t: usize, out: &mut Vec<u32>) {
@@ -225,7 +238,7 @@ impl SolverDofs for DgDofs {
     }
 
     fn create_matrix(&self, dofs: usize) -> CsrMatrix<f64> {
-        initialize_matrix(&self.list, None, dofs)
+        initialize_matrix(&self.list, self.map.as_deref(), dofs)
     }
 
     /// `mGetElementDOFs` of a DG solver: a bulk element's DG indexes; a
