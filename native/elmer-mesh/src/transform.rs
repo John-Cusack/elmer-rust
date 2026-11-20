@@ -397,6 +397,9 @@ fn create_intersection_bcs(mesh: &mut Mesh, model: &Model) -> Result<(), MeshErr
     struct New {
         node: u32,
         tag: i32,
+        /// A BulkMode line element (`Edge % TYPE`, its nodes): the edge
+        /// between the two bodies, with its bulk parents.
+        line: Option<(u16, Vec<u32>)>,
         /// Boundary-element positions (into `mesh.boundary`).
         left_bpos: usize,
         right_bpos: usize,
@@ -408,35 +411,46 @@ fn create_intersection_bcs(mesh: &mut Mesh, model: &Model) -> Result<(), MeshErr
     // NodeDone is per-row in Elmer (reset for each l).
     for row in &rows {
         if row.body_mode {
-            // Edges shared by bulk elements whose bodies are exactly the
-            // two parents. (2D BulkMode; 3D is refused above.)
-            let mut edge_users: std::collections::HashMap<u32, Vec<usize>> =
-                std::collections::HashMap::new();
+            // `Mesh % Edges` in FindMeshEdges2D's order: each edge with the
+            // nodes of the first bulk element that has it, `Left` that
+            // element and `Right` the second. An edge between the two
+            // bodies (0: no element on that side) becomes a boundary
+            // element of the edge's type. (2D BulkMode; 3D is refused above.)
+            let n_edges = mesh.n_edges();
+            let mut first: Vec<Option<(u32, u32)>> = vec![None; n_edges];
+            let mut left: Vec<Option<usize>> = vec![None; n_edges];
+            let mut right: Vec<Option<usize>> = vec![None; n_edges];
             for (bi, b) in mesh.bulk.iter().enumerate() {
-                for &eid in &b.edges {
-                    edge_users.entry(eid).or_default().push(bi);
+                let def = crate::elements::linear_edges(b.code).unwrap_or(&[]);
+                for (k, &eid) in b.edges.iter().enumerate() {
+                    let e = eid as usize;
+                    if first[e].is_none() {
+                        if let Some(&(a, c)) = def.get(k) {
+                            first[e] = Some((b.nodes[a], b.nodes[c]));
+                        }
+                    }
+                    if left[e].is_some() {
+                        right[e] = Some(bi);
+                    } else {
+                        left[e] = Some(bi);
+                    }
                 }
             }
-            let table = mesh.edges.as_ref().cloned().unwrap_or_default();
-            for (eid, users) in &edge_users {
-                if users.len() != 2 {
+            for e in 0..n_edges {
+                let j = left[e].map_or(0, |b| mesh.bulk[b].body);
+                let j2 = right[e].map_or(0, |b| mesh.bulk[b].body);
+                if j == j2 || (j != row.pa && j != row.pb) || (j2 != row.pa && j2 != row.pb) {
                     continue;
                 }
-                let (b0, b1) = (mesh.bulk[users[0]].body, mesh.bulk[users[1]].body);
-                if b0 == b1 {
-                    continue;
-                }
-                if !((b0 == row.pa || b0 == row.pb) && (b1 == row.pa || b1 == row.pb)) {
-                    continue;
-                }
-                let (n1, _) = table.edges[*eid as usize];
+                let Some((a, c)) = first[e] else { continue };
                 new_elems.push(New {
-                    node: n1,
+                    node: a,
                     tag: row.new_tag,
+                    line: Some((202, vec![a, c])),
                     left_bpos: 0,
                     right_bpos: 0,
-                    left_bulk: Some(users[0]),
-                    right_bulk: Some(users[1]),
+                    left_bulk: left[e],
+                    right_bulk: right[e],
                 });
             }
         } else {
@@ -472,6 +486,7 @@ fn create_intersection_bcs(mesh: &mut Mesh, model: &Model) -> Result<(), MeshErr
                     new_elems.push(New {
                         node: e,
                         tag: row.new_tag,
+                        line: None,
                         left_bpos: t,
                         right_bpos: t2,
                         left_bulk: None,
@@ -486,11 +501,18 @@ fn create_intersection_bcs(mesh: &mut Mesh, model: &Model) -> Result<(), MeshErr
     // are the two bulk elements.
     let n_bulk = mesh.bulk.len();
     for ne in new_elems {
-        let parents = if let (Some(a), Some(b)) = (ne.left_bulk, ne.right_bulk) {
-            [Some(a), Some(b)]
-        } else {
-            [Some(n_bulk + ne.left_bpos), Some(n_bulk + ne.right_bpos)]
-        };
+        if let Some((code, nodes)) = ne.line {
+            mesh.boundary.push(BoundElem {
+                code,
+                constraint: ne.tag,
+                parents: [ne.left_bulk, ne.right_bulk],
+                nodes,
+                tag: 0,
+                edges: Vec::new(),
+            });
+            continue;
+        }
+        let parents = [Some(n_bulk + ne.left_bpos), Some(n_bulk + ne.right_bpos)];
         mesh.boundary.push(BoundElem {
             code: 101,
             constraint: ne.tag,

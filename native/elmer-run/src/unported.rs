@@ -61,11 +61,7 @@ fn check_solver_mesh(i: usize, s: &ParamMap) -> Result<(), SolverError> {
 
 const BODY_FORCE: &[Rule] = &[];
 
-const BOUNDARY: &[Rule] = &[
-    // The elements `CreateIntersectionBCs` builds for an `Intersection Body`
-    // are not composed: IntersectionBody1D diverges (norm 2.6e14 vs 0.113).
-    present("Intersection Body", "intersection bodies are not composed"),
-];
+const BOUNDARY: &[Rule] = &[];
 
 fn scan(section: &str, i: usize, params: &ParamMap, rules: &[Rule]) -> Result<(), SolverError> {
     for r in rules {
@@ -260,13 +256,6 @@ mod tests {
         };
         // Dirichlet conditions in BC numbering order are elmer-solver's.
         assert!(check(&model).is_ok());
-
-        let model = Model {
-            solvers: vec![heat(&[]), heat(&[("exec solver", st("never")), ("mesh", st("local"))])],
-            boundary_conditions: vec![pm(&[]), pm(&[("intersection body", Value::Integer(vec![1]))])],
-            ..Model::default()
-        };
-        assert_eq!(refusal(&model), "Boundary Condition 2: Intersection Body: intersection bodies are not composed");
 
         let model = Model {
             solvers: vec![heat(&[])],
