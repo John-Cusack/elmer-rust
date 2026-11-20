@@ -18,6 +18,10 @@ pub enum Step {
     /// `RUN_ELMER_TEST()` (the `ELMERSOLVER_STARTINFO` case) or
     /// `EXECUTE_ELMER_SOLVER(x.sif)`.
     Solve(Option<String>),
+    /// `file(COPY <files> DESTINATION <dir>)`: files of the test copied into
+    /// a directory of the run (`reload` puts its restart file in the mesh
+    /// directory). Paths are relative to the run directory.
+    Copy(Vec<String>, String),
     /// Any other tool the test runs first; the native path has no
     /// equivalent (`Mesh2D`, ...). `ViewFactors` and `Radiators` need no
     /// step in a serial run: the heat solver computes their factors itself.
@@ -144,6 +148,13 @@ pub fn steps(runtest: &str, nprocs: u32, source: &Path) -> Vec<Step> {
                     Some("${MESH2D_BIN}") => steps.push(Step::Other("Mesh2D".into())),
                     Some(other) => steps.push(Step::Other(other.trim_matches(&['$', '{', '}'][..]).to_string())),
                     None => {}
+                }
+            }
+            "file" if args.first().is_some_and(|a| a.eq_ignore_ascii_case("COPY")) => {
+                let words: Vec<String> = args[1..].iter().map(|a| substitute(a, nprocs, source)).collect();
+                let Some(p) = words.iter().position(|w| w.eq_ignore_ascii_case("DESTINATION")) else { continue };
+                if let Some(dest) = words.get(p + 1) {
+                    steps.push(Step::Copy(words[..p].to_vec(), dest.clone()));
                 }
             }
             "run_elmer_test" => steps.push(Step::Solve(None)),
@@ -295,6 +306,9 @@ pub fn stage(test: &QuickTest, steps: &[Step], scratch: &Path, elmergrid: &Path)
         copy_tree(&test.source_dir, &dir, false, false).map_err(|e| format!("copy {}: {e}", test.source_dir.display()))?;
     }
     for step in steps {
+        if let Step::Copy(files, dest) = step {
+            copy_into(&dir, files, dest)?;
+        }
         if let Step::ElmerGrid(args) = step {
             let mut cmd = Command::new("nice");
             cmd.args(["-n", "10"]).arg(elmergrid).args(args).current_dir(&dir);
@@ -308,6 +322,25 @@ pub fn stage(test: &QuickTest, steps: &[Step], scratch: &Path, elmergrid: &Path)
         }
     }
     Ok(dir)
+}
+
+/// A relative path that stays inside the run directory, or `None`.
+fn inside(dir: &Path, rel: &str) -> Option<PathBuf> {
+    let p = Path::new(rel);
+    let ok = p.components().all(|c| matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir));
+    ok.then(|| dir.join(p))
+}
+
+/// [`Step::Copy`] in the staged directory `dir`: only paths inside it.
+fn copy_into(dir: &Path, files: &[String], dest: &str) -> Result<(), String> {
+    let to = inside(dir, dest).ok_or_else(|| format!("file(COPY): destination {dest} outside the run directory"))?;
+    fs::create_dir_all(&to).map_err(|e| format!("file(COPY) {}: {e}", to.display()))?;
+    for f in files {
+        let from = inside(dir, f).ok_or_else(|| format!("file(COPY): {f} outside the run directory"))?;
+        let name = from.file_name().ok_or_else(|| format!("file(COPY): {f} names no file"))?;
+        fs::copy(&from, to.join(name)).map_err(|e| format!("file(COPY) {}: {e}", from.display()))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -378,6 +411,24 @@ mod tests {
     fn semicolon_is_a_list_separator() {
         let text = "execute_process(COMMAND ${ELMERGRID_BIN} 1 2 Step;)\n";
         assert_eq!(steps(text, 1, Path::new("/s")), vec![Step::ElmerGrid(vec!["1".into(), "2".into(), "Step".into()])]);
+    }
+
+    /// `reload`'s recipe: the restart file goes into the mesh directory
+    /// ElmerGrid makes, and nothing outside the run directory is touched.
+    #[test]
+    fn file_copy_into_the_run() {
+        let text = "execute_process(COMMAND ${ELMERGRID_BIN} 1 2 Step)\nfile(COPY flow.dat flow.dat.pos DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/Step/)\nRUN_ELMER_TEST()\n";
+        let st = steps(text, 1, Path::new("/s"));
+        assert_eq!(st[1], Step::Copy(vec!["flow.dat".into(), "flow.dat.pos".into()], "./Step/".into()));
+        let d = tmp("copy");
+        fs::create_dir_all(d.join("Step")).unwrap();
+        fs::write(d.join("flow.dat"), "x").unwrap();
+        fs::write(d.join("flow.dat.pos"), "y").unwrap();
+        copy_into(&d, &["flow.dat".into(), "flow.dat.pos".into()], "./Step/").unwrap();
+        assert_eq!(fs::read_to_string(d.join("Step/flow.dat.pos")).unwrap(), "y");
+        assert!(copy_into(&d, &["flow.dat".into()], "../elsewhere").is_err());
+        assert!(copy_into(&d, &["/etc/hostname".into()], "Step").is_err());
+        fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]
