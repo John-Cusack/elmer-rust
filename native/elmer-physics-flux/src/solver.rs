@@ -27,9 +27,11 @@ pub fn install_fe(provider: FeProvider) -> bool {
     FE.set(provider).is_ok()
 }
 
-/// Registers `("FluxSolver", "FluxSolver")`.
+/// Registers `("FluxSolver", "FluxSolver")` and `("DivergenceSolver",
+/// "DivergenceSolver")`.
 pub fn register(registry: &mut SolverRegistry) {
     registry.register(PROCEDURE.0, PROCEDURE.1, factory);
+    crate::divergence::register(registry);
 }
 
 /// [`SolverFactory`](elmer_solver::SolverFactory) for [`FluxSolver`]. Fails

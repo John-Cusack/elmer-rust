@@ -21,10 +21,12 @@
 //! (elemental DG variables and face terms) is refused rather than approximated.
 #![forbid(unsafe_code)]
 
+mod divergence;
 mod error;
 mod kernel;
 mod solver;
 
+pub use divergence::{divergence_defaults, divergence_factory, DivergenceSolver, DIVERGENCE_PROCEDURE};
 pub use error::FluxError;
 pub use kernel::{flux_bulk_local, FluxCoefficient, FluxConfig, FluxLocal};
 pub use solver::{factory, install_fe, register, FeProvider, FluxSolver};

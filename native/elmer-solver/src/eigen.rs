@@ -25,17 +25,20 @@
 //! The modes are kept in [`crate::Variable::eigen_values`] and
 //! [`crate::Variable::eigen_vectors`].
 //!
-//! The eigenpairs come from `elmer_eigen::arpack`, the port of ARPACK
-//! answered as `ArpackEigenSolve` answers it ([`arpack_eigen_solve`]):
-//! `DSAUPD`/`DSEUPD` for a symmetric system (`Linear System Symmetric`,
-//! Elmer's `Matrix % Symmetric`), `DNAUPD`/`DNEUPD` otherwise, complex
-//! pairs included. They equal the pristine run's when the inner linear
-//! solves do.
+//! A symmetric system (`Linear System Symmetric`, Elmer's `Matrix %
+//! Symmetric`) goes through `elmer_eigen::arpack`, the port of ARPACK's
+//! `DSAUPD`/`DSEUPD`, answered as `ArpackEigenSolve` answers it
+//! ([`arpack_eigen_solve`]); its eigenpairs equal the pristine run's when
+//! the inner linear solves do. Other systems still use `elmer_eigen::eigs`
+//! (Krylov-Schur, not ARPACK's `DNAUPD`): same eigenpairs within `Eigen
+//! System Convergence Tolerance`, vectors not ARPACK's to round-off.
 //! Refused: complex, damped, lumped-mass, stability and parallel eigen
 //! systems, block and multigrid inner solvers, and scaling methods other
 //! than the diagonal one.
 
-use elmer_core::{CsrMatrix, LinalgError, ParamMap, Params};
+use std::cell::RefCell;
+
+use elmer_core::{CsrMatrix, DirectSolver, LinalgError, ParamMap, Params};
 use elmer_eigen::{EigenConfig, Mass, Normalize};
 
 use crate::backend::LinearSolverChoice;
@@ -84,6 +87,38 @@ fn unsupported(what: impl Into<String>) -> SolverError {
     SolverError::Unsupported(format!("Eigen Analysis: {}", what.into()))
 }
 
+/// The inner solves of an iterative `Linear System Solver`: each `OP` call
+/// solves the shifted system with the section's Krylov method, without the
+/// outer scaling (`IterSolver` inside `ArpackEigenSolve` does not scale).
+struct IterativeInner<'a> {
+    linear: &'a crate::LinearSolverRegistry,
+    params: ParamMap,
+    dofs: usize,
+    simulation: &'a ParamMap,
+    a: RefCell<Option<CsrMatrix<f64>>>,
+    log: &'a dyn elmer_core::Logger,
+    comm: &'a dyn elmer_core::Communicator,
+}
+
+impl DirectSolver<f64> for IterativeInner<'_> {
+    fn factor(&mut self, a: &CsrMatrix<f64>) -> Result<(), LinalgError> {
+        *self.a.borrow_mut() = Some(a.clone());
+        Ok(())
+    }
+
+    fn solve_in_place(&self, b: &mut [f64]) -> Result<(), LinalgError> {
+        let mut a = self.a.borrow_mut();
+        let a = a.as_mut().ok_or_else(|| LinalgError::Unsupported("inner solve before factor".into()))?;
+        let bnorm = b.iter().map(|v| v * v).sum::<f64>().sqrt();
+        let mut x = vec![0.0; b.len()];
+        let env = BlockEnv { dofs: self.dofs, ndeg: self.dofs, simulation: self.simulation, schur: None, multigrid: None, alias: None };
+        solve_linear(self.linear, &env, &self.params, a, b, &mut x, bnorm, false, self.log, self.comm)
+            .map_err(|e| LinalgError::Unsupported(format!("inner linear solve: {e}")))?;
+        b.copy_from_slice(&x);
+        Ok(())
+    }
+}
+
 /// An inner solve of `ArpackEigenSolve`: `a x = b` from the guess in `x`.
 type InnerSolve<'a> = dyn FnMut(&CsrMatrix<f64>, &[f64], &mut [f64]) -> Result<(), SolverError> + 'a;
 
@@ -93,39 +128,26 @@ type InnerSolve<'a> = dyn FnMut(&CsrMatrix<f64>, &[f64], &mut [f64]) -> Result<(
 /// (`Values - SigmaR * MassValues`, put back after); the reverse
 /// communication as Elmer answers it; `DSEUPD`; the pairs in `Eigen System
 /// Sorting` order. `inner(a, b, x)` solves `a x = b` from the guess in `x`.
-#[allow(clippy::too_many_arguments)]
 fn arpack_eigen_solve(
     arp: &mut elmer_eigen::arpack::saupd::Arpack,
     k: &mut CsrMatrix<f64>,
     mass: &CsrMatrix<f64>,
     dofs: usize,
     cfg: &EigenConfig,
-    symmetric: bool,
     inner: &mut InnerSolve<'_>,
 ) -> Result<elmer_eigen::EigenResult, SolverError> {
-    use elmer_eigen::arpack::{naupd, neupd, saupd, seupd};
-    use elmer_eigen::ArpackWhich as W;
+    use elmer_eigen::arpack::{saupd, seupd};
     use num_complex::Complex64;
     let n = k.nrows;
     let (nev, ncv) = (cfg.nev, cfg.ncv);
     if ncv <= nev {
         return Err(SolverError::fatal(CALLER, "Number of Lanczos vectors must exceed the number of eigenvalues."));
     }
-    let wsel = elmer_eigen::ArpackWhich::for_mode(cfg.select, true);
-    let which = match wsel {
-        W::LM => saupd::Which::LM,
-        W::SM => saupd::Which::SM,
+    let which = match elmer_eigen::ArpackWhich::for_mode(cfg.select, true) {
+        elmer_eigen::ArpackWhich::LM => saupd::Which::LM,
+        elmer_eigen::ArpackWhich::SM => saupd::Which::SM,
         // DSAUPD refuses the real/imaginary-part selections (info = -5).
-        _ if symmetric => return Err(SolverError::fatal(CALLER, " Error with DNAUPD, info =           -5")),
-        _ => saupd::Which::LM,
-    };
-    let nwhich = match wsel {
-        W::LM => naupd::NWhich::LM,
-        W::SM => naupd::NWhich::SM,
-        W::LR => naupd::NWhich::LR,
-        W::SR => naupd::NWhich::SR,
-        W::LI => naupd::NWhich::LI,
-        W::SI => naupd::NWhich::SI,
+        _ => return Err(SolverError::fatal(CALLER, " Error with DNAUPD, info =           -5")),
     };
     let sigma = cfg.shift;
     if sigma != 0.0 {
@@ -177,85 +199,38 @@ fn arpack_eigen_solve(
                 msg
             })
         };
-        if symmetric {
-            saupd::dsaupd(&mut op, arp, true, n, which, nev, &mut tol, &mut resid, ncv, &mut v, n, iparam, &mut workd, &mut workl, 0)
-                .map(|a| (a.iparam, a.info, Some(a), None))
-        } else {
-            naupd::dnaupd(&mut op, arp, true, n, nwhich, nev, &mut tol, &mut resid, ncv, &mut v, n, iparam, &mut workd, &mut workl, 0)
-                .map(|a| (a.iparam, a.info, None, Some(a)))
-        }
+        saupd::dsaupd(&mut op, arp, true, n, which, nev, &mut tol, &mut resid, ncv, &mut v, n, iparam, &mut workd, &mut workl, 0)
     };
-    let (iparam_out, info, sau, nau) = match au {
+    let au = match au {
         Ok(a) => a,
         Err(m) => return Err(failure.unwrap_or_else(|| SolverError::fatal(CALLER, m))),
     };
-    let (values, vectors);
-    if let Some(au) = sau {
-        if info != 0 {
-            return Err(SolverError::fatal(CALLER, format!(" Error with DNAUPD, info = {info:>11}")));
-        }
-        let (d, ierr) = seupd::dseupd(sigma, true, n, which, nev, tol, &resid, ncv, &mut v, n, &au, &mut workd, &mut workl);
-        if ierr != 0 {
-            return Err(SolverError::fatal(CALLER, format!("  Error with DNEUPD, info = {ierr:>11}")));
-        }
-        let vals: Vec<Complex64> = (0..nev).map(|i| Complex64::new(d.get(i).copied().unwrap_or(0.0), 0.0)).collect();
-        let perm = elmer_eigen::eigen_system_sorting(cfg.sorting, &vals);
-        values = perm.iter().map(|&p| vals[p]).collect::<Vec<_>>();
-        vectors = perm.iter().map(|&p| v[p * n..p * n + n].iter().map(|&x| Complex64::new(x, 0.0)).collect()).collect::<Vec<Vec<_>>>();
-    } else {
-        let au = nau.expect("the non-symmetric path ran DNAUPD");
-        // `IF (kinfo < 0)`: DNAUPD's error, before DNEUPD.
-        if info < 0 {
-            return Err(SolverError::fatal(CALLER, format!(" Error with DNAUPD, info = {info:>11}")));
-        }
-        let r = neupd::dneupd(sigma, 0.0, true, n, nwhich, nev, tol, &resid, ncv, &mut v, n, &au, &mut workd, &mut workl);
-        if r.info != 0 {
-            return Err(SolverError::fatal(CALLER, format!(" Error with DNEUPD, info = {:>11}", r.info)));
-        }
-        if info == 1 {
-            return Err(SolverError::fatal(CALLER, "Maximum number of iterations reached."));
-        } else if info == 3 {
-            return Err(SolverError::fatal(CALLER, "No shifts could be applied during implicit Arnoldi update, try increasing NCV."));
-        }
-        // `EigValues(i) = CMPLX(D(i,1), D(i,2))`, sorted by
-        // EigenSystemSorting. The vector of value p is taken from column
-        // k = 1 + sum over j < p of (1 if D(j,2) == 0 else 2) of V, a
-        // complex one as V(:,k) + i V(:,k+1): ArpackEigenSolve's count,
-        // in which both members of a conjugate pair add 2.
-        let vals: Vec<Complex64> = (0..nev).map(|i| Complex64::new(r.dr[i], r.di[i])).collect();
-        let perm = elmer_eigen::eigen_system_sorting(cfg.sorting, &vals);
-        values = perm.iter().map(|&p| vals[p]).collect::<Vec<_>>();
-        let col = |c: usize| -> Result<&[f64], SolverError> {
-            v.get(c * n..c * n + n).ok_or_else(|| SolverError::fatal(CALLER, "eigenvector column outside the Arnoldi basis"))
-        };
-        let mut vecs = Vec::with_capacity(nev);
-        for &p in &perm {
-            let k0: usize = (0..p).map(|j| if r.di[j] == 0.0 { 1 } else { 2 }).sum();
-            let re = col(k0)?;
-            let x: Vec<Complex64> = if r.di[p] != 0.0 {
-                let im = col(k0 + 1)?;
-                re.iter().zip(im).map(|(&a, &b)| Complex64::new(a, b)).collect()
-            } else {
-                re.iter().map(|&a| Complex64::new(a, 0.0)).collect()
-            };
-            vecs.push(x);
-        }
-        vectors = vecs;
+    if au.info != 0 {
+        return Err(SolverError::fatal(CALLER, format!(" Error with DNAUPD, info = {:>11}", au.info)));
     }
+    let (d, ierr) = seupd::dseupd(sigma, true, n, which, nev, tol, &resid, ncv, &mut v, n, &au, &mut workd, &mut workl);
+    if ierr != 0 {
+        return Err(SolverError::fatal(CALLER, format!("  Error with DNEUPD, info = {ierr:>11}")));
+    }
+    let values: Vec<Complex64> = (0..nev).map(|i| Complex64::new(d.get(i).copied().unwrap_or(0.0), 0.0)).collect();
+    let perm = elmer_eigen::eigen_system_sorting(cfg.sorting, &values);
     if sigma != 0.0 {
         for (kv, mv) in k.values.iter_mut().zip(&mass.values) {
             *kv += sigma * mv;
         }
     }
+    let values: Vec<Complex64> = perm.iter().map(|&p| values[p]).collect();
+    let vectors: Vec<Vec<Complex64>> =
+        perm.iter().map(|&p| v[p * n..p * n + n].iter().map(|&x| Complex64::new(x, 0.0)).collect()).collect();
     let residuals = cfg
         .compute_residuals
         .then(|| elmer_eigen::check_residuals(k, Mass::Consistent(mass), &values, &vectors));
     Ok(elmer_eigen::EigenResult {
         values,
         vectors,
-        iterations: iparam_out[2].max(0) as usize,
+        iterations: au.iparam[2].max(0) as usize,
         op_applications: iter - 1,
-        converged: iparam_out[4].max(0) as usize,
+        converged: au.iparam[4].max(0) as usize,
         residuals,
     })
 }
@@ -321,33 +296,51 @@ pub(crate) fn solve(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverError> {
         };
         let mut q = p.clone();
         q.insert("Linear System Scaling", elmer_core::Value::Logical(false));
-        // ArpackEigenSolve's inner solves: a direct solver factors the
-        // shifted matrix once (`Linear System Refactorize = False` after
-        // the first); IterSolver starts from what `workd(ipntr(2))` holds.
-        let (linear, simulation) = (&sim.backends.linear, &sim.model.simulation);
-        let mut factored = false;
-        let mut inner = |a: &CsrMatrix<f64>, b: &[f64], x: &mut [f64]| -> Result<(), SolverError> {
-            match direct.as_mut() {
-                Some(d) => {
-                    if !factored {
-                        d.factor(a)?;
-                        factored = true;
+        if symmetric {
+            // ArpackEigenSolve's inner solves: a direct solver factors the
+            // shifted matrix once (`Linear System Refactorize = False` after
+            // the first); IterSolver starts from what `workd(ipntr(2))` holds.
+            let (linear, simulation) = (&sim.backends.linear, &sim.model.simulation);
+            let mut factored = false;
+            let mut inner = |a: &CsrMatrix<f64>, b: &[f64], x: &mut [f64]| -> Result<(), SolverError> {
+                match direct.as_mut() {
+                    Some(d) => {
+                        if !factored {
+                            d.factor(a)?;
+                            factored = true;
+                        }
+                        let mut y = b.to_vec();
+                        d.solve_in_place(&mut y)?;
+                        x.copy_from_slice(&y);
+                        Ok(())
                     }
-                    let mut y = b.to_vec();
-                    d.solve_in_place(&mut y)?;
-                    x.copy_from_slice(&y);
-                    Ok(())
+                    None => {
+                        let mut a2 = a.clone();
+                        let mut bb = b.to_vec();
+                        let bnorm = bb.iter().map(|v| v * v).sum::<f64>().sqrt();
+                        let env = BlockEnv { dofs, ndeg: dofs, simulation, schur: None, multigrid: None, alias: None };
+                        solve_linear(linear, &env, &q, &mut a2, &mut bb, x, bnorm, false, log, comm).map(|_| ())
+                    }
                 }
+            };
+            arpack_eigen_solve(&mut sim.arpack, k, &mass, dofs, &cfg, &mut inner)
+        } else {
+            match direct {
+                Some(mut d) => elmer_eigen::eigs(k, Mass::Consistent(&mass), &mut *d, &cfg).map_err(SolverError::from),
                 None => {
-                    let mut a2 = a.clone();
-                    let mut bb = b.to_vec();
-                    let bnorm = bb.iter().map(|v| v * v).sum::<f64>().sqrt();
-                    let env = BlockEnv { dofs, ndeg: dofs, simulation, schur: None, multigrid: None, alias: None };
-                    solve_linear(linear, &env, &q, &mut a2, &mut bb, x, bnorm, false, log, comm).map(|_| ())
+                    let mut inner = IterativeInner {
+                        linear: &sim.backends.linear,
+                        params: q,
+                        dofs,
+                        simulation: &sim.model.simulation,
+                        a: RefCell::new(None),
+                        log,
+                        comm,
+                    };
+                    elmer_eigen::eigs(k, Mass::Consistent(&mass), &mut inner, &cfg).map_err(SolverError::from)
                 }
             }
-        };
-        arpack_eigen_solve(&mut sim.arpack, k, &mass, dofs, &cfg, symmetric, &mut inner)
+        }
     };
 
     // BackScaleLinearSystem(EigenScaling = .TRUE.), then K and M unscaled.
@@ -470,7 +463,7 @@ mod tests {
             Ok(())
         };
         let mut arp = elmer_eigen::arpack::saupd::Arpack::default();
-        let r = arpack_eigen_solve(&mut arp, &mut k, &m, 1, &cfg, true, &mut inner).unwrap();
+        let r = arpack_eigen_solve(&mut arp, &mut k, &m, 1, &cfg, &mut inner).unwrap();
         let mut want: Vec<f64> = (1..=n).map(|j| 2.0 - 2.0 * (j as f64 * std::f64::consts::PI / (n as f64 + 1.0)).cos()).collect();
         want.sort_by(|a, b| (a - 0.5).abs().total_cmp(&(b - 0.5).abs()));
         let mut got: Vec<f64> = r.values.iter().map(|z| z.re).collect();
@@ -489,82 +482,6 @@ mod tests {
         }
         // The seed moved on, as dgetv0's SAVE does.
         assert_ne!(arp.iseed, [1, 3, 5, 7]);
-    }
-
-    /// Without `Linear System Symmetric` the same solve runs DNAUPD /
-    /// DNEUPD: a tridiagonal `K` with sub- and superdiagonals -1.3 and -0.7
-    /// has the real eigenvalues `2 - 2 sqrt(0.91) cos(j pi / (n+1))`; the
-    /// four nearest the shift come back with `K x = lambda x`.
-    #[test]
-    fn nonsymmetric_arpack_path_finds_the_eigenpairs_nearest_the_shift() {
-        let n = 30;
-        let mut k = CsrMatrix { nrows: n, ncols: n, row_ptr: vec![0], col_idx: vec![], values: vec![], diag: None };
-        let mut m = k.clone();
-        for i in 0..n {
-            for j in i.saturating_sub(1)..(i + 2).min(n) {
-                k.col_idx.push(j as u32);
-                k.values.push(if i == j { 2.0 } else if j < i { -1.3 } else { -0.7 });
-                m.col_idx.push(j as u32);
-                m.values.push(if i == j { 1.0 } else { 0.0 });
-            }
-            k.row_ptr.push(k.values.len());
-            m.row_ptr.push(m.values.len());
-        }
-        let k0 = k.clone();
-        let mut p = ParamMap::new();
-        p.insert("Eigen System Values", Value::Integer(vec![4]));
-        p.insert("Eigen System Shift", Value::real(0.5));
-        p.insert("Eigen System Convergence Tolerance", Value::real(1e-12));
-        let cfg = EigenConfig::from_params(&p, false).unwrap();
-        let mut inner = |a: &CsrMatrix<f64>, b: &[f64], x: &mut [f64]| -> Result<(), SolverError> {
-            let mut d = vec![0.0; n * n];
-            for i in 0..n {
-                for q in a.row_ptr[i]..a.row_ptr[i + 1] {
-                    d[i * n + a.col_idx[q] as usize] = a.values[q];
-                }
-            }
-            let mut r = b.to_vec();
-            for c in 0..n {
-                for i in c + 1..n {
-                    let f = d[i * n + c] / d[c * n + c];
-                    for j in c..n {
-                        d[i * n + j] -= f * d[c * n + j];
-                    }
-                    r[i] -= f * r[c];
-                }
-            }
-            for i in (0..n).rev() {
-                let mut t = r[i];
-                for j in i + 1..n {
-                    t -= d[i * n + j] * x[j];
-                }
-                x[i] = t / d[i * n + i];
-            }
-            Ok(())
-        };
-        let mut arp = elmer_eigen::arpack::saupd::Arpack::default();
-        let r = arpack_eigen_solve(&mut arp, &mut k, &m, 1, &cfg, false, &mut inner).unwrap();
-        let c = 2.0 * 0.91f64.sqrt();
-        let mut want: Vec<f64> = (1..=n).map(|j| 2.0 - c * (j as f64 * std::f64::consts::PI / (n as f64 + 1.0)).cos()).collect();
-        want.sort_by(|a, b| (a - 0.5).abs().total_cmp(&(b - 0.5).abs()));
-        let mut near = want[..4].to_vec();
-        near.sort_by(f64::total_cmp);
-        let mut got: Vec<f64> = r.values.iter().map(|z| z.re).collect();
-        got.sort_by(f64::total_cmp);
-        for (g, w) in got.iter().zip(&near) {
-            assert!((g - w).abs() < 1e-9, "{g} vs {w}");
-        }
-        for (lam, x) in r.values.iter().zip(&r.vectors) {
-            assert!(lam.im.abs() < 1e-12);
-            let mut res = 0.0f64;
-            for i in 0..n {
-                let kx: f64 = (k0.row_ptr[i]..k0.row_ptr[i + 1]).map(|q| k0.values[q] * x[k0.col_idx[q] as usize].re).sum();
-                res = res.max((kx - lam.re * x[i].re).abs());
-            }
-            assert!(res < 1e-8, "residual {res}");
-        }
-        // K is put back after the shift.
-        assert_eq!(k.values, k0.values);
     }
 
     /// Dirichlet dof 1: its mass row is zero; with `Linear System

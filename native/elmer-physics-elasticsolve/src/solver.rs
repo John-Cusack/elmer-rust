@@ -146,6 +146,7 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
         ("harmonic mode", "harmonic analysis"),
         ("calculate pangle", "principal angle postprocessing"),
         ("geometric stiffness", "geometric stiffness"),
+        ("quasi stationary", "quasi stationary"),
         ("local matrix storage", "local matrix storage"),
         ("adaptive mesh refinement", "adaptive mesh refinement"),
         ("use hencky strain", "Hencky strain"),
@@ -241,7 +242,6 @@ struct ElementData {
     pressure: Option<Vec<f64>>,
     stress_load: Option<Vec<Voigt6>>,
     strain_load: Option<Vec<Voigt6>>,
-    gpa: Option<Vec<f64>>,
     temperature: Option<Vec<f64>>,
     heat_expansion: Option<Vec<[f64; 3]>>,
     ip: Option<IpProps>,
@@ -368,6 +368,7 @@ impl ElasticSolver {
         if let Some(bf) = bp.body_force {
             for prefix in [
                 "stress volume source",
+                "gravitational prestress",
                 "update reference displacement",
                 "stress pressure im",
                 "stress bodyforce 1 im",
@@ -510,13 +511,6 @@ impl ElasticSolver {
             heat_expansion = Some((0..n).map(|k| beta_of_block(b.rows, b.cols, b.node(k))).collect());
         }
         let ip = (ip.young.is_some() || ip.poisson.is_some() || ip.beta.is_some() || ip.load.is_some()).then_some(ip);
-        // "Gravitational Prestress Advection" with "GPA Coeff" (0 when absent).
-        let gpa = match bp.body_force {
-            Some(bf) if bf.logical("gravitational prestress advection") == Some(true) => {
-                Some(props::scalar_nodes(ctx, bf, "gpa coeff", e)?.unwrap_or_else(|| vec![0.0; n]))
-            }
-            _ => None,
-        };
         Ok(ElementData {
             law,
             density,
@@ -528,7 +522,6 @@ impl ElasticSolver {
             pressure,
             stress_load,
             strain_load,
-            gpa,
             temperature,
             heat_expansion,
             ip,
@@ -738,10 +731,6 @@ impl Solver for ElasticSolver {
         check_solver_params(ctx.params())?;
         let model = model_of(ctx.params());
         let second_order = transient && ctx.params().integer("time derivative order").unwrap_or(2) == 2;
-        let quasi = flag(Some(ctx.params()), "quasi stationary");
-        if quasi && !transient {
-            ctx.warn(CALLER, "\"Quasi Stationary\" only has meaning in a transient simulation");
-        }
         let cdim = ctx.mesh.dim();
         let coord_name = elmer_core::normalize_key(ctx.simulation_params().string("coordinate system").unwrap_or("cartesian"));
         let axi = match coord_name.as_str() {
@@ -885,7 +874,6 @@ impl Solver for ElasticSolver {
                         pressure_load: d.pressure.as_deref(),
                         stress_load: d.stress_load.as_deref(),
                         strain_load: d.strain_load.as_deref(),
-                        gpa: d.gpa.as_deref(),
                         temperature: d.temperature.as_deref(),
                         heat_expansion: d.heat_expansion.as_deref(),
                         want_mass: transient,
@@ -896,15 +884,7 @@ impl Solver for ElasticSolver {
                 }
                 if transient {
                     let nn = local.n * local.n;
-                    let mut mass = local.mass.take().unwrap_or_else(|| vec![0.0; nn]);
-                    // "Quasi Stationary" (ElasticSolve.F90:4743): no inertial term
-                    // unless the element carries a damping.
-                    let damped = d.damping.as_ref().is_some_and(|v| v.iter().any(|x| *x != 0.0))
-                        || d.rayleigh_alpha.is_some()
-                        || d.rayleigh_beta.is_some();
-                    if quasi && !damped {
-                        mass.iter_mut().for_each(|v| *v = 0.0);
-                    }
+                    let mass = local.mass.take().unwrap_or_else(|| vec![0.0; nn]);
                     let mut damp = local.damp.take().unwrap_or_else(|| vec![0.0; nn]);
                     if let Some(a) = d.rayleigh_alpha {
                         damp.iter_mut().zip(&mass).for_each(|(c, m)| *c += a * m);
