@@ -79,41 +79,13 @@ pub fn det(a: &T3, n: usize) -> f64 {
     }
 }
 
-/// `InvertMatrix(a, n)`: inverts the leading `n x n` block in place and leaves
-/// the rest of the array alone. `None` for a singular block.
+/// `InvertMatrix(a, n)` (LinearAlgebra.F90): the leading `n x n` block
+/// inverted through `LUDecomp` with partial pivoting, as the Fortran does
+/// (the explicit adjugate formula rounds differently); the rest of `a` is
+/// kept. `None` when the LU decomposition fails.
 pub fn invert(a: &T3, n: usize) -> Option<T3> {
     let mut o = *a;
-    match n {
-        1 => {
-            if a[0][0] == 0.0 {
-                return None;
-            }
-            o[0][0] = 1.0 / a[0][0];
-        }
-        2 => {
-            let d = det(a, 2);
-            if d == 0.0 {
-                return None;
-            }
-            o[0][0] = a[1][1] / d;
-            o[1][1] = a[0][0] / d;
-            o[0][1] = -a[0][1] / d;
-            o[1][0] = -a[1][0] / d;
-        }
-        _ => {
-            let d = det(a, 3);
-            if d == 0.0 {
-                return None;
-            }
-            for i in 0..3 {
-                for j in 0..3 {
-                    let (r1, r2) = ((j + 1) % 3, (j + 2) % 3);
-                    let (c1, c2) = ((i + 1) % 3, (i + 2) % 3);
-                    o[i][j] = (a[r1][c1] * a[r2][c2] - a[r1][c2] * a[r2][c1]) / d;
-                }
-            }
-        }
-    }
+    elmer_physics_elastic::post::invert_matrix(&mut o, n).ok()?;
     Some(o)
 }
 
