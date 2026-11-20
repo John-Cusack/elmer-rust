@@ -42,6 +42,7 @@ pub mod mesh_db;
 mod mortar;
 mod motion;
 mod saveprojection;
+mod energy_release;
 pub mod result_file;
 pub mod output;
 pub mod sif;
