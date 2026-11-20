@@ -2061,28 +2061,6 @@ impl<'a> SolverCtx<'a> {
         let n = sys.matrix.nrows;
         // SolveSystem's RestrictionMode: SolveWithLinearRestriction solves
         // the collection system [A C^T; C 0] instead.
-        let restricted = match slot.constraints.as_ref().or(slot.own_constraints.as_ref()) {
-            None => None,
-            Some(c) => {
-                crate::constraints::refuse_options(p)?;
-                if var.values.len() != n {
-                    return Err(SolverError::Unsupported(
-                        "linear constraints on a variable longer than its system".into(),
-                    ));
-                }
-                let (a, b) = crate::constraints::collection(&sys.matrix, &sys.rhs, c, &slot.asm.constrained, p, log);
-                let mut x = var.values.clone();
-                x.resize(a.nrows, 0.0);
-                if let Some((_, init)) = &mult {
-                    x[n..n + init.len()].copy_from_slice(init);
-                }
-                Some((a, b, x))
-            }
-        };
-        let (mut ca, mut cb, mut cx) = match restricted {
-            Some((a, b, x)) => (Some(a), Some(b), Some(x)),
-            None => (None, None, None),
-        };
 
         // SolveCore.F90:3150-3186: keep the previous iterate in residual
         // mode, when relaxing or when measuring the solution change.
@@ -2110,8 +2088,14 @@ impl<'a> SolverCtx<'a> {
         // SolveCore.F90:3177-3189: in residual mode solve A dx = b - A x0
         // from dx = 0; ComputeChange adds x0 back.
         let mut res = if residual_mode {
+            // :3180-3181: x0 in the n-t components of the n-t system first
+            // (RotateNTSystemAll); NonlinValues above stay Cartesian.
+            let mut x0 = var.values[..n].to_vec();
+            if let (Some(nt), Some(perm)) = (slot.nt.as_ref(), var.perm.as_deref()) {
+                nt.rotate_all(&mut x0, perm, var.dofs, mesh.dim());
+            }
             let mut r = vec![0.0; n];
-            elmer_core::LinearOperator::apply(&sys.matrix, &var.values[..n], &mut r);
+            elmer_core::LinearOperator::apply(&sys.matrix, &x0, &mut r);
             for (ri, bi) in r.iter_mut().zip(&sys.rhs[..n]) {
                 *ri = bi - *ri;
             }
@@ -2120,9 +2104,40 @@ impl<'a> SolverCtx<'a> {
         } else {
             None
         };
-        let b: &mut [f64] = match (&mut res, &mut cb) {
-            (Some(r), _) => r,
-            (None, Some(bc)) => bc,
+        // SolveWithLinearRestriction gets the residual in residual mode
+        // (SolveCore.F90:3183-3186), its initial guess zeroed.
+        let restricted = match slot.constraints.as_ref().or(slot.own_constraints.as_ref()) {
+            None => None,
+            Some(c) => {
+                crate::constraints::refuse_options(p)?;
+                // The residual mode's x0 is the n long NonlinValues: its
+                // ComputeChange over the collection solution is not defined.
+                if residual_mode && !skip_constraints {
+                    return Err(SolverError::Unsupported(
+                        "Linear System Residual Mode with linear constraints without Nonlinear System Convergence Without Constraints".into(),
+                    ));
+                }
+                if var.values.len() != n {
+                    return Err(SolverError::Unsupported(
+                        "linear constraints on a variable longer than its system".into(),
+                    ));
+                }
+                let (a, b) = crate::constraints::collection(&sys.matrix, res.as_deref().unwrap_or(&sys.rhs), c, &slot.asm.constrained, p, log);
+                let mut x = var.values.clone();
+                x.resize(a.nrows, 0.0);
+                if let Some((_, init)) = &mult {
+                    x[n..n + init.len()].copy_from_slice(init);
+                }
+                Some((a, b, x))
+            }
+        };
+        let (mut ca, mut cb, mut cx) = match restricted {
+            Some((a, b, x)) => (Some(a), Some(b), Some(x)),
+            None => (None, None, None),
+        };
+        let b: &mut [f64] = match (&mut cb, &mut res) {
+            (Some(bc), _) => bc,
+            (None, Some(r)) => r,
             (None, None) => &mut sys.rhs[..n],
         };
 
@@ -2156,10 +2171,8 @@ impl<'a> SolverCtx<'a> {
         let nullify = p.logical("linear system nullify guess") == Some(true)
             || (p.logical("linear system nullify first guess") == Some(true) && nonlin_iter.is_some_and(|i| i.round() <= 1.0));
         let nt_sys = slot.nt.clone().filter(|_| p.logical("back rotate n-t solution").unwrap_or(true));
-        if slot.nt.is_some() && (eliminate || residual_mode) {
-            return Err(SolverError::Unsupported(
-                "normal-tangential systems with EliminateDirichlet or residual mode".into(),
-            ));
+        if slot.nt.is_some() && eliminate {
+            return Err(SolverError::Unsupported("normal-tangential systems with EliminateDirichlet".into()));
         }
         if slot.nt.is_some() && ca.is_some() && p.logical("calculate loads") == Some(true) {
             return Err(SolverError::Unsupported("Calculate Loads of a normal-tangential system with linear constraints".into()));

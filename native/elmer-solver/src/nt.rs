@@ -418,6 +418,36 @@ impl NtSystem {
         }
     }
 
+    /// `RotateNTSystemAll(Solution, Perm, NDOFs)`: the solution in the n-t
+    /// components of the n-t nodes.
+    pub(crate) fn rotate_all(&self, x: &mut [f64], perm: &[u32], ndofs: usize, dim: usize) {
+        if ndofs < dim {
+            return;
+        }
+        for (i, &k) in self.reorder.iter().enumerate() {
+            if k == 0 {
+                continue;
+            }
+            let Some(&j) = perm.get(i) else { continue };
+            if j == elmer_core::NO_DOF {
+                continue;
+            }
+            let (k, j) = (k as usize - 1, j as usize);
+            let n = self.normals[k];
+            if dim < 3 {
+                let (bu, bv) = (x[ndofs * j], x[ndofs * j + 1]);
+                x[ndofs * j] = n[0] * bu + n[1] * bv;
+                x[ndofs * j + 1] = -n[1] * bu + n[0] * bv;
+            } else {
+                let (t1, t2) = (self.tangent1[k], self.tangent2[k]);
+                let (bu, bv, bw) = (x[ndofs * j], x[ndofs * j + 1], x[ndofs * j + 2]);
+                x[ndofs * j] = n[0] * bu + n[1] * bv + n[2] * bw;
+                x[ndofs * j + 1] = t1[0] * bu + t1[1] * bv + t1[2] * bw;
+                x[ndofs * j + 2] = t2[0] * bu + t2[1] * bv + t2[2] * bw;
+            }
+        }
+    }
+
     /// `BackRotateNTSystem(Solution, Perm, NDOFs)`.
     pub(crate) fn back_rotate(&self, x: &mut [f64], perm: &[u32], ndofs: usize, dim: usize) {
         if ndofs < dim {
