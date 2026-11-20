@@ -122,16 +122,23 @@ impl MortarSolver {
             }
             projectors[i] = Some(p);
         }
-        // SetWeightedProjectorJump: `Mortar BC Offset` at the nodes of the
-        // boundary's elements, in MortarBC % Rhs by projector row. The
-        // Fortran sets it with the Dirichlet conditions, so it is redone
-        // before every solve.
+        // SetWeightedProjectorJump (BoundaryConditionUtils.F90:2551): at the
+        // nodes of the boundary's elements, by projector row, `Mortar BC
+        // Coefficient` (Diag = 1/coeff) or `Mortar BC Resistivity` (Diag =
+        // res) in MortarBC % Diag, which GenerateConstraintMatrix adds as the
+        // lumped `-Diag * wsum` on the row's multiplier, and `Mortar BC
+        // Offset` in MortarBC % Rhs. The Fortran sets them with the Dirichlet
+        // conditions, so they are redone before every solve.
         let mut jump = false;
         let key = format!("mortar bc offset {name}");
+        let key_coeff = format!("mortar bc coefficient {name}");
+        let key_res = format!("mortar bc resistivity {name}");
         for (i, p) in projectors.iter_mut().enumerate() {
             let Some(p) = p else { continue };
             let bc = &model.boundary_conditions[i];
-            if bc.get(&key).is_none() {
+            let (add_coeff, add_res, add_rhs) =
+                (bc.get(&key_coeff).is_some(), bc.get(&key_res).is_some(), bc.get(&key).is_some());
+            if !(add_coeff || add_res || add_rhs) {
                 continue;
             }
             jump = true;
@@ -145,6 +152,7 @@ impl MortarSolver {
             }
             let target_bc = bc.integer("mortar bc").unwrap_or(0);
             let mut rhs = vec![0.0; p.n_rows()];
+            let mut diag = vec![0.0; p.n_rows()];
             let mut done = vec![false; p.n_rows()];
             let mesh = ctx.mesh;
             for t in 0..mesh.n_boundary() {
@@ -157,7 +165,9 @@ impl MortarSolver {
                 if if target_bc > 0 { left.is_none() } else { left.is_none() || right.is_none() } {
                     continue;
                 }
-                let Some(voff) = ctx.real_at_nodes(bc, &key, e)? else { continue };
+                let coeff = if add_coeff { ctx.real_at_nodes(bc, &key_coeff, e)? } else { None };
+                let res = if add_res { ctx.real_at_nodes(bc, &key_res, e)? } else { None };
+                let voff = if add_rhs { ctx.real_at_nodes(bc, &key, e)? } else { None };
                 for (u, &node) in el.nodes.iter().enumerate() {
                     if perm[node as usize] == elmer_core::NO_DOF {
                         continue;
@@ -167,11 +177,28 @@ impl MortarSolver {
                         continue;
                     }
                     done[r] = true;
-                    rhs[r] = voff[u];
+                    let mut d = None;
+                    if let Some(c) = &coeff {
+                        d = Some(1.0 / c[u]);
+                    }
+                    if let Some(rv) = &res {
+                        d = Some(rv[u]);
+                    }
+                    if let Some(d) = d {
+                        diag[r] = d;
+                    }
+                    if let Some(v) = &voff {
+                        rhs[r] = v[u];
+                    }
                 }
             }
             p.mortar_perm = true;
-            p.rhs = Some(rhs);
+            if add_coeff || add_res {
+                p.diag = Some(diag);
+            }
+            if add_rhs {
+                p.rhs = Some(rhs);
+            }
         }
         self.jump.set(jump);
         let var = ctx.variable(name).ok_or_else(|| SolverError::fatal("GenerateConstraintMatrix", "no variable"))?;

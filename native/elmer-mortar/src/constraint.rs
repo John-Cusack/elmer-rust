@@ -171,11 +171,6 @@ pub fn generate_constraint_matrix(
         if flag(bc, "integral bc") {
             return Err(MortarError::Unsupported("Integral BC".into()));
         }
-        for k in ["mortar bc coefficient", "mortar bc resistivity"] {
-            if bc.get(&format!("{k} {}", t.name)).is_some() {
-                return Err(MortarError::Unsupported(format!("{k} (mortar jump)")));
-            }
-        }
         log.info(
             CALLER,
             &format!("Adding mortar projector for BC: {}", i + 1),
