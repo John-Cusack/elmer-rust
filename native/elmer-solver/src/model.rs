@@ -22,6 +22,20 @@ pub struct Model {
     pub boundary_conditions: Vec<ParamMap>,
     /// `Component <n>` sections (`Model % Components`).
     pub components: Vec<ParamMap>,
+    /// Keywords given with `-distribute` (`ListDistTagKeyword`): the entity
+    /// kind, its 1-based section and the key. `SetNormalizedKeywords`
+    /// divides them by the entity's area or volume.
+    pub distributed: Vec<(DistEntity, usize, String)>,
+}
+
+/// The sections whose `-distribute` keywords `ListSetParameters` scales
+/// (`Mesh % BodyWeight`, `BodyForceWeight`, `BCWeight`, `MaterialWeight`).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum DistEntity {
+    Body,
+    BodyForce,
+    BoundaryCondition,
+    Material,
 }
 
 /// The sections that apply to one bulk element, through its body.

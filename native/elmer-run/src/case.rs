@@ -909,6 +909,87 @@ fn conforming_map(
     Ok(generate_conforming_map(&env)?)
 }
 
+/// `SetNormalizedKeywords` (MainUtils.F90:226) for the `-distribute`
+/// keywords: `CalculateEntityWeights` (SolverBasics.F90:10444) sums each
+/// body's, body force's, material's (bulk elements) and boundary
+/// condition's (boundary elements) measure, point by point over the
+/// elements' default Gauss rule, and `ListSetParameters` gives each tagged
+/// keyword the coefficient `1 / weight` that every `ListGet*` multiplies
+/// its value by (`F = coeff * F`). Refused: a tagged value that is not a
+/// constant, and coordinate systems other than Cartesian.
+fn apply_distribute(model: &mut Model, mesh: &dyn MeshView, coords: CoordinateSystem) -> Result<(), SolverError> {
+    use elmer_solver::model::DistEntity as D;
+    if model.distributed.is_empty() {
+        return Ok(());
+    }
+    if coords.kind != CoordinateKind::Cartesian {
+        return Err(SolverError::Unsupported("-distribute keywords outside Cartesian coordinates".into()));
+    }
+    let (nbc, nbody, nmat, nbf) =
+        (model.boundary_conditions.len(), model.bodies.len(), model.materials.len(), model.body_forces.len());
+    let (mut wbc, mut wbody, mut wmat, mut wbf) = (vec![0.0f64; nbc], vec![0.0f64; nbody], vec![0.0f64; nmat], vec![0.0f64; nbf]);
+    use elmer_core::ElementBasis;
+    let basis = elmer_fe::LagrangeBasis::new(coords.dim);
+    let mut ev = elmer_core::BasisEval::default();
+    let nb = mesh.n_bulk();
+    for t in 0..nb + mesh.n_boundary() {
+        let el = mesh.element(elmer_core::ElemId(t as u32));
+        let (mut body, mut bf, mut mat, mut bc) = (0usize, 0usize, 0usize, 0usize);
+        if t < nb {
+            let Some(b) = model.body_of_tag(el.tag) else { continue };
+            body = b;
+            let p = &model.bodies[b - 1];
+            bf = p.integer("body force").map_or(0, |i| i.max(0) as usize);
+            mat = p.integer("material").map_or(0, |i| i.max(0) as usize);
+        } else {
+            let Some(b) = model.bc_of_tag(el.tag) else { continue };
+            bc = b;
+        }
+        let def = elmer_fe::element_type(el.etype.0).map_err(|e| SolverError::fatal("CalculateEntityWeights", e.to_string()))?;
+        let rule = elmer_fe::quadrature::gauss_points(el.etype, Some(def.gauss_points))
+            .map_err(|e| SolverError::fatal("CalculateEntityWeights", e.to_string()))?;
+        let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| mesh.coord(k)).collect();
+        for i in 0..rule.len() {
+            basis
+                .eval(el.etype, &xyz, [rule.u[i], rule.v[i], rule.w[i]], &mut ev)
+                .map_err(|m| SolverError::fatal("ElementInfo", m))?;
+            let s = 1.0 * ev.det_j * rule.s[i];
+            if (1..=nbc).contains(&bc) {
+                wbc[bc - 1] += s;
+            }
+            if (1..=nbody).contains(&body) {
+                wbody[body - 1] += s;
+            }
+            if (1..=nmat).contains(&mat) {
+                wmat[mat - 1] += s;
+            }
+            if (1..=nbf).contains(&bf) {
+                wbf[bf - 1] += s;
+            }
+        }
+    }
+    for (kind, i, key) in std::mem::take(&mut model.distributed) {
+        let (w, sec) = match kind {
+            D::Body => (wbody.get(i - 1), model.bodies.get_mut(i - 1)),
+            D::BodyForce => (wbf.get(i - 1), model.body_forces.get_mut(i - 1)),
+            D::BoundaryCondition => (wbc.get(i - 1), model.boundary_conditions.get_mut(i - 1)),
+            D::Material => (wmat.get(i - 1), model.materials.get_mut(i - 1)),
+        };
+        let (Some(&w), Some(sec)) = (w, sec) else { continue };
+        // `Refusing division with zero!`: the keyword keeps its value.
+        if w <= f64::MIN_POSITIVE {
+            continue;
+        }
+        let coeff = 1.0 / w;
+        match sec.0.get_mut(&key) {
+            Some(Value::Real { data, .. }) => data.iter_mut().for_each(|x| *x *= coeff),
+            Some(_) => return Err(SolverError::Unsupported(format!("-distribute {key} that is not a constant"))),
+            None => {}
+        }
+    }
+    Ok(())
+}
+
 /// The `fem/tests` case name `elmer-fixtures` keys its ports by: the case
 /// directory's name (the `.sif`'s directory; empty means the working one).
 pub fn fixture_case(case_dir: &Path) -> String {
@@ -1079,6 +1160,7 @@ fn run_case_meshes(
         None => mesh_dir.clone(),
     };
     let coords = coordinate_system(&model, mesh)?;
+    apply_distribute(&mut model, mesh, coords)?;
     legacy_solvers(&mut model, coords);
     lumped_matrix_inits(&mut model);
     drop_never_savedata(&mut model);
