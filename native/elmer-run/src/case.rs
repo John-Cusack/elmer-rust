@@ -826,6 +826,12 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     let _motion = mesh.install();
     let mesh: &dyn MeshView = &mesh;
     let mut outputs = prepare_vtu_output(&mut model, &case_dir, &mesh_dir, size > 1)?;
+    // The Output File directory: `Mesh % Name` under the case (the mesh
+    // directory itself when the Mesh DB is "." "<name>").
+    let result_dir = match model.header.string("mesh name") {
+        Some(n) => case_dir.join(n),
+        None => mesh_dir.clone(),
+    };
     let coords = coordinate_system(&model, mesh)?;
     legacy_solvers(&mut model, coords);
     lumped_matrix_inits(&mut model);
@@ -863,7 +869,7 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     elmer_fixtures::registry::install_live(&fixture_case, &mut sim, mesh);
     install_statelec_boundary(&mut sim, mesh);
     sim.setup(mesh, &registry, log, comm)?;
-    if let Some(writer) = crate::result_file::writer(&sim.model, &mesh_dir, rank, size, log) {
+    if let Some(writer) = crate::result_file::writer(&sim.model, &result_dir, rank, size, log) {
         sim.set_save_current(Box::new(writer));
     }
     if let Some((id, coarse)) = mg_coarse {
@@ -911,7 +917,7 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
         rebuild_changed(&mut sim, block, &registry)?;
         // `ReloadInputFile` sets `Mesh % SavesDone = 0` (ElmerSolver.F90:501):
         // each RUN block starts the Output File afresh.
-        if let Some(writer) = crate::result_file::writer(&sim.model, &mesh_dir, rank, size, log) {
+        if let Some(writer) = crate::result_file::writer(&sim.model, &result_dir, rank, size, log) {
             sim.set_save_current(Box::new(writer));
         }
         report = sim.run(mesh, log, comm)?;
