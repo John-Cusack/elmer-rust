@@ -3613,6 +3613,20 @@ pub fn edge_element_info(
     degree: u8,
     cdim: usize,
 ) -> Result<EdgeEval, String> {
+    edge_element_info_nodal(etype, nodes, gindex, uvw, degree, cdim).map(|(ev, _, _)| ev)
+}
+
+/// [`edge_element_info`] with the H1 `Basis` and `dBasisdx` that
+/// `EdgeElementInfo` returns too: the p-reference nodal basis and
+/// `dBasisdx(i,j) = SUM_k dLBasisdx(i,k) * LG(j,k)`.
+pub fn edge_element_info_nodal(
+    etype: ElementType,
+    nodes: &[[f64; 3]],
+    gindex: &[i64],
+    uvw: [f64; 3],
+    degree: u8,
+    cdim: usize,
+) -> Result<(EdgeEval, Vec<f64>, Vec<[f64; 3]>), String> {
     let code = etype.0;
     if !supported(code) {
         return Err(format!("edge element type {code} is not supported"));
@@ -3628,7 +3642,7 @@ pub fn edge_element_info(
     let mut ev = edge_basis_reference(etype, degree, gindex, uvw)?;
     let dofs = ev.dofs;
     let [u, v, w] = uvw;
-    let (_basis, dl) = p_ref_nodal(code, u, v, w);
+    let (basis, dl) = p_ref_nodal(code, u, v, w);
 
     // PiolaTransformationData
     let mut lf = [[0.0f64; 3]; 3];
@@ -3708,7 +3722,15 @@ pub fn edge_element_info(
         }
         ev.det = det_j;
     }
-    Ok(ev)
+    let mut dbasis = vec![[0.0f64; 3]; n];
+    for i in 0..n {
+        for j in 0..cdim {
+            for k in 0..dim {
+                dbasis[i][j] += dl[i][k] * lg[j][k];
+            }
+        }
+    }
+    Ok((ev, basis, dbasis))
 }
 
 // ---------------------------------------------------------------------------

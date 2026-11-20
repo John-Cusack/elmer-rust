@@ -95,7 +95,7 @@ pub struct Local {
 }
 
 impl Local {
-    fn new(nd: usize) -> Self {
+    pub(crate) fn new(nd: usize) -> Self {
         Self {
             nd,
             stiff: vec![0.0; nd * nd],
@@ -140,63 +140,82 @@ pub fn bulk_matrix(
     let mut status = MetricStatus::default();
     for t in 0..rule.len() {
         let pt = eval_point(code, xyz, gindex, [rule.u[t], rule.v[t], rule.w[t]], &mut status)?;
-        let (basis, db, s) = (&pt.basis[..n], &pt.dbasis[..n], rule.s[t]);
-        let det_j = pt.det_j;
-        let mu = interp(basis, &co.nu);
-        let mut c = [[0.0; 3]; 3];
-        for (i, ci) in c.iter_mut().enumerate() {
-            for (j, cij) in ci.iter_mut().enumerate() {
-                let mut v = 0.0;
-                for k in 0..n {
-                    v += co.sigma[k][i][j] * basis[k];
-                }
-                *cij = v;
-            }
-        }
-        let mut l = [0.0; 3];
-        let mut m = [0.0; 3];
-        for i in 0..3 {
-            for k in 0..n {
-                l[i] += co.load[k][i] * basis[k];
-                m[i] += co.load[k][3 + i] * basis[k];
-            }
-        }
-        // L = L - C grad(V^s).
-        let mut gv = [0.0; 3];
-        for (j, g) in gv.iter_mut().enumerate() {
-            for k in 0..n {
-                *g += co.load[k][6] * db[k][j];
-            }
-        }
-        let cg = matvec(&c, &gv);
-        for i in 0..3 {
-            l[i] -= cg[i];
-        }
+        add_bulk_point(&mut loc, &pt.basis[..n], &pt.dbasis[..n], &pt.w[..ne], &pt.curl[..ne], pt.det_j, rule.s[t], np, co);
+    }
+    Ok(loc)
+}
 
-        // Conductor: <C grad V, grad v> and <C grad V, eta>.
-        let csum: f64 = c.iter().flatten().map(|x| x.abs()).sum();
-        if csum > elmer_sparse::AEPS {
-            for p in 0..np {
-                for q in 0..np {
-                    loc.add(p, q, dot(&matvec(&c, &db[q]), &db[p]) * det_j * s);
-                }
-                let cdp = matvec(&c, &db[p]);
-                for (j, wj) in pt.w.iter().enumerate().take(ne) {
-                    loc.add(np + j, p, dot(&cdp, wj) * det_j * s);
-                }
+/// One integration point of [`bulk_matrix`]'s `LocalMatrix` loop: nodal
+/// `basis` / `db` (`n` of them), the edge-type basis `w` / `curl` (`nd - np`)
+/// and the weight `det_j`, `s`. Shared with the Piola path
+/// ([`crate::piola`]) so the two accumulate the same way.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn add_bulk_point(
+    loc: &mut Local,
+    basis: &[f64],
+    db: &[[f64; 3]],
+    w: &[[f64; 3]],
+    curl: &[[f64; 3]],
+    det_j: f64,
+    s: f64,
+    np: usize,
+    co: &BulkCoeffs,
+) {
+    let n = basis.len();
+    let ne = w.len();
+    let mu = interp(basis, &co.nu);
+    let mut c = [[0.0; 3]; 3];
+    for (i, ci) in c.iter_mut().enumerate() {
+        for (j, cij) in ci.iter_mut().enumerate() {
+            let mut v = 0.0;
+            for k in 0..n {
+                v += co.sigma[k][i][j] * basis[k];
             }
+            *cij = v;
         }
+    }
+    let mut l = [0.0; 3];
+    let mut m = [0.0; 3];
+    for i in 0..3 {
+        for k in 0..n {
+            l[i] += co.load[k][i] * basis[k];
+            m[i] += co.load[k][3 + i] * basis[k];
+        }
+    }
+    // L = L - C grad(V^s).
+    let mut gv = [0.0; 3];
+    for (j, g) in gv.iter_mut().enumerate() {
+        for k in 0..n {
+            *g += co.load[k][6] * db[k][j];
+        }
+    }
+    let cg = matvec(&c, &gv);
+    for i in 0..3 {
+        l[i] -= cg[i];
+    }
 
-        // curl(nu curl A) and the sources.
-        for i in 0..ne {
-            let p = np + i;
-            loc.force[p] += (dot(&l, &pt.w[i]) + dot(&m, &pt.curl[i])) * det_j * s;
-            for j in 0..ne {
-                loc.add(p, np + j, mu * dot(&pt.curl[i], &pt.curl[j]) * det_j * s);
+    // Conductor: <C grad V, grad v> and <C grad V, eta>.
+    let csum: f64 = c.iter().flatten().map(|x| x.abs()).sum();
+    if csum > elmer_sparse::AEPS {
+        for p in 0..np {
+            for q in 0..np {
+                loc.add(p, q, dot(&matvec(&c, &db[q]), &db[p]) * det_j * s);
+            }
+            let cdp = matvec(&c, &db[p]);
+            for (j, wj) in w.iter().enumerate() {
+                loc.add(np + j, p, dot(&cdp, wj) * det_j * s);
             }
         }
     }
-    Ok(loc)
+
+    // curl(nu curl A) and the sources.
+    for i in 0..ne {
+        let p = np + i;
+        loc.force[p] += (dot(&l, &w[i]) + dot(&m, &curl[i])) * det_j * s;
+        for j in 0..ne {
+            loc.add(p, np + j, mu * dot(&curl[i], &curl[j]) * det_j * s);
+        }
+    }
 }
 
 /// The real parts of the harmonic `LocalMatrix` (WhitneyAVHarmonicSolver.F90:1234)
