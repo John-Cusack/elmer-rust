@@ -256,7 +256,138 @@ fn resolve_solvers(
     refnorms
 }
 
+/// [`resolve_solvers`] for an `np`-rank run: each result file is written
+/// once per rank (`<file>.<rank>`), and the norm is the parallel branch of
+/// `ComputeNorm` over all ranks' values, reduced in `order`.
+#[allow(clippy::too_many_arguments)]
+fn resolve_solvers_mpi(
+    solvers: &[elmer_oracle::refnorm::RefSolver],
+    parsed: &[Parsed],
+    np: usize,
+    equations: &[(u32, String)],
+    notes: &mut Vec<String>,
+    order: elmer_oracle::norm::ReduceOrder,
+    golden_run: &Path,
+    text: &str,
+) -> Vec<(u32, f64)> {
+    // Files by base name, ranks in order; only complete rank sets count.
+    let mut groups: std::collections::BTreeMap<String, Vec<Option<&Parsed>>> = Default::default();
+    for p in parsed {
+        let Some((base, rank)) = p.0.rsplit_once('.') else { continue };
+        let Ok(rank) = rank.parse::<usize>() else { continue };
+        if rank < np {
+            groups.entry(base.to_string()).or_insert_with(|| vec![None; np])[rank] = Some(p);
+        }
+    }
+    let groups: Vec<(String, Vec<&Parsed>)> = groups
+        .into_iter()
+        .filter_map(|(b, ranks)| Some((b, ranks.into_iter().collect::<Option<Vec<_>>>()?)))
+        .collect();
+    let mut refnorms = Vec::new();
+    for s in solvers {
+        let var = match &s.variable {
+            Ok(v) => v.clone(),
+            Err(e) if e == elmer_oracle::refnorm::NO_VARIABLE => {
+                match groups.first().map(|(_, g)| elmer_oracle::refnorm::default_variable(&g[0].2, s, equations)) {
+                    Some(Ok(v)) => v,
+                    Some(Err(e)) => {
+                        notes.push(format!("solver {}: {e}", s.number));
+                        continue;
+                    }
+                    None => {
+                        notes.push(format!("solver {}: no per-rank result files", s.number));
+                        continue;
+                    }
+                }
+            }
+            Err(e) => {
+                notes.push(format!("solver {}: {e}", s.number));
+                continue;
+            }
+        };
+        let mine: Vec<&(String, Vec<&Parsed>)> =
+            groups.iter().filter(|(_, g)| g.iter().all(|p| p.2.iter().any(|v| v.base_name() == var))).collect();
+        let [(base, ranks)] = mine.as_slice() else {
+            notes.push(format!("solver {}: {var} in {} per-rank result sets", s.number, mine.len()));
+            continue;
+        };
+        let mut parts = Vec::with_capacity(np);
+        let mut dofs = None;
+        let mut why = None;
+        // ElmerGrid's partitioning sits beside the per-rank files; without
+        // one (Parallel Slices) every rank solves a copy of the whole mesh.
+        let partitioning = golden_run
+            .join(std::path::Path::new(base.as_str()).parent().unwrap_or(std::path::Path::new("")))
+            .join(format!("partitioning.{np}"));
+        let consistent = elmer_oracle::refnorm::consistent(text, s.number);
+        for (rank, p) in ranks.iter().enumerate() {
+            match elmer_oracle::refnorm::golden_values(&p.1, &p.2, &var) {
+                Ok((values, perm, d)) if dofs.is_none_or(|x| x == d) => {
+                    dofs = Some(d);
+                    let mut owned = vec![true; values.len()];
+                    if consistent && partitioning.is_dir() {
+                        match elmer_oracle::refnorm::owned_nodes(&partitioning, rank) {
+                            // Ownership is known per mesh node of the partition
+                            // files only: a local mesh Elmer extruded, refined or
+                            // extended, or edge/p/DG unknowns, are out of class.
+                            Ok(nodes) if Some(nodes.len()) != p.3 => {
+                                why = Some(format!(
+                                    "local mesh has {:?} nodes, partition files {} (mesh changed after load)",
+                                    p.3,
+                                    nodes.len()
+                                ))
+                            }
+                            Ok(nodes) if perm.len() != nodes.len() => {
+                                why = Some(String::from("non-nodal unknowns in parallel (ownership unknown)"))
+                            }
+                            Ok(nodes) => {
+                                for (i, &k) in perm.iter().enumerate() {
+                                    if k > 0 {
+                                        let own = nodes.get(i).copied().unwrap_or(true);
+                                        for c in 0..d {
+                                            if let Some(o) = owned.get_mut(d * (k as usize - 1) + c) {
+                                                *o = own;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => why = Some(e),
+                        }
+                    }
+                    parts.push((values, owned, perm));
+                }
+                Ok(_) => why = Some(String::from("DOFs differ between ranks")),
+                Err(e) => why = Some(e),
+            }
+        }
+        if let Some(w) = why {
+            notes.push(format!("solver {}: {var} ({base}.N): {w}", s.number));
+            continue;
+        }
+        let d = dofs.unwrap_or(1);
+        let opts = s.norm_opts(d);
+        let norm = if !partitioning.is_dir() {
+            notes.push(format!("solver {}: no partitioning.{np}: rank 0's serial norm", s.number));
+            let (v, _, perm) = &parts[0];
+            elmer_oracle::norm::compute_norm(v, Some(perm), d, perm.len(), &opts)
+        } else if consistent {
+            let owned: Vec<(Vec<f64>, Vec<bool>)> = parts.into_iter().map(|(v, o, _)| (v, o)).collect();
+            elmer_oracle::norm::consistent_norm(&owned, d, &opts, order)
+        } else {
+            let values: Vec<Vec<f64>> = parts.into_iter().map(|(v, _, _)| v).collect();
+            elmer_oracle::norm::parallel_norm(&values, d, &opts, order)
+        };
+        match norm {
+            Ok(n) => refnorms.push((s.number, n)),
+            Err(e) => notes.push(format!("solver {}: {var}: {e}", s.number)),
+        }
+    }
+    refnorms
+}
+
 /// One test of `refnorm-validate`: (verdict, solvers validated, detail).
+#[allow(clippy::too_many_arguments)]
 fn refnorm_one(
     arm: &Arm,
     tests_dir: &Path,
@@ -265,11 +396,12 @@ fn refnorm_one(
     test: &str,
     dir: &str,
     np: &str,
+    mpi_order: elmer_oracle::norm::ReduceOrder,
 ) -> (String, usize, String) {
     let skip = |why: &str| (String::from("out-of-class"), 0, why.to_string());
-    if np != "1" {
-        return skip("MPI");
-    }
+    let Ok(np) = np.parse::<u32>() else {
+        return skip("bad np");
+    };
     let src = tests_dir.join(dir);
     let Ok(cmake) = std::fs::read_to_string(src.join("CMakeLists.txt")) else {
         return skip("no CMakeLists.txt");
@@ -282,7 +414,7 @@ fn refnorm_one(
     let Ok(runtest) = read_runtest(&src) else {
         return skip("no runtest");
     };
-    let Ok(plan) = plan_test(&spec, &runtest, 1, arm) else {
+    let Ok(plan) = plan_test(&spec, &runtest, np, arm) else {
         return skip("plan error");
     };
     if plan.custom.is_some() {
@@ -332,8 +464,16 @@ fn refnorm_one(
             Ok(s) => s,
             Err(why) => return skip(&why),
         };
-        let all: Vec<&Parsed> = parsed.iter().collect();
-        refnorms = resolve_solvers(&solvers, &all, &equations, &mut notes, &mut non_nodal);
+        if np > 1 {
+            refnorms = resolve_solvers_mpi(
+                &solvers, &parsed, np as usize, &equations, &mut notes, mpi_order, &golden_run, &text,
+            );
+        } else {
+            let all: Vec<&Parsed> = parsed.iter().collect();
+            refnorms = resolve_solvers(&solvers, &all, &equations, &mut notes, &mut non_nodal);
+        }
+    } else if np > 1 {
+        return skip(&format!("MPI with {runs} RUN blocks"));
     } else {
         // Per-RUN files exist only where the injection names the output.
         if text.lines().any(|l| {
@@ -769,8 +909,21 @@ fn main() {
             for line in registry.lines() {
                 let cols: Vec<&str> = line.split('\t').collect();
                 let (test, dir, np) = (cols[0], cols[1], cols.get(2).copied().unwrap_or("1"));
-                let (verdict, solvers, detail) =
-                    refnorm_one(&arm, &tests_dir, &golden_root, &out_root, test, dir, np);
+                use elmer_oracle::norm::ReduceOrder;
+                let (mut verdict, mut solvers, mut detail) =
+                    refnorm_one(&arm, &tests_dir, &golden_root, &out_root, test, dir, np, ReduceOrder::RecursiveDoubling);
+                // An MPI run whose sums were reduced in another grouping:
+                // try left to right once before calling it a mismatch.
+                if np != "1" && verdict != "bitwise" && verdict != "out-of-class" {
+                    let (v, n, d) = refnorm_one(
+                        &arm, &tests_dir, &golden_root, &out_root.join("sequential"), test, dir, np, ReduceOrder::Sequential,
+                    );
+                    if v == "bitwise" {
+                        (verdict, solvers, detail) = (v, n, format!("sequential reduction; {d}"));
+                    } else {
+                        detail = format!("{detail}; sequential reduction: {v}");
+                    }
+                }
                 let key = verdict.split(':').next().unwrap_or(&verdict).to_string();
                 *counts.entry(key).or_default() += 1;
                 rows.push(format!("{test}\t{verdict}\t{solvers}\t{detail}"));

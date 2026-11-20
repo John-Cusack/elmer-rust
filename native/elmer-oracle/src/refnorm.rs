@@ -126,6 +126,61 @@ const NORM_KEYS: [&str; 7] = [
     "norm permutation",
 ];
 
+/// Whether a solver asks for the parallel consistent norm (owned rows
+/// only). Serially Elmer ignores it.
+pub fn consistent(text: &str, number: u32) -> bool {
+    let mut section: Option<u32> = None;
+    for raw in text.lines() {
+        let code = strip_sif_comment(raw).trim();
+        let lower = code.to_lowercase();
+        let (owner, key) = match code.split_once("::") {
+            Some((sec, rest)) => (sec.trim().to_lowercase().strip_prefix("solver").and_then(|n| n.trim().parse().ok()), rest),
+            None => (section, code),
+        };
+        if code.split_once("::").is_none() {
+            if lower == "end" {
+                section = None;
+            } else if let Some(n) = lower.strip_prefix("solver").and_then(|r| r.trim().parse().ok()) {
+                section = Some(n);
+            }
+        }
+        if owner == Some(number)
+            && keyword_of(key).as_deref() == Some("nonlinear system consistent norm")
+            && key.to_lowercase().contains("true")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Owned flag per local node of rank `rank`, from ElmerGrid's
+/// `partitioning.<np>/part.<rank+1>.{nodes,shared}`: a shared node belongs
+/// to the first partition its `.shared` line lists (Elmer's `Neighbours(1)`,
+/// `ReadSharedFile`), any other node to the rank itself.
+pub fn owned_nodes(partitioning: &std::path::Path, rank: usize) -> Result<Vec<bool>, String> {
+    let read = |name: &str| {
+        std::fs::read_to_string(partitioning.join(name)).map_err(|e| format!("{name}: {e}"))
+    };
+    let nodes = read(&format!("part.{}.nodes", rank + 1))?;
+    let shared = read(&format!("part.{}.shared", rank + 1))?;
+    let mut owner = std::collections::HashMap::new();
+    for l in shared.lines() {
+        let v: Vec<i64> = l.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+        if v.len() >= 3 {
+            owner.insert(v[0], v[2] - 1);
+        }
+    }
+    nodes
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| {
+            let g: i64 = l.split_whitespace().next().and_then(|x| x.parse().ok()).ok_or_else(|| format!("bad node line {l:?}"))?;
+            Ok(owner.get(&g).is_none_or(|&o| o == rank as i64))
+        })
+        .collect()
+}
+
 /// The `Reference Norm` solvers of one sif, or why the sif is out of the
 /// validated class as a whole. Keys come from `Solver N` sections and from
 /// `Solver N :: key = value` one-liners (the usual home of `Reference
@@ -433,6 +488,13 @@ pub fn golden_norm(
     variable: &str,
     opts: impl Fn(usize) -> NormOpts,
 ) -> Result<f64, String> {
+    let (values, perm, dofs) = golden_values(file, vars, variable)?;
+    compute_norm(&values, Some(&perm), dofs, perm.len(), &opts(dofs)).map_err(|e| e.to_string())
+}
+
+/// The solver's `Values` (dof order), `Perm` and DOFs of `variable`,
+/// rebuilt from the last saved step of `file`.
+pub fn golden_values(file: &ResultFile, vars: &[PreambleVar], variable: &str) -> Result<(Vec<f64>, Vec<i32>, usize), String> {
     let entry = preamble_entry(vars, variable)?;
     let comps = entry
         .components()
@@ -480,8 +542,7 @@ pub fn golden_norm(
     if entry.size != values.len() {
         return Err(format!("{} values, {} saved (non-nodal unknowns)", entry.size, values.len()));
     }
-    let perm = perm.unwrap_or_default();
-    compute_norm(&values, Some(&perm), dofs, perm.len(), &opts(dofs)).map_err(|e| e.to_string())
+    Ok((values, perm.unwrap_or_default(), dofs))
 }
 
 #[cfg(test)]

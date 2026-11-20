@@ -231,6 +231,146 @@ fn norm_core(
     }
 }
 
+/// How `MPI_ALLREDUCE(MPI_SUM)` groups the ranks' partial sums.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReduceOrder {
+    /// Open MPI's recursive doubling (coll/tuned for small messages): the
+    /// first `2·(p − 2^k)` ranks combine in pairs, then a doubling tree
+    /// over the `2^k` survivors in rank order.
+    RecursiveDoubling,
+    /// Left to right: `((s0 + s1) + s2) + …`.
+    Sequential,
+}
+
+/// Sum of `parts` in the grouping of `order`.
+pub fn reduce_sum(parts: &[f64], order: ReduceOrder) -> f64 {
+    match order {
+        ReduceOrder::Sequential => match parts.split_first() {
+            Some((&first, rest)) => rest.iter().fold(first, |a, &b| a + b),
+            None => 0.0,
+        },
+        ReduceOrder::RecursiveDoubling => {
+            let p = parts.len();
+            if p == 0 {
+                return 0.0;
+            }
+            let pow2 = 1usize << (usize::BITS - 1 - p.leading_zeros());
+            let extra = p - pow2;
+            let mut level: Vec<f64> = Vec::with_capacity(pow2);
+            for r in 0..2 * extra {
+                if r % 2 == 1 {
+                    level.push(parts[r - 1] + parts[r]);
+                }
+            }
+            level.extend_from_slice(&parts[2 * extra..]);
+            while level.len() > 1 {
+                level = level.chunks(2).map(|c| c[0] + c[1]).collect();
+            }
+            level[0]
+        }
+    }
+}
+
+/// The parallel branch of `ComputeNorm` (no `Nonlinear System Consistent
+/// Norm`): every rank sums its own local values, interface nodes included,
+/// and the sums and counts are reduced over the ranks. `parts` are the
+/// ranks' `Values` in rank order. Norm options are the default ones and
+/// `norm_dofs`.
+pub fn parallel_norm(parts: &[Vec<f64>], dofs: usize, opts: &NormOpts, order: ReduceOrder) -> Result<f64> {
+    if dofs == 0 || opts.components.is_some() || opts.nodal || opts.perm_start.is_some() {
+        return Err(OracleError::Unsupported(String::from("parallel norm with these options")));
+    }
+    let norm_dofs = opts.norm_dofs.unwrap_or(dofs);
+    if norm_dofs == 0 || norm_dofs > dofs {
+        return Err(OracleError::Parse(format!("norm dofs {norm_dofs} out of range for dofs {dofs}")));
+    }
+    let term = |v: f64| match opts.degree {
+        1 => v.abs(),
+        2 => v * v,
+        d => v.powi(d),
+    };
+    let totn: usize = parts.iter().map(Vec::len).sum();
+    if totn == 0 {
+        return Ok(0.0);
+    }
+    if opts.degree == 0 {
+        let m = parts.iter().flat_map(|x| x.iter()).fold(0.0f64, |m, v| m.max(v.abs()));
+        return Ok(m);
+    }
+    // Each rank's local value before the reduction, accumulated as the
+    // serial branches do.
+    let local: Vec<f64> = parts
+        .iter()
+        .map(|x| {
+            if norm_dofs < dofs {
+                let mut acc = 0.0;
+                for c in 0..norm_dofs {
+                    acc += x.get(c..).unwrap_or(&[]).iter().step_by(dofs).fold(0.0, |s, &v| s + term(v));
+                }
+                acc
+            } else {
+                x.iter().fold(0.0, |s, &v| s + term(v))
+            }
+        })
+        .collect();
+    let total = reduce_sum(&local, order);
+    let nscale = if norm_dofs < dofs { norm_dofs as f64 * totn as f64 / dofs as f64 } else { totn as f64 };
+    Ok(match opts.degree {
+        1 => total / nscale,
+        2 => (total / nscale).sqrt(),
+        d => (total / nscale).powf(1.0 / d as f64),
+    })
+}
+
+/// The `Nonlinear System Consistent Norm` branch of the parallel
+/// `ComputeNorm`: each rank sums only the rows it owns (`NeighbourList(j)
+/// % Neighbours(1) == MyPE`), skipping passive dofs (`norm_dofs`), and the
+/// sums and counts are reduced. `parts` are `(Values, owned per value)` in
+/// rank order.
+pub fn consistent_norm(parts: &[(Vec<f64>, Vec<bool>)], dofs: usize, opts: &NormOpts, order: ReduceOrder) -> Result<f64> {
+    if dofs == 0 || opts.components.is_some() || opts.nodal || opts.perm_start.is_some() {
+        return Err(OracleError::Unsupported(String::from("consistent norm with these options")));
+    }
+    let norm_dofs = opts.norm_dofs.unwrap_or(dofs);
+    if norm_dofs == 0 || norm_dofs > dofs {
+        return Err(OracleError::Parse(format!("norm dofs {norm_dofs} out of range for dofs {dofs}")));
+    }
+    let mut local = Vec::with_capacity(parts.len());
+    let mut totn = 0usize;
+    for (x, owned) in parts {
+        if owned.len() != x.len() {
+            return Err(OracleError::Parse(String::from("ownership mask length differs from Values")));
+        }
+        let mut acc = 0.0f64;
+        for (j, (&v, &own)) in x.iter().zip(owned).enumerate() {
+            if j % dofs >= norm_dofs || !own {
+                continue;
+            }
+            acc = match opts.degree {
+                0 => acc.max(v.abs()),
+                1 => acc + v.abs(),
+                2 => acc + v * v,
+                d => acc + v.powi(d),
+            };
+            totn += 1;
+        }
+        local.push(acc);
+    }
+    if totn == 0 {
+        return Ok(0.0);
+    }
+    if opts.degree == 0 {
+        return Ok(local.iter().fold(0.0f64, |m, &v| m.max(v)));
+    }
+    let total = reduce_sum(&local, order);
+    let nscale = totn as f64;
+    Ok(match opts.degree {
+        1 => total / nscale,
+        2 => (total / nscale).sqrt(),
+        d => (total / nscale).powf(1.0 / d as f64),
+    })
+}
+
 /// Verdict replicating `CompareToReferenceSolution` for one solver:
 /// absolute error when `absolute` is set (or the reference is sub-tiny),
 /// relative error otherwise; NaN always fails.
@@ -323,6 +463,35 @@ mod tests {
         let n = compute_norm(&v, None, 3, 2, &opts).unwrap();
         assert_eq!(n, (2e16 + 4.0) / 4.0);
         assert_ne!(n, 2e16 / 4.0);
+    }
+
+    #[test]
+    fn recursive_doubling_groups_like_open_mpi() {
+        // 1e16 has ulp 2, so the grouping decides whether the 1.5s survive.
+        // p = 3: the first pair combines, then the third joins.
+        let s = [1.5, 1.5, 1e16];
+        assert_eq!(reduce_sum(&s, ReduceOrder::RecursiveDoubling), 3.0 + 1e16);
+        let f = [1.5, 1.5, 1e16, 0.0];
+        // p = 4: (f0 + f1) + (f2 + f3) keeps the 3.0.
+        assert_eq!(reduce_sum(&f, ReduceOrder::RecursiveDoubling), 3.0 + 1e16);
+        assert_eq!(reduce_sum(&f, ReduceOrder::Sequential), ((1.5 + 1.5) + 1e16) + 0.0);
+        let six = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        assert_eq!(reduce_sum(&six, ReduceOrder::RecursiveDoubling), ((1.0 + 2.0) + (3.0 + 4.0)) + (5.0 + 6.0));
+    }
+
+    #[test]
+    fn parallel_norm_counts_every_rank_s_values() {
+        let parts = vec![vec![1.0, 2.0], vec![2.0, 3.0]];
+        let n = parallel_norm(&parts, 1, &NormOpts::default(), ReduceOrder::Sequential).unwrap();
+        assert_eq!(n, ((1.0f64 + 4.0) + (4.0 + 9.0)) .sqrt() / 2.0);
+    }
+
+    #[test]
+    fn consistent_norm_counts_owned_rows_once() {
+        // Node with value 2 is shared: owned by rank 0 only.
+        let parts = vec![(vec![1.0, 2.0], vec![true, true]), (vec![2.0, 3.0], vec![false, true])];
+        let n = consistent_norm(&parts, 1, &NormOpts::default(), ReduceOrder::Sequential).unwrap();
+        assert_eq!(n, (((1.0f64 + 4.0) + 9.0) / 3.0).sqrt());
     }
 
     #[test]
