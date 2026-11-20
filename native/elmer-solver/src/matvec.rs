@@ -11,6 +11,10 @@
 //! partial sums are added at the end, so the rounding differs from a plain
 //! row sum, and a Krylov method run to a loose tolerance carries that
 //! difference into the solution.
+//!
+//! `elmer-sparse` has both loops ([`elmer_sparse::spmv`],
+//! [`elmer_sparse::spmv_blocked`]); this picks the one the matrix's `ndeg`
+//! selects.
 
 use elmer_core::{CsrMatrix, LinalgError, LinearOperator};
 
@@ -18,9 +22,9 @@ use elmer_core::{CsrMatrix, LinalgError, LinearOperator};
 /// has none).
 pub(crate) struct ElmerMatvec<'a> {
     a: &'a CsrMatrix<f64>,
-    /// Accumulators per row: 2..=5 for the blocked loops, 0 for the
-    /// unrolled-by-four default.
-    step: usize,
+    /// The `ndeg` the product uses: 1 (the unrolled-by-four default) unless
+    /// the matrix holds whole blocks.
+    ndeg: usize,
 }
 
 impl<'a> ElmerMatvec<'a> {
@@ -37,12 +41,12 @@ impl<'a> ElmerMatvec<'a> {
         // InitializeMatrix builds; Elmer only checks the row lengths
         // (CRSMatrix.F90:1702) and stops on a partial block. A matrix
         // here without whole blocks gets the default loop.
-        let step = if step > 0 && whole_blocks(a, ndeg, step) {
-            step
+        let ndeg = if step > 0 && whole_blocks(a, ndeg, step) {
+            ndeg
         } else {
-            0
+            1
         };
-        ElmerMatvec { a, step }
+        ElmerMatvec { a, ndeg }
     }
 }
 
@@ -67,41 +71,11 @@ impl LinearOperator<f64> for ElmerMatvec<'_> {
     }
 
     fn apply(&self, u: &[f64], v: &mut [f64]) {
-        let (rows, cols, vals) = (&self.a.row_ptr, &self.a.col_idx, &self.a.values);
-        let step = self.step;
-        for (i, vi) in v.iter_mut().enumerate().take(self.a.nrows) {
-            let (lo, hi) = (rows[i], rows[i + 1]);
-            if step == 0 {
-                // CASE DEFAULT
-                let (mut r1, mut r2, mut r3, mut r4) = (0.0, 0.0, 0.0, 0.0);
-                let end4 = lo + 4 * ((hi - lo) / 4);
-                let mut j = lo;
-                while j < end4 {
-                    r1 += u[cols[j] as usize] * vals[j];
-                    r2 += u[cols[j + 1] as usize] * vals[j + 1];
-                    r3 += u[cols[j + 2] as usize] * vals[j + 2];
-                    r4 += u[cols[j + 3] as usize] * vals[j + 3];
-                    j += 4;
-                }
-                for j in end4..hi {
-                    r1 += u[cols[j] as usize] * vals[j];
-                }
-                *vi = r1 + r2 + r3 + r4;
-            } else {
-                // CASE (2), (3, 6), (4, 8), (5, 10)
-                let mut r = [0.0f64; 5];
-                for j in (lo..hi).step_by(step) {
-                    let l = cols[j] as usize;
-                    for (k, rk) in r.iter_mut().enumerate().take(step) {
-                        *rk += u[l + k] * vals[j + k];
-                    }
-                }
-                let mut s = r[0];
-                for rk in &r[1..step] {
-                    s += rk;
-                }
-                *vi = s;
-            }
+        if self.ndeg > 1 {
+            elmer_sparse::spmv_blocked(self.a, self.ndeg, u, v)
+                .expect("whole blocks were checked in ElmerMatvec::new");
+        } else {
+            elmer_sparse::spmv(self.a, u, v);
         }
     }
 
