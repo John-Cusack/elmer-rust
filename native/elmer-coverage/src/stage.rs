@@ -22,6 +22,11 @@ pub enum Step {
     /// a directory of the run (`reload` puts its restart file in the mesh
     /// directory). Paths are relative to the run directory.
     Copy(Vec<String>, String),
+    /// `${VIEWFACTORS_BIN}` in a serial run: the heat solver computes the
+    /// factors itself, but from the mesh files as they are, not from the
+    /// `f20.12` rewrite RadiationFactors makes when it runs `ViewFactors`
+    /// (the runner tells the child with `ELMER_VIEWFACTORS_PRESTEP`).
+    ViewFactors,
     /// Any other tool the test runs first; the native path has no
     /// equivalent (`Mesh2D`, ...). `ViewFactors` and `Radiators` need no
     /// step in a serial run: the heat solver computes their factors itself.
@@ -144,7 +149,8 @@ pub fn steps(runtest: &str, nprocs: u32, source: &Path) -> Vec<Step> {
                     // solved on one rank and broadcast. Not ported.
                     Some("${VIEWFACTORS_BIN}") if nprocs > 1 => steps.push(Step::Other(PARTITIONED_VIEWFACTORS.into())),
                     Some("${RADIATORS_BIN}") if nprocs > 1 => steps.push(Step::Other("Radiators".into())),
-                    Some("${VIEWFACTORS_BIN}") | Some("${RADIATORS_BIN}") => {}
+                    Some("${VIEWFACTORS_BIN}") => steps.push(Step::ViewFactors),
+                    Some("${RADIATORS_BIN}") => {}
                     Some("${MESH2D_BIN}") => steps.push(Step::Other("Mesh2D".into())),
                     Some(other) => steps.push(Step::Other(other.trim_matches(&['$', '{', '}'][..]).to_string())),
                     None => {}
@@ -434,7 +440,7 @@ mod tests {
     #[test]
     fn other_tools() {
         let text = "execute_process(COMMAND ${VIEWFACTORS_BIN} a)\nexecute_process(COMMAND ${MESH2D_BIN} k.mif .)\n";
-        assert_eq!(steps(text, 1, Path::new("/s")), vec![Step::Other("Mesh2D".into())]);
+        assert_eq!(steps(text, 1, Path::new("/s")), vec![Step::ViewFactors, Step::Other("Mesh2D".into())]);
         assert_eq!(steps(text, 2, Path::new("/s")), vec![Step::Other(PARTITIONED_VIEWFACTORS.into()), Step::Other("Mesh2D".into())]);
     }
 

@@ -185,7 +185,12 @@ impl DiffuseGray {
         // `ViewFactors` program (`Update Factors Geometry`, default on when
         // it computes the factors), which reloads the mesh from it: the
         // view factors see the coordinates rounded to 12 decimals.
-        let update_geometry = ctx.params().logical("Update Factors Geometry").unwrap_or(true)
+        // A `ViewFactors` run before the solver (`ELMER_VIEWFACTORS_PRESTEP`,
+        // which elmer-coverage sets for such a test) leaves the factors file
+        // in place: RadiationFactors then neither computes nor rewrites.
+        let prestep = std::env::var_os("ELMER_VIEWFACTORS_PRESTEP").is_some();
+        let update_geometry = !prestep
+            && ctx.params().logical("Update Factors Geometry").unwrap_or(true)
             && ctx.params().logical("Viewfactor Rigid Mesh Mapping") != Some(true);
         if update_geometry && ctx.simulation_params().get("Coordinate Scaling").is_some() {
             return Err(unsupported("Coordinate Scaling with diffuse gray radiation"));
