@@ -5,9 +5,10 @@
 //! Ported: a force in the coordinate directions (`Pressure i`), a normal
 //! force (`External Pressure` / `Normal Pressure`, along the outward normal),
 //! a `Mass Flux` into the continuity equation and the slip resistance
-//! (`Slip Coefficient i`) in coordinate directions. Normal-tangential
-//! coordinates, surface tension and its tangential derivative are not
-//! ported; the solver refuses them.
+//! (`Slip Coefficient i`), in coordinate or normal-tangential directions,
+//! and surface tension: `Surface Tension Coefficient` (`Alpha`, the term
+//! `-Alpha dBasisdx`) and the tangential force of its variation along the
+//! boundary (`Beta`, the Marangoni force `grad(Beta) Basis`).
 
 use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, Quadrature};
 
@@ -35,6 +36,10 @@ pub struct FlowBoundaryInput<'a> {
     /// given in normal-tangential components (the normal force adds to the
     /// first), assembled through the element normal and tangents.
     pub normal_tangential: bool,
+    /// Surface tension, `(Alpha, Beta)` at the nodes: `Surface Tension
+    /// Coefficient`, and the same scaled by `1 - Surface Tension Expansion
+    /// Coefficient * Temperature` (FlowSolve.F90:1279-1302).
+    pub surface_tension: Option<(&'a [f64], &'a [f64])>,
 }
 
 /// The mean of the element nodes: the reference-element centre of a linear
@@ -160,6 +165,15 @@ pub fn flow_boundary_local(
             .map_err(FlowError::Basis)?;
         let s = be.det_j * qp.weight;
         let phi = &be.basis[..n];
+        let dphi = &be.dbasis_dx[..n];
+        // TangentForce(i) = SUM(NodalBeta * dBasisdx(:,i)), Alpha at the point.
+        let (alpha, tangent_force) = match inp.surface_tension {
+            Some((a, b)) => (
+                (0..n).fold(0.0, |acc, k| acc + a[k] * phi[k]),
+                std::array::from_fn::<f64, 3, _>(|i| (0..n).fold(0.0, |acc, k| acc + b[k] * dphi[k][i])),
+            ),
+            None => (0.0, [0.0; 3]),
+        };
 
         let mut force = [0.0; 3];
         for (i, f) in force.iter_mut().enumerate().take(dim) {
@@ -219,6 +233,10 @@ pub fn flow_boundary_local(
                     }
                 } else {
                     out.force[q * c + i] += s * phi[q] * f;
+                }
+                if inp.surface_tension.is_some() {
+                    out.force[q * c + i] -= s * alpha * dphi[q][i];
+                    out.force[q * c + i] += s * tangent_force[i] * phi[q];
                 }
             }
             out.force[q * c + dim] += s * mass_flux * phi[q];

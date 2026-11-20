@@ -64,6 +64,7 @@ pub fn incompressible_boundary_local(
         parent_center: inp.parent_center,
         np: inp.np,
         normal_tangential: false,
+        surface_tension: None,
     };
     flow_boundary_local(basis, quad, &f, out).map_err(convert)
 }

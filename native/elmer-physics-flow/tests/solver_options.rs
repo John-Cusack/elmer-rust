@@ -40,8 +40,8 @@ fn refuses_unported_options() {
     gas.insert("Compressibility Model", st("Perfect Gas"));
     assert_unsupported(stokes(std::slice::from_ref(&it), gas, vec![]), "compressibility");
     assert_unsupported(
-        stokes(std::slice::from_ref(&it), water(), vec![("Surface Tension Coefficient", real(1.0))]),
-        "surface tension",
+        stokes(std::slice::from_ref(&it), water(), vec![("Wall Law", Value::Logical(true))]),
+        "wall law",
     );
     let mut nn = water();
     nn.insert("Viscosity Model", st("carreau"));
