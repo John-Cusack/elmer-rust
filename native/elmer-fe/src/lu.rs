@@ -4,7 +4,7 @@
 
 /// LUDecomp: in-place LU with column pivoting; the diagonal is replaced by
 /// its reciprocal. Returns `None` when a pivot is exactly zero.
-fn lu_decomp(a: &mut [f64], n: usize, pivot: &mut [usize]) -> Option<()> {
+pub fn lu_decomp(a: &mut [f64], n: usize, pivot: &mut [usize]) -> Option<()> {
     let ix = |i: usize, j: usize| i + j * n;
     for i in 0..n {
         let mut j = i;
@@ -42,6 +42,32 @@ fn lu_decomp(a: &mut [f64], n: usize, pivot: &mut [usize]) -> Option<()> {
         a[ix(i, i)] = 1.0 / a[ix(i, i)];
     }
     Some(())
+}
+
+/// `LUSolve(n, A, x, pivot)` (LinearAlgebra.F90:132) on `lu_decomp`'s
+/// factors: forward (with the reciprocal diagonal), backward, then the
+/// pivots undone in reverse order.
+pub fn lu_solve_pivot(a: &[f64], n: usize, x: &mut [f64], pivot: &[usize]) {
+    let ix = |i: usize, j: usize| i + j * n;
+    for i in 0..n {
+        let mut s = x[i];
+        for j in 0..i {
+            s -= a[ix(i, j)] * x[j];
+        }
+        x[i] = a[ix(i, i)] * s;
+    }
+    for i in (0..n).rev() {
+        let mut s = x[i];
+        for j in i + 1..n {
+            s -= a[ix(i, j)] * x[j];
+        }
+        x[i] = s;
+    }
+    for i in (0..n).rev() {
+        if pivot[i] != i {
+            x.swap(i, pivot[i]);
+        }
+    }
 }
 
 /// InvertMatrix: `a` (n x n, column-major) is replaced by its inverse.

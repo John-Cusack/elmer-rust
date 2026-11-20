@@ -22,3 +22,5 @@ pub mod wedge;
 
 pub use pbasis::{h1_p_basis, h1_p_basis_spec, p_dof_counts, PElementBasis, PElementSpec};
 pub use types::{pow_int, EdgeDir, FaceDir, MAX_EDGES, MAX_FACES};
+/// `SD_QuadEdgePBasis(edge, i, u, v, invert)` (PElementBase.F90).
+pub use scalar::sd_quad_edge;
