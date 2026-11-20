@@ -700,7 +700,7 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 25] = [
+    const P_DOFS: [(&str, &str); 26] = [
         ("benchmarkshell", "shellsolver"),
         ("elasticsolve", "elasticsolver"),
         ("filmflowsolver", "filmflowsolver"),
@@ -726,6 +726,8 @@ pub fn native_element(params: &ParamMap) -> bool {
         ("magnetodynamics", "whitneyavsolver"),
         ("hrot", "hrotsolver"),
         ("helmholtz", "helmholtzhdivsolver"),
+        // RefineMesh's `RTFlux` carrier (`Flux Recovery`).
+        ("vectorhelmholtz", "vectorhelmholtz_dummy"),
     ];
     if P_DOFS.iter().any(|(l, n)| lib.eq_ignore_ascii_case(l) && entry.eq_ignore_ascii_case(n)) {
         return true;
@@ -1267,9 +1269,11 @@ fn run_case_meshes(
     if sim.model.solvers.iter().any(|p| p.logical("adaptive mesh refinement") == Some(true)) {
         // Adaptive mesh refinement: each refined mesh saves to its own
         // directory (`Mesh % Name // '/' // Output File`).
-        if !outputs.is_empty() || periodic_in_use(&sim) || size > 1 {
+        // VTU outputs pick their fields and the mesh at each visit, so they
+        // follow the swaps.
+        if periodic_in_use(&sim) || size > 1 {
             return Err(SolverError::Unsupported(
-                "adaptive mesh refinement with VTU output, periodic assembly or more than one partition".into(),
+                "adaptive mesh refinement with periodic assembly or more than one partition".into(),
             ));
         }
         let case_dir2 = case_dir.clone();

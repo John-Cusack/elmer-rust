@@ -95,4 +95,17 @@ pub fn register(registry: &mut SolverRegistry) {
     ode_solver::register(registry);
     wave_solver::register(registry);
     normal_solver::register(registry);
+    // `VectorHelmholtz_Dummy` (VectorHelmholtz.F90:1394): an empty body. It
+    // only carries a variable on face/edge dofs, e.g. RefineMesh's `RTFlux`
+    // of `Flux Recovery`.
+    registry.register("VectorHelmholtz", "VectorHelmholtz_Dummy", |_| Ok(Box::new(DummySolver)));
+}
+
+/// A solver whose procedure does nothing.
+struct DummySolver;
+
+impl elmer_solver::Solver for DummySolver {
+    fn solve(&mut self, _ctx: &mut elmer_solver::SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), elmer_solver::SolverError> {
+        Ok(())
+    }
 }
