@@ -2273,6 +2273,37 @@ pub(crate) fn solve_linear(
     }
 }
 
+/// The nodes of a condition's `Target Nodes` (1-based in the input), or of
+/// its `Target Coordinates`: for each row the closest node within `Target
+/// Coordinates Eps` over as many coordinates as given
+/// (`TargetCoordinatesToTargetNodes`, `FindClosestNode`). `None` without
+/// either.
+pub(crate) fn target_nodes_of(mesh: &dyn MeshView, bc: &ParamMap) -> Option<Vec<u32>> {
+    let n = mesh.n_nodes();
+    if let Some(Value::Integer(ids)) = bc.get("target nodes") {
+        return Some(ids.iter().filter(|&&i| i >= 1 && i as usize <= n).map(|&i| i as u32 - 1).collect());
+    }
+    let Some(Value::Real { rows, cols, data }) = bc.get("target coordinates") else { return None };
+    let eps = bc.real("target coordinates eps").map_or(f64::MAX, |e| e * e);
+    let mut out = Vec::new();
+    for r in 0..*rows {
+        let c = &data[r * cols..(r + 1) * cols];
+        let mut best: Option<(f64, u32)> = None;
+        for node in 0..n as u32 {
+            let x = mesh.coord(node);
+            let d: f64 = c.iter().take(3).enumerate().map(|(k, ck)| (x[k] - ck).powi(2)).sum();
+            if d > eps {
+                continue;
+            }
+            if best.is_none_or(|(m, _)| d < m) {
+                best = Some((d, node));
+            }
+        }
+        out.extend(best.map(|(_, node)| node));
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod eliminate_tests {
     use super::*;
@@ -2313,35 +2344,4 @@ mod eliminate_tests {
             assert!(r.abs() < 1e-12, "row {i}: {r}");
         }
     }
-}
-
-/// The nodes of a condition's `Target Nodes` (1-based in the input), or of
-/// its `Target Coordinates`: for each row the closest node within `Target
-/// Coordinates Eps` over as many coordinates as given
-/// (`TargetCoordinatesToTargetNodes`, `FindClosestNode`). `None` without
-/// either.
-pub(crate) fn target_nodes_of(mesh: &dyn MeshView, bc: &ParamMap) -> Option<Vec<u32>> {
-    let n = mesh.n_nodes();
-    if let Some(Value::Integer(ids)) = bc.get("target nodes") {
-        return Some(ids.iter().filter(|&&i| i >= 1 && i as usize <= n).map(|&i| i as u32 - 1).collect());
-    }
-    let Some(Value::Real { rows, cols, data }) = bc.get("target coordinates") else { return None };
-    let eps = bc.real("target coordinates eps").map_or(f64::MAX, |e| e * e);
-    let mut out = Vec::new();
-    for r in 0..*rows {
-        let c = &data[r * cols..(r + 1) * cols];
-        let mut best: Option<(f64, u32)> = None;
-        for node in 0..n as u32 {
-            let x = mesh.coord(node);
-            let d: f64 = c.iter().take(3).enumerate().map(|(k, ck)| (x[k] - ck).powi(2)).sum();
-            if d > eps {
-                continue;
-            }
-            if best.is_none_or(|(m, _)| d < m) {
-                best = Some((d, node));
-            }
-        }
-        out.extend(best.map(|(_, node)| node));
-    }
-    Some(out)
 }

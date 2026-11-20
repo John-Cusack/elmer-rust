@@ -239,3 +239,39 @@ pub(crate) fn apply_filter(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn crs(rows: &[&[(usize, f64)]]) -> Crs {
+        Crs::from_list(rows.iter().map(|r| r.iter().copied().collect()).collect())
+    }
+
+    #[test]
+    fn normalized_rows_sum_to_one_and_filter_by_rows_or_columns() {
+        let mut f = crs(&[&[(0, 2.0), (1, 1.0)], &[(0, 1.0), (1, 1.0), (2, 2.0)], &[(2, 4.0)]]);
+        f.normalize();
+        assert_eq!(f.values, vec![2.0 / 3.0, 1.0 / 3.0, 0.25, 0.25, 0.5, 1.0]);
+        let x = [3.0, 6.0, 9.0];
+        let mut y = [0.0; 3];
+        apply_filter(&f, &x, &mut y, 1, None, false);
+        assert_eq!(y, [2.0 / 3.0 * 3.0 + 1.0 / 3.0 * 6.0, 0.25 * 3.0 + 0.25 * 6.0 + 0.5 * 9.0, 9.0]);
+        apply_filter(&f, &x, &mut y, 1, None, true);
+        assert_eq!(y, [2.0 / 3.0 * 3.0 + 0.25 * 6.0, 1.0 / 3.0 * 3.0 + 0.25 * 6.0, 0.5 * 6.0 + 9.0]);
+        // Weighted: x * w filtered, then divided by max(w, wmin).
+        let w = [1.0, 0.0, 2.0];
+        apply_filter(&f, &x, &mut y, 1, Some((&w, 0.5)), false);
+        assert_eq!(y[2], 18.0 / 2.0);
+        assert_eq!(y[1], (0.25 * 3.0 + 0.5 * 18.0) / 0.5);
+    }
+
+    #[test]
+    fn the_matrix_product_keeps_four_partial_sums() {
+        // Five entries: (a1 + a5) + a2 + a3 + a4, as CRS_MatrixVectorMultiply.
+        let f = crs(&[&[(0, 1.0), (1, 1e16), (2, 1.0), (3, -1e16), (4, 1.0)]]);
+        let mut y = [0.0];
+        f.mv(&[1.0; 5], &mut y);
+        assert_eq!(y[0], ((1.0 + 1.0) + 1e16 + 1.0) + -1e16);
+    }
+}

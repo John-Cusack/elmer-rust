@@ -36,7 +36,8 @@ fn add_exported(p: &mut ParamMap, spec: &str) {
 }
 
 fn is_pde(p: &ParamMap) -> bool {
-    p.string("filter type").is_some_and(|s| normalize_key(s) == "pde")
+    p.string("filter type")
+        .is_some_and(|s| normalize_key(s) == "pde")
 }
 
 /// `TopoOpt_init0` and `TopoOpt_init`: `Primary Solver Index`, the
@@ -103,7 +104,12 @@ fn element_size(ctx: &SolverCtx<'_>, e: ElemId) -> Result<f64, SolverError> {
         2 | 4 | 6 | 8 => [0.0, 0.0, 0.0],
         3 | 7 => [0.5, 0.5, 0.0],
         5 => [0.5, 0.5, 0.5],
-        _ => return Err(SolverError::fatal("ElementSize", "Not implemented for elementtype")),
+        _ => {
+            return Err(SolverError::fatal(
+                "ElementSize",
+                "Not implemented for elementtype",
+            ))
+        }
     };
     let fe = ctx
         .sim
@@ -258,12 +264,21 @@ impl TopoOpt {
         let p = ctx.params().clone();
         let mesh = ctx.mesh;
         ctx.info(CALLER, &format!("Number of nodes: {}", mesh.n_nodes()), 4);
-        ctx.info(CALLER, &format!("Number of bulk elements: {}", mesh.n_bulk()), 4);
+        ctx.info(
+            CALLER,
+            &format!("Number of bulk elements: {}", mesh.n_bulk()),
+            4,
+        );
         let method = match p.string("filter method").map(normalize_key).as_deref() {
             Some("sensitivity") => Method::Sensitivity,
             Some("density") => Method::Density,
             Some("none") => Method::None,
-            Some(m) => return Err(SolverError::fatal(CALLER, format!("Uknown filtering method: {m}"))),
+            Some(m) => {
+                return Err(SolverError::fatal(
+                    CALLER,
+                    format!("Uknown filtering method: {m}"),
+                ))
+            }
             None => return Err(SolverError::fatal(CALLER, "> Filter Method < not found")),
         };
         let ftype = p
@@ -271,7 +286,10 @@ impl TopoOpt {
             .map(normalize_key)
             .ok_or_else(|| SolverError::fatal(CALLER, "> Filter Type < not found"))?;
         if !["simple", "pde", "distance"].contains(&ftype.as_str()) {
-            return Err(SolverError::fatal(CALLER, format!("Unknown filter type: {ftype}")));
+            return Err(SolverError::fatal(
+                CALLER,
+                format!("Unknown filter type: {ftype}"),
+            ));
         }
         let phys = p.integer("primary solver index").unwrap_or(1) as usize;
         let slot = ctx
@@ -344,18 +362,23 @@ impl TopoOpt {
             }
         } else {
             if ctx.comm.size() > 1 {
-                return Err(SolverError::fatal(CALLER, "Only PDE Filter is implemented in parallel!"));
+                return Err(SolverError::fatal(
+                    CALLER,
+                    "Only PDE Filter is implemented in parallel!",
+                ));
             }
             if !identity {
-                return Err(unsupported("element filters on a solver not active on every bulk element"));
+                return Err(unsupported(
+                    "element filters on a solver not active on every bulk element",
+                ));
             }
             let mut f = if ftype == "simple" {
                 niter = p.integer("simple filter iterations").unwrap_or(0).max(1) as usize;
                 simple_filter(mesh)?
             } else {
-                let r = ctx
-                    .creal(&p, "distance filter radius")?
-                    .ok_or_else(|| SolverError::fatal(CALLER, "> Distance Filter Radius < not found"))?;
+                let r = ctx.creal(&p, "distance filter radius")?.ok_or_else(|| {
+                    SolverError::fatal(CALLER, "> Distance Filter Radius < not found")
+                })?;
                 distance_filter(mesh, r)?
             };
             f.normalize();
@@ -404,7 +427,12 @@ impl Solver for TopoOpt {
         if p.integer("no modes").unwrap_or(0) > 0 {
             return Err(unsupported("constraint modes (No Modes)"));
         }
-        if ctx.simulation_params().integer("periodic timesteps").unwrap_or(0) != 0 {
+        if ctx
+            .simulation_params()
+            .integer("periodic timesteps")
+            .unwrap_or(0)
+            != 0
+        {
             return Err(unsupported("Periodic Timesteps cycles"));
         }
         let cs = ctx
@@ -416,12 +444,19 @@ impl Solver for TopoOpt {
             return Err(unsupported("axisymmetric weighting"));
         }
         if ctx.sim.backends.fe.is_none() {
-            return Err(SolverError::NotWired("basis and quadrature (elmer-fe)".into()));
+            return Err(SolverError::NotWired(
+                "basis and quadrature (elmer-fe)".into(),
+            ));
         }
         Ok(())
     }
 
-    fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
+    fn solve(
+        &mut self,
+        ctx: &mut SolverCtx<'_>,
+        _dt: f64,
+        _transient: bool,
+    ) -> Result<(), SolverError> {
         ctx.info(CALLER, "-------------------------------------------", 4);
         ctx.info(CALLER, "Updating density for topology optimization", 4);
         let st = match self.state.take() {
@@ -456,10 +491,9 @@ impl TopoOpt {
                 .iter()
                 .find(|s| s.id == st.phys)
                 .expect("checked on the first visit");
-            let store = slot
-                .local_store
-                .as_ref()
-                .ok_or_else(|| SolverError::fatal(CALLER, "Could not find local stiffness matrix!"))?;
+            let store = slot.local_store.as_ref().ok_or_else(|| {
+                SolverError::fatal(CALLER, "Could not find local stiffness matrix!")
+            })?;
             let u = ctx.sim.vars.by_id(slot.variable.expect("checked"));
             let uperm = u.perm.as_deref().expect("nodal");
             let dofs = st.dofs;
@@ -470,7 +504,9 @@ impl TopoOpt {
                 let (k, _) = store
                     .get(e)
                     .filter(|(k, _)| k.len() == m * m)
-                    .ok_or_else(|| SolverError::fatal(CALLER, "Could not find local stiffness matrix!"))?;
+                    .ok_or_else(|| {
+                        SolverError::fatal(CALLER, "Could not find local stiffness matrix!")
+                    })?;
                 let mut sol = vec![0.0; m];
                 for (i, &nd) in nodes.iter().enumerate() {
                     let s = uperm[nd as usize];
@@ -530,7 +566,10 @@ impl TopoOpt {
             let bw = topology_bw(ctx, &st.dv0, &x_phys, vol_frac);
             set_values(ctx, "topo bw", &bw);
         }
-        let mult: Vec<f64> = x_phys.iter().map(|x| emin + efrac * x.powf(penal)).collect();
+        let mult: Vec<f64> = x_phys
+            .iter()
+            .map(|x| emin + efrac * x.powf(penal))
+            .collect();
         set_values(ctx, "topo rho", &x_phys);
         set_values(ctx, "topo ce", &ce);
         set_values(ctx, "topo dc", &dc);
@@ -552,8 +591,12 @@ fn update_densities(
     vol_frac: f64,
 ) -> Result<(), SolverError> {
     let mv = ctx.creal(p, "bisection search max change")?.unwrap_or(0.2);
-    let tol = ctx.creal(p, "bisection search tolerance")?.unwrap_or(1.0e-6);
-    let damp = ctx.creal(p, "bisection search damping exponent")?.unwrap_or(0.5);
+    let tol = ctx
+        .creal(p, "bisection search tolerance")?
+        .unwrap_or(1.0e-6);
+    let damp = ctx
+        .creal(p, "bisection search damping exponent")?
+        .unwrap_or(0.5);
     let (mut l1, mut l2) = (0.0f64, 1.0e9f64);
     let mut sdv = 0.0;
     for v in dv {
@@ -588,7 +631,11 @@ fn update_densities(
     }
     x.copy_from_slice(&xnew);
     ctx.info(CALLER, &format!("Number of bisection iterations: {k}"), 7);
-    ctx.info(CALLER, &format!("Volume target and accuracy: {v0:e} {:e}", vi - v0), 7);
+    ctx.info(
+        CALLER,
+        &format!("Volume target and accuracy: {v0:e} {:e}", vi - v0),
+        7,
+    );
     Ok(())
 }
 
@@ -647,5 +694,7 @@ fn topology_bw(ctx: &SolverCtx<'_>, dv0: &[f64], x: &[f64], vol_frac: f64) -> Ve
         &format!("Mass conserving B&W limit after {iters} iters: {xmid:e}"),
         7,
     );
-    x.iter().map(|&v| if v > xmid { 1.0 } else { 0.0 }).collect()
+    x.iter()
+        .map(|&v| if v > xmid { 1.0 } else { 0.0 })
+        .collect()
 }
