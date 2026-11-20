@@ -209,8 +209,6 @@ fn check_bc(bc: &ParamMap, var_name: &str) -> Result<(), SolverError> {
     for (prefix, what) in [
         ("surface tension", "surface tension"),
         ("periodic bc", "periodic boundary conditions"),
-        ("target coordinates", "point boundary conditions (Target Coordinates)"),
-        ("target nodes", "point boundary conditions (Target Nodes)"),
     ] {
         if has_prefix(bc, prefix) {
             return Err(unsupported(what));
@@ -294,56 +292,18 @@ fn element_dim(family: u16) -> usize {
     }
 }
 
-/// The Dirichlet rows of the solver variable from its component names: for
-/// each boundary element in mesh order, `(row, value)` for every component
-/// its BC sets, a later element overwriting an earlier one
-/// (DefaultDirichletBCs). `noslip` also fixes the velocity components to
-/// zero on `Noslip Wall BC` boundaries, as FlowSolve adds `Velocity i = 0`
-/// to those BCs after its first boundary assembly.
-fn dirichlet_rows(ctx: &SolverCtx<'_>, comps: &[String], dim: usize, noslip: bool) -> Result<Vec<(u32, f64)>, SolverError> {
-    let dofs = comps.len();
-    let mut fixed = std::collections::BTreeMap::new();
-    let mut idx = Vec::new();
-    let mut extra = Vec::new();
-    let bnd: Vec<ElemId> = ctx.boundary_elements().collect();
-    for e in bnd {
-        let bc = ctx.bc_params(e).expect("boundary_elements filters on BC");
-        ctx.element_slots(e, &mut idx);
-        // The edge and face dofs of a p boundary element: zero wherever its
-        // BC sets the component (as IncompressibleNS and StressSolve do).
-        extra.clear();
-        if let Some(d) = ctx.solver_dofs() {
-            d.boundary_extra_slots(e, &mut extra);
-        }
-        let wall = noslip && flag(Some(bc), "noslip wall bc");
-        for (k, key) in comps.iter().enumerate() {
-            if bc.get(&format!("{key} condition")).is_some() {
-                return Err(unsupported(format!("Dirichlet mask > {key} Condition <")));
-            }
-            let vals = if wall && k < dim {
-                Some(vec![0.0; idx.len()])
-            } else {
-                ctx.real_at_nodes(bc, key, e)?
-            };
-            let Some(vals) = vals else { continue };
-            if !extra.is_empty() {
-                if let Some(Value::Dependent(d)) = bc.get(key) {
-                    if matches!(d.kind, elmer_core::DependentKind::Procedure { .. }) {
-                        return Err(unsupported(format!("p-element Dirichlet value > {key} < given by a procedure")));
-                    }
-                }
-                for &s in &extra {
-                    fixed.insert(s * dofs as u32 + k as u32, 0.0);
-                }
-            }
-            for (&s, &x) in idx.iter().zip(&vals) {
-                if s != NO_DOF {
-                    fixed.insert(s * dofs as u32 + k as u32, x);
-                }
+/// FlowSolve's noslip wall code (FlowSolve.F90:1416-1433): after the
+/// boundary assembly a `Noslip Wall BC` boundary gets `Velocity i = 0`
+/// (the velocity components of the flow variable) in its section, which
+/// `DefaultDirichletBCs` then applies like any other Dirichlet value.
+fn noslip_walls(ctx: &mut SolverCtx<'_>, comps: &[String], dim: usize) {
+    for bc in ctx.sim.model.boundary_conditions.iter_mut() {
+        if flag(Some(bc), "noslip wall bc") {
+            for key in comps.iter().take(dim) {
+                bc.insert(key, Value::real(0.0));
             }
         }
     }
-    Ok(fixed.into_iter().collect())
 }
 
 /// `AddEquationBasics` (MainUtils.F90:1241, 1827) creates the variable of
@@ -700,7 +660,11 @@ impl Solver for FlowSolver {
             // Implicit friction boundaries, on the matrix level.
             set_implicit_friction(ctx, dim)?;
 
-            let fixed = dirichlet_rows(ctx, &comps, dim, true)?;
+            noslip_walls(ctx, &comps, dim);
+            // DefaultDirichletBCs: element values (in BC order with `Set
+            // Dirichlet BCs by BC Numbering`), zero on p edge dofs, then the
+            // point values of `Target Nodes` / `Target Coordinates`.
+            let fixed = ctx.dirichlet_values()?;
             apply_dirichlet(ctx, &fixed)?;
             let norm = ctx.default_solve()?;
 
