@@ -32,6 +32,19 @@ pub(crate) fn current() -> Option<Arc<dyn MeshMotion>> {
     MOTION.with(|m| m.borrow().clone())
 }
 
+/// Replaces every node's coordinates through the installed motion (a
+/// solver that assigns `Mesh % Nodes` itself); `false` when none is
+/// installed.
+pub fn set_coords(coords: &[[f64; 3]]) -> bool {
+    match current() {
+        Some(m) => {
+            m.set_coords(coords);
+            true
+        }
+        None => false,
+    }
+}
+
 /// Node coordinates behind a lock: a `MeshView::coord` reads them and the
 /// mappers write them through [`MeshMotion`].
 #[derive(Debug, Default)]
