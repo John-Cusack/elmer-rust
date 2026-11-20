@@ -9,12 +9,14 @@
 //! Ported: four-node quadrilaterals with the directors of `mesh.director`
 //! (`ReadSurfaceDirector`) or else the face normals, `Large Deflection` (default on, its nonlinear
 //! iterations and residuals), `Nonlinear Bending Strains`, `Normal
-//! Pressure`, `Shear / Membrane / Stretch Relaxation Alpha`, `Benchmark
-//! Problem` and `Spherical Body`.
+//! Pressure`, the dead edge loads of `ShellBoundaryMatrix` (`Resultant
+//! Force`, `Resultant Couple`, `Spring`), `Displace Mesh`, `Shear /
+//! Membrane / Stretch Relaxation Alpha`, `Benchmark Problem` and `Spherical
+//! Body`.
 //!
 //! Refused: triangles and other element types, p elements (`Cartesian
-//! Formulation`), a `Director` field, beams, edge loads
-//! (`ShellBoundaryMatrix`), the solid coupling, `Displace Mesh`, `Drilling
+//! Formulation`), a `Director` field, beams, live edge loads, the solid
+//! coupling, `Drilling
 //! DOFs`, `Rotate DOFs`, bubbles, explicit strain reduction operators,
 //! mass (transient, harmonic, eigen) and more than one partition.
 #![forbid(unsafe_code)]
@@ -30,6 +32,7 @@
 
 mod geom;
 mod kernel;
+pub mod motion;
 mod solver;
 
 pub use solver::{factory, register, solver_defaults, ShellSolver, PROCEDURE};

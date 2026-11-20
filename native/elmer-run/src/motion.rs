@@ -34,10 +34,14 @@ impl<'a> MovableMesh<'a> {
         // StressSolve's `DisplaceMesh` too.
         let c = self.coords.clone();
         let elastic: elmer_physics_elastic::motion::NodeMover = Arc::new(move |x: &[[f64; 3]]| c.set_coords(x));
+        // And ShellSolver's.
+        let c = self.coords.clone();
+        let shell: elmer_physics_shell::motion::NodeMover = Arc::new(move |x: &[[f64; 3]]| c.set_coords(x));
         MotionGuard(
             motion::install(Some(coords)),
             free_surface::install_node_mover(Some(mover)),
             elmer_physics_elastic::motion::install_node_mover(Some(elastic)),
+            elmer_physics_shell::motion::install_node_mover(Some(shell)),
         )
     }
 }
@@ -47,6 +51,7 @@ pub(crate) struct MotionGuard(
     Option<Arc<dyn MeshMotion>>,
     Option<free_surface::NodeMover>,
     Option<elmer_physics_elastic::motion::NodeMover>,
+    Option<elmer_physics_shell::motion::NodeMover>,
 );
 
 impl Drop for MotionGuard {
@@ -54,6 +59,7 @@ impl Drop for MotionGuard {
         motion::install(self.0.take());
         free_surface::install_node_mover(self.1.take());
         elmer_physics_elastic::motion::install_node_mover(self.2.take());
+        elmer_physics_shell::motion::install_node_mover(self.3.take());
     }
 }
 
