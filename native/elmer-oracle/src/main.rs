@@ -327,6 +327,19 @@ fn resolve_solvers_mpi(
                     let mut owned = vec![true; values.len()];
                     if consistent && partitioning.is_dir() {
                         match elmer_oracle::refnorm::owned_nodes(&partitioning, rank) {
+                            // Ownership is known per mesh node of the partition
+                            // files only: a local mesh Elmer extruded, refined or
+                            // extended, or edge/p/DG unknowns, are out of class.
+                            Ok(nodes) if Some(nodes.len()) != p.3 => {
+                                why = Some(format!(
+                                    "local mesh has {:?} nodes, partition files {} (mesh changed after load)",
+                                    p.3,
+                                    nodes.len()
+                                ))
+                            }
+                            Ok(nodes) if perm.len() != nodes.len() => {
+                                why = Some(String::from("non-nodal unknowns in parallel (ownership unknown)"))
+                            }
                             Ok(nodes) => {
                                 for (i, &k) in perm.iter().enumerate() {
                                     if k > 0 {
