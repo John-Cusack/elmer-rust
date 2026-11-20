@@ -79,6 +79,11 @@ pub struct FlowBulkInput<'a> {
     /// `Porous Media`: `Porous Resistivity` at the nodes, the drag `mu *
     /// Drag(i) * u_i` in momentum equation `i`.
     pub porous: Option<&'a [[f64; 3]]>,
+    /// `Compressibility Model = Thermal` (`Compressible`, `Cmodel ==
+    /// Thermal`): `density` is the thermal density at the nodes; the
+    /// viscous term gets `-2/3 mu div`, continuity is weighted by `rho` and
+    /// gains `grad(rho) . u`.
+    pub thermal: bool,
 }
 
 /// The nodal parameters of the power-law viscosity `mu = Viscosity *
@@ -189,6 +194,8 @@ pub fn flow_bulk_local(
 
         let interp = |v: &dyn Fn(usize) -> f64| (0..n).map(|k| v(k) * phi[k]).sum::<f64>();
         let rho = interp(&|k| inp.density[k]);
+        // drhodx(i) = SUM(Nodalrho(1:n) * dBasisdx(1:n,i)).
+        let drhodx: [f64; 3] = std::array::from_fn(|i| (0..n).fold(0.0, |acc, k| acc + inp.density[k] * dphi[k][i]));
         let mut mu = interp(&|k| inp.viscosity[k]);
 
         let mut velo = [0.0; 3];
@@ -330,6 +337,9 @@ pub fn flow_bulk_local(
                         } else if !disc.laplace {
                             a[ij(at(p, i), at(q, j))] += s * mu * bdphi[q][i] * bdphi[p][j];
                         }
+                        if inp.thermal {
+                            a[ij(at(p, i), at(q, j))] -= s * (2.0 / 3.0) * mu * bdphi[q][j] * bdphi[p][i];
+                        }
                     }
                 }
                 // Convection, Picard and Newton parts.
@@ -346,7 +356,8 @@ pub fn flow_bulk_local(
                     }
                 }
                 // Pressure gradient and continuity.
-                let cont = if inp.convect { rho } else { 1.0 };
+                // ComprConvConst.
+                let cont = if inp.convect || inp.thermal { rho } else { 1.0 };
                 for i in 0..dim {
                     if disc.gradp {
                         a[ij(at(p, i), at(q, dim))] += s * bdphi[q][i] * bphi[p];
@@ -354,6 +365,12 @@ pub fn flow_bulk_local(
                     } else {
                         a[ij(at(p, i), at(q, dim))] -= s * bphi[q] * bdphi[p][i];
                         a[ij(at(p, dim), at(q, i))] += s * cont * bdphi[q][i] * bphi[p];
+                    }
+                }
+                // Cmodel == Thermal: drhodx(i) * Basis(q) * BasePVec(p).
+                if inp.thermal && !disc.gradp {
+                    for i in 0..dim {
+                        a[ij(at(p, dim), at(q, i))] += s * drhodx[i] * bphi[q] * bphi[p];
                     }
                 }
                 if inp.porous.is_some() {

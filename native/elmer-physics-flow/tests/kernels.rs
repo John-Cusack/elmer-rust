@@ -42,6 +42,7 @@ fn input<'a>(
         power_law: None,
         bubbles: false,
         porous: None,
+        thermal: false,
         etype: et,
         xyz,
         dim: 2,
