@@ -49,6 +49,16 @@ pub struct StatElecAtNodes {
     pub charge_density: Option<Vec<f64>>,
 }
 
+/// Piezoelectric coupling of an element (`GetPiezoElementData`): the
+/// material's `Piezo Material Coefficients` (`dim x 2*dim`, row-major, the
+/// same at every node) and the nodal displacements of the coupled
+/// elasticity solver.
+#[derive(Clone, Debug)]
+pub struct PiezoAtNodes {
+    pub coeff: Vec<f64>,
+    pub displ: Vec<[f64; 3]>,
+}
+
 impl StatElecAtNodes {
     /// The same values at `nodes`, given at `mesh_nodes` (the same set in
     /// another order).
@@ -150,7 +160,7 @@ pub fn stat_elec_bulk_local(
         )));
     }
     let ips = quad.gauss_points(etype, cfg.quad_points);
-    bulk_with(basis, &ips, etype, xyz, mat, cfg, n, out)
+    bulk_with(basis, &ips, etype, xyz, mat, cfg, n, None, out)
 }
 
 /// [`stat_elec_bulk_local`] for `nd >= n` basis functions (the nodal ones
@@ -180,7 +190,7 @@ pub fn stat_elec_bulk_local_with(
     if nd < n {
         return Err(ScalarError::Invalid(format!("{nd} dofs for {n} nodes")));
     }
-    bulk_with(basis, ips, etype, xyz, mat, cfg, nd, out)
+    bulk_with(basis, ips, etype, xyz, mat, cfg, nd, None, out)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -192,6 +202,7 @@ fn bulk_with(
     mat: &StatElecAtNodes,
     cfg: &StatElecConfig,
     nd: usize,
+    piezo: Option<&PiezoAtNodes>,
     out: &mut LocalSystem,
 ) -> Result<(), ScalarError> {
     let n = xyz.len();
@@ -228,8 +239,76 @@ fn bulk_with(
                 out.force[p] += w * f * phi[p];
             }
         }
+        if let Some(pz) = piezo {
+            add_piezo_force(cfg, n, nphi, dphi, pz, w, &mut out.force[..nd]);
+        }
     }
     Ok(())
+}
+
+/// `AddPiezoForce`: the strain of the displacements in Voigt order (`xx,
+/// yy, zz, xy, yz, xz`; plane strain in 2D), turned into a load by the
+/// piezo tensor, enters the right-hand side through `grad(phi_p)`, scaled
+/// by `Eps0` like the stiffness.
+fn add_piezo_force(cfg: &StatElecConfig, n: usize, nphi: &[f64], dphi: &[[f64; 3]], pz: &PiezoAtNodes, w: f64, force: &mut [f64]) {
+    let dim = cfg.dim;
+    let sum = |a: usize, b: usize| {
+        let mut s = 0.0;
+        for k in 0..n {
+            s += dphi[k][a] * pz.displ[k][b];
+        }
+        s
+    };
+    let mut strain = [0.0f64; 6];
+    for i in 0..dim {
+        strain[i] = sum(i, i);
+    }
+    strain[3] = 0.5 * (sum(0, 1) + sum(1, 0));
+    if dim == 3 {
+        strain[4] = 0.5 * (sum(1, 2) + sum(2, 1));
+        strain[5] = 0.5 * (sum(0, 2) + sum(2, 0));
+    }
+    let mut load = [0.0f64; 3];
+    for i in 0..dim {
+        for j in 0..2 * dim {
+            let mut c = 0.0;
+            for k in 0..n {
+                c += nphi[k] * pz.coeff[i * 2 * dim + j];
+            }
+            load[i] += c * strain[j];
+        }
+    }
+    for (p, f) in force.iter_mut().enumerate() {
+        let mut s = 0.0;
+        for i in 0..dim {
+            s += dphi[p][i] * load[i];
+        }
+        *f += cfg.eps0 * w * s;
+    }
+}
+
+/// [`stat_elec_bulk_local`] with the piezoelectric right-hand side of
+/// `LocalMatrix` (StatElecSolve.F90:846).
+#[allow(clippy::too_many_arguments)]
+pub fn stat_elec_bulk_local_piezo(
+    basis: &dyn ElementBasis,
+    quad: &dyn Quadrature,
+    etype: ElementType,
+    xyz: &[[f64; 3]],
+    mat: &StatElecAtNodes,
+    piezo: &PiezoAtNodes,
+    cfg: &StatElecConfig,
+    out: &mut LocalSystem,
+) -> Result<(), ScalarError> {
+    let n = xyz.len();
+    check_len("relative permittivity", n, mat.relative_permittivity.len())?;
+    check_opt("charge density", n, &mat.charge_density)?;
+    check_len("piezo displacements", n, piezo.displ.len())?;
+    if !(1..=3).contains(&cfg.dim) || piezo.coeff.len() != 2 * cfg.dim * cfg.dim {
+        return Err(ScalarError::Invalid(format!("piezo coefficients for dim {}", cfg.dim)));
+    }
+    let ips = quad.gauss_points(etype, cfg.quad_points);
+    bulk_with(basis, &ips, etype, xyz, mat, cfg, n, Some(piezo), out)
 }
 
 /// Boundary element matrices of `LocalMatrixBC` (StatElecSolve.F90:867) for
