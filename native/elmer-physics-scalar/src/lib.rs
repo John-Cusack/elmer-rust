@@ -81,6 +81,9 @@ pub const STAT_ELEC_PROCEDURE: (&str, &str) = ("StatElecSolve", "StatElecSolver"
 pub const STAT_ELEC_VEC_PROCEDURE: (&str, &str) = ("StatElecSolveVec", "StatElecSolver");
 /// `Procedure = "StatCurrentSolve" "StatCurrentSolver"`.
 pub const STAT_CURRENT_PROCEDURE: (&str, &str) = ("StatCurrentSolve", "StatCurrentSolver");
+/// `Procedure = "StatCurrentSolveVec" "StatCurrentSolver"`, the front of the
+/// former name.
+pub const STAT_CURRENT_VEC_PROCEDURE: (&str, &str) = ("StatCurrentSolveVec", "StatCurrentSolver");
 /// `Procedure = "HelmholtzSolve" "HelmholtzSolver"`.
 pub const HELMHOLTZ_PROCEDURE: (&str, &str) = ("HelmholtzSolve", "HelmholtzSolver");
 

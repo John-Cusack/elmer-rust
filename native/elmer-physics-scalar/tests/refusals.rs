@@ -102,8 +102,8 @@ fn statcurrent_refusals() {
         "harmonic mode",
     );
     refused(
-        model(CURRENT, &[], &mat, &[("Farfield Potential", real(0.0))], 1),
-        "Farfield Potential",
+        model(CURRENT, &[("Legacy Assembly", t.clone())], &mat, &[], 1),
+        "legacy assembly",
     );
 }
 

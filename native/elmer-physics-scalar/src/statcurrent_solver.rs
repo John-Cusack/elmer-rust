@@ -21,7 +21,7 @@ use crate::statcurrent::{
     StatCurrentConfig,
 };
 use crate::statelec::PHYSICAL_EPS0;
-use crate::STAT_CURRENT_PROCEDURE;
+use crate::{STAT_CURRENT_PROCEDURE, STAT_CURRENT_VEC_PROCEDURE};
 
 const CALLER: &str = "StatCurrentSolver";
 
@@ -30,6 +30,13 @@ pub fn register(registry: &mut SolverRegistry) {
     registry.register(
         STAT_CURRENT_PROCEDURE.0,
         STAT_CURRENT_PROCEDURE.1,
+        stat_current_factory,
+    );
+    // StatCurrentSolveVec.F90 is a front: without `Legacy Assembly` (refused
+    // below) its `_init`, solver and `_post` delegate to StatCurrentSolve's.
+    registry.register(
+        STAT_CURRENT_VEC_PROCEDURE.0,
+        STAT_CURRENT_VEC_PROCEDURE.1,
         stat_current_factory,
     );
 }
@@ -145,14 +152,6 @@ fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
             "Solver keyword \"Relative Integration Order\"",
             "the quadrature takes a point count, not an order",
         ));
-    }
-    for bc in &ctx.sim.model.boundary_conditions {
-        if bc.get("farfield potential").is_some() {
-            return Err(unsupported(
-                "Boundary Condition \"Farfield Potential\"",
-                "needs NormalVector(Element, Nodes, u, v, check orientation), which the element basis lacks",
-            ));
-        }
     }
     Ok(())
 }
@@ -319,15 +318,27 @@ impl Solver for StatCurrentSolver {
                     continue;
                 }
                 let p = ctx.bc_params(e);
-                let bc = StatCurrentBcAtNodes {
+                let mut bc = StatCurrentBcAtNodes {
                     current_density: real_at_nodes(ctx, p, "Current Density", e)?,
                     external_conductivity: real_at_nodes(ctx, p, "External Conductivity", e)?,
                     external_potential: real_at_nodes(ctx, p, "External Potential", e)?,
+                    farfield_potential: real_at_nodes(ctx, p, "Farfield Potential", e)?,
+                    ip_normals: None,
                 };
-                if bc.current_density.is_none() && bc.external_conductivity.is_none() {
+                if bc.current_density.is_none() && bc.external_conductivity.is_none() && bc.farfield_potential.is_none() {
                     continue;
                 }
                 let el = ctx.mesh.element(e);
+                // `NormalVector(Element, Nodes, u, v, .TRUE.)` at each point of
+                // the rule the kernel takes.
+                if bc.farfield_potential.is_some() {
+                    let ips = self.quad.gauss_points(el.etype, cfg.quad_points);
+                    let mut normals = Vec::with_capacity(ips.len());
+                    for qp in &ips {
+                        normals.push(elmer_solver::boundary_normal(ctx.mesh, &ctx.sim.model, e, [qp.uvw[0], qp.uvw[1]])?);
+                    }
+                    bc.ip_normals = Some(normals);
+                }
                 let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
                 stat_current_boundary_local(
                     &*self.basis,
