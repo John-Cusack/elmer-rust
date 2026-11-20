@@ -1676,6 +1676,75 @@ impl<'a> SolverCtx<'a> {
         target_nodes_of(self.mesh, bc)
     }
 
+    /// `CalculateNodalWeights(Solver, WeightAtBoundary, Perm, VarName)`
+    /// (SolverBasics.F90): the integral of each basis function over the
+    /// boundary (or bulk) elements whose nodes all have a slot in `perm`,
+    /// into the nodal variable `var_name` on `perm` (created when missing).
+    /// When some BC (Body Force) gives `var_name` only its elements count.
+    pub fn calculate_nodal_weights(&mut self, at_boundary: bool, perm: &[u32], var_name: &str) -> Result<(), SolverError> {
+        const CALLER: &str = "CalculateNodalWeights";
+        let model = &self.sim.model;
+        let cs = model.simulation.string("coordinate system").unwrap_or("cartesian").to_ascii_lowercase();
+        if !cs.starts_with("cartesian") {
+            return Err(SolverError::Unsupported("CalculateNodalWeights in non-Cartesian coordinates".into()));
+        }
+        let key = normalize_key(var_name);
+        let use_mask = if at_boundary {
+            model.boundary_conditions.iter().any(|b| b.get(&key).is_some())
+        } else {
+            model.body_forces.iter().any(|b| b.get(&key).is_some())
+        };
+        if !at_boundary && use_mask {
+            return Err(SolverError::Unsupported("CalculateNodalWeights masked by a Body Force".into()));
+        }
+        let fe = self
+            .sim
+            .backends
+            .fe
+            .as_ref()
+            .ok_or_else(|| SolverError::NotWired("basis and quadrature for nodal weights (elmer-fe)".into()))?;
+        let n = perm.iter().filter(|&&p| p != NO_DOF).map(|&p| p as usize + 1).max().unwrap_or(0);
+        let mut w = vec![0.0; n];
+        let mesh = self.mesh;
+        let nb = mesh.n_bulk();
+        let range = if at_boundary { nb..nb + mesh.n_boundary() } else { 0..nb };
+        let mut ev = elmer_core::BasisEval::default();
+        for e in range.map(|e| ElemId(e as u32)) {
+            let el = mesh.element(e);
+            if el.nodes.iter().any(|&k| perm[k as usize] == NO_DOF) {
+                continue;
+            }
+            if use_mask {
+                let Some(bc) = model.bc_of_tag(el.tag).and_then(|b| model.boundary_conditions.get(b - 1)) else {
+                    continue;
+                };
+                if bc.get(&key).is_none() {
+                    continue;
+                }
+            }
+            let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| mesh.coord(k)).collect();
+            for qp in fe.quadrature.gauss_points(el.etype, None) {
+                fe.basis.eval(el.etype, &xyz, qp.uvw, &mut ev).map_err(|m| SolverError::fatal(CALLER, m))?;
+                for (j, &k) in el.nodes.iter().enumerate() {
+                    w[perm[k as usize] as usize] += qp.weight * ev.det_j * ev.basis[j];
+                }
+            }
+        }
+        match self.sim.vars.id(&key) {
+            Some(wid) => {
+                let v = self.sim.vars.by_id_mut(wid);
+                if v.values.len() != w.len() {
+                    return Err(SolverError::fatal(CALLER, format!("{var_name}: an existing variable of another size")));
+                }
+                v.values = w;
+            }
+            None => {
+                self.sim.vars.add(crate::Variable::new(&key, elmer_core::FieldKind::Nodal, 1, Some(perm.into()), w))?;
+            }
+        }
+        Ok(())
+    }
+
     /// `CalculateNodalWeights(Solver, .TRUE., Perm, 'Periodic BC
     /// Coefficient '//Name, WeightVar)` of SetPeriodicBoundariesPass1/2: the
     /// boundary integral of each basis function over the boundaries that

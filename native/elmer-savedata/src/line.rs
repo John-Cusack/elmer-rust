@@ -491,7 +491,17 @@ impl Solver for SaveLine {
         let done_time = ctx.sim.slots[slot].done_time;
 
         if self.line.is_none() {
-            self.line = Some(find_line(ctx, &plan)?);
+            let line = find_line(ctx, &plan)?;
+            // SaveLine.F90:1366: `CalculateNodalWeights( Solver, .TRUE.,
+            // SavePerm, TRIM(MaskName)//' Weights')` on the line's numbering.
+            if !line.nodes.is_empty() && plan.section.logical("calculate weights") == Some(true) {
+                let mut perm = vec![elmer_core::NO_DOF; ctx.mesh.n_nodes()];
+                for (i, &n) in line.nodes.iter().enumerate() {
+                    perm[n] = i as u32;
+                }
+                ctx.calculate_nodal_weights(true, &perm, &format!("{} Weights", plan.mask))?;
+            }
+            self.line = Some(line);
         }
         let line = self.line.as_ref().expect("set above").clone();
         let cols = columns(ctx, &plan)?;

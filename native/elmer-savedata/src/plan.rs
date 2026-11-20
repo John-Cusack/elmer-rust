@@ -391,7 +391,6 @@ impl LinePlan {
                 ("intersect edge", "edge intersections"),
                 ("intersect coordinate", "edge intersections"),
                 ("break line loop", "line loop breaking"),
-                ("calculate weights", "nodal weights"),
                 ("filename numbering", "numbered file names"),
                 ("save solver mesh index", "another solver's mesh"),
                 ("enforce parallel mode", "MPI reductions"),
