@@ -879,6 +879,20 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     let mut discont_perm: Option<Vec<u32>> = None;
     let transformed = transform_mesh(&mut model, mesh, &mut discont_perm)?;
     // ReadSurfaceDirector: ShellSolver's `Mesh % Name/mesh.director`.
+    // ParticleOutputSolver writes next to the mesh (`SolverOutputDirectory(
+    // ..., UseMeshDir = .TRUE. )`).
+    for params in &mut model.solvers {
+        let out = procedure_of(params).is_some_and(|(lib, entry)| {
+            lib.eq_ignore_ascii_case(elmer_physics_particle::OUTPUT_PROCEDURE.0)
+                && entry.eq_ignore_ascii_case(elmer_physics_particle::OUTPUT_PROCEDURE.1)
+        });
+        if out {
+            params.insert(
+                elmer_physics_particle::MESH_DIRECTORY_KEY,
+                Value::Str(mesh_dir.to_string_lossy().into_owned()),
+            );
+        }
+    }
     let director = mesh_dir.join("mesh.director");
     if director.exists() {
         for params in &mut model.solvers {

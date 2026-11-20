@@ -380,6 +380,13 @@ impl Solver for ParticleDynamics {
             self.located = true;
         }
         self.pseudo_norm(ctx)?;
+        // GlobalParticles for ParticleOutputSolver.
+        let pt = &self.particles;
+        crate::output::publish(crate::output::Snapshot {
+            dim: pt.dim,
+            coord: pt.coord[..pt.number].to_vec(),
+            status: pt.status[..pt.number].to_vec(),
+        });
         ctx.info(CALLER, "All done", 4);
         ctx.info(CALLER, "-----------------------------------------", 4);
         Ok(())

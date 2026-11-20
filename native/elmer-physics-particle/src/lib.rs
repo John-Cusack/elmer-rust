@@ -10,15 +10,22 @@
 //! Refused: groups, collisions and contacts, walls and the particle
 //! boundary conditions, scattering, Runge-Kutta, variable particle steps,
 //! velocity fields (drag), release schedules, masks and weights, the other
-//! initialisation methods, `Output Interval` (SaveParticleData), 3-D meshes
-//! and more than one partition. `ParticleStatistics` and
-//! `ParticleInformation` only write Info lines and are not ported.
+//! initialisation methods, `Output Interval` (SaveParticleData in the
+//! solver), 3-D meshes and more than one partition. `ParticleStatistics`
+//! and `ParticleInformation` only write Info lines and are not ported.
+//!
+//! `ParticleOutputSolver` (SaveGridData.F90) writes the particles as VTK
+//! XML vertices, raw appended binary, without fields.
 #![forbid(unsafe_code)]
 // The ports keep the Fortran's loops and status tests.
 #![allow(clippy::needless_range_loop, clippy::manual_range_contains)]
 
 mod faces;
+mod output;
 mod particles;
 mod solver;
 
+pub use output::{
+    output_factory, register_output, ParticleOutput, MESH_DIRECTORY_KEY, OUTPUT_PROCEDURE,
+};
 pub use solver::{factory, register, solver_defaults, ParticleDynamics, PROCEDURE};
