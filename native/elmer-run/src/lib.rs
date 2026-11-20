@@ -44,6 +44,7 @@ mod mortar;
 mod motion;
 mod elec_force;
 mod gmsh_reader;
+mod openfoam;
 mod saveprojection;
 mod energy_release;
 pub use motion::{MotionGuard, MovableMesh};
