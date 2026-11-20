@@ -45,6 +45,7 @@ pub mod solver;
 pub mod statmag;
 pub mod steady;
 pub mod topology;
+pub mod vhnodal;
 
 pub use calcfields::{calc_fields, CalcFieldsResult, Potential};
 pub use case::Case;
