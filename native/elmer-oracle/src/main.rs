@@ -481,7 +481,16 @@ fn refnorm_one(
                 &solvers, &parsed, np as usize, &equations, &mut notes, mpi_order, &golden_run, &text,
             );
         } else {
-            let all: Vec<&Parsed> = parsed.iter().collect();
+            // A replayed script runs further sifs, each into its own
+            // `<stem>.result`; the startinfo sif, the one the overrides go
+            // into, writes `case.result`.
+            let all: Vec<&Parsed> = parsed
+                .iter()
+                .filter(|p| {
+                    registered.is_none()
+                        || std::path::Path::new(&p.0).file_name().is_some_and(|n| n == "case.result")
+                })
+                .collect();
             refnorms = resolve_solvers(&solvers, &all, &equations, &mut notes, &mut non_nodal);
         }
     } else if np > 1 {
