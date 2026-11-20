@@ -417,11 +417,23 @@ fn refnorm_one(
     let Ok(plan) = plan_test(&spec, &runtest, np, arm) else {
         return skip("plan error");
     };
-    if plan.custom.is_some() {
-        return skip("custom runtest (replay)");
-    }
+    // A custom `runtest.cmake` is replayed through `cmake -P` with the
+    // arm's recorded registration, as `capture` does; the injection reaches
+    // its sifs the same way.
+    let registered = match &plan.custom {
+        None => None,
+        Some(_) => {
+            let reg = read_registry_under(&arm.build_dir.join("fem").join("tests"))
+                .ok()
+                .and_then(|r| r.into_iter().find(|t| t.name == test && t.np == np));
+            match reg {
+                Some(r) => Some(r),
+                None => return skip("custom runtest without a registration to replay"),
+            }
+        }
+    };
     let solver_steps = plan.steps.iter().filter(|s| matches!(s, Step::Solver { .. })).count();
-    if solver_steps != 1 {
+    if registered.is_none() && solver_steps != 1 {
         return skip("several solver runs");
     }
     let text: String = std::fs::read(src.join(&sif))
@@ -469,7 +481,12 @@ fn refnorm_one(
                 &solvers, &parsed, np as usize, &equations, &mut notes, mpi_order, &golden_run, &text,
             );
         } else {
-            let all: Vec<&Parsed> = parsed.iter().collect();
+            // A replayed script runs further sifs, each into its own
+            // `<stem>.result`; the startinfo sif, the one the overrides go
+            // into, writes `case.result`.
+            let is_case = |p: &&Parsed| std::path::Path::new(&p.0).file_name().is_some_and(|n| n == "case.result");
+            let keep_case = registered.is_some() && parsed.iter().any(|p| is_case(&p));
+            let all: Vec<&Parsed> = parsed.iter().filter(|p| !keep_case || is_case(p)).collect();
             refnorms = resolve_solvers(&solvers, &all, &equations, &mut notes, &mut non_nodal);
         }
     } else if np > 1 {
@@ -546,12 +563,16 @@ fn refnorm_one(
             exit_verdict: false,
         };
         // Same in-memory-mesh retry as `capture`.
-        let mut result = run_plan(arm, &spec, &plan, &src, run_dir, &staging);
+        let go = |staging: &Staging| match &registered {
+            Some(reg) => run_replay(arm, reg, &src, run_dir, staging),
+            None => run_plan(arm, &spec, &plan, &src, run_dir, staging),
+        };
+        let mut result = go(&staging);
         if result.as_ref().is_ok_and(|o| !o.passed) {
             let missing = missing_output_dirs(run_dir);
             if !missing.is_empty() && std::fs::remove_dir_all(run_dir).is_ok() {
                 staging.mkdirs = missing;
-                result = run_plan(arm, &spec, &plan, &src, run_dir, &staging);
+                result = go(&staging);
             }
         }
         result
@@ -573,18 +594,33 @@ fn refnorm_one(
                     .iter()
                     .all(|n| solvers.iter().any(|s| s.number == *n && s.self_norm()));
             notes.extend(failed.into_iter().cloned());
-            if self_norm {
+            // A later solver rewrote the failed solvers' variables after
+            // their norm was taken (FixTangentVelo).
+            let modifier = text.lines().any(|l| {
+                let c = elmer_oracle::runner::strip_sif_comment(l);
+                elmer_oracle::runner::keyword_of(c.split("::").last().unwrap_or("")).as_deref() == Some("procedure")
+                    && c.split('"').nth(3).is_some_and(|e| {
+                        elmer_oracle::refnorm::MODIFIES_OTHER.contains(&e.trim().to_lowercase().as_str())
+                    })
+            });
+            let modified = !self_norm
+                && modifier
+                && !failed_solvers.is_empty()
+                && failed_solvers.iter().all(|n| solvers.iter().any(|s| s.number == *n && !s.modifies_other()));
+            if self_norm || modified {
                 // The other solvers can still be validated: rerun with the
-                // self-norming ones left at their own sif Reference Norm.
+                // failed ones left at their own sif Reference Norm.
                 let rest: Vec<(u32, f64)> =
                     refnorms.iter().copied().filter(|(n, _)| !failed_solvers.contains(n)).collect();
                 let run_rest: Vec<(usize, u32, f64)> =
                     run_refnorms.iter().copied().filter(|(_, n, _)| !failed_solvers.contains(n)).collect();
+                let why = if self_norm { "sets its own norm" } else { "its field is rewritten by a later solver" };
                 for n in &failed_solvers {
-                    notes.push(format!("solver {n}: sets its own norm, not validated"));
+                    notes.push(format!("solver {n}: {why}, not validated"));
                 }
                 if !rest.is_empty() || !run_rest.is_empty() {
-                    let retry = out_root.join(format!("{test}.without-self-norm"));
+                    let tag = if self_norm { "without-self-norm" } else { "without-modified" };
+                    let retry = out_root.join(format!("{test}.{tag}"));
                     if let Ok(o) = run(&retry, &rest, &run_rest) {
                         if o.passed {
                             return (String::from("bitwise"), rest.len() + run_rest.len(), notes.join("; "));
@@ -594,6 +630,8 @@ fn refnorm_one(
             }
             let verdict = if self_norm {
                 "grader-gap-solver-norm"
+            } else if modified {
+                "grader-gap-field-modified-later"
             } else if non_nodal {
                 "grader-gap-non-nodal"
             } else {

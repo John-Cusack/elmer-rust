@@ -33,7 +33,7 @@ CapacitanceMatrix3_np3	out-of-class	0	solver 1: potential (plates/case.result.N)
 CapacitanceMatrix4	bitwise	1	solver 3: norm option show norm
 CapacitanceMatrix4_np3	out-of-class	0	solver 1: potential (plates/case.result.N): non-nodal unknowns in parallel (ownership unknown); solver 3: norm option show norm
 CavityLid	bitwise	1	solver 1: flow solution (default)
-ChannelFlowCoulomb	out-of-class	0	custom runtest (replay)
+ChannelFlowCoulomb	bitwise	1	solver 1: flow solution (default)
 CoilSolver1	bitwise	1	solver 1: no explicit Variable; 2 variables of equation "coilsolver"; solver 2: coilpot grad (default); solver 3: div coilcurrent (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 8.80415922E-01  RefNorm = 6.97063017E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!; solver 2: sets its own norm, not validated
 CoilSolver1_np2	out-of-class	0	solver 1: no explicit Variable; 2 variables of equation "coilsolver"; solver 2: coilpot grad (Curve/case.result.N): local mesh has Some(3034) nodes, partition files 785 (mesh changed after load); solver 3: div coilcurrent (Curve/case.result.N): local mesh has Some(3034) nodes, partition files 785 (mesh changed after load)
 CoilSolver1_np4	out-of-class	0	solver 1: no explicit Variable; 2 variables of equation "coilsolver"; solver 2: coilpot grad (Curve/case.result.N): local mesh has Some(1590) nodes, partition files 419 (mesh changed after load); solver 3: div coilcurrent (Curve/case.result.N): local mesh has Some(1590) nodes, partition files 419 (mesh changed after load)
@@ -124,7 +124,7 @@ ElasticModelLumping	bitwise	1
 ElasticModelLumpingFixdisp	bitwise	1	solver 2: norm option show norm index
 ElasticNeoHookeanCompressible	out-of-class	0	solver 2: norm option show norm index
 ElasticPrestressAdvection	bitwise	2	
-ElasticStabilized	out-of-class	0	custom runtest (replay)
+ElasticStabilized	bitwise	1	solver 3: norm option show norm index
 ElasticStressLoad	out-of-class	0	solver 2: norm option show norm index
 ElasticStressLoadPlane	out-of-class	0	solver 2: norm option show norm index
 ElasticThermalAnisotropic	out-of-class	0	solver 2: norm option show norm index
@@ -167,7 +167,7 @@ FilmFlowPlane3	bitwise	1	solver 1: flow (default); solver 3: norm option show no
 FilmFlowPlane4	bitwise	1	solver 1: flow (default); solver 3: norm option show norm index
 FilmFlowPlane5	bitwise	1	solver 1: flow (default); solver 3: norm option show norm index
 FixPotentialLevels	bitwise	1	
-FixTangentVelo	out-of-class	0	custom runtest (replay)
+FixTangentVelo	bitwise	1	solver 2: flow solution (default); solver 3: fixvelo (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 6.21121718E-01  RefNorm = 6.21873624E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 2!; solver 2: its field is rewritten by a later solver, not validated
 FluxIntegralBCInduction	bitwise	1	solver 4: norm option show norm index
 FluxIntegralBCTemperature	bitwise	1	solver 2: norm option show norm index
 HeatAndDiffusion	bitwise	2	
@@ -242,7 +242,7 @@ MortarPoisson2D	bitwise	1
 MortarSaveProjection	bitwise	1	solver 2: no explicit Variable; 6 variables of equation "saveproject"
 NeoHookean2D	bitwise	1	
 NonnewtonianChannelFlow	bitwise	1	solver 1: flow solution (default)
-NonnewtonianChannelFlow_vec	out-of-class	0	custom runtest (replay)
+NonnewtonianChannelFlow_vec	bitwise	1	solver 1: flow solution (default); solver 2: norm option show norm index
 NormalTangentialDisplacement	bitwise	1	
 NormalTangentialDisplacement2	bitwise	1	
 NormalizeBC	bitwise	1	
@@ -298,14 +298,14 @@ SD_FilmFlowPlane2	bitwise	1	solver 1: flow (default); solver 3: norm option show
 SD_FilmFlowPlane3	bitwise	1	solver 1: flow (default); solver 3: norm option show norm index
 SD_ModelPDE	bitwise	1	
 SD_ModelPDEsplitted	bitwise	1	
-SD_NonnewtonianChannelFlow_vec	out-of-class	0	custom runtest (replay)
+SD_NonnewtonianChannelFlow_vec	bitwise	1	solver 1: flow solution (default)
 SD_P2ndDerivatives	out-of-class	0	solver 1: no explicit Variable; no saved variable of equation "test p2nd derivaties p-1"
 SD_PoissonPFEM	bitwise	1	
 SD_QuadraturesBrick	bitwise	4	
 SD_QuadraturesWedge	bitwise	19	
 SD_SolverSpecificMeshes	bitwise	1	
 SD_Step_stokes_block	bitwise	1	
-SD_Step_stokes_vec_blockprec	out-of-class	0	custom runtest (replay)
+SD_Step_stokes_vec_blockprec	bitwise	1	solver 1: flow solution (default)
 SD_p-FEM_two_solvers	bitwise	2	
 SD_p-FEM_with_varying_p	bitwise	1	
 SD_structmap_p2	bitwise	1	solver 3: norm option show norm index
@@ -326,7 +326,7 @@ ShoeboxStaticShell	bitwise	1	solver 1: deflection (default)
 SlaveSolverSlots	out-of-class	0	solver 2: count not in any result file
 SlaveSolverSlotsScan	bitwise	1	solver 1: count not in any result file
 SolverSpecificMeshes	bitwise	1	
-StatCurr_adaptivity	out-of-class	0	custom runtest (replay)
+StatCurr_adaptivity	out-of-class	0	solver 1: potential in several result files
 StatCurrentVec	bitwise	1	
 StatCurrentVec2	bitwise	2	
 StatCurrentVecAniso	bitwise	1	
@@ -337,12 +337,12 @@ StatElecVecAxi	bitwise	1
 Step_ns	bitwise	1	solver 1: flow solution (default)
 Step_stokes	bitwise	1	solver 1: flow solution (default)
 Step_stokes_block	bitwise	1	
-Step_stokes_vec_blockprec	out-of-class	0	custom runtest (replay)
+Step_stokes_vec_blockprec	bitwise	1	solver 1: flow solution (default)
 StlOutput1	out-of-class	0	solver 1: no explicit Variable; no saved variable of equation "resultoutput"
 StokesPFEM	bitwise	1	
 StokesProj	bitwise	1	
-StokesStabilized	out-of-class	0	custom runtest (replay)
-StokesUnitElements	out-of-class	0	custom runtest (replay)
+StokesStabilized	bitwise	1	solver 1: flow solution (default)
+StokesUnitElements	bitwise	1	solver 1: flow solution (default)
 StrainCalculation01	bitwise	1	
 StressAnisotropic2D	out-of-class	0	2 RUN blocks with Output Intervals = 0 (no RUN's solution is saved)
 StressConstraintModes	bitwise	1	
@@ -377,7 +377,7 @@ VectorHelmholtzWaveguideNodal	grader-gap-solver-norm	1	solver 1: elfield (defaul
 WaveEqu	bitwise	1	
 WeightComputation	out-of-class	0	solver 3: norm option show norm
 a-posteriori-recovery-2D	out-of-class	0	solver 1: temperature in several result files
-adaptivity1	out-of-class	0	custom runtest (replay)
+adaptivity1	out-of-class	0	solver 1: temperature in several result files
 adaptivity2	out-of-class	0	solver 1: temperature in several result files
 adaptivity3	out-of-class	0	solver 1: flow solution (default) in several result files
 adaptivity4	out-of-class	0	solver 1: displacement in several result files
@@ -394,7 +394,7 @@ bodyload	bitwise	1
 buckling	out-of-class	0	solver 2: norm option show norm
 current	bitwise	1	
 current_heat_control	bitwise	1	
-el_adaptivity	out-of-class	0	custom runtest (replay)
+el_adaptivity	out-of-class	0	solver 1: potential in several result files
 elasticity	bitwise	1	
 elasticity_with_springs	bitwise	1	
 elstat_source	bitwise	1	
@@ -459,7 +459,7 @@ radiation_vec	bitwise	1
 radiator3d	bitwise	1	
 radiator3d_box	bitwise	1	solver 2: no explicit Variable; no saved variable of equation "savescalars"
 radiator3d_symm	bitwise	1	
-reload	out-of-class	0	custom runtest (replay)
+reload	bitwise	1	
 reynolds2	bitwise	1	
 reynolds_flux	bitwise	1	solver 2: no explicit Variable; 3 variables of equation "reynoldspost"
 reynolds_robin	bitwise	1	solver 2: no explicit Variable; 3 variables of equation "reynoldspost"
