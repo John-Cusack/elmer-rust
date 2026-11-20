@@ -39,9 +39,11 @@
 
 mod boundary;
 mod bulk;
+mod bulk_vec;
 mod error;
 mod legacy;
 mod legacy_compose;
+mod linear_forms;
 mod material;
 mod preflight;
 mod radiation;
@@ -50,6 +52,7 @@ mod solver;
 
 pub use boundary::heat_boundary_local;
 pub use bulk::heat_bulk_local;
+pub use bulk_vec::heat_bulk_local_vec;
 pub use error::HeatError;
 pub use material::{
     CompressModel, Compressibility, Conductivity, HeatBcAtNodes, HeatBoundaryConfig,
