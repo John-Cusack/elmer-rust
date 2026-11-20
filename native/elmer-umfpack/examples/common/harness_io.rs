@@ -205,5 +205,30 @@ fn run_umf(mode: &str, m: &Matrix, o: &mut Out) {
     if mode == "sym" {
         return;
     }
-    panic!("mode {mode} not ported yet");
+    let res = umf::umfpack_numeric(&m.ap, &m.ai, &m.ax, &s, Some(&control), Some(&mut info));
+    let st = match &res {
+        Ok((_, st)) => *st,
+        Err(e) => *e,
+    };
+    o.line(&format!("num_status {st}"));
+    // NUMERIC_COSTLY_REALLOC counts reallocs that moved the block: allocator-dependent
+    let mut skip = TIME_SKIP.to_vec();
+    skip.push(UMFPACK_NUMERIC_COSTLY_REALLOC);
+    o.info("num_info", &info, &skip);
+    let Ok((mut num, _)) = res else { return };
+    if mode == "num" {
+        return;
+    }
+    let n = m.n as usize;
+    let b: Vec<f64> = match &m.b {
+        Some(b) => b.clone(),
+        None => (0..n).map(|i| 1.0 + (i % 7) as f64).collect(),
+    };
+    let mut x = vec![0.0; n];
+    // umf4sol sets Control [UMFPACK_IRSTEP] = 0; umfpack_solve here has no
+    // iterative refinement
+    let st = umf::umfpack_solve(UMFPACK_Aat, &mut x, &b, &mut num, Some(&mut info));
+    o.line(&format!("sol_status {st}"));
+    o.info("sol_info", &info, &skip);
+    o.dbls("X", &x);
 }

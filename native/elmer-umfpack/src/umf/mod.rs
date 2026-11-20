@@ -5,14 +5,28 @@
 //! Rust; see the modification notice there.
 
 pub mod analyze;
+pub mod assemble;
 pub mod colamd;
 pub mod consts;
+pub mod dense;
+pub mod front;
+pub mod gc;
+pub mod kernel;
+pub mod local_search;
+pub mod numeric;
+pub mod numtypes;
+pub mod row_search;
 pub mod singletons;
+pub mod solve;
+pub mod store_lu;
 pub mod symbolic;
 pub mod twobytwo;
 pub mod util;
 
 pub use consts::*;
+pub use numeric::umfpack_numeric;
+pub use numtypes::Numeric;
+pub use solve::umfpack_solve;
 pub use symbolic::{umfpack_qsymbolic, umfpack_symbolic, Symbolic};
 
 /// `UMFPACK_defaults`.
