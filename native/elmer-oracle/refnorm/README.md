@@ -74,6 +74,9 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
   The rerun creates each `RefinedMesh<N>/` it needs, as `capture` does.
   A CutFEM solver whose cut mesh is not saved (the library CutFEM of
   `ModelPDE`) stays out of class.
+- **Repeated `Solver N` sections.** Elmer adds a later section's keys to
+  the earlier one's list, later keys winning, so the grader merges them in
+  file order (AnalyticalTest, CoilSolver2–6, structmap5).
 - **Global variables** (`Variable = -global ...`). `SaveResult` skips
   globals unless `Output Global Variables` is set. Their golden is
   captured with `--globals` (O2 plus that keyword), and the rerun matches
@@ -101,11 +104,11 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
 
 | Verdict | Tests |
 |---|---:|
-| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **383** (490 solver checks) |
+| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **390** (497 solver checks) |
 | grader gap: the solver sets its own norm (FluxSolver, VectorHelmholtzNodal, WhitneyAVSolver) | 7 |
 | grader gap: DG field (PoissonDG) | 1 |
 | unexplained mismatch (PhaseChange3, solver 3 `PhaseSurface`) | 1 |
-| out of the validated class | 90 |
+| out of the validated class | 83 |
 
 Before this widening the class held 223 tests (238 solvers). All 223 are
 still bitwise, each with at least as many solvers as before.
@@ -136,12 +139,11 @@ Each test is listed under the first reason in its row.
 
 | Reason | Tests |
 |---|---:|
-| `Show Norm` / `Show Norm Index` (a SaveScalars value is the norm) | 28 |
+| `Show Norm Index` / `Show Norm Name` (a SaveScalars value is the norm; see below) | 28 |
 | no `Variable`: several saved variables of its equation | 10 |
 | no `Variable`: no saved variable of its equation | 10 |
 | variable not in any result file (edge fields, a coupled vector Elmer does not output, matrix-only tests) | 6 |
 | MPI: non-nodal unknowns (no owners in the partition files) | 8 |
-| duplicate `Solver N` sections (merged by Elmer) | 7 |
 | MPI: local mesh changed after load (extruded, refined, view factors) | 6 |
 | no `Variable`: coupled solver | 5 |
 | several `RUN` blocks with `Output Intervals = 0` | 3 |
@@ -149,8 +151,19 @@ Each test is listed under the first reason in its row.
 | other (`-nooutput`, several solver runs, a multi-RUN sif with no field solver, an MPI variable in two per-rank result sets) | 4 |
 | non-nodal unknowns | 1 |
 
+**Why the SaveScalars norms stay out.** With `Show Norm Index` (or
+`Name`), SaveScalars sets its solver's norm to one of its computed values
+(`SaveScalars.F90`, `Norm = Values(NormInd)`). That value lives in a
+`-nooutput -global` variable, so no result file holds it. It reaches disk
+only as text: in the scalars file at `ES22.12E3`, 13 significant digits,
+when the sif gives a `Filename`; and in the log at 8 digits. Of the 35
+rows that use it, 22 write no scalars file at all. A bitwise check is
+impossible, and a 13-digit one would test SaveScalars' formatting rather
+than the capture. (`Show Norm = True`, which many of these sifs also set,
+is read by no Elmer solver.)
+
 So item 4 is **not** done for every captured test. The validated class
-covers 383 of the 482 quick tests. Widening it further means the
+covers 390 of the 482 quick tests. Widening it further means the
 SaveScalars-style norms, and parallel ownership of
 non-nodal unknowns and of meshes Elmer changes after loading.
 

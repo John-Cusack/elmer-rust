@@ -13,7 +13,7 @@ AdvReactDBmap_np6	out-of-class	0	solver 1: potential (square/case.result.N): non
 AdvReactDG	bitwise	1	
 AdvReactDG_P	bitwise	1	
 AdvReactDG_np6	out-of-class	0	solver 1: tracer (square/case.result.N): non-nodal unknowns in parallel (ownership unknown)
-AnalyticalTest	out-of-class	0	two Solver 1 sections (merged by Elmer)
+AnalyticalTest	bitwise	1	
 AngleMetisLayer	bitwise	1	
 AngleMetisLayer_np2	out-of-class	0	solver 1: temperature (angle/case.result.N): local mesh has Some(9173) nodes, partition files 2350 (mesh changed after load)
 AngleMetisLayer_np3	out-of-class	0	solver 1: temperature (angle/case.result.N): local mesh has Some(4645) nodes, partition files 1203 (mesh changed after load)
@@ -37,11 +37,11 @@ ChannelFlowCoulomb	bitwise	1	solver 1: flow solution (default)
 CoilSolver1	bitwise	1	solver 1: no explicit Variable; 2 variables of equation "coilsolver"; solver 2: coilpot grad (default); solver 3: div coilcurrent (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 8.80415922E-01  RefNorm = 6.97063017E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!; solver 2: sets its own norm, not validated
 CoilSolver1_np2	out-of-class	0	solver 1: no explicit Variable; 2 variables of equation "coilsolver"; solver 2: coilpot grad (Curve/case.result.N): local mesh has Some(3034) nodes, partition files 785 (mesh changed after load); solver 3: div coilcurrent (Curve/case.result.N): local mesh has Some(3034) nodes, partition files 785 (mesh changed after load)
 CoilSolver1_np4	out-of-class	0	solver 1: no explicit Variable; 2 variables of equation "coilsolver"; solver 2: coilpot grad (Curve/case.result.N): local mesh has Some(1590) nodes, partition files 419 (mesh changed after load); solver 3: div coilcurrent (Curve/case.result.N): local mesh has Some(1590) nodes, partition files 419 (mesh changed after load)
-CoilSolver2	out-of-class	0	two Solver 1 sections (merged by Elmer)
-CoilSolver3	out-of-class	0	two Solver 1 sections (merged by Elmer)
-CoilSolver4	out-of-class	0	two Solver 1 sections (merged by Elmer)
-CoilSolver5	out-of-class	0	two Solver 1 sections (merged by Elmer)
-CoilSolver6	out-of-class	0	two Solver 1 sections (merged by Elmer)
+CoilSolver2	bitwise	1	solver 1: no explicit Variable; 2 variables of equation "coilsolver"; solver 2: coilpot grad (default); solver 3: div coilcurrent (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 8.80415922E-01  RefNorm = 6.97063017E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!; solver 2: sets its own norm, not validated
+CoilSolver3	bitwise	1	solver 1: no explicit Variable; 3 variables of equation "coilsolver"; solver 2: coilpot grad (default); solver 3: div coilcurrent (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 8.81329821E-01  RefNorm = 6.96279042E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!; solver 2: sets its own norm, not validated
+CoilSolver4	bitwise	1	solver 1: no explicit Variable; 2 variables of equation "coilsolver"; solver 2: coilpot grad (default); solver 3: div coilcurrent (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 8.80415922E-01  RefNorm = 6.97063017E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!; solver 2: sets its own norm, not validated
+CoilSolver5	bitwise	1	solver 1: no explicit Variable; 3 variables of equation "coilsolver"; solver 2: coilpot grad (default); solver 3: div coilcurrent (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 8.81329821E-01  RefNorm = 6.96279042E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!; solver 2: sets its own norm, not validated
+CoilSolver6	bitwise	1	solver 1: no explicit Variable; 3 variables of equation "coilsolver"; solver 2: coilpot grad (default); solver 3: div coilcurrent (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 8.81329821E-01  RefNorm = 6.96279042E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!; solver 2: sets its own norm, not validated
 CoilSolverLoop	bitwise	1	solver 1: no explicit Variable; 4 variables of equation "coilsolver"; solver 2: div coilcurrent (default)
 CoilSolverLoop_np2	out-of-class	0	solver 1: no explicit Variable; 4 variables of equation "coilsolver"; solver 2: div coilcurrent (Loop/case.result.N): local mesh has Some(2457) nodes, partition files 633 (mesh changed after load)
 CoilSolverLoop_np4	out-of-class	0	solver 1: no explicit Variable; 4 variables of equation "coilsolver"; solver 2: div coilcurrent (Loop/case.result.N): local mesh has Some(1266) nodes, partition files 336 (mesh changed after load)
@@ -473,7 +473,7 @@ streamlines	bitwise	1
 stress	bitwise	1	
 structmap	bitwise	1	
 structmap4	bitwise	2	
-structmap5	out-of-class	0	two Solver 3 sections (merged by Elmer)
+structmap5	bitwise	1	solver 3: norm option show norm index
 structmap6	bitwise	2	
 structmap7	bitwise	2	
 structmap8	bitwise	1	solver 2: norm option show norm index
