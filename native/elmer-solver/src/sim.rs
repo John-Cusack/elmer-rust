@@ -1000,8 +1000,77 @@ impl Simulation {
                 }
                 k => return Err(SolverError::Unsupported(format!("{k:?} exported variable {}", spec.name))),
             }
+            self.add_exported_velocity(slot, &spec.name)?;
         }
         Ok(())
+    }
+
+    /// `<name> Transient` (else `<name> Calculate Velocity`, `<name>
+    /// Calculate Acceleration`) of an exported variable (MainUtils.F90:2124):
+    /// two previous values, and with `<name> Calculate Velocity`
+    /// (CreateTimeDerivativeVariables) a `<name> Velocity` of the same
+    /// kind, size and permutation. The previous values only change at a new
+    /// time step, so a steady run keeps them zero; transient runs and the
+    /// acceleration are refused.
+    fn add_exported_velocity(&mut self, slot: &SolverSlot, name: &str) -> Result<(), SolverError> {
+        let key = |k: &str| format!("{name} {k}");
+        let p = &slot.params;
+        let transient_var = match p.logical(&key("transient")) {
+            Some(t) => t,
+            None => match p.logical(&key("calculate velocity")) {
+                Some(t) => t,
+                None => p.logical(&key("calculate acceleration")).unwrap_or(false),
+            },
+        };
+        if !transient_var {
+            return Ok(());
+        }
+        if p.logical(&key("calculate acceleration")) == Some(true) {
+            return Err(SolverError::Unsupported(format!("{name} Calculate Acceleration")));
+        }
+        if self.model.simulation.string("simulation type").is_some_and(|t| normalize_key(t) == "transient") {
+            return Err(SolverError::Unsupported(format!("time derivatives of the exported variable {name} in a transient run")));
+        }
+        if p.logical(&key("calculate velocity")) != Some(true) {
+            return Ok(());
+        }
+        let Some(id) = self.vars.id(name) else { return Ok(()) };
+        let v = self.vars.by_id(id);
+        let vel = format!("{name} velocity");
+        if self.vars.id(&vel).is_some() {
+            return Ok(());
+        }
+        let comps: Vec<String> = if v.dofs > 1 { (1..=v.dofs).map(|k| format!("{vel} {k}")).collect() } else { Vec::new() };
+        let nv = Variable::new(&vel, v.kind, v.dofs, v.perm.clone(), vec![0.0; v.values.len()]);
+        self.vars.add_with_components(nv, &comps)?;
+        Ok(())
+    }
+
+    /// `DerivateExportedVariables` (SolverBasics.F90:6909) at the end of a
+    /// steady visit: `<name> Velocity = (Values - PrevValues(:,1)) / dt`
+    /// for the exported variables that keep previous values (zero in a
+    /// steady run) and ask for their velocity.
+    fn derivate_exported_variables(&mut self, ix: usize) {
+        let dt = self.vars.scalar("timestep size").unwrap_or(1.0);
+        let p = self.slots[ix].params.clone();
+        for l in 1.. {
+            let Some(text) = p.string(&format!("exported variable {l}")) else { break };
+            let Ok(spec) = parse_variable_spec(text, p.integer(&format!("exported variable {l} dofs"))) else { continue };
+            let name = spec.name;
+            let transient_var = match p.logical(&format!("{name} transient")) {
+                Some(t) => t,
+                None => p.logical(&format!("{name} calculate velocity")).unwrap_or(false),
+            };
+            if !transient_var || p.logical(&format!("{name} calculate velocity")) != Some(true) {
+                continue;
+            }
+            let (Some(src), Some(dst)) = (self.vars.id(&name), self.vars.id(&format!("{name} velocity"))) else { continue };
+            let vals: Vec<f64> = self.vars.by_id(src).values.iter().map(|&x| (x - 0.0) / dt).collect();
+            let d = self.vars.by_id_mut(dst);
+            if d.values.len() == vals.len() {
+                d.values.copy_from_slice(&vals);
+            }
+        }
     }
 
     /// `<Proc>_init` of slot `ix`, if it has a procedure.
@@ -1673,6 +1742,10 @@ impl Simulation {
         if let Some(dx) = &report.derivative {
             let eps = params.real("derivative eps");
             self.store_derivative(id, steady, eps, dx, log);
+        }
+        // UpdateDependentObjects(Solver, .TRUE.): the exported velocities.
+        if steady {
+            self.derivate_exported_variables(ix);
         }
         // UpdateDependentObjects(Solver, .FALSE.) (SolverBasics.F90:4242).
         if !steady && self.slots[ix].params.logical("nonlinear update exported variables") == Some(true) {
