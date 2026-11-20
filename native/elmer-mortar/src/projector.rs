@@ -56,6 +56,10 @@ pub struct Projector {
     /// `MortarBC % Diag` by row (lumped, `MortarBC % LumpedDiag`): the
     /// constraint row gets `-diag * wsum` on its own multiplier.
     pub diag: Option<Vec<f64>>,
+    /// `MortarBC % Active` (contact), `cdofs` per row: only the active
+    /// components of a row become constraint rows. With it `rhs` is by
+    /// component as well.
+    pub active: Option<Vec<bool>>,
 }
 
 impl Projector {
@@ -151,6 +155,7 @@ pub fn nodal_projector(
         mortar_perm: false,
         rhs: None,
         diag: None,
+        active: None,
     })
 }
 
@@ -409,6 +414,7 @@ pub fn nodal_projector_discont(discont_perm: &[u32], bc: usize) -> Projector {
         mortar_perm: false,
         rhs: None,
         diag: None,
+        active: None,
     }
 }
 
@@ -595,6 +601,7 @@ mod tests {
             mortar_perm: false,
             rhs: None,
             diag: None,
+            active: None,
         };
         p.set_rowsum();
         assert_eq!(p.values, vec![0.25, -0.75, 1.0]);

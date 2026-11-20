@@ -154,6 +154,7 @@ pub fn weighted_projector(
         mortar_perm: false,
         rhs: None,
         diag: None,
+        active: None,
     })
 }
 
@@ -305,5 +306,6 @@ pub fn weighted_projector_discont(
         mortar_perm: false,
         rhs: None,
         diag: None,
+        active: None,
     }))
 }

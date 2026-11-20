@@ -44,6 +44,9 @@ enum Kind {
     /// `GenerateProjectors` for solver 1, the projectors only (a vector
     /// field, whose constraint matrix is not compared here).
     MortarProjectors,
+    /// `GenerateProjectors` and the constraint matrix of a two-component
+    /// field (`AddVectorConstraint`).
+    MortarVector,
 }
 
 /// Builds every periodic projector of the case, saves them into a scratch
@@ -76,21 +79,25 @@ fn check_kind(name: &str, kind: Kind) {
     std::fs::create_dir_all(&out).unwrap();
     let (projectors, stop) = match kind {
         Kind::Periodic => generate_periodic_projectors(&env, &out, 0).unwrap(),
-        Kind::Mortar | Kind::MortarProjectors => generate_mortar_projectors(&env, &[], false, &out, 0)
+        Kind::Mortar | Kind::MortarProjectors | Kind::MortarVector => generate_mortar_projectors(&env, &[], false, &out, 0)
             .unwrap()
             .expect("Apply Mortar BCs"),
     };
-    if let Kind::Mortar = kind {
+    if let Kind::Mortar | Kind::MortarVector = kind {
         // Every bulk element is active and `Optimize Bandwidth = False`.
         let perm =
             elmer_assembly::initial_permutation(&mesh, &|e: ElemId| (e.0 as usize) < mesh.n_bulk());
         let solver = &case.solvers[0];
+        // The scalar cases are a temperature, the vector one ContactPatch2D's
+        // two-component displacement.
+        let (name, dofs) = if let Kind::MortarVector = kind { ("displacement", 2) } else { ("temperature", 1) };
         let t = ConstraintTarget {
             solver,
-            name: "temperature",
-            dofs: 1,
+            name,
+            dofs,
+            dim: mesh.dim(),
             perm: &perm.perm,
-            n_rows: perm.n_dofs,
+            n_rows: perm.n_dofs * dofs,
         };
         let cm = generate_constraint_matrix(&bcs, &projectors, &t, &NullLogger)
             .unwrap()
@@ -177,10 +184,12 @@ fn mortar_priority2d_additive_priority() {
 
 /// ContactPatch2D with `Apply Mortar BCs` in place of the contact: a flat,
 /// level, Galerkin projector of a 2D mesh (`FlatInterfaceMeshes`, the flat
-/// coordinate detected, then `AddProjectorWeak1D`).
+/// coordinate detected, then `AddProjectorWeak1D`), and the constraint
+/// matrix of its displacement (`AddVectorConstraint`, `Save Constraint
+/// Matrix` with `Optimize Bandwidth = False`).
 #[test]
 fn level_flat2d() {
-    check_kind("level_flat2d", Kind::MortarProjectors);
+    check_kind("level_flat2d", Kind::MortarVector);
 }
 
 /// ContactPatch2Dtie the same way: a plane, level, Galerkin projector with
