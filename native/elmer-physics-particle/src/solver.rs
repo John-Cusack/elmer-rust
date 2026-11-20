@@ -166,8 +166,16 @@ fn element_real_at(ctx: &SolverCtx<'_>, v: &Value, e1: usize, basis: &[f64], dum
             let nodes = ctx.mesh.element(ElemId((e1 - 1) as u32)).nodes;
             let x = element_nodes(ctx.mesh, e1);
             let mut t: Vec<f64> = dummy.to_vec();
-            for name in d.variables.iter().skip(dummy.len()) {
-                let name = elmer_core::normalize_key(name);
+            // ListParseStrToVars: the names are separated by commas.
+            let names: Vec<String> = d
+                .variables
+                .iter()
+                .flat_map(|v| v.split(','))
+                .map(elmer_core::normalize_key)
+                .filter(|v| !v.is_empty())
+                .collect();
+            for name in names.iter().skip(dummy.len()) {
+                let name = name.clone();
                 if let Some(c) = name.strip_prefix("coordinate ") {
                     let k: usize = c.parse().map_err(|_| unsupported(&format!("argument {name}")))?;
                     let f: Vec<f64> = x.iter().map(|p| p[k - 1]).collect();
