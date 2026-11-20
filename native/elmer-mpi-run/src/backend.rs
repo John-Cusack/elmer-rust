@@ -305,9 +305,13 @@ impl IterativeSolver<f64> for DistIterative {
         let ctx = RankContext::current()
             .ok_or_else(|| LinalgError::Unsupported("parallel solve outside a partitioned run".into()))?;
         let layout = ctx.layout_of(&self.a).map_err(to_linalg)?;
+        // The split inside matrix inherits the matrix's ndeg (its variable's
+        // dofs, as the serial product, `BlockEnv::ndeg`).
+        let mut opts = self.opts.clone();
+        opts.ndeg = ctx.dofs_of(&self.a);
         let stats = match &self.itermethod {
-            None => dist_solve(&*ctx.ex, &layout, &self.a, b, x, &self.opts, None).map_err(to_linalg)?,
-            Some(cfg) => itermethod_solve(&*ctx.ex, &layout, &self.a, b, x, &self.opts, cfg)?,
+            None => dist_solve(&*ctx.ex, &layout, &self.a, b, x, &opts, None).map_err(to_linalg)?,
+            Some(cfg) => itermethod_solve(&*ctx.ex, &layout, &self.a, b, x, &opts, cfg)?,
         };
         // IterSolve.F90:1652-1659.
         if self.opts.huti.abort_not_converged && matches!(stats.status, SolveStatus::MaxIterations | SolveStatus::Diverged) {
@@ -375,7 +379,7 @@ pub(crate) fn itermethod_solve(
         (vec![1.0; n], 1.0)
     };
 
-    let m = DistCsr::from_local(ex, layout, &a).map_err(to_linalg)?;
+    let m = DistCsr::from_local(ex, layout, &a).map_err(to_linalg)?.with_ndeg(opts.ndeg);
     let b_own = layout.sum_to_owned(ex, &b);
     let mut x_own = layout.gather_owned(x);
     let prec: Box<dyn Preconditioner<f64>> = match &opts.precond {

@@ -20,6 +20,8 @@ struct Registered {
     gid: Vec<u64>,
     owner: Vec<usize>,
     layout: Option<Rc<DofLayout>>,
+    /// Dofs per slot of the matrix's variable (`A % ndeg` of `CRS_CreateMatrix`).
+    dofs: usize,
     /// The rows of the last Dirichlet conditions applied to it, after
     /// `CommunicateDirichletBCs` (every holder's constrained copies).
     dirichlet: Vec<u32>,
@@ -89,6 +91,7 @@ impl RankContext {
             gid,
             owner,
             layout: None,
+            dofs,
             dirichlet: Vec::new(),
         });
     }
@@ -97,8 +100,10 @@ impl RankContext {
     /// `owner` given directly (a DG solver's, [`MatrixParallelInfoDG`]).
     pub fn register_rows(&self, gid: Vec<u64>, owner: Vec<usize>, a: &CsrMatrix<f64>) {
         let mut m = self.matrices.borrow_mut();
+        // The dofs the matrix was created with stay.
+        let dofs = m.iter().find(|r| r.row_ptr == a.row_ptr && r.col_idx == a.col_idx).map_or(1, |r| r.dofs);
         m.retain(|r| r.row_ptr != a.row_ptr || r.col_idx != a.col_idx);
-        m.push(Registered { row_ptr: a.row_ptr.clone(), col_idx: a.col_idx.clone(), gid, owner, layout: None, dirichlet: Vec::new() });
+        m.push(Registered { row_ptr: a.row_ptr.clone(), col_idx: a.col_idx.clone(), gid, owner, layout: None, dofs, dirichlet: Vec::new() });
     }
 
     /// Every holder's value of each shared mesh node summed into each copy,
@@ -137,6 +142,13 @@ impl RankContext {
         if let Some(r) = m.iter_mut().find(|r| r.row_ptr == a.row_ptr && r.col_idx == a.col_idx) {
             r.dirichlet = rows;
         }
+    }
+
+    /// Dofs per slot of a registered matrix (1 when it is not registered):
+    /// `A % ndeg` as `CRS_CreateMatrix` sets it.
+    pub fn dofs_of(&self, a: &CsrMatrix<f64>) -> usize {
+        let m = self.matrices.borrow();
+        m.iter().find(|r| r.row_ptr == a.row_ptr && r.col_idx == a.col_idx).map_or(1, |r| r.dofs)
     }
 
     /// The rows [`set_dirichlet_rows`](Self::set_dirichlet_rows) recorded
