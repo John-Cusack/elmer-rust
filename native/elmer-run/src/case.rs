@@ -624,12 +624,16 @@ impl Solver for Reinit {
 /// definitions other than the Lagrange (`n:1`) basis `elmer-fe` evaluates.
 fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
     let sim = &model.simulation;
-    if sim.get("coordinate transformation").is_some() {
-        return Err(SolverError::Unsupported("Simulation: Coordinate Transformation".into()));
+    // `Coordinate Mapping` and `Coordinate Transformation` are applied at
+    // load (`mesh_db::load`), before any extrusion; Elmer transforms after it.
+    let extruded = sim.get("extruded mesh levels").is_some() || sim.get("extruded mesh density").is_some();
+    if sim.get("coordinate transformation").is_some() && extruded {
+        return Err(SolverError::Unsupported("Simulation: Coordinate Transformation of an extruded mesh".into()));
     }
     match sim.get("coordinate mapping") {
         None => {}
         Some(Value::Integer(v)) if v[..] == [1, 2, 3] => {}
+        Some(Value::Integer(_)) if !extruded => {}
         Some(v) => return Err(SolverError::Unsupported(format!("Simulation: Coordinate Mapping {v:?}"))),
     }
     // Element definitions and the solvers they reach (`NonNodalElements`,
