@@ -1,0 +1,11 @@
+[package]
+name = "elmer-physics-ode"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "OdeSolver (an ODE system on a global variable, from a Component or the solver section) for the Rust-native Elmer rewrite"
+
+[dependencies]
+elmer-core.workspace = true
+elmer-solver = { path = "../elmer-solver" }

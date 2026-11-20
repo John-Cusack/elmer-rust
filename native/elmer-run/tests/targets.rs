@@ -29,6 +29,7 @@ fn run(case: &str, sif: &str, tag: &str) -> (Outcome, PathBuf) {
         mesh: loaded.mesh.as_ref(),
         case_dir: loaded.case_dir,
         mesh_dir: loaded.mesh_dir,
+        components: loaded.components,
     };
     let out = run_case(case, &log, &SerialComm).unwrap_or_else(|e| panic!("{tag}: {e}\n{}", buf.text()));
     (out, dir)

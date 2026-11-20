@@ -33,6 +33,8 @@ pub struct Case<'a> {
     pub case_dir: PathBuf,
     /// The `Mesh DB` directory, the default VTU output directory.
     pub mesh_dir: PathBuf,
+    /// The `Component n` sections (`Model % Components`), id minus one.
+    pub components: Vec<elmer_core::ParamMap>,
 }
 
 /// What a finished run produced.
@@ -837,7 +839,7 @@ fn job_globals(simulation: &mut ParamMap, rank: usize, size: usize) -> Result<Ve
 pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Result<Outcome, SolverError> {
     let (rank, size) = (env.job.rank(), env.job.size());
     let comm: &dyn Communicator = if size == 1 { env.job } else { &SerialComm };
-    let Case { mut model, reloads, mesh, case_dir, mesh_dir } = case;
+    let Case { mut model, reloads, mesh, case_dir, mesh_dir, components } = case;
     let globals = job_globals(&mut model.simulation, rank, size)?;
     let fixture_case = fixture_case(&case_dir);
     let registry = solver_registry_for(&fixture_case);
@@ -904,7 +906,11 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     for p in model.solvers.iter_mut().filter(|p| elmer_physics_datatofield::is_section(p)) {
         elmer_physics_datatofield::init_section(p);
     }
+    for p in model.solvers.iter_mut().filter(|p| elmer_physics_ode::is_section(p)) {
+        elmer_physics_ode::init_section(p);
+    }
     let mut sim = Simulation::new(model);
+    sim.components = components;
     sim.backends.fe = Some(fe_backend(coords.dim));
     // Solver sections with a non-nodal `Element`; `p:%f` degrees are
     // `GetMatcReal(f, 4, [body, x, y, z], 'cx')` (MeshBasics.F90).

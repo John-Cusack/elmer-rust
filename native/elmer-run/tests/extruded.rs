@@ -20,7 +20,7 @@ fn extruded_mesh_runs_on_the_wedge_column() {
     model.simulation.insert("Extruded Mesh Levels", Value::Integer(vec![3]));
     model.simulation.insert("Coordinate System", Value::Str("cartesian 3d".into()));
     let (log, buf) = logger();
-    let case = Case { model, reloads: vec![], mesh: &mesh, case_dir: dir.clone(), mesh_dir: dir.join("triangle") };
+    let case = Case { model, reloads: vec![], mesh: &mesh, case_dir: dir.clone(), mesh_dir: dir.join("triangle"), components: vec![] };
     let out = run_case(case, &log, &SerialComm).unwrap_or_else(|e| panic!("{e}\n{}", buf.text()));
     // Three node layers of the triangle: 9 nodes, 2 wedges (706).
     let vtu = std::fs::read_to_string(&out.written[0]).unwrap();

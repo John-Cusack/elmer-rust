@@ -164,6 +164,9 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     if !loaded.reloads.is_empty() {
         return Err(unsupported("RUN blocks in parallel"));
     }
+    if !loaded.components.is_empty() {
+        return Err(unsupported("Component sections in parallel"));
+    }
     let mut model = loaded.model;
     let case_dir: PathBuf = loaded.case_dir;
     // The case's test-local plugin ports, as elmer-run's serial path.
@@ -231,6 +234,7 @@ fn run_single_mesh(loaded: elmer_run::LoadedCase, job: &dyn Exchange, log: &dyn 
         mesh: &mesh,
         case_dir: loaded.case_dir,
         mesh_dir: loaded.mesh_dir,
+        components: loaded.components,
     };
     let job: &dyn Communicator = job;
     let out = elmer_run::run_case_with(case, log, &elmer_run::RunEnv { job, globals: Vec::new() })?;

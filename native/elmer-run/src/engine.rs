@@ -17,6 +17,8 @@ pub struct LoadedCase {
     pub mesh: Box<dyn MeshView>,
     pub case_dir: PathBuf,
     pub mesh_dir: PathBuf,
+    /// The `Component n` sections, indexed by id minus one.
+    pub components: Vec<elmer_core::ParamMap>,
 }
 
 /// The `.sif` parser and mesh reader (S1's `elmer-sif` and `elmer-mesh`).
@@ -53,6 +55,7 @@ impl Engine for NativeEngine {
             mesh: loaded.mesh.as_ref(),
             case_dir: loaded.case_dir,
             mesh_dir: loaded.mesh_dir,
+            components: loaded.components,
         };
         match run_case(case, log, &SerialComm) {
             // Fortran exits 0 whatever the reference verdict; TEST.PASSED carries it.

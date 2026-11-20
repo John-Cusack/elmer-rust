@@ -32,6 +32,7 @@ fn minimal_example_norm_test_passed_and_vtu() {
         mesh: &mesh,
         case_dir: dir.clone(),
         mesh_dir: dir.join("triangle"),
+        components: vec![],
     };
     let out = run_case(case, &log, &SerialComm).unwrap();
 
@@ -164,6 +165,7 @@ fn run_blocks_reload_the_simulation() {
         mesh: &mesh,
         case_dir: dir.clone(),
         mesh_dir: dir.join("triangle"),
+        components: vec![],
     };
     let out = run_case(case, &log, &SerialComm).unwrap_or_else(|e| panic!("{e}\n{}", buf.text()));
     assert_eq!(out.passed, Some(true));
@@ -190,6 +192,7 @@ fn run_block_changing_a_material_reruns_with_it() {
         mesh: &mesh,
         case_dir: dir.clone(),
         mesh_dir: dir.join("triangle"),
+        components: vec![],
     };
     let out = run_case(case, &log, &SerialComm).unwrap_or_else(|e| panic!("{e}\n{}", buf.text()));
     assert_eq!(out.passed, Some(true), "{}", buf.text());
@@ -208,6 +211,7 @@ fn run_block_changing_the_simulation_is_refused_before_running() {
         mesh: &mesh,
         case_dir: dir.clone(),
         mesh_dir: dir.join("triangle"),
+        components: vec![],
     };
     let err = run_case(case, &log, &SerialComm).unwrap_err().to_string();
     assert!(err.contains("RUN block 2 changes Simulation angular frequency"), "{err}");
@@ -223,7 +227,7 @@ fn run_minimal_with(tag: &str, edit: impl FnOnce(&mut elmer_solver::Model)) -> S
     model.simulation.insert("Ascii Output", Value::Logical(true));
     edit(&mut model);
     let (log, buf) = logger();
-    let case = Case { model, reloads: vec![], mesh: &mesh, case_dir: dir.clone(), mesh_dir: dir.join("triangle") };
+    let case = Case { model, reloads: vec![], mesh: &mesh, case_dir: dir.clone(), mesh_dir: dir.join("triangle"), components: vec![] };
     let out = run_case(case, &log, &SerialComm).unwrap_or_else(|e| panic!("{e}\n{}", buf.text()));
     std::fs::read_to_string(&out.written[0]).unwrap()
 }
@@ -248,7 +252,7 @@ fn transient_post_file_writes_each_output_step() {
     model.simulation.insert("Timestep Sizes", Value::real(0.1));
     model.solvers[0].0.remove("reference norm");
     let (log, buf) = logger();
-    let case = Case { model, reloads: vec![], mesh: &mesh, case_dir: dir.clone(), mesh_dir: dir.join("triangle") };
+    let case = Case { model, reloads: vec![], mesh: &mesh, case_dir: dir.clone(), mesh_dir: dir.join("triangle"), components: vec![] };
     let out = run_case(case, &log, &SerialComm).unwrap_or_else(|e| panic!("{e}\n{}", buf.text()));
     let want: Vec<_> = (1..=3).map(|i| dir.join(format!("triangle/case_t{i:04}.vtu"))).collect();
     assert_eq!(out.written, want);

@@ -23,6 +23,7 @@ fn heateq_spline_table() {
         mesh: loaded.mesh.as_ref(),
         case_dir: loaded.case_dir,
         mesh_dir: loaded.mesh_dir,
+        components: loaded.components,
     };
     let out = run_case(case, &log, &SerialComm).unwrap_or_else(|e| panic!("{e}\n{}", buf.text()));
     let Some(&(_, norm)) = out.norms.iter().find(|(id, _)| *id == 1) else {

@@ -739,6 +739,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "elmer-physics-ode"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-solver",
+]
+
+[[package]]
 name = "elmer-physics-scalar"
 version = "0.1.0"
 dependencies = [
@@ -807,6 +815,7 @@ dependencies = [
  "elmer-physics-incompressible",
  "elmer-physics-magneto",
  "elmer-physics-meshtools",
+ "elmer-physics-ode",
  "elmer-physics-scalar",
  "elmer-physics-shell",
  "elmer-physics-thermoelectric",

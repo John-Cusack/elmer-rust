@@ -120,6 +120,9 @@ pub struct LinearSystem {
     /// `Matrix % MassValues` on the matrix's pattern, kept for `Eigen
     /// Analysis` (`DefaultUpdateMass`); `None` otherwise.
     pub mass: Option<CsrMatrix<f64>>,
+    /// `Matrix % DampValues` on the matrix's pattern, for a second-order
+    /// solver with `Use Global Mass Matrix`; `None` otherwise.
+    pub damp: Option<CsrMatrix<f64>>,
 }
 
 /// One `Solver n` section at run time (Elmer `Solver_t`).
@@ -391,6 +394,9 @@ pub struct Simulation {
     /// The mesh-wide p dofs of the p solvers ([`SolverDofs::ndeg_parts`],
     /// their maxima): what makes a nodal solver's `Ndeg` exceed the nodes.
     pub(crate) p_ndeg_parts: Option<(usize, usize)>,
+    /// The `Component n` sections (`Model % Components`), indexed by id
+    /// minus one; set by the front end after [`Simulation::new`].
+    pub components: Vec<elmer_core::ParamMap>,
     /// Every element's nodes in a p layout's order (p tetrahedra are
     /// reordered in `Mesh % Elements` itself), when it differs from the
     /// mesh's: the order a nodal solver's first-touch numbering sees.
@@ -489,6 +495,7 @@ impl Simulation {
             arpack: Default::default(),
             p_ndeg_parts: None,
             p_element_nodes: None,
+            components: Vec::new(),
         }
     }
 
@@ -1149,7 +1156,18 @@ impl Simulation {
         if spec.kind == FieldKind::Global {
             let mut v = Variable::new(&spec.name, FieldKind::Global, spec.dofs, None, vec![0.0; spec.dofs]);
             v.output = spec.output;
+            // `Ode Matrix` solvers integrate their global variable in time:
+            // the PrevValues columns of the nodal case below.
+            if slot.time_order > 0 && slot.params.logical("ode matrix") == Some(true) {
+                let m = if slot.time_order == 2 { 7 } else { slot.order.max(slot.time_order as usize) };
+                v.prev_values = vec![vec![0.0; v.values.len()]; m];
+            }
             slot.variable = Some(self.vars.add_with_components(v, &spec.components)?);
+            // MainUtils.F90:1625: `Ode Matrix` gives the global variable
+            // `Perm(1) = 1` and a dense Dofs x Dofs matrix (CreateOdeMatrix).
+            if slot.params.logical("ode matrix") == Some(true) {
+                slot.perm = Some(Arc::from(vec![0u32]));
+            }
             return Ok(());
         }
         if spec.kind != FieldKind::Nodal {

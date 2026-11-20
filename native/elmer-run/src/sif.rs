@@ -84,8 +84,10 @@ pub fn to_model(m: &elmer_sif::Model) -> Result<Model, String> {
     if !m.boundaries.is_empty() {
         return Err("Boundary <n> sections".into());
     }
-    if !m.components.is_empty() {
-        return Err("Component sections".into());
+    // Component sections are carried to the Simulation (`components`);
+    // the component lumping that `Update Components` asks for is not ported.
+    if !m.components.is_empty() && m.solvers.iter().any(|s| s.get("update components").is_some()) {
+        return Err("Component sections with Update Components (component lumping)".into());
     }
     if m.control.is_some() {
         return Err("Control section".into());
@@ -176,7 +178,8 @@ impl Frontend for SifFrontend {
         } else {
             (self.mesh)(&mesh_dir, &model.simulation)?
         };
-        Ok(LoadedCase { model, reloads, mesh, case_dir, mesh_dir })
+        let components = numbered("Component", &first.components)?;
+        Ok(LoadedCase { model, reloads, mesh, case_dir, mesh_dir, components })
     }
 }
 

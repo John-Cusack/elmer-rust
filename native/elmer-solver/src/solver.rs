@@ -572,7 +572,9 @@ impl<'a> SolverCtx<'a> {
                 perm: perm.to_vec(),
                 n_slots: v.values.len() / v.dofs,
             };
+            let ode = v.kind == elmer_core::FieldKind::Global && slot.params.logical("ode matrix") == Some(true);
             let matrix = match &slot.dofs {
+                _ if ode => ode_matrix(v.dofs),
                 Some(d) => d.create_matrix(v.dofs),
                 None => backend.create_matrix(self.mesh, &slot.active, &perm, v.dofs),
             };
@@ -581,7 +583,8 @@ impl<'a> SolverCtx<'a> {
             // `Use Global Mass Matrix`, on the same pattern.
             let global_mass = slot.params.logical("use global mass matrix") == Some(true);
             let mass = (slot.nof_eigen > 0 || global_mass).then(|| matrix.clone());
-            slot.system = Some(LinearSystem { matrix, rhs: vec![0.0; n], mass });
+            let damp = (global_mass && slot.time_order == 2).then(|| matrix.clone());
+            slot.system = Some(LinearSystem { matrix, rhs: vec![0.0; n], mass, damp });
         }
         let sys = slot.system.as_mut().expect("system created above");
         sys.matrix.values.iter_mut().for_each(|v| *v = 0.0);
@@ -968,6 +971,47 @@ impl<'a> SolverCtx<'a> {
         Ok(())
     }
 
+    /// `Default2ndOrderTimeGlobal` -> `Add2ndOrderTime_CRS` ->
+    /// `Time2ndOrder_CRS` (DefUtils.F90:3544, TimeIntegrate.F90:487) with
+    /// the global `MassValues` and `DampValues` and the variable's seven
+    /// `PrevValues` columns. `Old Global Time Integration` is refused.
+    fn global_time_terms_2nd(&mut self) -> Result<(), SolverError> {
+        if self.params().logical("old global time integration") == Some(true) {
+            return Err(SolverError::Unsupported("Old Global Time Integration".into()));
+        }
+        let slot = &self.sim.slots[self.slot];
+        if slot.params.logical("lumped mass matrix") == Some(true) {
+            return Err(SolverError::Unsupported("Use Global Mass Matrix with a lumped mass matrix".into()));
+        }
+        let scheme = elmer_timeint::Scheme::from_params(&slot.params, &self.sim.model.simulation, 2)
+            .map_err(|e| SolverError::fatal("Add2ndOrderTime_CRS", e.to_string()))?;
+        let Some((a, b)) = scheme.second_order_params() else {
+            return Err(SolverError::Unsupported(format!("Use Global Mass Matrix with the time scheme {scheme:?}")));
+        };
+        let dt = slot.dt;
+        let id = slot
+            .variable
+            .ok_or_else(|| SolverError::fatal("Default2ndOrderTimeGlobal", "solver has no variable"))?;
+        let v = self.sim.vars.by_id(id);
+        if v.prev_values.len() < 7 {
+            return Err(SolverError::fatal("Default2ndOrderTimeGlobal", "the variable has no second-order history"));
+        }
+        let state = elmer_timeint::SecondOrderState { cols: std::array::from_fn(|c| v.prev_values[c].clone()) };
+        let sys = self.sim.slots[self.slot]
+            .system
+            .as_mut()
+            .ok_or_else(|| SolverError::fatal("Default2ndOrderTimeGlobal", "call default_initialize first"))?;
+        let data = elmer_timeint::CrsTimeData {
+            mass: sys.mass.as_ref().map(|m| &m.values[..]),
+            damp: sys.damp.as_ref().map(|m| &m.values[..]),
+            mass_lumped: None,
+            lumped: false,
+            bulk_residual: None,
+        };
+        elmer_timeint::time_2nd_order_crs(dt, &mut sys.matrix, &data, &mut sys.rhs, a, b, &state)
+            .map_err(|e| SolverError::fatal("Time2ndOrder_CRS", e.to_string()))
+    }
+
     /// DefaultFinishAssembly's `Use Global Mass Matrix` branch: in a
     /// transient run (`Steady State Condition` not positive) of time order
     /// 1, `Default1stOrderTimeGlobal` -> `Add1stOrderTime_CRS`.
@@ -990,6 +1034,9 @@ impl<'a> SolverCtx<'a> {
             .params
             .integer("time derivative order")
             .unwrap_or(slot.time_order as i32);
+        if order == 2 {
+            return self.global_time_terms_2nd();
+        }
         if order != 1 {
             return Err(SolverError::Unsupported(format!(
                 "Use Global Mass Matrix with Time Derivative Order {order}"
@@ -2493,4 +2540,23 @@ mod eliminate_tests {
             assert!(r.abs() < 1e-12, "row {i}: {r}");
         }
     }
+}
+
+/// `CreateOdeMatrix` (ElementUtils.F90:2437): every `(i, j)` of a
+/// `dofs x dofs` system, sorted.
+fn ode_matrix(dofs: usize) -> elmer_core::CsrMatrix<f64> {
+    let mut row_ptr = vec![0];
+    let mut col_idx = Vec::with_capacity(dofs * dofs);
+    let mut diag = Vec::with_capacity(dofs);
+    for i in 0..dofs {
+        for j in 0..dofs {
+            if i == j {
+                diag.push(col_idx.len());
+            }
+            col_idx.push(j as u32);
+        }
+        row_ptr.push(col_idx.len());
+    }
+    let values = vec![0.0; col_idx.len()];
+    elmer_core::CsrMatrix { nrows: dofs, ncols: dofs, row_ptr, col_idx, values, diag: Some(diag) }
 }
