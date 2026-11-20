@@ -533,6 +533,10 @@ pub fn solver_defaults(
     if p.logical("Legacy Assembly") == Some(true) {
         return;
     }
+    // HeatSolver_init: `ListAddLogical` (it overwrites).
+    if p.logical("Discontinuous Galerkin") == Some(true) || p.logical("DG Reduced Basis") == Some(true) {
+        p.insert("DG Indirect Connections", Value::Logical(true));
+    }
     let convection = equations
         .iter()
         .any(|e| e.get("Convection").is_some() || e.get("Draw Velocity").is_some());
@@ -587,6 +591,10 @@ fn p_element(ctx: &SolverCtx<'_>, e: ElemId) -> Result<Option<PElement>, SolverE
     let Some(d) = ctx.solver_dofs() else {
         return Ok(None);
     };
+    // A DG solver's elements are the nodal ones on DG slots.
+    if d.dg_layout().is_some() {
+        return Ok(None);
+    }
     if d.element_nodes(e) != ctx.mesh.element(e).nodes {
         return Err(SolverError::Unsupported(
             "HeatSolver: a p element whose basis reorders its nodes".into(),
@@ -610,6 +618,194 @@ fn p_element(ctx: &SolverCtx<'_>, e: ElemId) -> Result<Option<PElement>, SolverE
         nd: slots.len(),
         nb: d.local_bubbles(e),
     }))
+}
+
+/// What a DG solver (`Discontinuous Galerkin` with `DG Reduced Basis`)
+/// cannot do here: keywords that depend on a DG variable would be evaluated
+/// at node numbers (`ListGetReal` reads a DG field through the element's
+/// DG indexes), so a model whose material, body force or boundary keywords
+/// depend on one is refused; so are `Heat Gap Parent` body jumps and `Jump
+/// Integration Order`.
+fn check_dg(ctx: &SolverCtx<'_>, var_name: &str) -> Result<(), SolverError> {
+    let m = &ctx.sim.model;
+    let dg_vars: Vec<String> = ctx
+        .sim
+        .vars
+        .iter()
+        .filter(|(_, v)| v.kind == elmer_core::FieldKind::Dg)
+        .map(|(_, v)| v.name.clone())
+        .chain(std::iter::once(elmer_core::normalize_key(var_name)))
+        .collect();
+    let sections = m.materials.iter().chain(&m.body_forces).chain(&m.boundary_conditions);
+    for s in sections {
+        for (key, v) in &s.0 {
+            if let Value::Dependent(d) = v {
+                if d.variables.iter().any(|x| dg_vars.contains(&elmer_core::normalize_key(x))) {
+                    return Err(SolverError::Unsupported(format!(
+                        "HeatSolver: > {key} < depends on a DG variable (evaluated through the DG indexes)"
+                    )));
+                }
+            }
+        }
+    }
+    if m.materials.iter().any(|mat| mat.get("Heat Gap Parent").is_some()) {
+        return Err(SolverError::Unsupported("HeatSolver: Heat Gap Parent (body jumps of a DG solver)".into()));
+    }
+    if ctx.params().get("Jump Integration Order").is_some() {
+        return Err(SolverError::Unsupported("HeatSolver: Jump Integration Order".into()));
+    }
+    Ok(())
+}
+
+/// The body id of bulk element `e`.
+fn body_id(ctx: &SolverCtx<'_>, e: ElemId) -> usize {
+    ctx.sim.model.body_of_tag(ctx.mesh.element(e).tag).unwrap_or(0)
+}
+
+/// The solver slot of the DG index `parent` gives `node`.
+fn dg_slot(ctx: &SolverCtx<'_>, ix: &elmer_solver::DgIndexes, parent: ElemId, node: u32) -> Result<u32, SolverError> {
+    let pos = ctx
+        .mesh
+        .element(parent)
+        .nodes
+        .iter()
+        .position(|&m| m == node)
+        .ok_or_else(|| SolverError::fatal("HeatSolver", "a DG boundary node is not in its parent"))?;
+    let d = ix.index[parent.0 as usize][pos];
+    let perm = ctx.primary().and_then(|f| f.perm).ok_or_else(|| SolverError::fatal("HeatSolver", "no permutation"))?;
+    Ok(if d == NO_DOF { NO_DOF } else { perm[d as usize] })
+}
+
+/// `TempPerm(DgRadiationIndexes(Element, n, Indexes, .FALSE.))`
+/// (ElementUtils.F90:1120): the DG indexes of the boundary element's nodes
+/// in its parent, the one with the larger body id when there are two.
+fn dg_radiation_slots(ctx: &SolverCtx<'_>, ix: &elmer_solver::DgIndexes, e: ElemId) -> Result<Vec<u32>, SolverError> {
+    let el = ctx.mesh.element(e);
+    let parent = match el.parents {
+        [Some(l), Some(r)] => {
+            if body_id(ctx, l) > body_id(ctx, r) {
+                l
+            } else {
+                r
+            }
+        }
+        [Some(p), None] | [None, Some(p)] => p,
+        [None, None] => return Err(SolverError::fatal("DGRadiationIndexes", "DG boundary should have parents!")),
+    };
+    el.nodes.iter().map(|&n| dg_slot(ctx, ix, parent, n)).collect()
+}
+
+/// The DG jumps of `HeatSolver` (HeatSolve.F90:664-695): over the edges
+/// (2D) or faces (3D) between two active elements, in mesh order, those a
+/// boundary condition with `Heat Gap = True` covers get
+/// `LocalJumpsDiscontBC` (HeatSolve.F90:3303): `alpha (T_l - T_r)` glued
+/// with the standard Galerkin (or `Diagonal Jump Glue`) projector, `Heat
+/// Gap Coefficient` alpha and half the `Heat Gap Flux` on each side, at the
+/// left (first) and right parent's DG indexes. With `DG Reduced Basis` no
+/// other jump terms are assembled.
+fn dg_jumps(
+    ctx: &mut SolverCtx<'_>,
+    ix: &elmer_solver::DgIndexes,
+    basis: &dyn ElementBasis,
+    quad: &dyn Quadrature,
+    axisym: bool,
+    local: &mut LocalSystem,
+) -> Result<(), SolverError> {
+    let diag = ctx.params().logical("Diagonal Jump Glue") == Some(true);
+    let alpha0 = ctx.params().real("Heat Gap Coefficient").unwrap_or(0.0);
+    let beta0 = ctx.params().real("Heat Gap Flux").unwrap_or(0.0);
+    // AssignConstraints: an edge (face) carries the BC of the boundary
+    // element on the same nodes (the last one).
+    let nb = ctx.mesh.n_bulk();
+    let mut bc_of: std::collections::HashMap<Vec<u32>, ElemId> = std::collections::HashMap::new();
+    for t in nb..nb + ctx.mesh.n_boundary() {
+        let mut key = ctx.mesh.element(ElemId(t as u32)).nodes.to_vec();
+        key.sort_unstable();
+        bc_of.insert(key, ElemId(t as u32));
+    }
+    let active: std::collections::HashSet<ElemId> = ctx.active_elements().collect();
+    for (l, r, nodes) in elmer_solver::dg_interfaces(ctx.mesh)? {
+        if !active.contains(&l) || !active.contains(&r) {
+            continue;
+        }
+        let mut key = nodes.clone();
+        key.sort_unstable();
+        let Some(&be) = bc_of.get(&key) else { continue };
+        let Some(bc) = ctx.bc_params(be).cloned() else { continue };
+        if bc.logical("Heat Gap") != Some(true) {
+            continue;
+        }
+        let n = nodes.len();
+        let etype = ElementType(match n {
+            2 => 202,
+            3 => 303,
+            4 => 404,
+            _ => return Err(SolverError::Unsupported(format!("DG jump over a {n}-node interface"))),
+        });
+        let mut slots = Vec::with_capacity(2 * n);
+        for &nd in &nodes {
+            slots.push(dg_slot(ctx, ix, l, nd)?);
+        }
+        for &nd in &nodes {
+            slots.push(dg_slot(ctx, ix, r, nd)?);
+        }
+        if slots.contains(&NO_DOF) {
+            return Err(SolverError::fatal("HeatSolver", "There should not be zero DG indexes!"));
+        }
+        // ListGetElementReal of the edge: a constant as it is, nodal values
+        // (on the boundary element's nodes, in the edge's order) interpolated.
+        let bel = ctx.mesh.element(be).nodes.to_vec();
+        let nodal = |ctx: &SolverCtx<'_>, key: &str| -> Result<Option<Vec<f64>>, SolverError> {
+            let Some(vals) = ctx.real_at_nodes(&bc, key, be)? else { return Ok(None) };
+            Ok(Some(nodes.iter().map(|nd| vals[bel.iter().position(|m| m == nd).unwrap_or(0)]).collect()))
+        };
+        let alpha_n = match bc.get("Heat Gap Coefficient") {
+            Some(Value::Dependent(_)) => nodal(ctx, "Heat Gap Coefficient")?,
+            _ => None,
+        };
+        let beta_n = match bc.get("Heat Gap Flux") {
+            Some(Value::Dependent(_)) => nodal(ctx, "Heat Gap Flux")?,
+            _ => None,
+        };
+        let alpha_c = bc.real("Heat Gap Coefficient").unwrap_or(alpha0);
+        let beta_c = bc.real("Heat Gap Flux").unwrap_or(beta0);
+        let xyz: Vec<[f64; 3]> = nodes.iter().map(|&nd| ctx.mesh.coord(nd)).collect();
+        let m = 2 * n;
+        *local = LocalSystem::zeros(m);
+        let mut be_eval = elmer_core::BasisEval::default();
+        for qp in quad.gauss_points(etype, None) {
+            basis
+                .eval(etype, &xyz, qp.uvw, &mut be_eval)
+                .map_err(|msg| SolverError::fatal("ElementInfo", msg))?;
+            let b = &be_eval.basis[..n];
+            let mut s = qp.weight * be_eval.det_j;
+            if axisym {
+                s *= xyz.iter().zip(b).fold(0.0, |acc, (x, &bi)| acc + x[0] * bi);
+            }
+            let interp = |v: &[f64]| v.iter().zip(b).fold(0.0, |acc, (&x, &bi)| acc + x * bi);
+            let alpha = alpha_n.as_deref().map_or(alpha_c, interp);
+            let beta = beta_n.as_deref().map_or(beta_c, interp);
+            for p in 0..n {
+                if diag {
+                    local.stiff[p * m + p] += alpha * b[p] * s;
+                    local.stiff[p * m + n + p] -= alpha * b[p] * s;
+                    local.stiff[(p + n) * m + p] -= alpha * b[p] * s;
+                    local.stiff[(p + n) * m + n + p] += alpha * b[p] * s;
+                } else {
+                    for q in 0..n {
+                        local.stiff[p * m + q] += alpha * b[p] * b[q] * s;
+                        local.stiff[p * m + n + q] -= alpha * b[p] * b[q] * s;
+                        local.stiff[(p + n) * m + q] -= alpha * b[p] * b[q] * s;
+                        local.stiff[(p + n) * m + n + q] += alpha * b[p] * b[q] * s;
+                    }
+                }
+                local.force[p] += beta / 2.0 * b[p] * s;
+                local.force[p + n] += beta / 2.0 * b[p] * s;
+            }
+        }
+        ctx.update_global_equations(local, &slots)?;
+    }
+    Ok(())
 }
 
 /// One element's integration rule as a [`Quadrature`].
@@ -791,6 +987,19 @@ impl Solver for HeatSolver {
             self.radiators = Some(Radiators::setup(ctx, &bnd)?);
         }
         let stefan = ctx.constants().real("Stefan Boltzmann");
+        // A DG solver (`Discontinuous Galerkin` with `DG Reduced Basis`).
+        let dg_ix = ctx.solver_dofs().and_then(|d| d.dg_layout()).cloned();
+        if dg_ix.is_some() {
+            check_dg(ctx, &var_name)?;
+            if self.diffuse.as_ref().is_some_and(Option::is_some) {
+                return Err(SolverError::Unsupported(
+                    "HeatSolver: diffuse gray radiation of a DG solver (DgRadiationIndexes with DiffuseGray)".into(),
+                ));
+            }
+            if self.radiators.as_ref().is_some_and(Option::is_some) {
+                return Err(SolverError::Unsupported("HeatSolver: radiators of a DG solver".into()));
+            }
+        }
         if self.diffuse.as_ref().is_some_and(Option::is_some) && stefan.is_none() {
             return Err(SolverError::fatal(
                 CALLER,
@@ -920,7 +1129,15 @@ impl Solver for HeatSolver {
                         &bnd_cfg,
                         &mut self.local,
                     )?;
-                    ctx.default_update(&self.local, e)?;
+                    match &dg_ix {
+                        // LocalMatrixBC of a DG solver: UpdateGlobalEquations at
+                        // TempPerm(DgRadiationIndexes).
+                        Some(ix) => {
+                            let slots = dg_radiation_slots(ctx, ix, e)?;
+                            ctx.update_global_equations(&self.local, &slots)?;
+                        }
+                        None => ctx.default_update(&self.local, e)?,
+                    }
                 }
                 if let Some(Some(dg)) = &self.diffuse {
                     if is_diffuse_gray(ctx, e) {
@@ -928,6 +1145,10 @@ impl Solver for HeatSolver {
                         dg.assemble(ctx, &*self.basis, &*self.quad, e, &t4, newton, sigma)?;
                     }
                 }
+            }
+
+            if let Some(ix) = &dg_ix {
+                dg_jumps(ctx, ix, &*self.basis, &*self.quad, axisym, &mut self.local)?;
             }
 
             ctx.default_dirichlet()?;

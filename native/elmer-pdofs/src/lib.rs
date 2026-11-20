@@ -39,6 +39,7 @@
 
 pub mod basis;
 pub mod defs;
+pub mod dg;
 pub mod dirichlet;
 pub mod dofs;
 pub mod perm;

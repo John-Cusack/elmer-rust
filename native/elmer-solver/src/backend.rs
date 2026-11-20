@@ -67,6 +67,11 @@ pub trait SolverDofs: Send + Sync {
     /// The node order the basis of `e` expects (Elmer reorders p boundary
     /// elements to their parent edge, `AssignLocalNumber`).
     fn element_nodes(&self, e: ElemId) -> Vec<u32>;
+    /// A discontinuous Galerkin solver's `Element % DGIndexes` (the slots
+    /// are `perm[dg index]`); `None` for other layouts.
+    fn dg_layout(&self) -> Option<&crate::DgIndexes> {
+        None
+    }
     /// `GetElementNOFBDOFs`: bubbles a kernel condenses locally (0 when the
     /// bubbles are in the global system).
     fn local_bubbles(&self, e: ElemId) -> usize;

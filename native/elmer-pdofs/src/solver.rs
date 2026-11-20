@@ -240,6 +240,11 @@ impl DofsBackend for PDofsBackend {
         active: &[ElemId],
         dofs: usize,
     ) -> Option<Result<Box<dyn SolverDofs>, SolverError>> {
+        if solver.logical("discontinuous galerkin") == Some(true) {
+            return Some(
+                crate::dg::DgDofs::build(mesh, model, solver, active).map(|d| Box::new(d) as Box<dyn SolverDofs>),
+            );
+        }
         let other = OtherDefs {
             model,
             id: solver_id,
