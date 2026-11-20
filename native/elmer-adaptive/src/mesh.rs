@@ -136,3 +136,78 @@ impl Edges {
         Edges { edges, of_element }
     }
 }
+
+/// Fortran `Ew.d` as gfortran writes it: `0.ddd...E+xx`, right-aligned.
+pub fn e_format(x: f64, w: usize, d: usize) -> String {
+    let body = if x == 0.0 {
+        format!("0.{}E+00", "0".repeat(d))
+    } else {
+        // d significant digits, then shift the point left by one.
+        let s = format!("{:.*e}", d - 1, x.abs());
+        let (mant, exp) = s.split_once('e').expect("exponent");
+        let digits: String = mant.chars().filter(|c| c.is_ascii_digit()).collect();
+        let e: i32 = exp.parse::<i32>().expect("exponent") + 1;
+        let sign = if e < 0 { '-' } else { '+' };
+        let body = format!("0.{digits}E{sign}{:02}", e.abs());
+        if x < 0.0 {
+            format!("-{body}")
+        } else {
+            body
+        }
+    };
+    format!("{body:>w$}")
+}
+
+/// `WriteMeshToDisk` (MeshIO.F90): `mesh.header`, `mesh.nodes`,
+/// `mesh.elements`, `mesh.boundary` of `mesh` in `dir`.
+pub fn write_mesh_to_disk(mesh: &dyn MeshView, dir: &std::path::Path, bc_tag: &dyn Fn(i32) -> i32) -> std::io::Result<()> {
+    use std::fmt::Write as _;
+    std::fs::create_dir_all(dir)?;
+    let nb = mesh.n_bulk();
+    let nbd = mesh.n_boundary();
+    let el = |i: usize| mesh.element(ElemId(i as u32));
+    let biggest = |range: std::ops::Range<usize>| {
+        let (mut code, mut max) = (0u16, 0usize);
+        for i in range {
+            let e = el(i);
+            if e.nodes.len() > max {
+                code = e.etype.0;
+                max = e.nodes.len();
+            }
+        }
+        code
+    };
+    let mut h = String::new();
+    let _ = writeln!(h, "{} {} {}", mesh.n_nodes(), nb, nbd);
+    let _ = writeln!(h, "2");
+    let _ = writeln!(h, "{} {}", biggest(nb..nb + nbd), nbd);
+    let _ = writeln!(h, "{} {}", biggest(0..nb), nb);
+    std::fs::write(dir.join("mesh.header"), h)?;
+    let mut s = String::new();
+    for i in 0..mesh.n_nodes() {
+        let c = mesh.coord(i as u32);
+        let _ = writeln!(s, "{} -1 {}{}{} ", i + 1, e_format(c[0], 23, 15), e_format(c[1], 23, 15), e_format(c[2], 23, 15));
+    }
+    std::fs::write(dir.join("mesh.nodes"), s)?;
+    let mut s = String::new();
+    for i in 0..nb {
+        let e = el(i);
+        let _ = write!(s, "{} {} {} ", i + 1, e.tag, e.etype.0);
+        for n in e.nodes {
+            let _ = write!(s, "{} ", n + 1);
+        }
+        let _ = writeln!(s, " ");
+    }
+    std::fs::write(dir.join("mesh.elements"), s)?;
+    let mut s = String::new();
+    for i in 0..nbd {
+        let e = el(nb + i);
+        let p = |x: Option<ElemId>| x.map_or(0, |p| p.0 as usize + 1);
+        let _ = write!(s, "{} {} {} {} {} ", i + 1, bc_tag(e.tag), p(e.parents[0]), p(e.parents[1]), e.etype.0);
+        for n in e.nodes {
+            let _ = write!(s, "{} ", n + 1);
+        }
+        let _ = writeln!(s, " ");
+    }
+    std::fs::write(dir.join("mesh.boundary"), s)
+}

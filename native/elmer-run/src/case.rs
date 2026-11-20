@@ -976,6 +976,14 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
             );
         }
     }
+    for params in &mut model.solvers {
+        if params.logical("adaptive mesh refinement") == Some(true) {
+            params.insert(
+                elmer_adaptive::OUTPUT_DIRECTORY_KEY,
+                Value::Str(case_dir.to_string_lossy().into_owned()),
+            );
+        }
+    }
     let director = mesh_dir.join("mesh.director");
     if director.exists() {
         for params in &mut model.solvers {

@@ -23,6 +23,10 @@ use elmer_solver::{SolverCtx, SolverError, Variable};
 
 pub use mesh::{Edge, Edges, OwnedMesh};
 
+/// The keyword elmer-run gives refining solvers: the case directory, where
+/// `Adaptive Save Mesh` writes `<mesh name>/mesh.*`.
+pub const OUTPUT_DIRECTORY_KEY: &str = "Adaptive Output Directory";
+
 /// `AEPS = 10 * EPSILON(1.0_dp)`.
 const AEPS: f64 = 10.0 * f64::EPSILON;
 const CALLER: &str = "RefineMesh";
@@ -352,6 +356,13 @@ pub fn refine_mesh(ctx: &mut SolverCtx<'_>, state: &mut RefineState, est: &mut d
         let base = p.string("adaptive mesh name").unwrap_or("RefinedMesh").to_string();
         let numbering = p.logical("adaptive mesh numbering").unwrap_or(true);
         let name = if numbering { format!("{base}{}", depth + 1) } else { base };
+        if p.logical("adaptive save mesh") == Some(true) {
+            // `OutputPath // '/' // NewMesh % Name`; elmer-run gives the
+            // directory of the case.
+            let base_dir = p.string(OUTPUT_DIRECTORY_KEY).unwrap_or(".").to_string();
+            mesh::write_mesh_to_disk(&m, &std::path::Path::new(&base_dir).join(&name), &|t| t)
+                .map_err(|e| SolverError::fatal("WriteMeshToDisk", e.to_string()))?;
+        }
         ctx.request_mesh_change(MeshChange { mesh: Arc::new(m), name });
     }
     ctx.info(CALLER, "----------- E N D   M E S H   R E F I N E M E N T --------------", 5);

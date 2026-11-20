@@ -814,6 +814,7 @@ dependencies = [
 name = "elmer-run"
 version = "0.1.0"
 dependencies = [
+ "elmer-adaptive",
  "elmer-cli",
  "elmer-core",
  "elmer-expr",
