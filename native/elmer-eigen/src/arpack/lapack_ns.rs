@@ -11,7 +11,7 @@
 //! and is left out.
 
 use super::blas::{daxpy, dcopy, dscal};
-use super::lapack::{dlapy2, dlarfg, EPS, PREC, SAFMIN};
+use super::lapack::{dlapy2, dlarfg, dlartg, EPS, PREC, SAFMIN};
 
 #[inline]
 fn ix(i: usize, j: usize, ld: usize) -> usize {
@@ -1184,4 +1184,697 @@ pub fn dlarfg_v(nr: usize, v: &mut [f64; 3]) -> f64 {
     let (beta, tau) = dlarfg(nr, v[0], &mut v[1..nr]);
     v[0] = beta;
     tau
+}
+
+/// `DLARFX(SIDE, M, N, V, TAU, C, LDC, WORK)` for a reflector of order 3
+/// (the unrolled code of the Fortran): `C := H C` (`left`, `m == 3`) or
+/// `C := C H` (`n == 3`), `H = I - tau v v'`.
+#[allow(clippy::too_many_arguments)]
+pub fn dlarfx3(left: bool, m: usize, n: usize, v: &[f64; 3], tau: f64, c: &mut [f64], cs: usize, ldc: usize) {
+    if tau == 0.0 {
+        return;
+    }
+    let (v1, v2, v3) = (v[0], v[1], v[2]);
+    let (t1, t2, t3) = (tau * v1, tau * v2, tau * v3);
+    if left {
+        debug_assert_eq!(m, 3);
+        for j in 0..n {
+            let b = cs + j * ldc;
+            let sum = v1 * c[b] + v2 * c[b + 1] + v3 * c[b + 2];
+            c[b] -= sum * t1;
+            c[b + 1] -= sum * t2;
+            c[b + 2] -= sum * t3;
+        }
+    } else {
+        debug_assert_eq!(n, 3);
+        for j in 0..m {
+            let b = cs + j;
+            let sum = v1 * c[b] + v2 * c[b + ldc] + v3 * c[b + 2 * ldc];
+            c[b] -= sum * t1;
+            c[b + ldc] -= sum * t2;
+            c[b + 2 * ldc] -= sum * t3;
+        }
+    }
+}
+
+/// `DLANGE('M', M, N, A, LDA, WORK)`: the largest absolute entry.
+pub fn dlange_max(m: usize, n: usize, a: &[f64], lda: usize) -> f64 {
+    let mut value = 0.0f64;
+    for j in 1..=n {
+        for i in 1..=m {
+            let temp = a[ix(i, j, lda)].abs();
+            if value < temp || temp.is_nan() {
+                value = temp;
+            }
+        }
+    }
+    value
+}
+
+/// `DLASY2(.FALSE., .FALSE., ISGN, N1, N2, TL, LDTL, TR, LDTR, B, LDB,
+/// SCALE, X, LDX, XNORM, INFO)`: solves `TL X + isgn X TR = scale B` for
+/// `n1`, `n2` in 1..=2. `tl`, `tr` and `b` start at their `(1,1)` entries.
+/// Returns `(scale, X, xnorm, info)`, `X` column-major 2x2.
+#[allow(clippy::too_many_arguments)]
+pub fn dlasy2_nn(
+    isgn: i32,
+    n1: usize,
+    n2: usize,
+    tl: &[f64],
+    ldtl: usize,
+    tr: &[f64],
+    ldtr: usize,
+    b: &[f64],
+    ldb: usize,
+) -> (f64, [f64; 4], f64, i32) {
+    const LOCU12: [usize; 4] = [3, 4, 1, 2];
+    const LOCL21: [usize; 4] = [2, 1, 4, 3];
+    const LOCU22: [usize; 4] = [4, 3, 2, 1];
+    const XSWPIV: [bool; 4] = [false, false, true, true];
+    const BSWPIV: [bool; 4] = [false, true, false, true];
+    let tl_ = |i: usize, j: usize| tl[ix(i, j, ldtl)];
+    let tr_ = |i: usize, j: usize| tr[ix(i, j, ldtr)];
+    let b_ = |i: usize, j: usize| b[ix(i, j, ldb)];
+    let mut x = [0.0f64; 4]; // X(1,1), X(2,1), X(1,2), X(2,2)
+    let mut info = 0;
+    if n1 == 0 || n2 == 0 {
+        return (1.0, x, 0.0, 0);
+    }
+    let eps = PREC;
+    let smlnum = SAFMIN / eps;
+    let sgn = f64::from(isgn);
+    let k = n1 + n1 + n2 - 2;
+    if k == 1 {
+        // 1 by 1: TL11*X + SGN*X*TR11 = B11
+        let mut tau1 = tl_(1, 1) + sgn * tr_(1, 1);
+        let mut bet = tau1.abs();
+        if bet <= smlnum {
+            tau1 = smlnum;
+            bet = smlnum;
+            info = 1;
+        }
+        let mut scale = 1.0;
+        let gam = b_(1, 1).abs();
+        if smlnum * gam > bet {
+            scale = 1.0 / gam;
+        }
+        x[0] = (b_(1, 1) * scale) / tau1;
+        return (scale, x, x[0].abs(), info);
+    }
+    if k == 2 || k == 3 {
+        // 1 by 2 (k == 2) or 2 by 1 (k == 3).
+        let mut tmp = [0.0f64; 4];
+        let mut btmp = [0.0f64; 4];
+        let smin;
+        if k == 2 {
+            smin = (eps * tl_(1, 1).abs().max(tr_(1, 1).abs()).max(tr_(1, 2).abs()).max(tr_(2, 1).abs()).max(tr_(2, 2).abs()))
+                .max(smlnum);
+            tmp[0] = tl_(1, 1) + sgn * tr_(1, 1);
+            tmp[3] = tl_(1, 1) + sgn * tr_(2, 2);
+            tmp[1] = sgn * tr_(1, 2);
+            tmp[2] = sgn * tr_(2, 1);
+            btmp[0] = b_(1, 1);
+            btmp[1] = b_(1, 2);
+        } else {
+            smin = (eps * tr_(1, 1).abs().max(tl_(1, 1).abs()).max(tl_(1, 2).abs()).max(tl_(2, 1).abs()).max(tl_(2, 2).abs()))
+                .max(smlnum);
+            tmp[0] = tl_(1, 1) + sgn * tr_(1, 1);
+            tmp[3] = tl_(2, 2) + sgn * tr_(1, 1);
+            tmp[1] = tl_(2, 1);
+            tmp[2] = tl_(1, 2);
+            btmp[0] = b_(1, 1);
+            btmp[1] = b_(2, 1);
+        }
+        // 40: solve 2 by 2 system using complete pivoting. Set pivots
+        // near zero to SMIN.
+        let ipiv = idamax(4, &tmp);
+        let mut u11 = tmp[ipiv - 1];
+        if u11.abs() <= smin {
+            info = 1;
+            u11 = smin;
+        }
+        let u12 = tmp[LOCU12[ipiv - 1] - 1];
+        let l21 = tmp[LOCL21[ipiv - 1] - 1] / u11;
+        let mut u22 = tmp[LOCU22[ipiv - 1] - 1] - u12 * l21;
+        let xswap = XSWPIV[ipiv - 1];
+        let bswap = BSWPIV[ipiv - 1];
+        if u22.abs() <= smin {
+            info = 1;
+            u22 = smin;
+        }
+        if bswap {
+            let temp = btmp[1];
+            btmp[1] = btmp[0] - l21 * temp;
+            btmp[0] = temp;
+        } else {
+            btmp[1] -= l21 * btmp[0];
+        }
+        let mut scale = 1.0;
+        if (2.0 * smlnum) * btmp[1].abs() > u22.abs() || (2.0 * smlnum) * btmp[0].abs() > u11.abs() {
+            scale = 0.5 / btmp[0].abs().max(btmp[1].abs());
+            btmp[0] *= scale;
+            btmp[1] *= scale;
+        }
+        let mut x2 = [0.0f64; 2];
+        x2[1] = btmp[1] / u22;
+        x2[0] = btmp[0] / u11 - (u12 / u11) * x2[1];
+        if xswap {
+            x2.swap(0, 1);
+        }
+        x[0] = x2[0];
+        let xnorm = if n1 == 1 {
+            x[2] = x2[1];
+            x[0].abs() + x[2].abs()
+        } else {
+            x[1] = x2[1];
+            x[0].abs().max(x[1].abs())
+        };
+        return (scale, x, xnorm, info);
+    }
+    // 50: 2 by 2: solve equivalent 4 by 4 system using complete pivoting.
+    // Set pivots near zero to SMIN.
+    let smin = tr_(1, 1).abs().max(tr_(1, 2).abs()).max(tr_(2, 1).abs()).max(tr_(2, 2).abs());
+    let smin = smin.max(tl_(1, 1).abs()).max(tl_(1, 2).abs()).max(tl_(2, 1).abs()).max(tl_(2, 2).abs());
+    let smin = (eps * smin).max(smlnum);
+    // T16(i,j) column-major 4x4.
+    let mut t16 = [0.0f64; 16];
+    let t = |i: usize, j: usize| (i - 1) + (j - 1) * 4;
+    t16[t(1, 1)] = tl_(1, 1) + sgn * tr_(1, 1);
+    t16[t(2, 2)] = tl_(2, 2) + sgn * tr_(1, 1);
+    t16[t(3, 3)] = tl_(1, 1) + sgn * tr_(2, 2);
+    t16[t(4, 4)] = tl_(2, 2) + sgn * tr_(2, 2);
+    t16[t(1, 2)] = tl_(1, 2);
+    t16[t(2, 1)] = tl_(2, 1);
+    t16[t(3, 4)] = tl_(1, 2);
+    t16[t(4, 3)] = tl_(2, 1);
+    t16[t(1, 3)] = sgn * tr_(2, 1);
+    t16[t(2, 4)] = sgn * tr_(2, 1);
+    t16[t(3, 1)] = sgn * tr_(1, 2);
+    t16[t(4, 2)] = sgn * tr_(1, 2);
+    let mut btmp = [b_(1, 1), b_(2, 1), b_(1, 2), b_(2, 2)];
+    let mut jpiv = [0usize; 4];
+    for i in 1..=3 {
+        let mut xmax = 0.0;
+        let (mut ipsv, mut jpsv) = (0usize, 0usize);
+        for ip in i..=4 {
+            for jp in i..=4 {
+                if t16[t(ip, jp)].abs() >= xmax {
+                    xmax = t16[t(ip, jp)].abs();
+                    ipsv = ip;
+                    jpsv = jp;
+                }
+            }
+        }
+        if ipsv != i {
+            for c in 1..=4 {
+                t16.swap(t(ipsv, c), t(i, c));
+            }
+            btmp.swap(i - 1, ipsv - 1);
+        }
+        if jpsv != i {
+            for r in 1..=4 {
+                t16.swap(t(r, jpsv), t(r, i));
+            }
+        }
+        jpiv[i - 1] = jpsv;
+        if t16[t(i, i)].abs() < smin {
+            info = 1;
+            t16[t(i, i)] = smin;
+        }
+        for j in i + 1..=4 {
+            t16[t(j, i)] /= t16[t(i, i)];
+            btmp[j - 1] -= t16[t(j, i)] * btmp[i - 1];
+            for k in i + 1..=4 {
+                t16[t(j, k)] -= t16[t(j, i)] * t16[t(i, k)];
+            }
+        }
+    }
+    if t16[t(4, 4)].abs() < smin {
+        t16[t(4, 4)] = smin;
+    }
+    let mut scale = 1.0;
+    if (8.0 * smlnum) * btmp[0].abs() > t16[t(1, 1)].abs()
+        || (8.0 * smlnum) * btmp[1].abs() > t16[t(2, 2)].abs()
+        || (8.0 * smlnum) * btmp[2].abs() > t16[t(3, 3)].abs()
+        || (8.0 * smlnum) * btmp[3].abs() > t16[t(4, 4)].abs()
+    {
+        scale = (1.0 / 8.0) / btmp[0].abs().max(btmp[1].abs()).max(btmp[2].abs()).max(btmp[3].abs());
+        for v in &mut btmp {
+            *v *= scale;
+        }
+    }
+    let mut tmp = [0.0f64; 4];
+    for i in 1..=4 {
+        let k = 5 - i;
+        let temp = 1.0 / t16[t(k, k)];
+        tmp[k - 1] = btmp[k - 1] * temp;
+        for j in k + 1..=4 {
+            tmp[k - 1] -= (temp * t16[t(k, j)]) * tmp[j - 1];
+        }
+    }
+    for i in 1..=3 {
+        let p = jpiv[4 - i - 1];
+        if p != 4 - i {
+            tmp.swap(4 - i - 1, p - 1);
+        }
+    }
+    x = [tmp[0], tmp[1], tmp[2], tmp[3]];
+    let xnorm = (tmp[0].abs() + tmp[2].abs()).max(tmp[1].abs() + tmp[3].abs());
+    (scale, x, xnorm, info)
+}
+
+/// `DLANV2` applied in place to `T(j,j), T(j,j+1), T(j+1,j), T(j+1,j+1)`;
+/// returns `(cs, sn)`.
+fn dlanv2_at(t: &mut [f64], ldt: usize, j: usize) -> (f64, f64) {
+    let (a, b, c, d, _, _, _, _, cs, sn) = dlanv2(t[ix(j, j, ldt)], t[ix(j, j + 1, ldt)], t[ix(j + 1, j, ldt)], t[ix(j + 1, j + 1, ldt)]);
+    t[ix(j, j, ldt)] = a;
+    t[ix(j, j + 1, ldt)] = b;
+    t[ix(j + 1, j, ldt)] = c;
+    t[ix(j + 1, j + 1, ldt)] = d;
+    (cs, sn)
+}
+
+/// `DLAEXC(WANTQ, N, T, LDT, Q, LDQ, J1, N1, N2, WORK, INFO)`: swaps the
+/// adjacent diagonal blocks of orders `n1` and `n2` starting at row `j1` of
+/// the Schur form `t`, updating `q` when `wantq`. Returns `INFO` (1: the
+/// swap was rejected, the result would be too far from Schur form).
+#[allow(clippy::too_many_arguments)]
+pub fn dlaexc(wantq: bool, n: usize, t: &mut [f64], ldt: usize, q: &mut [f64], ldq: usize, j1: usize, n1: usize, n2: usize) -> i32 {
+    if n == 0 || n1 == 0 || n2 == 0 {
+        return 0;
+    }
+    if j1 + n1 > n {
+        return 0;
+    }
+    let j2 = j1 + 1;
+    let j3 = j1 + 2;
+    let j4 = j1 + 3;
+    if n1 == 1 && n2 == 1 {
+        // Swap two 1-by-1 blocks.
+        let t11 = t[ix(j1, j1, ldt)];
+        let t22 = t[ix(j2, j2, ldt)];
+        // Determine the transformation to perform the interchange.
+        let (cs, sn, _) = dlartg(t[ix(j1, j2, ldt)], t22 - t11);
+        // Apply transformation to the matrix T.
+        if j3 <= n {
+            drot_within(n - j1 - 1, t, ix(j1, j3, ldt), ldt, ix(j2, j3, ldt), ldt, cs, sn);
+        }
+        drot_within(j1 - 1, t, ix(1, j1, ldt), 1, ix(1, j2, ldt), 1, cs, sn);
+        t[ix(j1, j1, ldt)] = t22;
+        t[ix(j2, j2, ldt)] = t11;
+        if wantq {
+            drot_within(n, q, ix(1, j1, ldq), 1, ix(1, j2, ldq), 1, cs, sn);
+        }
+        return 0;
+    }
+    // Swapping involves at least one 2-by-2 block. Copy the diagonal block
+    // of order N1+N2 to the local array D and compute its norm.
+    const LDD: usize = 4;
+    let nd = n1 + n2;
+    let mut d = [0.0f64; 16];
+    for j in 1..=nd {
+        for i in 1..=nd {
+            d[ix(i, j, LDD)] = t[ix(j1 + i - 1, j1 + j - 1, ldt)];
+        }
+    }
+    let dnorm = dlange_max(nd, nd, &d, LDD);
+    // Compute machine-dependent threshold for test for accepting swap.
+    let eps = PREC;
+    let smlnum = SAFMIN / eps;
+    let thresh = (10.0 * eps * dnorm).max(smlnum);
+    // Solve T11*X - X*T22 = scale*T12 for X.
+    let (scale, x, _, _) = dlasy2_nn(-1, n1, n2, &d, LDD, &d[ix(n1 + 1, n1 + 1, LDD)..], LDD, &d[ix(1, n1 + 1, LDD)..], LDD);
+    let x_ = |i: usize, j: usize| x[(i - 1) + (j - 1) * 2];
+    let k = n1 + n1 + n2 - 3;
+    match k {
+        1 => {
+            // N1 = 1, N2 = 2: generate elementary reflector H so that
+            // ( scale, X11, X12 ) H = ( 0, 0, * ).
+            let mut u = [scale, x_(1, 1), x_(1, 2)];
+            let (beta, tau) = dlarfg(3, u[2], &mut u[0..2]);
+            u[2] = beta;
+            u[2] = 1.0;
+            let t11 = t[ix(j1, j1, ldt)];
+            // Perform swap provisionally on diagonal block in D.
+            dlarfx3(true, 3, 3, &u, tau, &mut d, 0, LDD);
+            dlarfx3(false, 3, 3, &u, tau, &mut d, 0, LDD);
+            // Test whether to reject swap.
+            if d[ix(3, 1, LDD)].abs().max(d[ix(3, 2, LDD)].abs()).max((d[ix(3, 3, LDD)] - t11).abs()) > thresh {
+                return 1;
+            }
+            // Accept swap: apply transformation to the entire matrix T.
+            dlarfx3(true, 3, n - j1 + 1, &u, tau, t, ix(j1, j1, ldt), ldt);
+            dlarfx3(false, j2, 3, &u, tau, t, ix(1, j1, ldt), ldt);
+            t[ix(j3, j1, ldt)] = 0.0;
+            t[ix(j3, j2, ldt)] = 0.0;
+            t[ix(j3, j3, ldt)] = t11;
+            if wantq {
+                // Accumulate transformation in the matrix Q.
+                dlarfx3(false, n, 3, &u, tau, q, ix(1, j1, ldq), ldq);
+            }
+        }
+        2 => {
+            // N1 = 2, N2 = 1: generate elementary reflector H so that
+            // H ( -X11 ) = ( * )
+            //   ( -X21 )   ( 0 )
+            //   ( scale)   ( 0 )
+            let mut u = [-x_(1, 1), -x_(2, 1), scale];
+            let (beta, tau) = dlarfg(3, u[0], &mut u[1..3]);
+            u[0] = beta;
+            u[0] = 1.0;
+            let t33 = t[ix(j3, j3, ldt)];
+            // Perform swap provisionally on diagonal block in D.
+            dlarfx3(true, 3, 3, &u, tau, &mut d, 0, LDD);
+            dlarfx3(false, 3, 3, &u, tau, &mut d, 0, LDD);
+            // Test whether to reject swap.
+            if d[ix(2, 1, LDD)].abs().max(d[ix(3, 1, LDD)].abs()).max((d[ix(1, 1, LDD)] - t33).abs()) > thresh {
+                return 1;
+            }
+            // Accept swap: apply transformation to the entire matrix T.
+            dlarfx3(false, j3, 3, &u, tau, t, ix(1, j1, ldt), ldt);
+            dlarfx3(true, 3, n - j1, &u, tau, t, ix(j1, j2, ldt), ldt);
+            t[ix(j1, j1, ldt)] = t33;
+            t[ix(j2, j1, ldt)] = 0.0;
+            t[ix(j3, j1, ldt)] = 0.0;
+            if wantq {
+                dlarfx3(false, n, 3, &u, tau, q, ix(1, j1, ldq), ldq);
+            }
+        }
+        _ => {
+            // N1 = 2, N2 = 2: generate elementary reflectors H(1) and H(2)
+            // so that:
+            // H(2) H(1) (  -X11  -X12 ) = (  *  * )
+            //           (  -X21  -X22 )   (  0  * )
+            //           ( scale    0  )   (  0  0 )
+            //           (    0  scale )   (  0  0 )
+            let mut u1 = [-x_(1, 1), -x_(2, 1), scale];
+            let (beta, tau1) = dlarfg(3, u1[0], &mut u1[1..3]);
+            u1[0] = beta;
+            u1[0] = 1.0;
+            let temp = -tau1 * (x_(1, 2) + u1[1] * x_(2, 2));
+            let mut u2 = [-temp * u1[1] - x_(2, 2), -temp * u1[2], scale];
+            let (beta, tau2) = dlarfg(3, u2[0], &mut u2[1..3]);
+            u2[0] = beta;
+            u2[0] = 1.0;
+            // Perform swap provisionally on diagonal block in D.
+            dlarfx3(true, 3, 4, &u1, tau1, &mut d, 0, LDD);
+            dlarfx3(false, 4, 3, &u1, tau1, &mut d, 0, LDD);
+            dlarfx3(true, 3, 4, &u2, tau2, &mut d, ix(2, 1, LDD), LDD);
+            dlarfx3(false, 4, 3, &u2, tau2, &mut d, ix(1, 2, LDD), LDD);
+            // Test whether to reject swap.
+            if d[ix(3, 1, LDD)].abs().max(d[ix(3, 2, LDD)].abs()).max(d[ix(4, 1, LDD)].abs()).max(d[ix(4, 2, LDD)].abs()) > thresh {
+                return 1;
+            }
+            // Accept swap: apply transformation to the entire matrix T.
+            dlarfx3(true, 3, n - j1 + 1, &u1, tau1, t, ix(j1, j1, ldt), ldt);
+            dlarfx3(false, j4, 3, &u1, tau1, t, ix(1, j1, ldt), ldt);
+            dlarfx3(true, 3, n - j1 + 1, &u2, tau2, t, ix(j2, j1, ldt), ldt);
+            dlarfx3(false, j4, 3, &u2, tau2, t, ix(1, j2, ldt), ldt);
+            t[ix(j3, j1, ldt)] = 0.0;
+            t[ix(j3, j2, ldt)] = 0.0;
+            t[ix(j4, j1, ldt)] = 0.0;
+            t[ix(j4, j2, ldt)] = 0.0;
+            if wantq {
+                dlarfx3(false, n, 3, &u1, tau1, q, ix(1, j1, ldq), ldq);
+                dlarfx3(false, n, 3, &u2, tau2, q, ix(1, j2, ldq), ldq);
+            }
+        }
+    }
+    // 40
+    if n2 == 2 {
+        // Standardize new 2-by-2 block T11.
+        let (cs, sn) = dlanv2_at(t, ldt, j1);
+        drot_within(n - j1 - 1, t, ix(j1, j1 + 2, ldt), ldt, ix(j2, j1 + 2, ldt), ldt, cs, sn);
+        drot_within(j1 - 1, t, ix(1, j1, ldt), 1, ix(1, j2, ldt), 1, cs, sn);
+        if wantq {
+            drot_within(n, q, ix(1, j1, ldq), 1, ix(1, j2, ldq), 1, cs, sn);
+        }
+    }
+    if n1 == 2 {
+        // Standardize new 2-by-2 block T22.
+        let j3 = j1 + n2;
+        let j4 = j3 + 1;
+        let (cs, sn) = dlanv2_at(t, ldt, j3);
+        if j3 + 2 <= n {
+            drot_within(n - j3 - 1, t, ix(j3, j3 + 2, ldt), ldt, ix(j4, j3 + 2, ldt), ldt, cs, sn);
+        }
+        drot_within(j3 - 1, t, ix(1, j3, ldt), 1, ix(1, j4, ldt), 1, cs, sn);
+        if wantq {
+            drot_within(n, q, ix(1, j3, ldq), 1, ix(1, j4, ldq), 1, cs, sn);
+        }
+    }
+    0
+}
+
+/// `DTREXC(COMPQ, N, T, LDT, Q, LDQ, IFST, ILST, WORK, INFO)` with `COMPQ`
+/// 'V' (`wantq`) or 'N': moves the diagonal block of `t` at row `ifst` to
+/// row `ilst` by adjacent swaps. `ifst` and `ilst` are updated as the
+/// Fortran does; returns `INFO` (1: a swap was rejected).
+#[allow(clippy::too_many_arguments)]
+pub fn dtrexc(wantq: bool, n: usize, t: &mut [f64], ldt: usize, q: &mut [f64], ldq: usize, ifst: &mut usize, ilst: &mut usize) -> i32 {
+    if n <= 1 {
+        return 0;
+    }
+    let tt = |t: &[f64], i: usize, j: usize| t[ix(i, j, ldt)];
+    // Determine the first row of specified block and find out it is 1 by 1
+    // or 2 by 2.
+    if *ifst > 1 && tt(t, *ifst, *ifst - 1) != 0.0 {
+        *ifst -= 1;
+    }
+    let mut nbf = 1;
+    if *ifst < n && tt(t, *ifst + 1, *ifst) != 0.0 {
+        nbf = 2;
+    }
+    // Determine the first row of the final block and find out it is 1 by
+    // 1 or 2 by 2.
+    if *ilst > 1 && tt(t, *ilst, *ilst - 1) != 0.0 {
+        *ilst -= 1;
+    }
+    let mut nbl = 1;
+    if *ilst < n && tt(t, *ilst + 1, *ilst) != 0.0 {
+        nbl = 2;
+    }
+    if *ifst == *ilst {
+        return 0;
+    }
+    let mut here;
+    if *ifst < *ilst {
+        // Update ILST.
+        if nbf == 2 && nbl == 1 {
+            *ilst -= 1;
+        }
+        if nbf == 1 && nbl == 2 {
+            *ilst += 1;
+        }
+        here = *ifst;
+        loop {
+            // 10: swap block with next one below.
+            if nbf == 1 || nbf == 2 {
+                // Current block either 1 by 1 or 2 by 2.
+                let mut nbnext = 1;
+                if here + nbf < n && tt(t, here + nbf + 1, here + nbf) != 0.0 {
+                    nbnext = 2;
+                }
+                let info = dlaexc(wantq, n, t, ldt, q, ldq, here, nbf, nbnext);
+                if info != 0 {
+                    *ilst = here;
+                    return info;
+                }
+                here += nbnext;
+                // Test if 2 by 2 block breaks into two 1 by 1 blocks.
+                if nbf == 2 && tt(t, here + 1, here) == 0.0 {
+                    nbf = 3;
+                }
+            } else {
+                // Current block consists of two 1 by 1 blocks each of which
+                // must be swapped individually.
+                let mut nbnext = 1;
+                if here + 3 <= n && tt(t, here + 3, here + 2) != 0.0 {
+                    nbnext = 2;
+                }
+                let info = dlaexc(wantq, n, t, ldt, q, ldq, here + 1, 1, nbnext);
+                if info != 0 {
+                    *ilst = here;
+                    return info;
+                }
+                if nbnext == 1 {
+                    // Swap two 1 by 1 blocks, no problems possible.
+                    dlaexc(wantq, n, t, ldt, q, ldq, here, 1, nbnext);
+                    here += 1;
+                } else {
+                    // Recompute NBNEXT in case 2 by 2 split.
+                    if tt(t, here + 2, here + 1) == 0.0 {
+                        nbnext = 1;
+                    }
+                    if nbnext == 2 {
+                        // 2 by 2 block did not split.
+                        let info = dlaexc(wantq, n, t, ldt, q, ldq, here, 1, nbnext);
+                        if info != 0 {
+                            *ilst = here;
+                            return info;
+                        }
+                        here += 2;
+                    } else {
+                        // 2 by 2 block did split.
+                        dlaexc(wantq, n, t, ldt, q, ldq, here, 1, 1);
+                        dlaexc(wantq, n, t, ldt, q, ldq, here + 1, 1, 1);
+                        here += 2;
+                    }
+                }
+            }
+            if here >= *ilst {
+                break;
+            }
+        }
+    } else {
+        here = *ifst;
+        loop {
+            // 20: swap block with next one above.
+            if nbf == 1 || nbf == 2 {
+                // Current block either 1 by 1 or 2 by 2.
+                let mut nbnext = 1;
+                if here >= 3 && tt(t, here - 1, here - 2) != 0.0 {
+                    nbnext = 2;
+                }
+                let info = dlaexc(wantq, n, t, ldt, q, ldq, here - nbnext, nbnext, nbf);
+                if info != 0 {
+                    *ilst = here;
+                    return info;
+                }
+                here -= nbnext;
+                // Test if 2 by 2 block breaks into two 1 by 1 blocks.
+                if nbf == 2 && tt(t, here + 1, here) == 0.0 {
+                    nbf = 3;
+                }
+            } else {
+                // Current block consists of two 1 by 1 blocks each of which
+                // must be swapped individually.
+                let mut nbnext = 1;
+                if here >= 3 && tt(t, here - 1, here - 2) != 0.0 {
+                    nbnext = 2;
+                }
+                let info = dlaexc(wantq, n, t, ldt, q, ldq, here - nbnext, nbnext, 1);
+                if info != 0 {
+                    *ilst = here;
+                    return info;
+                }
+                if nbnext == 1 {
+                    // Swap two 1 by 1 blocks, no problems possible.
+                    dlaexc(wantq, n, t, ldt, q, ldq, here, nbnext, 1);
+                    here -= 1;
+                } else {
+                    // Recompute NBNEXT in case 2 by 2 split.
+                    if tt(t, here, here - 1) == 0.0 {
+                        nbnext = 1;
+                    }
+                    if nbnext == 2 {
+                        // 2 by 2 block did not split.
+                        let info = dlaexc(wantq, n, t, ldt, q, ldq, here - 1, 2, 1);
+                        if info != 0 {
+                            *ilst = here;
+                            return info;
+                        }
+                        here -= 2;
+                    } else {
+                        // 2 by 2 block did split.
+                        dlaexc(wantq, n, t, ldt, q, ldq, here, 1, 1);
+                        dlaexc(wantq, n, t, ldt, q, ldq, here - 1, 1, 1);
+                        here -= 2;
+                    }
+                }
+            }
+            if here <= *ilst {
+                break;
+            }
+        }
+    }
+    *ilst = here;
+    0
+}
+
+/// `DTRSEN('N', 'V', SELECT, N, T, LDT, Q, LDQ, WR, WI, M, S, SEP, WORK,
+/// LWORK, IWORK, LIWORK, INFO)`: reorders the Schur form `t` (and the
+/// Schur vectors `q`) so the selected eigenvalues lead, a complex pair
+/// moving together. Returns `(M, INFO)` with the eigenvalues of the
+/// reordered form in `wr`, `wi` (`INFO = 1`: a swap was rejected; the
+/// eigenvalues are of the partly reordered form).
+#[allow(clippy::too_many_arguments)]
+pub fn dtrsen_nv(
+    select: &[bool],
+    n: usize,
+    t: &mut [f64],
+    ldt: usize,
+    q: &mut [f64],
+    ldq: usize,
+    wr: &mut [f64],
+    wi: &mut [f64],
+) -> (usize, i32) {
+    // Set M to the dimension of the specified invariant subspace.
+    let mut m = 0;
+    let mut pair = false;
+    for k in 1..=n {
+        if pair {
+            pair = false;
+        } else if k < n {
+            if t[ix(k + 1, k, ldt)] == 0.0 {
+                if select[k - 1] {
+                    m += 1;
+                }
+            } else {
+                pair = true;
+                if select[k - 1] || select[k] {
+                    m += 2;
+                }
+            }
+        } else if select[n - 1] {
+            m += 1;
+        }
+    }
+    let mut info = 0;
+    if m != n && m != 0 {
+        // Collect the selected blocks at the top-left corner of T.
+        let mut ks = 0;
+        let mut pair = false;
+        for k in 1..=n {
+            if pair {
+                pair = false;
+                continue;
+            }
+            let mut swap = select[k - 1];
+            if k < n && t[ix(k + 1, k, ldt)] != 0.0 {
+                pair = true;
+                swap = swap || select[k];
+            }
+            if swap {
+                ks += 1;
+                // Swap the K-th block to position KS.
+                let mut ierr = 0;
+                let mut kk = k;
+                if k != ks {
+                    // KS is DTREXC's ILST, updated in place.
+                    ierr = dtrexc(true, n, t, ldt, q, ldq, &mut kk, &mut ks);
+                }
+                if ierr == 1 || ierr == 2 {
+                    // Blocks too close to swap: exit.
+                    info = 1;
+                    break;
+                }
+                if pair {
+                    ks += 1;
+                }
+            }
+        }
+    }
+    // 40: store the output eigenvalues in WR and WI.
+    for k in 1..=n {
+        wr[k - 1] = t[ix(k, k, ldt)];
+        wi[k - 1] = 0.0;
+    }
+    for k in 1..n {
+        if t[ix(k + 1, k, ldt)] != 0.0 {
+            wi[k - 1] = t[ix(k, k + 1, ldt)].abs().sqrt() * t[ix(k + 1, k, ldt)].abs().sqrt();
+            wi[k] = -wi[k - 1];
+        }
+    }
+    (m, info)
 }
