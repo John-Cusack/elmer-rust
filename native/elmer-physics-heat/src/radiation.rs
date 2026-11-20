@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use elmer_core::{BasisEval, CsrMatrix, ElemId, ElementBasis, Params, Quadrature, NO_DOF};
 use elmer_solver::{SolverCtx, SolverError};
 use elmer_viewfactors::{
-    gebhart_factors, line_direction, normalize_factors, saved_rows, view_factors_axis,
+    gebhart_factors_with, line_direction, normalize_factors_with, GebhartMatrix, saved_rows, view_factors_axis,
     GebhartInput, ParentInfo,
 };
 
@@ -21,6 +21,78 @@ const CALLER: &str = "RadiationFactors";
 
 fn unsupported(what: &str) -> SolverError {
     SolverError::Unsupported(what.to_string())
+}
+
+/// `ElementArea` (ElementUtils.F90:3346) of a two-node boundary element in
+/// axisymmetric coordinates: `SUM r detJ s` over `GaussPoints(Element)`
+/// (its analytic branch is compiled out).
+fn element_area_axis(a: [f64; 3], b: [f64; 3]) -> Result<f64, SolverError> {
+    let fe = |e: elmer_fe::FeError| SolverError::fatal("ElementArea", e.to_string());
+    let def = elmer_fe::element_type(202).map_err(fe)?;
+    let ip = elmer_fe::gauss_points(elmer_core::ElementType(202), None).map_err(fe)?;
+    let nodes = [[a[0], a[1], 0.0], [b[0], b[1], 0.0]];
+    let mut st = elmer_fe::MetricStatus::default();
+    let mut ev = BasisEval::default();
+    let mut area = 0.0;
+    for t in 0..ip.s.len() {
+        elmer_fe::element_info(def, &nodes, [ip.u[t], ip.v[t], ip.w[t]], 2, &mut st, &mut ev).map_err(fe)?;
+        let x = nodes[0][0] * ev.basis[0] + nodes[1][0] * ev.basis[1];
+        area += x * ev.det_j * ip.s[t];
+    }
+    Ok(area)
+}
+
+/// `fm_MatVec`: the dense row-major Jacobian of `NormalizeFactors`.
+struct DenseOp<'a> {
+    n: usize,
+    a: &'a [f64],
+}
+
+impl elmer_core::LinearOperator<f64> for DenseOp<'_> {
+    fn nrows(&self) -> usize {
+        self.n
+    }
+    fn ncols(&self) -> usize {
+        self.n
+    }
+    fn apply(&self, x: &[f64], y: &mut [f64]) {
+        for i in 0..self.n {
+            let mut s = 0.0;
+            for j in 0..self.n {
+                s += self.a[i * self.n + j] * x[j];
+            }
+            y[i] = s;
+        }
+    }
+}
+
+/// `fm_DiagPrec`: `u = v * Jdiag`.
+struct DiagPrec<'a>(&'a [f64]);
+
+impl elmer_core::Preconditioner<f64> for DiagPrec<'_> {
+    fn apply(&self, r: &[f64], z: &mut [f64]) {
+        for i in 0..r.len() {
+            z[i] = r[i] * self.0[i];
+        }
+    }
+}
+
+/// ViewFactors' `IterSolv`: HUTI CG (the port), `HUTI_TRESID_SCALED_BYB` to
+/// 1e-6 in at most 100 iterations from the given `x`, the diagonal as the
+/// left preconditioner.
+fn hut_itersolv(jac: &[f64], jdiag: &[f64], x: &mut [f64], b: &[f64]) {
+    use elmer_core::IterativeSolver;
+    use elmer_solver::elmer_krylov::{Huti, HutiConfig, HutiMethod, HutiStop};
+    let mut cfg = HutiConfig::new(HutiMethod::Cg);
+    cfg.max_iter = 100;
+    cfg.tol = 1.0e-6;
+    cfg.max_tol = 1.0e20;
+    cfg.stop_crit = HutiStop::TrueResidualScaledByB;
+    cfg.left_precond = true;
+    cfg.abort_not_converged = false;
+    let op = DenseOp { n: b.len(), a: jac };
+    // A non-converged step is used as it stands, as IterSolv does.
+    let _ = Huti::new(cfg).solve(&op, &DiagPrec(jdiag), b, x, &elmer_core::SerialComm);
 }
 
 /// `Radiation = Diffuse Gray` on the boundary element's condition.
@@ -35,6 +107,9 @@ pub(crate) fn is_diffuse_gray(ctx: &SolverCtx<'_>, e: ElemId) -> bool {
 pub(crate) struct DiffuseGray {
     /// Boundary element -> Gebhart factors `(radiating element, factor)`.
     factors: HashMap<u32, Vec<(ElemId, f64)>>,
+    /// Every radiating element, by element index: this partition's and, in
+    /// a partitioned run, those imported from the others.
+    radiating: Vec<ElemId>,
     topology_done: bool,
 }
 
@@ -135,13 +210,36 @@ impl DiffuseGray {
         bnd: &[ElemId],
         axisym: bool,
     ) -> Result<Option<Self>, SolverError> {
-        let radiating: Vec<ElemId> = bnd
+        // GetMeshRadiationSurfaceInfo: in a partitioned run the surfaces
+        // imported by RadiationParallelMeshDistribute too, by global element
+        // id (the serial order).
+        let foreign: Vec<ElemId> = ctx.foreign_boundary_elements().filter(|&e| is_diffuse_gray(ctx, e)).collect();
+        let mut radiating: Vec<ElemId> = bnd
             .iter()
             .copied()
             .filter(|&e| is_diffuse_gray(ctx, e))
+            .chain(foreign.iter().copied())
             .collect();
-        if radiating.is_empty() {
+        radiating.sort_by_key(|&e| ctx.element_gid(e));
+        // Only this partition's surfaces get factors (`PartIndex == myPE`);
+        // every rank joins the exchange of the orientations below.
+        let parallel = ctx.comm.size() > 1;
+        // Every partition with surfaces must see all of them; agreed, so
+        // that no rank goes on alone into the exchange below.
+        let mut n_max = [radiating.len() as f64, -(radiating.len() as f64)];
+        if parallel {
+            ctx.comm.max_f64(&mut n_max);
+        }
+        let (n_hi, n_lo) = (n_max[0] as usize, (-n_max[1]) as usize);
+        if n_hi == 0 {
             return Ok(None);
+        }
+        if parallel && n_lo != n_hi {
+            return Err(unsupported(&format!(
+                "diffuse gray radiation with surfaces missing on some partitions ({n_lo} to {n_hi}; this rank {}, {} imported)",
+                radiating.len(),
+                foreign.len()
+            )));
         }
         if !axisym {
             return Err(unsupported(
@@ -209,11 +307,18 @@ impl DiffuseGray {
             }
             Ok(r)
         };
+        // ViewFactors runs on the whole mesh: its surfaces and coordinates
+        // are by global node number (the local index in a serial run), which
+        // fixes the order in which it combines aligned elements.
         let n_nodes = ctx.mesh.n_nodes();
-        let mut coord: Vec<f64> = Vec::with_capacity(2 * n_nodes);
+        let vf_index = |n: u32| (ctx.node_gid(n) - 1) as usize;
+        let n_global = (0..n_nodes as u32).map(|n| vf_index(n) + 1).max().unwrap_or(0);
+        let mut coord: Vec<f64> = vec![0.0; 2 * n_global];
         for n in 0..n_nodes as u32 {
             let x = vf_coord(n)?;
-            coord.extend([x[0], x[1]]);
+            let g = vf_index(n);
+            coord[2 * g] = x[0];
+            coord[2 * g + 1] = x[1];
         }
         let divide = ctx
             .params()
@@ -231,6 +336,39 @@ impl DiffuseGray {
             .real("Minimum Gebhart Factor")
             .or_else(|| ctx.params().real("Minimum Gebhardt Factor"))
             .unwrap_or(1.0e-20);
+
+        // ViewFactors' orientation of each surface from its parents. An
+        // imported surface has none here: its own partition orients it, and
+        // the ranks sum the orientations (each surface has one owner).
+        let mut dirs = vec![0.0; radiating.len()];
+        for (k, &e) in radiating.iter().enumerate() {
+            if foreign.contains(&e) {
+                continue;
+            }
+            let el = ctx.mesh.element(e);
+            if el.nodes.len() != 2 {
+                return Err(unsupported("diffuse gray radiation on higher order elements"));
+            }
+            let bc = ctx.bc_params(e).expect("radiating elements have a condition");
+            let (a, b) = (vf_coord(el.nodes[0])?, vf_coord(el.nodes[1])?);
+            let left = parent_info(ctx, el.parents[0], el.nodes);
+            let right = parent_info(ctx, el.parents[1], el.nodes);
+            let target = bc.integer("Radiation Target Body").or_else(|| bc.integer("Normal Target Body"));
+            let dir = line_direction(
+                a,
+                b,
+                left.map(|l| l.0),
+                right.map(|r| r.0),
+                target,
+                (left.is_some_and(|l| l.1), right.is_some_and(|r| r.1)),
+            )
+            .map_err(|err| SolverError::fatal("ViewFactors", err.to_string()))?;
+            dirs[k] = if dir > 0.0 { 1.0 } else { -1.0 };
+        }
+        if parallel {
+            ctx.comm.sum_f64(&mut dirs);
+        }
+        let dir_of: HashMap<u32, f64> = radiating.iter().zip(&dirs).map(|(e, &d)| (e.0, d)).collect();
 
         let mut factors: HashMap<u32, Vec<(ElemId, f64)>> = HashMap::new();
         for rb in 1..=max_body {
@@ -264,33 +402,17 @@ impl DiffuseGray {
                 let (n1, n2) = (el.nodes[0], el.nodes[1]);
                 let (a, b) = (vf_coord(n1)?, vf_coord(n2)?);
                 let (ea, eb) = (ctx.mesh.coord(n1), ctx.mesh.coord(n2));
-                let left = parent_info(ctx, el.parents[0], el.nodes);
-                let right = parent_info(ctx, el.parents[1], el.nodes);
-                let target = bc
-                    .integer("Radiation Target Body")
-                    .or_else(|| bc.integer("Normal Target Body"));
-                let dir = line_direction(
-                    a,
-                    b,
-                    left.map(|l| l.0),
-                    right.map(|r| r.0),
-                    target,
-                    (left.is_some_and(|l| l.1), right.is_some_and(|r| r.1)),
-                )
-                .map_err(|err| SolverError::fatal("ViewFactors", err.to_string()))?;
-                if dir > 0.0 {
-                    surf.extend([n2 as usize, n1 as usize]);
+                if dir_of[&e.0] > 0.0 {
+                    surf.extend([vf_index(n2), vf_index(n1)]);
                 } else {
-                    surf.extend([n1 as usize, n2 as usize]);
+                    surf.extend([vf_index(n1), vf_index(n2)]);
                 }
-                let len = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
-                vf_areas.push(len * (a[0] + b[0]).abs() / 2.0);
-                let len = ((ea[0] - eb[0]).powi(2) + (ea[1] - eb[1]).powi(2)).sqrt();
-                areas.push(len * (ea[0] + eb[0]).abs() / 2.0);
+                vf_areas.push(element_area_axis(a, b)?);
+                areas.push(element_area_axis(ea, eb)?);
             }
 
             let mut vf = view_factors_axis(&surf, &coord, divide, combine);
-            normalize_factors(&mut vf, &vf_areas, open);
+            normalize_factors_with(&mut vf, &vf_areas, open, &mut hut_itersolv);
             let rows = saved_rows(&vf, n, n, min_vf, single);
 
             let max_area = areas.iter().copied().fold(f64::MIN, f64::max);
@@ -306,13 +428,43 @@ impl DiffuseGray {
                 emis.push(em);
                 refl.push(re);
             }
-            let g = gebhart_factors(&GebhartInput {
-                rows: &rows,
-                rel_areas: &rel_areas,
-                emissivity: &emis,
-                reflectivity: &refl,
-                min_factor: min_gebhart,
-            })
+            // InitRadiationSolver: the `radiation:` keywords, with
+            // `Linear System Direct Method = Umfpack` unless given.
+            let mut rp = elmer_core::ParamMap::default();
+            rp.insert(
+                "Linear System Direct Method",
+                elmer_core::Value::Str(
+                    ctx.params().string("radiation: Linear System Direct Method").unwrap_or("umfpack").to_string(),
+                ),
+            );
+            let mut direct = elmer_solver::linsys::direct_solver(&rp)?;
+            let mut factored = false;
+            let mut solve = |g: &GebhartMatrix, b: &mut [f64]| -> Result<(), String> {
+                if !factored {
+                    let n = g.row_ptr.len() - 1;
+                    let a = CsrMatrix {
+                        nrows: n,
+                        ncols: n,
+                        row_ptr: g.row_ptr.clone(),
+                        col_idx: g.cols.clone(),
+                        values: g.values.clone(),
+                        diag: None,
+                    };
+                    direct.factor(&a).map_err(|e| e.to_string())?;
+                    factored = true;
+                }
+                direct.solve_in_place(b).map_err(|e| e.to_string())
+            };
+            let g = gebhart_factors_with(
+                &GebhartInput {
+                    rows: &rows,
+                    rel_areas: &rel_areas,
+                    emissivity: &emis,
+                    reflectivity: &refl,
+                    min_factor: min_gebhart,
+                },
+                &mut solve,
+            )
             .map_err(|err| SolverError::fatal(CALLER, err.to_string()))?;
             ctx.info(
                 CALLER,
@@ -323,14 +475,19 @@ impl DiffuseGray {
                 5,
             );
             for (t, row) in g.rows.into_iter().enumerate() {
+                if foreign.contains(&surfaces[t]) {
+                    continue;
+                }
                 factors.insert(
                     surfaces[t].0,
                     row.into_iter().map(|(i, v)| (surfaces[i], v)).collect(),
                 );
             }
         }
+        radiating.sort_unstable_by_key(|e| e.0);
         Ok(Some(Self {
             factors,
+            radiating,
             topology_done: false,
         }))
     }
@@ -338,16 +495,21 @@ impl DiffuseGray {
     /// The list-matrix rows `MakeListMatrix` adds for the factors
     /// (ElementUtils.F90:744-830): each node of a radiating element coupled
     /// to every node of the elements it sees.
+    ///
+    /// Every radiating element is listed, in element order, an imported one
+    /// (without factors on this partition) with no couplings: its nodes are
+    /// what InitialPermutation's radiation branch numbers.
     pub(crate) fn couplings(&self, mesh: &dyn elmer_core::MeshView) -> Vec<(u32, Vec<u32>)> {
-        let mut keys: Vec<&u32> = self.factors.keys().collect();
-        keys.sort_unstable();
         let mut out = Vec::new();
-        for &e in keys {
-            let cols: Vec<u32> = self.factors[&e]
-                .iter()
+        for &e in &self.radiating {
+            let cols: Vec<u32> = self
+                .factors
+                .get(&e.0)
+                .into_iter()
+                .flatten()
                 .flat_map(|&(j, _)| mesh.element(j).nodes.iter().copied())
                 .collect();
-            for &n in mesh.element(ElemId(e)).nodes {
+            for &n in mesh.element(e).nodes {
                 out.push((n, cols.clone()));
             }
         }
@@ -378,6 +540,7 @@ impl DiffuseGray {
             .system_mut()
             .ok_or_else(|| SolverError::fatal(CALLER, "no system to extend".to_string()))?;
         extend_pattern(&mut sys.matrix, pairs);
+        ctx.system_pattern_changed();
         self.topology_done = true;
         Ok(())
     }
@@ -520,7 +683,8 @@ impl DiffuseGray {
                 let t0: f64 = phi.iter().zip(&temps).map(|(b, t)| b * t).sum();
                 let coeff = emis1
                     * stefan
-                    * (t0.powi(3) + t0 * t0 * text + t0 * text * text + text.powi(3));
+                    // T0**3 + T0**2*Text + T0*Text**2 + Text**3.
+                    * (t0.powi(3) + t0 * t0 * text + t0 * (text * text) + text.powi(3));
                 for p in 0..n {
                     for q in 0..n {
                         stiff[p * n + q] += s * phi[p] * phi[q] * coeff;

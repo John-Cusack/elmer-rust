@@ -206,6 +206,12 @@ impl IterativeSolver<f64> for OwnedSgs {
     }
 }
 
+/// [`direct`] for a solver outside the registry (RadiationFactors' own
+/// Gebhart system).
+pub fn direct_solver(p: &ParamMap) -> Result<Box<dyn DirectSolver<f64> + Send>, SolverError> {
+    direct(p)
+}
+
 /// `Linear System Direct Method`, default `banded` (DirectSolve.F90).
 /// `umfpack` / `big umfpack` run the bit-exact UMFPACK 4.4 port
 /// (`elmer-umfpack`), the other sparse LU methods faer's LU.

@@ -76,6 +76,7 @@ pub use restart::{load_restart, restart};
 /// The dense symmetric eigensolver (`DSYEV`) and the eigen analysis, for
 /// solver crates that depend on this one only.
 pub use elmer_eigen;
+pub use elmer_krylov;
 pub use backend::{
     AssemblyBackend, Backends, ContactBackend, DofsBackend, FeBackend, LinearSolverRegistry, NodeInterface, ParEigenBackend, Perm, PointExchange, SolverDofs,
     TimeBackend, TimeTerms,

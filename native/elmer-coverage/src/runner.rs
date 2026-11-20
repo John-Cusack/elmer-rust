@@ -138,7 +138,7 @@ fn run_child(cfg: &Config, dir: &Path, sif: &str, recipe: &Recipe, static_only: 
 /// `mpirun -np N elmer-mpi-run sif` in `dir`, waiting up to the timeout.
 /// Rank 0 writes `TEST.PASSED_N`; the exit codes are `elmer-cli`'s (0
 /// solved, 78 refused with `elmer-mpi-run: refused: ...` lines on stderr).
-fn run_mpi(cfg: &Config, mpi_run: &Path, dir: &Path, sif: &str, np: u32) -> ChildReport {
+fn run_mpi(cfg: &Config, mpi_run: &Path, dir: &Path, sif: &str, np: u32, recipe: &Recipe) -> ChildReport {
     let fail = |detail: String| ChildReport { verdict: Verdict::Error, detail, blockers: vec![], libs: vec![] };
     let (out_path, err_path) = (dir.join("mpi.out"), dir.join("mpi.err"));
     let (Ok(out), Ok(err)) = (fs::File::create(&out_path), fs::File::create(&err_path)) else {
@@ -165,6 +165,11 @@ fn run_mpi(cfg: &Config, mpi_run: &Path, dir: &Path, sif: &str, np: u32) -> Chil
         .stderr(err)
         // Its own process group, so a timeout kills the ranks with mpirun.
         .process_group(0);
+    // As for the serial child: the test's ViewFactors step ran, so the
+    // radiation factors are not computed from the rewritten mesh.nodes.
+    if recipe.steps.iter().any(|s| matches!(s, Step::ViewFactors)) {
+        cmd.env("ELMER_VIEWFACTORS_PRESTEP", "1");
+    }
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => return fail(format!("spawn mpirun: {e}")),
@@ -285,7 +290,7 @@ pub fn run_test(cfg: &Config, test: &QuickTest) -> Record {
             Some(bin) if !static_only => {
                 let screen = run_child(cfg, &dir, sif, &recipe, true);
                 if screen.verdict == Verdict::Refused && screen.blockers.is_empty() {
-                    ChildReport { libs: screen.libs, ..run_mpi(cfg, bin, &dir, sif, test.nprocs) }
+                    ChildReport { libs: screen.libs, ..run_mpi(cfg, bin, &dir, sif, test.nprocs, &recipe) }
                 } else {
                     screen
                 }

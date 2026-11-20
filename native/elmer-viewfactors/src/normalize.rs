@@ -16,6 +16,19 @@ const EPS: f64 = f64::EPSILON;
 /// preconditioner, started from the current scaling, to a residual of 1e-6
 /// of the right-hand side in at most 100 iterations, as `IterSolv` does.
 pub fn normalize_factors(factors: &mut [f64], areas: &[f64], open: bool) {
+    let mut own = |jac: &[f64], jdiag: &[f64], x: &mut [f64], b: &[f64]| cg(areas.len(), jac, jdiag, x, b);
+    normalize_factors_with(factors, areas, open, &mut own);
+}
+
+/// `IterSolv(n, x, b)` of `NormalizeFactors`: `Jacobian x = b` (row-major
+/// `n * n`, `fm_MatVec`) by HUTI CG with the diagonal preconditioner
+/// `Jdiag` (`fm_DiagPrec`), `x` the initial guess, to `1e-6` of `||b||` in at
+/// most 100 iterations.
+pub type IterSolv<'a> = dyn FnMut(&[f64], &[f64], &mut [f64], &[f64]) + 'a;
+
+/// [`normalize_factors`] with the Newton steps solved by `itersolv` (the
+/// HUTI CG port, for the Fortran's rounding).
+pub fn normalize_factors_with(factors: &mut [f64], areas: &[f64], open: bool, itersolv: &mut IterSolv<'_>) {
     let n = areas.len();
     assert_eq!(factors.len(), n * n);
 
@@ -74,7 +87,7 @@ pub fn normalize_factors(factors: &mut [f64], areas: &[f64], open: bool) {
         }
 
         let prev = sol.clone();
-        cg(n, &jac, &jdiag, &mut sol, &rhs);
+        itersolv(&jac, &jdiag, &mut sol, &rhs);
         for (s, p) in sol.iter_mut().zip(&prev) {
             *s += p;
         }

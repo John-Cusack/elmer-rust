@@ -1052,7 +1052,11 @@ impl Solver for HeatSolver {
                     .is_some_and(|s| s.state.newton_active)
             };
             let t4 = match self.diffuse {
-                Some(Some(_)) => temps4(ctx, &bnd)?,
+                // The imported surfaces of a partitioned run too.
+                Some(Some(_)) => {
+                    let all: Vec<ElemId> = bnd.iter().copied().chain(ctx.foreign_boundary_elements()).collect();
+                    temps4(ctx, &all)?
+                }
                 _ => Default::default(),
             };
 
