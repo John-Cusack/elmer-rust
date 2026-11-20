@@ -63,6 +63,7 @@ fn bulk(etype: u16, xyz: &[[f64; 3]], cdim: usize, coord: CoordSystem, large: bo
         geometric: None,
         incompressible: false,
         pstab: None,
+        maxwell: None,
     };
     let mut out = LocalSystem::zeros(0);
     elastic_bulk_local(&P1Basis, &Gauss, &inp, &mut out).unwrap();
@@ -197,6 +198,7 @@ fn small_strain_stiffness_is_the_linear_one() {
             ip: None,
             geometric: None,
             incompressible: false,
+            maxwell: None,
         };
         let mut lin = LocalSystem::zeros(0);
         stress_bulk_local(&P1Basis, &Gauss, &inp, &mut lin).unwrap();

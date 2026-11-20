@@ -105,6 +105,7 @@ fn bulk(m: &Mesh, e: usize, s: &Setup, o: &Opt<'_>) -> LocalSystem {
         ip: None,
         geometric: o.geometric,
         incompressible: false,
+        maxwell: None,
     };
     let mut out = LocalSystem::zeros(0);
     stress_bulk_local(&P1Basis, &Gauss, &inp, &mut out).unwrap();
@@ -516,6 +517,7 @@ fn unsupported_shapes_are_refused() {
         ip: None,
         geometric: None,
         incompressible: false,
+        maxwell: None,
     };
     let mut out = LocalSystem::zeros(0);
     assert!(matches!(

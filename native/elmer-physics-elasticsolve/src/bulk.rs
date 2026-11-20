@@ -12,6 +12,8 @@
 //! of node `p` (Elmer's `DOFs*(p-1)+i`).
 
 use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, Quadrature};
+use elmer_physics_elastic::bulk::{sym_tensor_components, tensor_to_packed};
+pub use elmer_physics_elastic::bulk::Maxwell;
 use elmer_physics_elastic::{CoordSystem, ElasticLaw, IpProps};
 
 use crate::error::ElasticError;
@@ -70,6 +72,8 @@ pub struct BulkInput<'a> {
     /// Stabilization Coefficient, Element % hK)`. The pressure keeps all its
     /// dofs, with `-Tau grad(p).grad(q)` on the pressure block.
     pub pstab: Option<(f64, f64)>,
+    /// `Maxwell material` at this element (`MaxwellHere`).
+    pub maxwell: Option<Maxwell<'a>>,
 }
 
 /// The displacement gradient `Grad(a,b) = d u_a / d x_b` (with the hoop term
@@ -222,7 +226,22 @@ pub fn elastic_bulk_local_p(
     };
     let has_voigt = inp.stress_load.is_some_and(|s| s.iter().any(|v| v.iter().any(|x| *x != 0.0)))
         || inp.strain_load.is_some_and(|s| s.iter().any(|v| v.iter().any(|x| *x != 0.0)));
-    let got_offset = has_voigt || has_heat;
+    let maxwell = inp.maxwell;
+    let got_offset = has_voigt || has_heat || maxwell.is_some();
+    let nve = sym_tensor_components(cdim, axi);
+    if let Some(m) = maxwell {
+        if m.lag.len() != nve * points.len() {
+            return Err(ElasticError::Input(format!(
+                "Element integrates over {} points but \"ve_stress\" was allocated {} of them",
+                points.len(),
+                m.lag.len() / nve
+            )));
+        }
+        if !matches!(inp.law, ElasticLaw::Isotropic { .. }) || inp.incompressible || large {
+            return Err(ElasticError::Input("\"Maxwell material\" needs an isotropic compressible small strain law".into()));
+        }
+        m.new_lag.borrow_mut().resize(nve * points.len(), 0.0);
+    }
 
     if let Some(p) = ip {
         let np = points.len();
@@ -361,6 +380,17 @@ pub fn elastic_bulk_local_p(
             }
             _ => None,
         };
+        // ElasticSolve.F90:4284: `MaxVisc` (EffectiveViscosity of a Newtonian
+        // fluid is the viscosity), `xPhi` and the lag stress of the point.
+        let mut x_phi = 1.0;
+        let mut lag = ZERO;
+        if let (Some(m), PointLaw::Iso { lame2, .. }) = (maxwell, &law) {
+            let visc: f64 = (0..n).map(|k| m.viscosity[k] * bas[k]).sum();
+            x_phi = 1.0 / (1.0 + *lame2 / visc * m.dt);
+            let mut v = [0.0; 6];
+            v[..nve].copy_from_slice(&m.lag[nve * ipt..nve * (ipt + 1)]);
+            lag = voigt_to_tensor(&v, cdim, axi);
+        }
         // The affine part of the response: sigma = C(eps - eps0) + sigma0.
         let mut stress_offset = ZERO;
         if got_offset {
@@ -389,6 +419,9 @@ pub fn elastic_bulk_local_p(
             }
             let resp = law.stress(dim, false, &eigen);
             stress_offset = t3::sub(&stress_offset, &resp);
+            if maxwell.is_some() {
+                stress_offset = t3::sub(&stress_offset, &t3::scale(&lag, x_phi));
+            }
         }
 
         let grad = displacement_gradient(inp.disp, bas, db, dim, axi, r);
@@ -401,15 +434,26 @@ pub fn elastic_bulk_local_p(
         let mut stress2 = law.stress(dim, false, &strain);
         // `GeomStress = Stress2`: before the affine offset.
         let geom_stress = stress2;
+        if maxwell.is_some() {
+            stress2 = t3::scale(&stress2, x_phi);
+        }
         if got_offset {
             stress2 = t3::add(&stress2, &stress_offset);
+        }
+        if let Some(m) = maxwell {
+            // NewLagStress = (1 - xPhi) ElasticStress + xPhi LagStress.
+            let new = t3::add(&t3::scale(&geom_stress, 1.0 - x_phi), &t3::scale(&lag, x_phi));
+            tensor_to_packed(&new, cdim, axi, &mut m.new_lag.borrow_mut()[nve * ipt..nve * (ipt + 1)]);
         }
         let stress1 = t3::mul(&defg, &stress2);
 
         let dstrain_of = |d: &T3| -> T3 {
             t3::scale(&t3::add(&t3::mul(&t3::transpose(&defg), d), &t3::mul(&t3::transpose(d), &defg)), 0.5)
         };
-        let dstress2_u = law.stress(dim, false, &dstrain_of(&grad));
+        let mut dstress2_u = law.stress(dim, false, &dstrain_of(&grad));
+        if maxwell.is_some() {
+            dstress2_u = t3::scale(&dstress2_u, x_phi);
+        }
         let mut dstress1_u = t3::mul(&defg, &dstress2_u);
         if large {
             dstress1_u = t3::add(&dstress1_u, &t3::mul(&grad, &stress2));
@@ -420,6 +464,9 @@ pub fn elastic_bulk_local_p(
                 let k = cdim * p + i;
                 ddefg[k] = trial_gradient(i, p, bas, db, axi, r);
                 dstresses[k] = law.stress(dim, true, &dstrain_of(&ddefg[k]));
+                if maxwell.is_some() {
+                    dstresses[k] = t3::scale(&dstresses[k], x_phi);
+                }
             }
         }
 

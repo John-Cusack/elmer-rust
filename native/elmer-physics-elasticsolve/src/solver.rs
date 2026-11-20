@@ -42,7 +42,7 @@ fn factory(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     if FE.get().is_none() {
         return Err(SolverError::NotWired("element basis and quadrature (elmer-fe)".into()));
     }
-    Ok(Box::new(ElasticSolver { fe: None, umat: None }))
+    Ok(Box::new(ElasticSolver { fe: None, umat: None, ve_prev: None }))
 }
 
 /// The elasticity solver.
@@ -50,6 +50,9 @@ pub struct ElasticSolver {
     fe: Option<FeServices>,
     /// A UMAT material's committed integration-point state.
     umat: Option<UmatSaved>,
+    /// `ve_stress % PrevValues(:,1)`: a Maxwell material's lag stress of the
+    /// previous step.
+    ve_prev: Option<Vec<f64>>,
 }
 
 /// `UmatStress0`, `UmatEnergy0`, `UmatState0` and the converged
@@ -65,7 +68,7 @@ struct UmatSaved {
 impl ElasticSolver {
     /// A solver that owns its basis and quadrature.
     pub fn new(fe: FeServices) -> Self {
-        Self { fe: Some(fe), umat: None }
+        Self { fe: Some(fe), umat: None, ve_prev: None }
     }
 
     fn fe(&self) -> &FeServices {
@@ -152,6 +155,17 @@ fn model_of(p: &ParamMap) -> Model {
     }
 }
 
+/// `MaxwellHere` of a material: its own `Maxwell material`, or the solver
+/// section's when no material sets one (ElasticSolver_Init's copy).
+fn maxwell_here(ctx: &SolverCtx<'_>, mat: &ParamMap) -> bool {
+    let key = "maxwell material";
+    if ctx.sim.model.materials.iter().any(|m| flag(Some(m), key)) {
+        flag(Some(mat), key)
+    } else {
+        flag(Some(ctx.params()), key)
+    }
+}
+
 /// Model-wide refusals, from the solver section.
 fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
     for (key, what) in [
@@ -162,7 +176,6 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
         ("local matrix storage", "local matrix storage"),
         ("adaptive mesh refinement", "adaptive mesh refinement"),
         ("use hencky strain", "Hencky strain"),
-        ("maxwell material", "Maxwell material"),
     ] {
         if flag(Some(p), key) {
             return Err(unsupported(what));
@@ -256,6 +269,8 @@ struct ElementData {
     temperature: Option<Vec<f64>>,
     heat_expansion: Option<Vec<[f64; 3]>>,
     ip: Option<IpProps>,
+    /// `MaxwellHere`: the material's `Viscosity` at the nodes.
+    maxwell: Option<Vec<f64>>,
 }
 
 impl ElementData {
@@ -288,6 +303,7 @@ impl ElementData {
             gpa: self.gpa.map(|v| take(&map, &v)),
             temperature: self.temperature.map(|v| take(&map, &v)),
             heat_expansion: self.heat_expansion.map(|v| take(&map, &v)),
+            maxwell: self.maxwell.map(|v| take(&map, &v)),
             ..self
         }
     }
@@ -399,10 +415,20 @@ impl ElasticSolver {
         let bp = ctx.body_params(e).ok_or_else(|| fatal(format!("element {} has no body", e.0)))?;
         let mat = bp.material.ok_or_else(|| fatal(format!("body {} has no material", bp.body_id)))?;
         let umat = mat.get("umat subroutine").is_some();
-        let key = "maxwell material";
-        if mat.get(key).is_some() && (flag(Some(mat), key) || !matches!(mat.get(key), Some(Value::Logical(_)))) {
-            return Err(unsupported("Maxwell material"));
-        }
+        // ElasticSolve.F90:2171: Maxwell is a property of this element's
+        // material; one given in the solver section holds for every material
+        // (ElasticSolver_Init copies it onto them) unless a material has it.
+        let maxwell = if maxwell_here(ctx, mat) {
+            if mat.get("viscosity model").is_some() {
+                return Err(unsupported("a Maxwell material with a \"Viscosity Model\""));
+            }
+            let v = props::scalar_nodes(ctx, mat, "viscosity", e)?.ok_or_else(|| {
+                fatal("\"Maxwell material\" needs a \"Viscosity\": without one the relaxation time is zero and the stiffness vanishes")
+            })?;
+            Some(v)
+        } else {
+            None
+        };
         for prefix in ["pre stress", "pre strain", "mesh velocity"] {
             if present_prefix(mat, prefix) {
                 return Err(unsupported(&format!("material '{prefix}'")));
@@ -586,6 +612,7 @@ impl ElasticSolver {
             temperature,
             heat_expansion,
             ip,
+            maxwell,
         })
     }
 
@@ -1181,7 +1208,44 @@ impl Solver for ElasticSolver {
             }
         }
 
+        // ElasticSolve.F90:766-791: a Maxwell material.
+        let any_maxwell = ctx.sim.model.materials.iter().any(|m| maxwell_here(ctx, m));
+        let nve = elmer_physics_elastic::bulk::sym_tensor_components(cdim, axi);
+        if any_maxwell {
+            if !transient {
+                return Err(fatal("\"Maxwell material\" is a rate law and needs a transient simulation"));
+            }
+            if use_umat || model.neo_hookean {
+                return Err(fatal("\"Maxwell material\" is implemented by LocalMatrix, so not with UMAT or the neo-Hookean model"));
+            }
+            if model.large {
+                return Err(fatal("\"Maxwell material\" is implemented for small strain only, as in StressSolve"));
+            }
+            if model.incompressible {
+                return Err(unsupported("a Maxwell material with \"Incompressible\""));
+            }
+            if lumping || cs || cbs || cbm || geometric || ctx.solver_dofs().is_some() {
+                return Err(unsupported("a Maxwell material with Model Lumping, the Constant keywords, geometric stiffness or p elements"));
+            }
+            let v = ctx
+                .sim
+                .vars
+                .get("ve_stress")
+                .ok_or_else(|| fatal("\"Maxwell material\" is set but the \"ve_stress\" variable is missing"))?;
+            if v.dofs != nve {
+                return Err(fatal(format!("Variable \"ve_stress\" has {} components per point, expected {nve}", v.dofs)));
+            }
+            let len = v.values.len();
+            self.ve_prev.get_or_insert_with(|| vec![0.0; len]);
+        }
+
         for iter in 1..=max_iter {
+            // `VeStress % PrevValues = VeStress % Values` at the first
+            // nonlinear and coupled iterate (ElasticSolve.F90:3984).
+            if any_maxwell && iter == 1 && ctx.sim.vars.scalar("coupled iter").unwrap_or(1.0) == 1.0 {
+                let v = ctx.sim.vars.get("ve_stress").expect("checked above");
+                self.ve_prev.as_mut().expect("allocated").copy_from_slice(&v.values);
+            }
             // The keyword is rewritten: the core reads it when the system is solved.
             let geometric_active = geometric && iter > 1;
             if geometric {
@@ -1299,6 +1363,19 @@ impl Solver for ElasticSolver {
                     if bulk_np.is_some() && d.ip.is_some() {
                         return Err(unsupported("properties at integration points with a relative integration order"));
                     }
+                    // `VeBase = VeStress % Perm(ElementIndex)`: the element's
+                    // points of the lag stress.
+                    let maxwell_lag = match d.maxwell {
+                        Some(_) => {
+                            let v = ctx.sim.vars.get("ve_stress").ok_or_else(|| {
+                                fatal("\"Maxwell material\" is set but the \"ve_stress\" variable is missing")
+                            })?;
+                            let p = v.perm.as_deref().ok_or_else(|| fatal("ve_stress has no permutation"))?;
+                            Some((p[e.0 as usize] as usize, p[e.0 as usize + 1] as usize, ()))
+                        }
+                        None => None,
+                    };
+                    let new_lag = std::cell::RefCell::new(Vec::new());
                     let inp = BulkInput {
                         etype: el.etype,
                         xyz: &xyz,
@@ -1329,6 +1406,13 @@ impl Solver for ElasticSolver {
                                 crate::diameter::element_diameter(el.etype, &xyz),
                             )
                         }),
+                        maxwell: maxwell_lag.as_ref().map(|(lo, hi, _)| crate::bulk::Maxwell {
+                            viscosity: d.maxwell.as_deref().expect("Maxwell element"),
+                            dt,
+                            lag: &self.ve_prev.as_deref().expect("allocated")[nve * lo..nve * hi],
+                            new_lag: &new_lag,
+                            disp: &disp,
+                        }),
                     };
                     match &pe {
                         Some((slots, basis, rule)) => {
@@ -1346,6 +1430,10 @@ impl Solver for ElasticSolver {
                         None => elastic_bulk_local(&*fe.basis, &*fe.quad, &inp, &mut local),
                     }
                     .map_err(|x| fatal(x.to_string()))?;
+                    if let Some((lo, hi, ())) = maxwell_lag {
+                        let v = ctx.sim.vars.get_mut("ve_stress").expect("checked above");
+                        v.values[nve * lo..nve * hi].copy_from_slice(&new_lag.borrow());
+                    }
                 }
                 if transient {
                     let nn = local.n * local.n;
