@@ -147,17 +147,12 @@ impl Solver for TestSolver {
             for qpt in &rule {
                 basis.eval(el.etype, &xyz, qpt.uvw, &mut ev).map_err(|m| SolverError::fatal("ElementInfo", m))?;
                 let w = qpt.weight * ev.det_j;
-                if code == 504 && qp == 8 && std::ptr::eq(qpt, &rule[0]) {
-                    eprintln!("BAS {:?}", &ev.basis[..12]);
-                    eprintln!("BAS2 {:?}", &ev.basis[nd - 6..nd]);
-                    eprintln!("UVW {:?}", qpt.uvw);
-                }
                 let at = |c: usize| (0..nd).fold(0.0, |a, i| a + xyz[i][c] * ev.basis[i]);
                 let (x, y, z) = (at(0), at(1), at(2));
                 let (fx, _, _) = poly(edim, qp, x, y, z);
                 for p in 0..nd {
                     for q in 0..nd {
-                        stiff[p * nd + q] += w * ev.basis[p] * ev.basis[q];
+                        stiff[p + q * nd] += w * ev.basis[p] * ev.basis[q];
                         for c in 0..3 {
                             dnodal[p * nd + q][c] += w * ev.dbasis_dx[p][c] * ev.basis[q];
                         }
@@ -165,33 +160,15 @@ impl Solver for TestSolver {
                     force[p] += w * ev.basis[p] * fx;
                 }
             }
-            // InvertMatrix (LinearAlgebra.F90): column-major, and the mass
-            // matrix is symmetric. It is inverted with Jacobi scaling,
-            // D^-1/2 (D^-1/2 S D^-1/2)^-1 D^-1/2, the same inverse: this
-            // crate's p basis (the H1Basis forms) scales the p:8
-            // tetrahedron's functions apart more than the Fortran's
-            // PElementBase ones, and without the scaling the projected
-            // derivatives miss the 1e-8 check by rounding alone (1.0e-8
-            // against pristine's 5e-10). Not in the Fortran.
-            let sc: Vec<f64> = (0..nd).map(|i| 1.0 / stiff[i * nd + i].sqrt()).collect();
-            for i in 0..nd {
-                for j in 0..nd {
-                    stiff[i * nd + j] *= sc[i] * sc[j];
-                }
-            }
+            // InvertMatrix (LinearAlgebra.F90), STIFF(p, q) at p + q*nd.
             elmer_fe::invert_matrix(&mut stiff, nd).ok_or_else(|| SolverError::fatal("InvertMatrix", "singular matrix"))?;
-            for i in 0..nd {
-                for j in 0..nd {
-                    stiff[i * nd + j] *= sc[i] * sc[j];
-                }
-            }
-            let f: Vec<f64> = (0..nd).map(|i| (0..nd).fold(0.0, |a, j| a + stiff[i * nd + j] * force[j])).collect();
+            let f: Vec<f64> = (0..nd).map(|i| (0..nd).fold(0.0, |a, j| a + stiff[i + j * nd] * force[j])).collect();
             // dx(i, :, c) = STIFF^-1 dNodal(i, :, c).
             let mut dxp = vec![[0.0f64; 3]; nd * nd];
             for i in 0..nd {
                 for c in 0..3 {
                     for r in 0..nd {
-                        dxp[i * nd + r][c] = (0..nd).fold(0.0, |a, q| a + stiff[r * nd + q] * dnodal[i * nd + q][c]);
+                        dxp[i * nd + r][c] = (0..nd).fold(0.0, |a, q| a + stiff[r + q * nd] * dnodal[i * nd + q][c]);
                     }
                 }
             }
