@@ -84,8 +84,10 @@ pub fn boundary_normal(
     // (DOT_PRODUCT).
     let dot = |d: &[f64], a: usize| d.iter().zip(&x).fold(0.0, |s, (di, xi)| s + di * xi[a]);
     let mut n = match el.etype.0 {
-        202 => {
-            let d = [-0.5, 0.5];
+        202 | 203 => {
+            // The quadratic line's derivatives `-1/2 + u`, `1/2 + u`, `-2u`
+            // (elements.def, NodalFirstDerivatives).
+            let d: Vec<f64> = if el.etype.0 == 202 { vec![-0.5, 0.5] } else { vec![-0.5 + u, 0.5 + u, -2.0 * u] };
             let (dxdu, dydu) = (dot(&d, 0), dot(&d, 1));
             let det = dxdu * dxdu + dydu * dydu;
             if det <= 0.0 {
@@ -157,6 +159,7 @@ pub fn boundary_normal(
 fn node_uv(etype: u16, j: usize) -> Result<[f64; 2], SolverError> {
     Ok(match etype {
         202 => [[-1.0, 0.0], [1.0, 0.0]][j],
+        203 => [[-1.0, 0.0], [1.0, 0.0], [0.0, 0.0]][j],
         303 => [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]][j],
         404 => [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]][j],
         t => return Err(unsupported(format!("normal-tangential boundaries on boundary elements of type {t}"))),
