@@ -11,7 +11,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use elmer_core::{MeshView, SerialComm};
-use elmer_solver::{Simulation, SolverRegistry, TextMatc};
+use elmer_solver::{Simulation, SolverRegistry};
 use support::poisson::heat_nl;
 use support::{sif_model, split_change, Capture};
 
@@ -24,7 +24,7 @@ fn target_nodes_and_coordinates() {
     reg.register("HeatSolve", "HeatSolver", heat_nl);
     let log = Capture::default();
     let mut sim = Simulation::new(model);
-    sim.set_matc(Rc::new(TextMatc(elmer_sif::matc::matc_eval)));
+    sim.set_matc(Rc::new(support::SifMatc));
     sim.setup(&mesh, &reg, &log, &SerialComm).unwrap();
     sim.run(&mesh, &log, &SerialComm).unwrap();
 

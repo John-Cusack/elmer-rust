@@ -15,6 +15,25 @@ use std::sync::Mutex;
 use elmer_core::{ParamMap, Value};
 use elmer_solver::Model;
 
+/// MATC on `elmer-sif`'s library as `elmer_run::SifMatc` serves it: the
+/// arguments are bound and the expression evaluated under one hold of the
+/// MATC lock. `TextMatc(matc_eval)` binds in a call of its own, so tests
+/// running in parallel threads could rebind `tx` in between.
+pub struct SifMatc;
+
+impl elmer_expr::MatcEngine for SifMatc {
+    fn eval(&self, expr: &str, args: &[f64]) -> Result<Vec<f64>, String> {
+        self.eval_with("tx", expr, args)
+    }
+
+    fn eval_with(&self, var: &str, expr: &str, args: &[f64]) -> Result<Vec<f64>, String> {
+        elmer_sif::matc::matc_eval_args(var, args, expr)?
+            .split_whitespace()
+            .map(|t| t.parse::<f64>().map_err(|e| format!("MATC result {t:?}: {e}")))
+            .collect()
+    }
+}
+
 /// Collects every message as `caller: msg`, warnings with Elmer's prefix.
 #[derive(Default)]
 pub struct Capture(Mutex<Vec<String>>);

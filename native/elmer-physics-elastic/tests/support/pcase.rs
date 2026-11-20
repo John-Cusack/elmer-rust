@@ -115,13 +115,21 @@ pub fn sif_model(path: &Path) -> Model {
     }
 }
 
+/// The sifs' `$n = ...` goes to MATC's one process-wide interpreter while
+/// the sif is parsed, so two cases parsed by parallel tests can read each
+/// other's `n` in `Element = p:$n$`: one parse at a time.
+static PARSE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Runs `tests/data/<case>/case.sif` (with `PDofsBackend`) and checks the
 /// displacement against the pristine `perm.dat` / `solution.dat` and
 /// `norm`.
 pub fn check_case(case: &str, dim: usize, n_slots: usize, norm_want: f64, reference: f64) {
     let dir = data(case);
     let mesh = FileMesh::read(&dir, dim);
-    let model = sif_model(&dir.join("case.sif"));
+    let model = {
+        let _one = PARSE.lock().unwrap_or_else(|e| e.into_inner());
+        sif_model(&dir.join("case.sif"))
+    };
     let mut reg = SolverRegistry::new();
     register(&mut reg);
     let mut sim = Simulation::new(model);

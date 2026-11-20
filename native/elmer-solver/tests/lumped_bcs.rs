@@ -17,7 +17,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use elmer_core::{MeshView, SerialComm};
-use elmer_solver::{FeBackend, Simulation, SolverRegistry, TextMatc};
+use elmer_solver::{FeBackend, Simulation, SolverRegistry};
 use support::poisson::heat_nl;
 use support::{sif_model, split_change, Capture};
 
@@ -30,7 +30,7 @@ fn run(case: &str) -> (Simulation, support::mesh::FileMesh, Capture) {
     reg.register("HeatSolve", "HeatSolver", heat_nl);
     let log = Capture::default();
     let mut sim = Simulation::new(model);
-    sim.set_matc(Rc::new(TextMatc(elmer_sif::matc::matc_eval)));
+    sim.set_matc(Rc::new(support::SifMatc));
     sim.backends.fe = Some(FeBackend {
         basis: Box::new(support::basis::TestBasis),
         quadrature: Box::new(support::quad::TestQuadrature),
