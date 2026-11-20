@@ -25,6 +25,7 @@ use elmer_solver::{ElementAssembly, Model, Simulation, SolverFactory, SolverRegi
 
 use crate::benchmark_shell;
 use crate::bentonite;
+use crate::edge_element_test;
 use crate::hooks::{PoissonBoundary, PoissonBulk};
 use crate::l2nd_derivatives;
 use crate::model_pde_handle;
@@ -192,6 +193,8 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("RaviartThomas2D", "ComputeError", "IntegrateError", Hook::Solver(compute_error::factory)),
     ("BDM2D", "ComputeError", "IntegrateError", Hook::Solver(compute_error::factory)),
     ("RaviartThomas3D", "ComputeError", "IntegrateError", Hook::Solver(compute_error::factory_3d)),
+    ("SecondOrderEdgeElement2D", "EdgeElementTest", "EdgeElementSolver", Hook::Solver(edge_element_test::factory_2d)),
+    ("SecondOrderEdgeElement3D", "EdgeElementTest", "EdgeElementSolver", Hook::Solver(edge_element_test::factory_3d)),
     ("FaceElement2D_BCs", "FaceFEInterpolationTest", "BestApproximationSolver", Hook::Solver(face_fe_interpolation::factory)),
     ("FaceElement3D_BCs", "FaceFEInterpolationTest", "BestApproximationSolver", Hook::Solver(face_fe_interpolation::factory)),
     // `PoissonPFEM/Poisson.f90` on p-elements, ported in `elmer-pdofs`.

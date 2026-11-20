@@ -677,7 +677,7 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 20] = [
+    const P_DOFS: [(&str, &str); 21] = [
         ("benchmarkshell", "shellsolver"),
         ("elasticsolve", "elasticsolver"),
         ("filmflowsolver", "filmflowsolver"),
@@ -698,6 +698,7 @@ pub fn native_element(params: &ParamMap) -> bool {
         ("singleelements", "singleelements"),
         ("modelmixedpoisson", "mixedpoisson"),
         ("facefeinterpolationtest", "bestapproximationsolver"),
+        ("edgeelementtest", "edgeelementsolver"),
     ];
     if P_DOFS.iter().any(|(l, n)| lib.eq_ignore_ascii_case(l) && entry.eq_ignore_ascii_case(n)) {
         return true;

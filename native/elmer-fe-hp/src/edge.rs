@@ -3554,6 +3554,12 @@ pub fn edge_basis_reference(
 
 /// p-reference-element nodal basis and local derivatives used by
 /// `EdgeElementInfo` for the element map.
+/// The `Basis` that `EdgeElementInfo` returns with the edge basis: the
+/// linear nodal basis of the p reference element at `uvw`.
+pub fn p_reference_nodal_basis(etype: ElementType, uvw: [f64; 3]) -> Vec<f64> {
+    p_ref_nodal(etype.0, uvw[0], uvw[1], uvw[2]).0
+}
+
 fn p_ref_nodal(code: u16, u: f64, v: f64, w: f64) -> (Vec<f64>, Vec<[f64; 3]>) {
     let n = (code % 100) as usize;
     let mut b = vec![0.0; n];
