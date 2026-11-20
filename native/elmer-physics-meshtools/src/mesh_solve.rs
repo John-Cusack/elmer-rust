@@ -7,7 +7,11 @@
 //! the solve (`DisplaceMesh`), unless `Skip Displace Mesh`.
 //!
 //! Transient runs compute the first-order `Mesh Velocity` of
-//! `MeshSolver_Init`. Refused: `Compute Mesh Velocity Order`, p
+//! `MeshSolver_Init`. On p elements the element maps with the p dofs'
+//! coordinates (`GetElementNodes`), the bubbles are held at zero (`nb ==
+//! 0`: identity rows) and the update moves those coordinates too
+//! (`DisplaceMesh` over every dof of the permutation). Refused: `Compute
+//! Mesh Velocity Order`, the boundary terms and transient runs on p
 //! elements, and a `Displacement` field to combine with (the `TPerm` path).
 
 use elmer_core::{BasisEval, ElemId, LocalSystem, ParamMap, Params, NO_DOF};
@@ -99,13 +103,130 @@ fn mesh_velocity(ctx: &mut SolverCtx<'_>, dt: f64, first: bool) -> Result<(), So
     Ok(())
 }
 
+impl MeshSolver {
+    /// The p-element `LocalMatrix` loop, `DefaultDirichletBCs`,
+    /// `DefaultSolve` and `DisplaceMesh(.., 1, ..)`.
+    fn solve_p(&mut self, ctx: &mut SolverCtx<'_>, dim: usize, skip: bool) -> Result<(), SolverError> {
+        let maxiter = ctx.params().integer("nonlinear system max iterations").unwrap_or(1).max(1);
+        let elems: Vec<ElemId> = ctx.active_elements().collect();
+        let mut slots = Vec::new();
+        let mut ev = BasisEval::default();
+        for _ in 0..maxiter {
+            ctx.default_initialize()?;
+            let geometry = ctx.p_geometry();
+            for &e in &elems {
+                let d = ctx.solver_dofs().expect("p mode");
+                d.element_slots(e, &mut slots);
+                let nd = slots.len();
+                let nodes = d.element_nodes(e);
+                let n = nodes.len();
+                let bdofs = d.element_bdofs(e);
+                // MeshSolve's LocalMatrix calls the classic ElementInfo.
+                let basis = d.element_basis_scalar(e).map_err(|m| SolverError::fatal("ElementInfo", m))?;
+                let rule = d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?;
+                let el = ctx.mesh.element(e);
+                let etype = el.etype;
+                // GetElementNodes: the nodes, then the p dofs' coordinates.
+                let mut xyz: Vec<[f64; 3]> = nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+                xyz.extend(slots[n..].iter().map(|s| geometry.as_ref().and_then(|g| g.get(s).copied()).unwrap_or([0.0; 3])));
+                let mat = ctx.body_params(e).and_then(|b| b.material).cloned().unwrap_or_default();
+                let nodal = |ctx: &SolverCtx<'_>, keys: [&str; 2], default: f64| -> Result<Vec<f64>, SolverError> {
+                    for k in keys {
+                        if let Some(v) = ctx.real_at_nodes(&mat, k, e)? {
+                            return Ok(v);
+                        }
+                    }
+                    Ok(vec![default; n])
+                };
+                // In the element's node order, then reordered to the basis'.
+                let young = nodal(ctx, ["Mesh Elastic Modulus", "Youngs Modulus"], 1.0)?;
+                let poisson = nodal(ctx, ["Mesh Poisson Ratio", "Poisson Ratio"], 0.25)?;
+                let reorder = |v: &[f64]| -> Vec<f64> {
+                    nodes.iter().map(|k| el.nodes.iter().position(|m| m == k).map_or(0.0, |i| v[i])).collect()
+                };
+                let (young, poisson) = (reorder(&young), reorder(&poisson));
+                let lame1: Vec<f64> =
+                    young.iter().zip(&poisson).map(|(&y, &nu)| y * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))).collect();
+                let lame2: Vec<f64> = young.iter().zip(&poisson).map(|(&y, &nu)| y / (2.0 * (1.0 + nu))).collect();
+                let m = dim * nd;
+                let mut local = LocalSystem::zeros(m);
+                for qp in &rule {
+                    basis.eval(etype, &xyz, qp.uvw, &mut ev).map_err(|msg| SolverError::fatal("ElementInfo", msg))?;
+                    let s = ev.det_j * qp.weight;
+                    let b = &ev.basis[..nd];
+                    let db = &ev.dbasis_dx[..nd];
+                    let interp = |v: &[f64]| v.iter().zip(&b[..n]).fold(0.0, |a, (&x, &bi)| a + x * bi);
+                    let (l1, l2) = (interp(&lame1), interp(&lame2));
+                    for pp in 0..nd {
+                        for qq in pp..nd {
+                            for i in 0..dim {
+                                for j in 0..dim {
+                                    let at = |r: usize, c: usize| (dim * pp + r) * m + dim * qq + c;
+                                    local.stiff[at(i, j)] += s * l1 * db[qq][j] * db[pp][i];
+                                    local.stiff[at(i, i)] += s * l2 * db[qq][j] * db[pp][j];
+                                    local.stiff[at(i, j)] += s * l2 * db[qq][i] * db[pp][j];
+                                }
+                            }
+                        }
+                    }
+                }
+                for r in 0..m {
+                    for c in 0..r {
+                        local.stiff[r * m + c] = local.stiff[c * m + r];
+                    }
+                }
+                // `nb == 0`: the bubble dofs become identity rows.
+                if ctx.solver_dofs().expect("p mode").local_bubbles(e) == 0 {
+                    for p in (n + 1).max((nd + 1).saturating_sub(bdofs))..=nd {
+                        for i in 0..dim {
+                            let j = (p - 1) * dim + i;
+                            for c in 0..m {
+                                local.stiff[j * m + c] = 0.0;
+                                local.stiff[c * m + j] = 0.0;
+                            }
+                            local.stiff[j * m + j] = 1.0;
+                            local.force[j] = 0.0;
+                        }
+                    }
+                }
+                ctx.default_update(&local, e)?;
+            }
+            ctx.default_finish_bulk_assembly()?;
+            ctx.default_finish_boundary_assembly()?;
+            ctx.info("MeshSolve", "Assembly done", 4);
+            ctx.default_dirichlet()?;
+            ctx.info("MeshSolve", "Set boundaries done", 4);
+            ctx.default_solve()?;
+            if ctx.default_converged() {
+                break;
+            }
+        }
+        if !skip {
+            displace(ctx, 1.0)?;
+            // DisplaceMesh past the nodes: the p dofs' coordinates.
+            let f = ctx.primary().ok_or_else(|| SolverError::fatal(CALLER, "no variable"))?;
+            let (dofs, values) = (f.dofs, f.values.to_vec());
+            ctx.add_p_coords(&|s| {
+                let mut c = [0.0; 3];
+                for (a, x) in c.iter_mut().enumerate().take(dofs.min(3)) {
+                    *x = values[dofs * s as usize + a];
+                }
+                c
+            });
+        }
+        self.visited = true;
+        Ok(())
+    }
+}
+
 impl Solver for MeshSolver {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
         if transient && ctx.params().get("compute mesh velocity order").is_some() {
             return Err(unsupported("Compute Mesh Velocity Order (BDF mesh velocities)"));
         }
-        if ctx.solver_dofs().is_some() {
-            return Err(unsupported("p elements"));
+        let pmode = ctx.solver_dofs().is_some();
+        if pmode && transient {
+            return Err(unsupported("p elements in a transient run"));
         }
         let p = ctx.params().clone();
         let stdofs = ctx.primary().map(|f| f.dofs).ok_or_else(|| SolverError::fatal(CALLER, "no variable"))?;
@@ -124,6 +245,12 @@ impl Solver for MeshSolver {
             ctx.info("MeshSolver", "Skipping the displacement of mesh!", 5);
         } else if self.visited || displace_first {
             displace(ctx, -1.0)?;
+        }
+        if pmode {
+            if ctx.sim.model.boundary_conditions.iter().any(|b| b.get("mesh normal force").is_some() || has_prefix(b, "mesh force")) {
+                return Err(unsupported("Mesh Force boundary terms on p elements"));
+            }
+            return self.solve_p(ctx, dim, skip);
         }
         let fe = ctx
             .sim

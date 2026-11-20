@@ -75,6 +75,11 @@ pub trait SolverDofs: Send + Sync {
     /// `GetElementNOFBDOFs`: bubbles a kernel condenses locally (0 when the
     /// bubbles are in the global system).
     fn local_bubbles(&self, e: ElemId) -> usize;
+    /// `Element % BDOFs`: the element's bubble dofs, in the global system
+    /// or not.
+    fn element_bdofs(&self, _e: ElemId) -> usize {
+        0
+    }
     /// `Element % EdgeIndexes` of element `e` (0-based global edges) with
     /// each edge's `NodeIndexes`; `None` when the mesh has no edges.
     fn element_edges(&self, _e: ElemId) -> Option<Vec<(u32, [u32; 2])>> {

@@ -218,3 +218,102 @@ impl Solver for CurvedPoisson {
         Ok(())
     }
 }
+
+/// `CircX(Model, x, y, z)`: `sqrt(2) x / r - x`.
+pub fn circ_x(p: [f64; 3]) -> f64 {
+    let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
+    2.0f64.sqrt() * p[0] / r - p[0]
+}
+
+/// `CircY(Model, x, y, z)`: `sqrt(2) y / r - y`.
+pub fn circ_y(p: [f64; 3]) -> f64 {
+    let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
+    2.0f64.sqrt() * p[1] / r - p[1]
+}
+
+pub fn factory2(_params: &elmer_core::ParamMap) -> Result<Box<dyn Solver>, SolverError> {
+    Ok(Box::new(CurvedPoisson2))
+}
+
+/// `CurvedBndryPFEM2/Poisson.f90`: `LocalMatrix` with `GetElementNodes`
+/// (the nodes, then the p dofs' coordinates a p MeshSolve has set), the
+/// default Dirichlet conditions and solve, then the energy printed with
+/// its error against pi/2.
+struct CurvedPoisson2;
+
+impl Solver for CurvedPoisson2 {
+    fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
+        if ctx.solver_dofs().is_none() {
+            return Err(SolverError::Unsupported("the CurvedBndryPFEM2 Poisson plugin without p elements".into()));
+        }
+        let geometry = ctx.p_geometry();
+        ctx.default_initialize()?;
+        let active: Vec<ElemId> = ctx.active_elements().collect();
+        let mut slots = Vec::new();
+        let mut ev = BasisEval::default();
+        let mut locals = Vec::with_capacity(active.len());
+        for &e in &active {
+            let d = ctx.solver_dofs().expect("checked");
+            d.element_slots(e, &mut slots);
+            let nd = slots.len();
+            let nodes = d.element_nodes(e);
+            let basis = d.element_basis_scalar(e).map_err(|m| SolverError::fatal("ElementInfo", m))?;
+            let rule = d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?;
+            let n = nodes.len();
+            let etype = ctx.mesh.element(e).etype;
+            let mut xyz: Vec<[f64; 3]> = nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+            xyz.extend(slots[n..].iter().map(|s| geometry.as_ref().and_then(|g| g.get(s).copied()).unwrap_or([0.0; 3])));
+            let load = match ctx.body_params(e).and_then(|b| b.body_force) {
+                Some(bf) => {
+                    let el_nodes = ctx.mesh.element(e).nodes.to_vec();
+                    let v = ctx.real_at_nodes(bf, "source", e)?.unwrap_or_else(|| vec![0.0; n]);
+                    nodes.iter().map(|k| el_nodes.iter().position(|m| m == k).map_or(0.0, |i| v[i])).collect()
+                }
+                None => vec![0.0; n],
+            };
+            let mut local = LocalSystem::zeros(nd);
+            for qp in &rule {
+                basis.eval(etype, &xyz, qp.uvw, &mut ev).map_err(|m| SolverError::fatal("ElementInfo", m))?;
+                let w = qp.weight * ev.det_j;
+                let mut load_at_ip = 0.0;
+                for i in 0..n {
+                    load_at_ip += ev.basis[i] * load[i];
+                }
+                for i in 0..nd {
+                    let gi = ev.dbasis_dx[i];
+                    for j in 0..nd {
+                        let gj = ev.dbasis_dx[j];
+                        local.stiff[i * nd + j] += w * (gi[0] * gj[0] + gi[1] * gj[1] + gi[2] * gj[2]);
+                    }
+                    local.force[i] += w * load_at_ip * ev.basis[i];
+                }
+            }
+            ctx.default_update(&local, e)?;
+            locals.push((e, local.stiff.clone(), slots.clone()));
+        }
+        ctx.default_finish_boundary_assembly()?;
+        ctx.default_dirichlet()?;
+        ctx.default_solve()?;
+        // Energy = SUM(POT * MATMUL(STIFF, POT)).
+        let name = ctx.variable_name().unwrap_or("").to_string();
+        let v = ctx.sim.vars.get(&name).ok_or_else(|| SolverError::fatal(CALLER, "no variable"))?;
+        let mut energy = 0.0;
+        for (_, stiff, slots) in &locals {
+            let nd = slots.len();
+            let pot: Vec<f64> = slots.iter().map(|&s| v.values[s as usize]).collect();
+            let mut sum = 0.0;
+            for i in 0..nd {
+                let mut row = 0.0;
+                for j in 0..nd {
+                    row += stiff[i * nd + j] * pot[j];
+                }
+                sum += pot[i] * row;
+            }
+            energy += sum;
+        }
+        let rows = v.values.len();
+        println!("{}", crate::udf::list_real(energy));
+        println!(" DOFs, Error in energy: {:>12}{}", rows, crate::udf::list_real((energy - std::f64::consts::PI / 2.0).abs()));
+        Ok(())
+    }
+}

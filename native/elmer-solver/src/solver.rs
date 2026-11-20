@@ -447,8 +447,41 @@ impl<'a> SolverCtx<'a> {
 
     /// The coordinates of this solver's p dof slots past the nodes, when
     /// `Follow P Curvature` set them.
-    pub fn p_geometry(&self) -> Option<&std::collections::BTreeMap<u32, [f64; 3]>> {
-        self.sim.slots[self.slot].p_geometry.as_ref()
+    pub fn p_geometry(&self) -> Option<std::collections::BTreeMap<u32, [f64; 3]>> {
+        let coords = self.sim.p_coords.as_ref()?;
+        let d = self.solver_dofs()?;
+        let perm = d.perm();
+        let n = self.mesh.n_nodes();
+        Some(
+            perm.perm
+                .iter()
+                .enumerate()
+                .skip(n)
+                .filter(|(_, &s)| s != NO_DOF)
+                .map(|(g, &s)| (s, coords.get(g).copied().unwrap_or([0.0; 3])))
+                .collect(),
+        )
+    }
+
+    /// Adds `f(slot)` to the p dofs' coordinates (`Mesh % Nodes` past the
+    /// nodes, by global index) of this solver's p dofs, creating them as
+    /// zeros (`EnlargeCoordinates`).
+    pub fn add_p_coords(&mut self, f: &dyn Fn(u32) -> [f64; 3]) {
+        let Some(d) = self.solver_dofs() else { return };
+        let perm = d.perm().perm.clone();
+        let n = self.mesh.n_nodes();
+        let coords = self.sim.p_coords.get_or_insert_with(Vec::new);
+        if coords.len() < perm.len() {
+            coords.resize(perm.len(), [0.0; 3]);
+        }
+        for (g, &s) in perm.iter().enumerate().skip(n) {
+            if s != NO_DOF {
+                let d = f(s);
+                for a in 0..3 {
+                    coords[g][a] += d[a];
+                }
+            }
+        }
     }
 
     /// The simulation's fields as `elmer-expr` reads them.
@@ -1592,6 +1625,9 @@ impl<'a> SolverCtx<'a> {
         let nt = self.sim.slots[self.slot].nt.as_ref().filter(|_| own);
         let dim = self.mesh.dim();
         let mut rows: BTreeMap<u32, crate::backend::DirectRow> = BTreeMap::new();
+        // Boundary elements whose p edge dofs take a procedure's values
+        // (`LocalBcBDOFs`, after the nodal values).
+        let mut pending: Vec<(ElemId, usize, String)> = Vec::new();
         for (k, key) in &keys {
             for &e in &order {
                 let bc = self.bc_params(e).expect("boundary_elements filters on BC");
@@ -1605,9 +1641,12 @@ impl<'a> SolverCtx<'a> {
                     Some(Value::Dependent(dep))
                         if !extra.is_empty() && matches!(dep.kind, DependentKind::Procedure { .. }) =>
                     {
-                        return Err(SolverError::Unsupported(format!(
-                            "p-element Dirichlet value > {key} < given by a procedure (LocalBcBDOFs)"
-                        )));
+                        if !dep.variables.is_empty() {
+                            return Err(SolverError::Unsupported(format!(
+                                "p-element Dirichlet value > {key} < given by a procedure of variables (LocalBcBDOFs)"
+                            )));
+                        }
+                        pending.push((e, *k, key.clone()));
                     }
                     // Any other value fixes the extra (edge) dofs to zero.
                     Some(_) => {
@@ -1696,6 +1735,103 @@ impl<'a> SolverCtx<'a> {
             for (n, x) in self.single_nodes(id, key)? {
                 if let Some(s) = v.slot(n) {
                     fixed.insert((offset + s * v.dofs + k) as u32, x);
+                }
+            }
+        }
+        // DefaultDirichletBCs' procedure values on p edges (DefUtils.F90:
+        // 6520-6575): `LocalBcBDOFs` projects the value over the boundary
+        // element, the (fixed) node values are moved to the right-hand
+        // side, and the edge dofs get the solution (`SolveLinSys`).
+        if !pending.is_empty() {
+            let d = layout.ok_or_else(|| SolverError::fatal("DefaultDirichletBCs", "p edges without a layout"))?;
+            if self.mesh.dim() > 2 {
+                return Err(SolverError::Unsupported("procedure Dirichlet values on 3D p elements (LocalBcBDOFs)".into()));
+            }
+            let geometry = self.p_geometry();
+            let b = &self.sim.backends;
+            let fields = self.fields();
+            let mut ev = elmer_core::BasisEval::default();
+            for (e, k, key) in &pending {
+                let e = *e;
+                d.boundary_extra_slots(e, &mut extra);
+                let nodes = d.element_nodes(e);
+                let n = nodes.len();
+                let nd = n + extra.len();
+                let mut xyz: Vec<[f64; 3]> = nodes.iter().map(|&m| self.mesh.coord(m)).collect();
+                xyz.extend(extra.iter().map(|s| geometry.as_ref().and_then(|g| g.get(s).copied()).unwrap_or([0.0; 3])));
+                let etype = self.mesh.element(e).etype;
+                let basis = d.element_basis_scalar(e).map_err(|m| SolverError::fatal("ElementInfo", m))?;
+                let rule = d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?;
+                let value = self.bc_params(e).and_then(|bc| bc.get(key)).expect("pending from a BC value");
+                // STIFF(p, q) at stiff[p * nd + q].
+                let mut stiff = vec![0.0f64; nd * nd];
+                let mut work = vec![0.0f64; nd];
+                for qp in &rule {
+                    basis.eval(etype, &xyz, qp.uvw, &mut ev).map_err(|m| SolverError::fatal("ElementInfo", m))?;
+                    let s = qp.weight * ev.det_j;
+                    let mut ip = [0.0f64; 3];
+                    for (a, c) in ip.iter_mut().enumerate() {
+                        *c = (0..nd).fold(0.0, |acc, i| acc + ev.basis[i] * xyz[i][a]);
+                    }
+                    let at = PointLookup { inner: &fields, point: ip };
+                    let load = crate::expr::eval_at_nodes_with(value, &[0], &at, b.matc.as_deref(), &b.udfs)?[0];
+                    for p in 0..nd {
+                        for q in 0..nd {
+                            stiff[p * nd + q] += s * ev.basis[p] * ev.basis[q];
+                        }
+                        work[p] += s * load * ev.basis[p];
+                    }
+                }
+                for (l, &m) in nodes.iter().enumerate() {
+                    let row = node_slot(e, m).map(|s| (offset + s * v.dofs + k) as u32);
+                    match row.and_then(|r| fixed.get(&r).copied()) {
+                        Some(sv) => {
+                            for kk in n..nd {
+                                work[kk] -= sv * stiff[kk * nd + l];
+                                stiff[kk * nd + l] = 0.0;
+                            }
+                        }
+                        None => {
+                            return Err(SolverError::Unsupported(
+                                "p-edge procedure Dirichlet values with free boundary nodes (LocalBcBDOFs)".into(),
+                            ))
+                        }
+                    }
+                }
+                let m = nd - n;
+                if m == 1 {
+                    work[nd - 1] /= stiff[(nd - 1) * nd + nd - 1];
+                } else {
+                    // SolveLinSys(STIFF(n+1:nd, n+1:nd), Work(n+1:nd), m).
+                    let mut a: Vec<f64> = (0..m * m).map(|ij| stiff[(n + ij % m) * nd + n + ij / m]).collect();
+                    let x = &mut work[n..];
+                    match m {
+                        2 => {
+                            let det = a[0] * a[3] - a[2] * a[1];
+                            if det == 0.0 {
+                                return Err(SolverError::fatal("SolveLinSys2x2", "Singular matrix, sorry!"));
+                            }
+                            let det = 1.0 / det;
+                            let bb = [x[0], x[1]];
+                            x[0] = det * (a[3] * bb[0] - a[2] * bb[1]);
+                            x[1] = det * (a[0] * bb[1] - a[1] * bb[0]);
+                        }
+                        4..=25 => {
+                            let mut pivot = vec![0usize; m];
+                            if !crate::follow_p::lu_decomp(&mut a, m, &mut pivot) {
+                                return Err(SolverError::fatal("SolveLinSys", "LU-decomposition fails"));
+                            }
+                            crate::follow_p::lu_solve(&a, m, x, &pivot);
+                        }
+                        _ => {
+                            return Err(SolverError::Unsupported(format!("SolveLinSys of {m} p edge dofs (3x3 or LAPACK)")))
+                        }
+                    }
+                }
+                for (j, &s) in extra.iter().enumerate() {
+                    if let Some(t) = extra_slot(s) {
+                        fixed.insert((offset + t * v.dofs + k) as u32, work[n + j]);
+                    }
                 }
             }
         }
@@ -3206,5 +3342,24 @@ mod eliminate_tests {
             let r = -x[i - 1] + 2.0 * x[i] - x[i + 1] - b[i];
             assert!(r.abs() < 1e-12, "row {i}: {r}");
         }
+    }
+}
+
+/// A field lookup at one point: its coordinates for every node (a
+/// constant real procedure's `x, y, z`).
+struct PointLookup<'a> {
+    inner: &'a crate::expr::SimFields<'a>,
+    point: [f64; 3],
+}
+
+impl elmer_expr::FieldLookup for PointLookup<'_> {
+    fn value(&self, _var: &str, _node: u32) -> Option<f64> {
+        None
+    }
+    fn coord(&self, _node: u32) -> [f64; 3] {
+        self.point
+    }
+    fn time(&self) -> f64 {
+        elmer_expr::FieldLookup::time(self.inner)
     }
 }
