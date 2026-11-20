@@ -24,6 +24,37 @@ through firstmate (D11).
 | 11 ABI harvest | 256 staged campaign cases from 108 solver proofs as oracle tests; 236 golden-captured on Release, FMA and OpenBLAS (bitwise deterministic, σ_F per field), 20 pristine failures explained; 15 known-divergence entries from the documented upstream defects | `harvest/` |
 | External grading of a candidate | `--solver` plus `grade-tree`; the Rust path (`elmer-run` at main `60d64f8`, no Fortran fallback) grades 189/454 serial quick tests `tier-a-pass`, confirming every serial `elmer-coverage` match; 6 `tier-a-FAIL`. MPI: `elmer-mpi-run` at `9008121` grades 4/28 `_npN` tests `tier-a-pass`, 2 FAIL, 20 refused, 2 hang | `candidate/` |
 
+## S0 done criteria (§5.2), checked on main
+
+Re-run on main at the time of writing: `cargo build --release`,
+`cargo test` (86 tests) and `cargo clippy --all-targets -- -D warnings`
+are green in `native/elmer-oracle`; the mutation suite and the arm grading
+below were rerun against the committed `tolerances.json`.
+
+| Done criterion | State | Evidence |
+|---|---|---|
+| Golden + σ_F for ≥ 479/482 quick tests, K=3 recorded | **done**: 482/482 on Release, FMA and OpenBLAS; the K=3 segfaults do not occur on these arms (`golden/README.md`); per-RUN golden for the 24 multi-RUN tests | https://github.com/John-Cusack/elmer-rust/pull/212, https://github.com/John-Cusack/elmer-rust/pull/298, https://github.com/John-Cusack/elmer-rust/pull/321 |
+| Bitwise validation passes on all captured tests | **open**: 390/482 bitwise, plus 6 at printed precision (a separate class); 8 explained grader gaps; 1 unexplained (PhaseChange3); 77 out of class. Most of those 77 cannot be checked bitwise from the captured files: the normed field is in no file, or there is no single default variable, or parallel ownership is unknown. Kill check: 9/482 = 1.9% < 2%. Reasons are tabulated in `refnorm/README.md`. | https://github.com/John-Cusack/elmer-rust/pull/249, https://github.com/John-Cusack/elmer-rust/pull/279, https://github.com/John-Cusack/elmer-rust/pull/311, https://github.com/John-Cusack/elmer-rust/pull/325, https://github.com/John-Cusack/elmer-rust/pull/333, https://github.com/John-Cusack/elmer-rust/pull/339, https://github.com/John-Cusack/elmer-rust/pull/347, https://github.com/John-Cusack/elmer-rust/pull/350, https://github.com/John-Cusack/elmer-rust/pull/354, https://github.com/John-Cusack/elmer-rust/pull/363 |
+| Mutation suite 100% caught | **done**: 14,634/14,634 detectable mutations caught, 0 escaped (rerun on main); 15,259/15,259 over the per-RUN golden | https://github.com/John-Cusack/elmer-rust/pull/212, https://github.com/John-Cusack/elmer-rust/pull/268, https://github.com/John-Cusack/elmer-rust/pull/298, https://github.com/John-Cusack/elmer-rust/pull/321 |
+| O6 round trip stable | **done**: 5/5 restart tests bit-stable | https://github.com/John-Cusack/elmer-rust/pull/214 |
+| Capability matrix committed | **done**: 482/482 LISTUSAGE runs | https://github.com/John-Cusack/elmer-rust/pull/217 |
+| Held-out seal committed | **done**: 190 directories sealed by hash; pristine-vs-pristine determinism of quick, non-quick and ice tests | https://github.com/John-Cusack/elmer-rust/pull/218, https://github.com/John-Cusack/elmer-rust/pull/239 |
+| Benchmarks committed | **deferred** by firstmate (loaded host; see below) | — |
+| `cargo build --release`, `cargo test`, `cargo clippy -- -D warnings` green | **done** (rerun on main) | — |
+| ADR recording the oracle design and the ABI retirement | **done**: `../docs/adr/001-oracle-design-and-abi-retirement.md` | https://github.com/John-Cusack/elmer-rust/pull/22 |
+
+Beyond the done list, the scope items without a done criterion of their
+own:
+- item 8, the O7 harness: https://github.com/John-Cusack/elmer-rust/pull/291;
+- item 11, the harvest: https://github.com/John-Cusack/elmer-rust/pull/292;
+- external grading of the Rust path, serial and MPI:
+  https://github.com/John-Cusack/elmer-rust/pull/300 and
+  https://github.com/John-Cusack/elmer-rust/pull/308.
+
+Arm check rerun on main: FMA and OpenBLAS, graded as candidates
+against Release with `tolerances.json`, give 467/467 `tier-a-pass`; the
+other 15 tests have no golden fields.
+
 ## Benchmarks: deferred
 
 §4.5 asks for Release+OpenMP and MPI baselines on 4–6 scaled cases: the
