@@ -296,6 +296,26 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if is(params, elmer_physics_shell::FACET_PROCEDURE) {
             elmer_physics_shell::facet_defaults(params);
         }
+        // `MeshSolver_Init`: a transient run's `-dofs dim Mesh Velocity`,
+        // unless `Compute Mesh Velocity = False` (or the legacy equation
+        // already exported it).
+        let mesh_solve = procedure_of(params)
+            .is_some_and(|(l, e)| l.eq_ignore_ascii_case("meshsolve") && e.eq_ignore_ascii_case("meshsolver"))
+            || params.string("equation").is_some_and(|q| q.trim().eq_ignore_ascii_case("mesh update"));
+        if mesh_solve && transient && params.logical("compute mesh velocity") != Some(false) {
+            let exported = params.0.iter().any(|(k, v)| {
+                k.starts_with("exported variable")
+                    && matches!(v, Value::Str(t) if normalize_key(t).ends_with("mesh velocity"))
+            });
+            if !exported {
+                let k = (1..).find(|k| params.get(&format!("exported variable {k}")).is_none()).expect("a free index");
+                params.insert(&format!("Exported Variable {k}"), Value::Str(format!("-dofs {cdim} Mesh Velocity")));
+            }
+        }
+        // `TransientPhaseChange_Init`: the interface velocity field.
+        if is(params, elmer_physics_meshtools::TRANSIENT_PHASE_CHANGE) {
+            elmer_physics_meshtools::transient_defaults(params);
+        }
         // `OdeSolver_init`: the global ODE matrix and its time terms.
         if is(params, elmer_physics_scalar::ode_solver::PROCEDURE) {
             elmer_physics_scalar::ode_solver::solver_defaults(params);
@@ -317,14 +337,9 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
                 ("Temperature", 1, "HeatSolve HeatSolver")
             }
             Some("stress analysis") => ("Displacement", cdim, "StressSolve StressSolver"),
-            // `-dofs dim Mesh Velocity` is exported in a transient run.
-            Some("mesh update") => {
-                if transient {
-                    let k = (1..).find(|k| params.get(&format!("exported variable {k}")).is_none()).expect("a free index");
-                    params.insert(&format!("Exported Variable {k}"), Value::Str(format!("-dofs {cdim} Mesh Velocity")));
-                }
-                ("Mesh Update", cdim, "MeshSolve MeshSolver")
-            }
+            // A transient run's `Mesh Velocity` is exported above, as
+            // AddEquationBasics and MeshSolver_Init do (once).
+            Some("mesh update") => ("Mesh Update", cdim, "MeshSolve MeshSolver"),
             // `dofs` is reset to 1: the components are in the name. The 1e-6
             // start value is applied by elmer-physics-flow.
             Some("navier-stokes") => {

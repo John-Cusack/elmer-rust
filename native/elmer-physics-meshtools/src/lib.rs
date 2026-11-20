@@ -5,7 +5,8 @@
 //! `MarchingODESolver` (MarchingODESolver.F90), which marches an ODE along
 //! the same extruded structure; `SteadyPhaseChange`
 //! (SteadyPhaseChange.F90), which moves a solid-liquid interface onto the
-//! melting-point isotherm.
+//! melting-point isotherm; `TransientPhaseChange`
+//! (TransientPhaseChange.F90), which moves it by the Stefan condition.
 //!
 //! [`register`] binds them to their `Procedure = "Lib" "Entry"` names.
 #![forbid(unsafe_code)]
@@ -17,6 +18,7 @@ mod marching;
 pub mod mesh_solve;
 pub mod motion;
 mod phase_change;
+mod transient_phase;
 mod project;
 mod rigid;
 mod structure;
@@ -29,6 +31,10 @@ pub use project::StructuredProjectToPlane;
 pub use rigid::RigidMeshMapper;
 pub use structure::{detect_extruded_structure, Structure, Want};
 pub use structured::StructuredMeshMapper;
+pub use transient_phase::transient_defaults;
+
+/// `Procedure = "TransientPhaseChange" "TransientPhaseChange"`.
+pub const TRANSIENT_PHASE_CHANGE: (&str, &str) = ("TransientPhaseChange", "TransientPhaseChange");
 
 use elmer_solver::SolverRegistry;
 
@@ -38,6 +44,7 @@ pub fn register(registry: &mut SolverRegistry) {
     registry.register("MarchingODESolver", "MarchingODESolver", marching::factory);
     registry.register("MeshSolve", "MeshSolver", mesh_solve::factory);
     registry.register("SteadyPhaseChange", "SteadyPhaseChange", phase_change::factory);
+    registry.register(TRANSIENT_PHASE_CHANGE.0, TRANSIENT_PHASE_CHANGE.1, transient_phase::factory);
     registry.register("RigidMeshMapper", "RigidMeshMapper", rigid::factory);
     registry.register(
         "StructuredProjectToPlane",

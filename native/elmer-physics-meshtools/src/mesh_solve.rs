@@ -6,7 +6,8 @@
 //! taken back from the mesh before the assembly and the new one added after
 //! the solve (`DisplaceMesh`), unless `Skip Displace Mesh`.
 //!
-//! Refused: transient runs (the `Mesh Velocity` of `MeshSolver_Init`), p
+//! Transient runs compute the first-order `Mesh Velocity` of
+//! `MeshSolver_Init`. Refused: `Compute Mesh Velocity Order`, p
 //! elements, and a `Displacement` field to combine with (the `TPerm` path).
 
 use elmer_core::{BasisEval, ElemId, LocalSystem, ParamMap, Params, NO_DOF};
@@ -54,10 +55,54 @@ fn displace(ctx: &SolverCtx<'_>, sgn: f64) -> Result<(), SolverError> {
     apply_coords(CALLER, &old, &new)
 }
 
+/// `Mesh Velocity` of a transient run (MeshSolve.F90:370-430), first
+/// order: `(MeshUpdate - PrevValues(:,1)) / dt` on the velocity's nodes,
+/// unless `Compute Mesh Velocity = False` (zero) or `Skip First Mesh
+/// Velocity` on the first visit (left as it is).
+fn mesh_velocity(ctx: &mut SolverCtx<'_>, dt: f64, first: bool) -> Result<(), SolverError> {
+    let p = ctx.params();
+    let compute = p.logical("compute mesh velocity").unwrap_or(true);
+    let skip_first = first && compute && p.logical("skip first mesh velocity") == Some(true);
+    if skip_first {
+        ctx.info("MeshSolve", "Skipping computation of initial Mesh Velocity", 3);
+        return Ok(());
+    }
+    let Some(vperm) = ctx.variable("mesh velocity").map(|v| v.perm.map(|q| q.to_vec())) else { return Ok(()) };
+    if !compute {
+        ctx.variable_mut("mesh velocity").expect("checked").values.iter_mut().for_each(|x| *x = 0.0);
+        return Ok(());
+    }
+    let (upd, perm, dofs, prev) = {
+        let name = ctx.variable_name().ok_or_else(|| SolverError::fatal(CALLER, "no variable"))?.to_string();
+        let v = ctx.sim.vars.get(&name).ok_or_else(|| SolverError::fatal(CALLER, "no variable"))?;
+        let prev = v.prev_values.first().cloned().ok_or_else(|| unsupported("a mesh velocity without the previous mesh update"))?;
+        (v.values.clone(), v.perm.as_deref().map(|q| q.to_vec()), v.dofs, prev)
+    };
+    let n = ctx.mesh.n_nodes();
+    let vel = ctx.variable_mut("mesh velocity").expect("checked");
+    if vel.dofs != dofs {
+        return Err(unsupported("a Mesh Velocity with other dofs than the mesh update"));
+    }
+    for i in 0..n {
+        let l = vperm.as_ref().map_or(i as u32, |q| q[i]);
+        if l == NO_DOF {
+            continue;
+        }
+        let j = perm.as_ref().map_or(i as u32, |q| q[i]);
+        if j == NO_DOF {
+            return Err(SolverError::fatal(CALLER, "a mesh velocity node without a mesh update"));
+        }
+        for m in 0..dofs {
+            vel.values[l as usize * dofs + m] = (upd[j as usize * dofs + m] - prev[j as usize * dofs + m]) / dt;
+        }
+    }
+    Ok(())
+}
+
 impl Solver for MeshSolver {
-    fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, transient: bool) -> Result<(), SolverError> {
-        if transient {
-            return Err(unsupported("transient runs (Mesh Velocity)"));
+    fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
+        if transient && ctx.params().get("compute mesh velocity order").is_some() {
+            return Err(unsupported("Compute Mesh Velocity Order (BDF mesh velocities)"));
         }
         if ctx.solver_dofs().is_some() {
             return Err(unsupported("p elements"));
@@ -224,6 +269,9 @@ impl Solver for MeshSolver {
             if ctx.default_converged() {
                 break;
             }
+        }
+        if transient {
+            mesh_velocity(ctx, dt, !self.visited)?;
         }
         if !skip {
             displace(ctx, 1.0)?;
