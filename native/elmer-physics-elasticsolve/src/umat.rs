@@ -592,48 +592,6 @@ pub fn umat_projection_local(
     Ok(out)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// `linear_isotropic` is Hooke's law in Voigt form with engineering shears.
-    #[test]
-    fn linear_isotropic_is_hooke() {
-        let (e, nu) = (70e9, 0.3);
-        let mut stress = [0.0; 4];
-        let mut ddsdde = [[0.0; 6]; 6];
-        let mut energy = [0.0; 3];
-        let dstran = [1e-3, -2e-4, 0.0, 5e-4];
-        let mut statev: [f64; 0] = [];
-        linear_isotropic(&mut UmatCall {
-            stress: &mut stress,
-            statev: &mut statev,
-            ddsdde: &mut ddsdde,
-            energy: &mut energy,
-            stran: &[0.0; 4],
-            dstran: &dstran,
-            time: [0.0; 2],
-            dtime: 1.0,
-            temp: 0.0,
-            cmname: "linear isotropic",
-            ndi: 3,
-            nshr: 1,
-            ntens: 4,
-            props: &[1.0, e, nu],
-            dfgrd0: [[0.0; 3]; 3],
-            dfgrd1: [[0.0; 3]; 3],
-            noel: 1,
-            npt: 1,
-        })
-        .unwrap();
-        let lambda = e * nu / ((1.0 + nu) * (1.0 - 2.0 * nu));
-        let mu = e / (2.0 * (1.0 + nu));
-        let tr = dstran[0] + dstran[1];
-        assert!((stress[0] - (lambda * tr + 2.0 * mu * dstran[0])).abs() < 1e-3 * stress[0].abs());
-        assert!((stress[3] - mu * dstran[3]).abs() < 1e-9 * stress[3].abs());
-        assert_eq!(ddsdde[3][3], mu);
-    }
-}
 
 /// One point of the `Large Deflection` branch of `LocalMatrixWithUMAT`.
 struct LargeIp<'a> {
@@ -775,5 +733,48 @@ fn large_terms(ip: &LargeIp<'_>, stiff: &mut [f64], force: &mut [f64], ext: &mut
             force[row] += (ip.bas[p] * ip.fv[i] * ip.det + ip.bas[p] * ip.iv[i] * ip.density - dot) * ip.s;
             ext[row] += (ip.bas[p] * ip.fv[i] * ip.det + ip.bas[p] * ip.iv[i] * ip.density) * ip.s;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `linear_isotropic` is Hooke's law in Voigt form with engineering shears.
+    #[test]
+    fn linear_isotropic_is_hooke() {
+        let (e, nu) = (70e9, 0.3);
+        let mut stress = [0.0; 4];
+        let mut ddsdde = [[0.0; 6]; 6];
+        let mut energy = [0.0; 3];
+        let dstran = [1e-3, -2e-4, 0.0, 5e-4];
+        let mut statev: [f64; 0] = [];
+        linear_isotropic(&mut UmatCall {
+            stress: &mut stress,
+            statev: &mut statev,
+            ddsdde: &mut ddsdde,
+            energy: &mut energy,
+            stran: &[0.0; 4],
+            dstran: &dstran,
+            time: [0.0; 2],
+            dtime: 1.0,
+            temp: 0.0,
+            cmname: "linear isotropic",
+            ndi: 3,
+            nshr: 1,
+            ntens: 4,
+            props: &[1.0, e, nu],
+            dfgrd0: [[0.0; 3]; 3],
+            dfgrd1: [[0.0; 3]; 3],
+            noel: 1,
+            npt: 1,
+        })
+        .unwrap();
+        let lambda = e * nu / ((1.0 + nu) * (1.0 - 2.0 * nu));
+        let mu = e / (2.0 * (1.0 + nu));
+        let tr = dstran[0] + dstran[1];
+        assert!((stress[0] - (lambda * tr + 2.0 * mu * dstran[0])).abs() < 1e-3 * stress[0].abs());
+        assert!((stress[3] - mu * dstran[3]).abs() < 1e-9 * stress[3].abs());
+        assert_eq!(ddsdde[3][3], mu);
     }
 }
