@@ -824,6 +824,7 @@ dependencies = [
  "elmer-expr",
  "elmer-fe",
  "elmer-fixtures",
+ "elmer-interp",
  "elmer-mesh",
  "elmer-mesh-levels",
  "elmer-mesh-ops",

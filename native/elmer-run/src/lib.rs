@@ -43,6 +43,7 @@ pub mod mesh_db;
 mod mortar;
 mod motion;
 mod elec_force;
+mod gmsh_reader;
 mod saveprojection;
 mod energy_release;
 pub use motion::{MotionGuard, MovableMesh};

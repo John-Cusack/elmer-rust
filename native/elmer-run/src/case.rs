@@ -163,6 +163,9 @@ pub fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if crate::saveprojection::is_section(params) {
             crate::saveprojection::init_section(params);
         }
+        if crate::gmsh_reader::is_section(params) {
+            crate::gmsh_reader::init_section(params);
+        }
         // `ElasticSolver_Init` (StressSolve delegates to it): without a
         // `Variable`, the displacement of the coordinate dimension.
         let elastic = procedure_of(params).is_some_and(|(lib, entry)| {
@@ -1344,6 +1347,10 @@ fn run_case_meshes(
     let discont_perm = discont_perm.map(Arc::new);
     for slot in &mut sim.slots {
         let params = &sim.model.solvers[slot.id - 1];
+        if crate::gmsh_reader::is_section(params) {
+            slot.set_instance(Box::new(crate::gmsh_reader::GmshOutputReader { case_dir: case_dir.to_path_buf() }));
+            continue;
+        }
         // SaveProjection uses the projectors itself, without constraints.
         if crate::saveprojection::is_section(params) {
             slot.set_instance(Box::new(crate::saveprojection::SaveProjection {
