@@ -197,7 +197,7 @@ pub(crate) fn solve_merged(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverError> 
         v.values = vals;
         v.perm.replace(perm_arc)
     };
-    ctx.sim.slots[master].system = Some(LinearSystem { matrix: merged, rhs });
+    ctx.sim.slots[master].system = Some(LinearSystem { matrix: merged, rhs, mass: None });
     let solved = ctx.solve_system();
 
     // UnmergeSolutions, then the master's own system and field back.

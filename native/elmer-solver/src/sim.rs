@@ -117,6 +117,9 @@ pub struct Phases {
 pub struct LinearSystem {
     pub matrix: CsrMatrix<f64>,
     pub rhs: Vec<f64>,
+    /// `Matrix % MassValues` on the matrix's pattern, kept for `Eigen
+    /// Analysis` (`DefaultUpdateMass`); `None` otherwise.
+    pub mass: Option<CsrMatrix<f64>>,
 }
 
 /// One `Solver n` section at run time (Elmer `Solver_t`).
@@ -131,6 +134,9 @@ pub struct SolverSlot {
     /// `CompareToReferenceSolution` reads for it. A procedure may set it, as
     /// `ResultOutputSolver` does with its `Reference Values` pseudonorm.
     pub null_norm: f64,
+    /// `Solver % NOFEigenValues`: `Eigen System Values` of an `Eigen
+    /// Analysis` solver (MainUtils.F90:2575), 0 otherwise.
+    pub nof_eigen: usize,
     /// Shared with the variable.
     pub perm: Option<Arc<[u32]>>,
     /// Bulk elements on bodies whose equation activates this solver.
@@ -185,6 +191,7 @@ impl SolverSlot {
             exec_when,
             variable: None,
             null_norm: 0.0,
+            nof_eigen: 0,
             perm: None,
             active: Vec::new(),
             time_order: 0,
@@ -533,6 +540,12 @@ impl Simulation {
             return Ok(None);
         }
         let mut slot = SolverSlot::new(i + 1, params)?;
+        // MainUtils.F90:2575: `Eigen System Values` eigenpairs for an `Eigen
+        // Analysis` solver (`Solver % NOFEigenValues`). The harmonic path
+        // keeps its own bookkeeping.
+        if slot.params.logical("eigen analysis") == Some(true) {
+            slot.nof_eigen = slot.params.integer("eigen system values").filter(|&n| n > 0).map_or(0, |n| n as usize);
+        }
         if let Some((lib, entry)) = procedure_of(&slot.params) {
             if let Some(f) = registry.get(&lib, &entry) {
                 slot.instance = Some(f(&slot.params)?);

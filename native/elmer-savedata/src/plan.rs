@@ -228,10 +228,6 @@ impl ScalarPlan {
             &[
                 ("polyline coordinates", "integrals over polylines"),
                 ("exact coordinates", "values at exact coordinates inside elements"),
-                ("save eigenvalues", "eigenvalue columns"),
-                ("save eigen values", "eigenvalue columns"),
-                ("save eigenfrequencies", "eigenfrequency columns"),
-                ("save eigen frequencies", "eigenfrequency columns"),
                 ("simulation timing", "run-dependent timing columns"),
                 ("save component results", "results of the Components section"),
                 ("json format", "JSON side file"),

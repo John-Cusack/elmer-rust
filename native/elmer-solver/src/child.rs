@@ -141,6 +141,7 @@ impl SolverCtx<'_> {
                 system: LinearSystem {
                     matrix,
                     rhs: vec![0.0; n],
+                    mass: None,
                 },
             });
         }

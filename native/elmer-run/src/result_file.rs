@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use elmer_core::{normalize_key, FieldKind, Logger, MeshView, ParamMap, Params, NO_DOF};
-use elmer_solver::variable::VarHandle;
+use elmer_solver::variable::{VarHandle, VarId};
 use elmer_solver::{Model, SaveCurrent, Simulation, SolverError};
 
 const CALLER: &str = "SaveResult";
@@ -53,8 +53,14 @@ fn unsupported(model: &Model) -> Option<String> {
         if p.get("output file").is_some() || p.get("mesh").is_some() {
             return Some("solver-specific meshes or output files".into());
         }
-        if p.logical("eigen analysis") == Some(true) || p.logical("harmonic analysis") == Some(true) {
-            return Some("eigen or harmonic analysis".into());
+        if p.logical("harmonic analysis") == Some(true) {
+            return Some("harmonic analysis".into());
+        }
+        if p.logical("eigen analysis") == Some(true)
+            && (p.logical("linear system complex") == Some(true)
+                || sim.string("simulation type").is_some_and(|t| !normalize_key(t).starts_with("steady")))
+        {
+            return Some("eigen analysis of a complex system or over time steps".into());
         }
     }
     None
@@ -103,7 +109,9 @@ struct Entry<'a> {
     equation: String,
 }
 
-fn entries<'a>(sim: &'a Simulation) -> Vec<Entry<'a>> {
+/// The variable list, with the values of `over` (a primary variable and
+/// what to save for it) in place of its own; its components follow.
+fn entries<'a>(sim: &'a Simulation, over: Option<(VarId, &'a [f64])>) -> Vec<Entry<'a>> {
     let equation = |id| {
         sim.slots
             .iter()
@@ -136,7 +144,10 @@ fn entries<'a>(sim: &'a Simulation) -> Vec<Entry<'a>> {
                 dofs,
                 size: v.values.len() / stride,
                 perm: v.perm.as_ref(),
-                values: &v.values,
+                values: match over {
+                    Some((o, vals)) if o == id => vals,
+                    _ => &v.values,
+                },
                 offset,
                 stride,
                 kind: v.kind,
@@ -219,11 +230,53 @@ impl ResultWriter {
 }
 
 impl SaveCurrent for ResultWriter {
+    /// `SaveCurrent` (ElmerSolver.F90:3701) for this mesh: each solver with
+    /// an eigen analysis saves its modes, mode `j` as step `j`, and then
+    /// its variable holds zeros (`Var % Values = 0`); the usual save
+    /// follows unless the last solver is an eigen one (the Fortran's
+    /// `EigAnal` is whatever the last solver left).
     fn save(&mut self, sim: &Simulation, mesh: &dyn MeshView, log: &dyn Logger) -> Result<(), SolverError> {
+        let mut eig_anal = false;
+        let mut zeroed: Option<(VarId, Vec<f64>)> = None;
+        for slot in &sim.slots {
+            eig_anal = slot.params.logical("eigen analysis") == Some(true);
+            if !eig_anal {
+                continue;
+            }
+            let Some(id) = slot.variable else { continue };
+            let var = sim.vars.by_id(id);
+            if var.eigen_vectors.is_empty() {
+                continue;
+            }
+            for (j, mode) in var.eigen_vectors.iter().enumerate() {
+                let re: Vec<f64> = mode.iter().map(|z| z.re).collect();
+                self.save_one(sim, mesh, log, j as i32 + 1, Some((id, &re)))?;
+            }
+            zeroed = Some((id, vec![0.0; var.values.len()]));
+        }
+        if eig_anal {
+            return Ok(());
+        }
+        let step = sim.vars.scalar("timestep").unwrap_or(0.0).round() as i32;
+        let over = zeroed.as_ref().map(|(id, z)| (*id, &z[..]));
+        self.save_one(sim, mesh, log, step, over)
+    }
+}
+
+impl ResultWriter {
+    /// `SaveResult` of one save point: `step` is the `Time:` block's step.
+    fn save_one(
+        &mut self,
+        sim: &Simulation,
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+        step: i32,
+        over: Option<(VarId, &[f64])>,
+    ) -> Result<(), SolverError> {
         let io = |e: std::io::Error| SolverError::fatal(CALLER, format!("{}: {e}", self.path.display()));
         log.info(CALLER, "-----------------------------------------", 5);
         log.info(CALLER, &format!("Saving results to file: {}", self.path.display()), 4);
-        let list = entries(sim);
+        let list = entries(sim, over);
         let pos_path = PathBuf::from(format!("{}.pos", self.path.display()));
         let (mut data, mut pos, base) = if self.saves_done == 0 {
             let (d, p) = self.header(&list, mesh.n_nodes());
@@ -236,7 +289,6 @@ impl SaveCurrent for ResultWriter {
         pos.extend_from_slice(&at(&data).to_ne_bytes());
         data.extend_from_slice(b"Time:\0");
         data.extend_from_slice(&(self.saves_done + 1).to_ne_bytes());
-        let step = sim.vars.scalar("timestep").unwrap_or(0.0).round() as i32;
         data.extend_from_slice(&step.to_ne_bytes());
         data.extend_from_slice(&sim.vars.scalar("time").unwrap_or(0.0).to_ne_bytes());
         let mut prev: Option<(&Arc<[u32]>, i64)> = None;

@@ -123,7 +123,7 @@ impl BlockAssembled {
             let ncols = ctx.sim.vars.by_id(self.vars[c - 1]).values.len();
             let matrix = to_csr(&rows, ncols);
             let rhs = vec![0.0; matrix.nrows];
-            self.systems.insert((r, c), LinearSystem { matrix, rhs });
+            self.systems.insert((r, c), LinearSystem { matrix, rhs, mass: None });
         }
         Ok(())
     }

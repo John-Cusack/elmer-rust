@@ -11,6 +11,7 @@ elmer-assembly = { path = "../elmer-assembly" }
 elmer-block = { path = "../elmer-block" }
 elmer-core.workspace = true
 elmer-direct = { path = "../elmer-direct" }
+elmer-eigen = { path = "../elmer-eigen" }
 elmer-expr = { path = "../elmer-expr" }
 elmer-itermethods = { path = "../elmer-itermethods" }
 elmer-krylov = { path = "../elmer-krylov" }

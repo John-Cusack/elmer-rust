@@ -58,8 +58,6 @@ fn keywords_that_are_not_implemented_are_refused_by_name() {
     for (key, value) in [
         ("Polyline Coordinates", Value::Real { rows: 2, cols: 2, data: vec![0.0, 0.0, 1.0, 1.0] }),
         ("Exact Coordinates", yes()),
-        ("Save Eigenvalues", yes()),
-        ("Save Eigenfrequencies", yes()),
         ("Simulation Timing", yes()),
         ("Save Component Results", yes()),
         ("Json Format", yes()),

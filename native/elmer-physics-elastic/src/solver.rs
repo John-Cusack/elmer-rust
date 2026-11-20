@@ -112,7 +112,6 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
         ("large deflection", "large deflection"),
         ("incompressible", "incompressible formulation"),
         ("stability analysis", "stability analysis"),
-        ("eigen analysis", "eigen analysis"),
         ("calculate pangle", "principal angle postprocessing"),
         ("constant bulk system", "constant bulk system"),
         ("model lumping", "model lumping"),
@@ -690,6 +689,12 @@ impl Solver for StressSolver {
         if ctx.solver_dofs().is_some() && flags.any() {
             return Err(unsupported("stress postprocessing (Calculate Stresses) on p elements"));
         }
+        // StressSolve.F90:1505: an eigen analysis adds the element mass to
+        // `MassValues` (DefaultUpdateMass) instead of a time scheme.
+        let eigen = ctx.nof_eigen() > 0 && ctx.params().logical("eigen analysis") == Some(true);
+        if eigen && (flags.any() || transient) {
+            return Err(unsupported("eigen analysis with stress postprocessing or in a transient run"));
+        }
         let elems: Vec<ElemId> = ctx.active_elements().collect();
         for e in elems {
             let el = ctx.mesh.element(e);
@@ -721,7 +726,7 @@ impl Solver for StressSolver {
                 strain_load: None,
                 temperature: d.temperature.as_deref(),
                 heat_expansion: d.heat_expansion.as_deref(),
-                want_mass: transient,
+                want_mass: transient || eigen,
                 np: None,
                 ip: d.ip.as_ref(),
             };
@@ -756,6 +761,10 @@ impl Solver for StressSolver {
                     local.mass = Some(damp);
                     ctx.default_first_order_time(&mut local, e, dt)?;
                 }
+            }
+            if eigen {
+                let mass = local.mass.take().unwrap_or_else(|| vec![0.0; local.n * local.n]);
+                ctx.default_update_mass(&mass, e)?;
             }
             ctx.default_update(&local, e)?;
         }
