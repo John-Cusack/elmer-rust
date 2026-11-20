@@ -258,12 +258,13 @@ pub fn flow_bulk_local(
                     }
                 }
                 // Convection, Picard and Newton parts.
+                // NavierStokes.F90 adds the convection term one direction j at
+                // a time, the Newton term of the same j after it.
                 if inp.convect {
-                    let conv: f64 = (0..dim).map(|j| dphi[q][j] * velo[j]).sum();
                     for i in 0..dim {
-                        a[ij(at(p, i), at(q, i))] += s * rho * conv * phi[p];
-                        if inp.newton {
-                            for j in 0..dim {
+                        for j in 0..dim {
+                            a[ij(at(p, i), at(q, i))] += s * rho * dphi[q][j] * velo[j] * phi[p];
+                            if inp.newton {
                                 a[ij(at(p, i), at(q, j))] += s * rho * grad[i][j] * phi[q] * phi[p];
                             }
                         }

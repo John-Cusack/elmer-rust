@@ -205,7 +205,6 @@ fn check_bc(bc: &ParamMap, var_name: &str) -> Result<(), SolverError> {
     }
     for (prefix, what) in [
         ("surface tension", "surface tension"),
-        ("periodic bc", "periodic boundary conditions"),
     ] {
         if has_prefix(bc, prefix) {
             return Err(unsupported(what));
