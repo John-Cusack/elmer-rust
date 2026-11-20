@@ -9,6 +9,7 @@ description = "StatElecSolve (electrostatics) and HelmholtzSolve (complex-valued
 [dependencies]
 elmer-core.workspace = true
 elmer-solver = { path = "../elmer-solver" }
+elmer-adaptive = { path = "../elmer-adaptive" }
 elmer-expr = { path = "../elmer-expr" }
 num-complex.workspace = true
 thiserror.workspace = true

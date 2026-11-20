@@ -46,6 +46,8 @@ pub struct StatCurrentSolver {
     quad: Box<dyn Quadrature + Send>,
     local: LocalSystem,
     post: PotentialPostLocal,
+    /// RefineMesh's state (`Adaptive Mesh Refinement`).
+    refine: elmer_adaptive::RefineState,
 }
 
 impl StatCurrentSolver {
@@ -55,6 +57,7 @@ impl StatCurrentSolver {
             quad,
             local: LocalSystem::zeros(0),
             post: PotentialPostLocal::default(),
+            refine: Default::default(),
         }
     }
 }
@@ -122,7 +125,6 @@ fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
             "harmonic mode",
             "the complex harmonic assembly is not ported",
         ),
-        ("adaptive mesh refinement", "mesh refinement is not ported"),
         (
             "calculate elemental fields",
             "elemental (-dg) fields are not ported",
@@ -353,6 +355,13 @@ impl Solver for StatCurrentSolver {
                 1.0,
                 &bulk_coefficient,
             )?;
+        }
+        // StatCurrentSolve.F90: RefineMesh after DefaultFinish.
+        let p = ctx.params();
+        if p.logical("adaptive mesh refinement") == Some(true) && p.logical("library adaptivity") != Some(true) {
+            let mut est = elmer_adaptive::diffusion::DiffusionEstimator::STAT_CURRENT;
+            est.check(ctx)?;
+            elmer_adaptive::refine_mesh(ctx, &mut self.refine, &mut est)?;
         }
         Ok(())
     }

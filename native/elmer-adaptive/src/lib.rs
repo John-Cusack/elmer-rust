@@ -13,6 +13,7 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::needless_range_loop)]
 
+pub mod diffusion;
 pub mod elasticity;
 pub mod mesh;
 pub mod remesh;
