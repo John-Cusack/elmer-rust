@@ -51,6 +51,32 @@ impl ParEigenBackend for ParEigen {
         })?;
         let layout = ctx.layout_of(k).map_err(dist_err)?;
         let ex: &dyn Exchange = &*ctx.ex;
+        // EnforceDirichletConditions zeroed the mass rows of every
+        // constrained copy (after CommunicateDirichletBCs), and with
+        // `Linear System Symmetric` their columns; the solver zeroed only
+        // its own constrained rows.
+        let rows = ctx.dirichlet_rows(k);
+        if !rows.is_empty() {
+            let mut on = vec![false; mass.nrows];
+            for &r in &rows {
+                if let Some(o) = on.get_mut(r as usize) {
+                    *o = true;
+                }
+            }
+            let columns = params.logical("linear system symmetric").unwrap_or(false);
+            for r in 0..mass.nrows {
+                let row = mass.row_ptr[r]..mass.row_ptr[r + 1];
+                if on[r] {
+                    mass.values[row].fill(0.0);
+                } else if columns {
+                    for j in row {
+                        if on[mass.col_idx[j] as usize] {
+                            mass.values[j] = 0.0;
+                        }
+                    }
+                }
+            }
+        }
         // ScaleLinearSystem(Solver, A): K and MassValues by the diagonal
         // summed over the holders.
         let d = scaling_of(params).then(|| summed_diagonal_scaling(ex, &layout, k));

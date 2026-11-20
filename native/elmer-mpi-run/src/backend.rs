@@ -149,6 +149,9 @@ impl AssemblyBackend for ParAssembly {
             }
         });
         let all: Vec<(u32, f64)> = (0..n).filter(|&r| !value[r].is_nan()).map(|r| (r as u32, value[r])).collect();
+        // For the mass rows of an eigen system (CRS_ZeroRow /
+        // CRS_SetSymmDirichlet zero them for every constrained copy).
+        ctx.set_dirichlet_rows(a, all.iter().map(|&(r, _)| r).collect());
         let mut total = [all.iter().filter(|&&(r, _)| layout.owned_pos()[r as usize] != elmer_core::NO_DOF).count() as f64];
         ex.sum_f64(&mut total);
         if total[0] == 0.0 {
