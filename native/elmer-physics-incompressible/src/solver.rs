@@ -13,12 +13,15 @@ use crate::boundary::{
     incompressible_boundary_local, incompressible_boundary_local_sums, IncompressibleBoundaryInput, SlipSums,
 };
 use crate::bulk::{
-    incompressible_bulk_local_sums, lcondensate, lcondensate_bdf1, pin_pressure, Boussinesq, HMode, ViscositySums,
+    incompressible_bulk_local_full, lcondensate, lcondensate_bdf1, pin_pressure, Boussinesq, HMode, ViscositySums,
     Compressibility, CompressModel, GlenFields, GlenParams, IncompressibleBulkInput, PressureStab, ViscosityModel,
 };
 use crate::error::IncompressibleError;
 
 const CALLER: &str = "IncompressibleNSSolver";
+/// The child solver of `Block Preconditioner` (`CreateChildSolver(Solver,
+/// 'schur', 1, 'schur:')`).
+const SCHUR: &str = "schur";
 
 /// Builds the element basis and quadrature the solver integrates with, in
 /// place of the `elmer-fe` defaults.
@@ -254,7 +257,6 @@ fn check_solver_params(p: &ParamMap, pdofs: bool) -> Result<(), SolverError> {
     for (key, what) in [
         ("newtonian viscosity condition", "Newtonian Viscosity Condition"),
         ("constant-viscosity start", "Constant-Viscosity Start"),
-        ("block preconditioner", "the block preconditioner"),
         ("nonlinear system linesearch", "nonlinear line search"),
         ("bubbles in global system", "bubbles in the global system"),
         ("create schur matrix approximation", "Schur matrix approximation"),
@@ -834,11 +836,25 @@ impl Solver for IncompressibleNsSolver {
                 self.bubble_step = Some(step);
             }
         }
+        // `Block Preconditioner`: the pressure block goes to the child solver
+        // `schur`, which the block solver takes as the last block's
+        // preconditioning matrix. `Create Schur Matrix Approximation` and
+        // `Schur Operator` (refused above) would turn it off.
+        let block_prec = flag(&p, "block preconditioner");
+        if block_prec {
+            ctx.info(CALLER, "Creating pressure block for block preconditioner", 4);
+            add_new(slot_params_mut(ctx), "block matrix schur variable", Value::Str(SCHUR.into()));
+        }
+        let mut pressure_mass = Vec::new();
+        let mut schur_local = LocalSystem::zeros(0);
         for iter in 1..=max_iter {
             ctx.info(CALLER, "--------------------------------------------------------", 4);
             ctx.info(CALLER, &format!("Nonlinear iteration: {iter:>4}"), 4);
             ctx.info(CALLER, "--------------------------------------------------------", 4);
             ctx.default_initialize()?;
+            if block_prec {
+                ctx.child_initialize(SCHUR, 1)?;
+            }
             let saved = [(save_viscosity, SAVED_VISCOSITY), (save_slip, SAVED_SLIP)];
             for name in saved.into_iter().filter(|(on, _)| *on).flat_map(|(_, names)| names) {
                 if let Some(v) = ctx.variable_mut(name) {
@@ -1029,13 +1045,17 @@ impl Solver for IncompressibleNsSolver {
                 };
                 let mut sums = ViscositySums::default();
                 let want_sums = save_viscosity.then_some(&mut sums);
+                let nd = pe.as_ref().map_or(n, |p| p.nd);
+                let want_schur = block_prec.then_some((nd, &mut pressure_mass));
                 match &pe {
                     None => {
                         let points = quad.gauss_points(el.etype, inp.np);
-                        incompressible_bulk_local_sums(basis, &points, n, &inp, &mut self.local, want_sums)?
+                        let local = &mut self.local;
+                        incompressible_bulk_local_full(basis, &points, n, &inp, local, want_sums, want_schur)?
                     }
                     Some(p) => {
-                        incompressible_bulk_local_sums(&*p.basis, &p.rule, nf, &inp, &mut self.local, want_sums)?;
+                        let local = &mut self.local;
+                        incompressible_bulk_local_full(&*p.basis, &p.rule, nf, &inp, local, want_sums, want_schur)?;
                         // LocalBulkMatrix: a Stokes run with bubbles condenses
                         // them and pins nothing; otherwise the pressure is
                         // pinned to the nodal one first.
@@ -1078,6 +1098,13 @@ impl Solver for IncompressibleNsSolver {
                     ctx.default_first_order_time(&mut self.local, e, dt)?;
                 }
                 ctx.default_update(&self.local, e)?;
+                if block_prec {
+                    schur_local.n = nd;
+                    schur_local.stiff.clone_from(&pressure_mass);
+                    schur_local.force.clear();
+                    schur_local.force.resize(nd, 0.0);
+                    ctx.child_update(SCHUR, &schur_local, e)?;
+                }
             }
             ctx.default_finish_bulk_assembly()?;
 
@@ -1178,6 +1205,9 @@ impl Solver for IncompressibleNsSolver {
 
             let fixed = dirichlet_rows(ctx, &comps, dim)?;
             apply_dirichlet(ctx, &fixed)?;
+            if block_prec {
+                ctx.child_dirichlet(SCHUR)?;
+            }
             ctx.default_solve()?;
 
             if ctx.convergence().is_some_and(|c| c.nonlin_converged == 1) && iter >= min_iter {

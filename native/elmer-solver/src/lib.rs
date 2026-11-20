@@ -24,6 +24,7 @@ pub mod backend;
 mod block_driver;
 mod block_system;
 pub mod change;
+mod child;
 mod amg;
 mod constraint_modes;
 mod constraints;

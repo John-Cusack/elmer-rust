@@ -1077,7 +1077,7 @@ impl<'a> SolverCtx<'a> {
         let (mesh, log, comm, slot_ix) = (self.mesh, self.log, self.comm, self.slot);
         let sim = &mut *self.sim;
         let nonlin_iter = sim.vars.scalar("nonlin iter");
-        let schur = schur_matrix(sim, &sim.slots[slot_ix].params);
+        let schur = schur_matrix(sim, slot_ix, &sim.slots[slot_ix].params);
         let mg = crate::multigrid::transfers(sim, slot_ix, mesh)?;
         let eliminate = before_linsolve(&sim.slots[slot_ix].params)?;
         // SolveCore.F90:3150-3163 (ListGetCReal).
@@ -1377,9 +1377,13 @@ pub(crate) struct BlockEnv<'a> {
 }
 
 /// The matrix of the solver whose variable `Block Matrix Schur Variable`
-/// names (`BlockPrecMatrix`, BlockSolve.F90:2523), if any.
-pub(crate) fn schur_matrix(sim: &Simulation, p: &ParamMap) -> Option<elmer_core::CsrMatrix<f64>> {
+/// names (`BlockPrecMatrix`, BlockSolve.F90:2523), if any: a child solver
+/// of solver `slot` ([`SolverCtx::child_initialize`]) or another solver.
+pub(crate) fn schur_matrix(sim: &Simulation, slot: usize, p: &ParamMap) -> Option<elmer_core::CsrMatrix<f64>> {
     let name = p.string("block matrix schur variable")?;
+    if let Some(c) = sim.slots[slot].children.iter().find(|c| c.name.eq_ignore_ascii_case(name)) {
+        return Some(c.system.matrix.clone());
+    }
     let id = sim.vars.id(name)?;
     let slot = sim.slots.iter().find(|s| s.variable == Some(id))?;
     slot.system.as_ref().map(|s| s.matrix.clone())

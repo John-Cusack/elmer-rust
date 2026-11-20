@@ -57,7 +57,7 @@ pub(crate) fn block_solver(
     let iters = p.integer("nonlinear system max iterations").unwrap_or(1);
     let tol = sim.creal(p, "nonlinear system convergence tolerance", mesh)?.unwrap_or(0.0);
     let scale = p.logical("linear system scaling").unwrap_or(true);
-    let schur = crate::solver::schur_matrix(sim, &sim.slots[ix].params);
+    let schur = crate::solver::schur_matrix(sim, ix, &sim.slots[ix].params);
 
     log.info(CALLER, "-------------------------------------------------", 6);
     for iter in 1..=iters.max(1) {

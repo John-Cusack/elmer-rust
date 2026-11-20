@@ -434,6 +434,23 @@ pub fn incompressible_bulk_local_sums(
     out: &mut LocalSystem,
     sums: Option<&mut ViscositySums>,
 ) -> Result<(), IncompressibleError> {
+    incompressible_bulk_local_full(basis, points, nf, inp, out, sums, None)
+}
+
+/// [`incompressible_bulk_local_sums`], also filling `schur = (nd, matrix)`
+/// when given: the pressure block of the block preconditioner
+/// (`LocalBulkMatrix` with a `SchurSolver`), the `nd` x `nd` mass matrix of
+/// the first `nd` functions weighted by `-1 / mu` (`LinearForms_UdotU` with
+/// `weight_a = -1 / muvec * detJVec`), row-major.
+pub fn incompressible_bulk_local_full(
+    basis: &dyn ElementBasis,
+    points: &[QuadPoint],
+    nf: usize,
+    inp: &IncompressibleBulkInput<'_>,
+    out: &mut LocalSystem,
+    sums: Option<&mut ViscositySums>,
+    schur: Option<(usize, &mut Vec<f64>)>,
+) -> Result<(), IncompressibleError> {
     let n = inp.xyz.len();
     let dim = inp.dim;
     let dofs = dim + 1;
@@ -902,6 +919,24 @@ pub fn incompressible_bulk_local_sums(
     for p in 0..nf {
         for i in 0..dim {
             force[p * dofs + i] += jac_force[p][i];
+        }
+    }
+
+    if let Some((snd, pm)) = schur {
+        if snd > nf {
+            return Err(IncompressibleError::Unsupported(format!("{snd} pressure functions of {nf}")));
+        }
+        pm.clear();
+        pm.resize(snd * snd, 0.0);
+        for t in 0..ngp {
+            let w = -1.0 / mu[t] * detj[t];
+            let b = &bas[t * nf..t * nf + snd];
+            // LinearForms_UdotU's order: u(p) v(q) w.
+            for i in 0..snd {
+                for j in 0..snd {
+                    pm[i * snd + j] += b[i] * b[j] * w;
+                }
+            }
         }
     }
 

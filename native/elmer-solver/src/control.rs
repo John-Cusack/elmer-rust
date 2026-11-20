@@ -285,7 +285,7 @@ pub(crate) fn solve_controlled(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverErr
     let mut cval = vec![0.0; nc];
     let mut dx = Vec::new();
     let mut r0 = Vec::new();
-    let schur = crate::solver::schur_matrix(ctx.sim, ctx.params());
+    let schur = crate::solver::schur_matrix(ctx.sim, ctx.slot, ctx.params());
     for i in 0..nc {
         let (log, comm) = (ctx.log, ctx.comm);
         let sim = &mut *ctx.sim;
