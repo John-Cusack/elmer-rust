@@ -259,17 +259,14 @@ pub fn render(records: &[Record], meta: &Meta) -> String {
 }
 
 /// Mismatches whose earliest divergence from pristine has been traced and
-/// is not in the assembly: shown as the table's *Cause* column. The direct
-/// solves are UMFPACK in pristine (a plain `Linear System Solver = Direct`
-/// becomes `umfpack` in `CheckLinearSolverOptions`) and faer's sparse LU
-/// here; the first linear system of each case is bitwise identical to
-/// Elmer's, and the iterations carry the factorisation's few-ulp
-/// difference forward. Evidence: the linear-solver lane's findings.
+/// is not in the assembly: shown as the table's *Cause* column. With the
+/// UMFPACK port (`elmer-umfpack`) plain direct solves are bitwise Elmer's;
+/// in the ElasticSolve cases the displacements are bitwise and only the
+/// stress/strain fields of the nodal stress projection differ by ulps.
 const KNOWN_CAUSES: &[(&str, &str)] = &[
-    ("1dtests_MeshLevels", "UMFPACK vs faer LU: matrix bitwise; BDF steps carry the factorisation difference"),
-    ("ElasticAnisotropic2D", "UMFPACK vs faer LU: displacement system bitwise, solution differs by ulps"),
-    ("ElasticStressLoad", "UMFPACK vs faer LU: first-iteration system bitwise; residual iterations carry it"),
-    ("bentonite", "UMFPACK vs faer LU: first-iteration system bitwise; 29 nonlinear iterations amplify it"),
+    ("ElasticAnisotropic2D", "displacement bitwise; stress/strain nodal projection differs by ulps"),
+    ("ElasticStressLoad", "displacement bitwise; stress/strain nodal projection differs by ulps"),
+    ("StressStressLoad", "displacement within 4e-16 of pristine (not yet traced; UMFPACK solve is the port)"),
 ];
 
 fn known_cause(test: &str) -> &'static str {
@@ -286,7 +283,7 @@ mod tests {
 
     #[test]
     fn known_causes_name_their_tests_only() {
-        assert!(known_cause("bentonite").starts_with("UMFPACK vs faer LU"));
+        assert!(known_cause("ElasticStressLoad").starts_with("displacement bitwise"));
         assert_eq!(known_cause("HeatGap"), "");
     }
 
