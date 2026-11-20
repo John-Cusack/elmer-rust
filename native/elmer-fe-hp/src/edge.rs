@@ -3635,14 +3635,41 @@ pub fn edge_element_info_nodal(
     if nodes.len() < n {
         return Err("fewer nodal coordinates than element nodes".into());
     }
+    let (basis, dl) = p_ref_nodal(code, uvw[0], uvw[1], uvw[2]);
+    edge_element_info_geometry(etype, &nodes[..n], gindex, uvw, degree, cdim, basis, dl)
+}
+
+/// [`edge_element_info_nodal`] on an element whose geometry has other
+/// nodes than the edge family's linear ones: `EdgeElementInfo`'s `n > 8`
+/// brick branch, where `Basis` / `dLBasisdx` are `NodalBasisFunctions3D` /
+/// `NodalFirstDerivatives` of the 27-node brick, given by the caller
+/// (`basis`, `dl` for each of `nodes`). `etype` is the linear type of the
+/// family (808) that numbers the edge basis; `gindex` its corner nodes'.
+#[allow(clippy::too_many_arguments)]
+pub fn edge_element_info_geometry(
+    etype: ElementType,
+    nodes: &[[f64; 3]],
+    gindex: &[i64],
+    uvw: [f64; 3],
+    degree: u8,
+    cdim: usize,
+    basis: Vec<f64>,
+    dl: Vec<[f64; 3]>,
+) -> Result<(EdgeEval, Vec<f64>, Vec<[f64; 3]>), String> {
+    let code = etype.0;
+    if !supported(code) {
+        return Err(format!("edge element type {code} is not supported"));
+    }
+    let n = nodes.len();
+    if basis.len() != n || dl.len() != n {
+        return Err("nodal basis and coordinates of different lengths".into());
+    }
     let dim = element_dim(code);
     if cdim < dim {
         return Err("coordinate dimension smaller than the element dimension".into());
     }
     let mut ev = edge_basis_reference(etype, degree, gindex, uvw)?;
     let dofs = ev.dofs;
-    let [u, v, w] = uvw;
-    let (basis, dl) = p_ref_nodal(code, u, v, w);
 
     // PiolaTransformationData
     let mut lf = [[0.0f64; 3]; 3];
