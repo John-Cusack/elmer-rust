@@ -130,6 +130,7 @@ fn run(c: &Case) {
             want_mass: false,
             np: None,
             ip: None,
+            geometric: None,
         };
         let mut out = LocalSystem::zeros(0);
         stress_bulk_local(&P1Basis, &Gauss, &inp, &mut out).unwrap();

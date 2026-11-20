@@ -140,6 +140,7 @@ fn integration_point_data_equal_to_nodal_data_changes_nothing() {
             want_mass: false,
             np: None,
             ip,
+            geometric: None,
         };
         let mut out = LocalSystem::zeros(0);
         stress_bulk_local(&P1Basis, &Gauss, &inp, &mut out).unwrap();
@@ -177,6 +178,7 @@ fn integration_point_data_equal_to_nodal_data_changes_nothing() {
         want_mass: false,
         np: None,
         ip: Some(&bad),
+        geometric: None,
     };
     assert!(stress_bulk_local(&P1Basis, &Gauss, &inp, &mut LocalSystem::zeros(0)).is_err());
 }

@@ -76,6 +76,7 @@ struct Opt<'a> {
     heat_expansion: Option<&'a [[f64; 3]]>,
     strain_load: Option<&'a [[f64; 6]]>,
     want_mass: bool,
+    geometric: Option<Geometric<'a>>,
 }
 
 fn bulk(m: &Mesh, e: usize, s: &Setup, o: &Opt<'_>) -> LocalSystem {
@@ -102,10 +103,57 @@ fn bulk(m: &Mesh, e: usize, s: &Setup, o: &Opt<'_>) -> LocalSystem {
         want_mass: o.want_mass,
         np: None,
         ip: None,
+        geometric: o.geometric,
     };
     let mut out = LocalSystem::zeros(0);
     stress_bulk_local(&P1Basis, &Gauss, &inp, &mut out).unwrap();
     out
+}
+
+/// The geometric stiffness of a uniaxially stretched patch element: added
+/// to the stiffness (`Geometric Stiffness`) it is the same matrix that
+/// stability analysis subtracts in the mass slot, where then no density mass
+/// is assembled; it is symmetric, its component rows sum to zero (it acts on
+/// gradients only), it is linear in the prestressing displacement and
+/// vanishes without one.
+#[test]
+fn geometric_stiffness_of_a_stretched_element() {
+    let m = patch2d(false);
+    let s = Setup { law: iso(210.0, 0.3, 3), cdim: 2, coord: CoordSystem::Cartesian, plane_stress: true };
+    let e = 1;
+    let u_of = |scale: f64| -> Vec<[f64; 3]> {
+        m.elems[e].iter().map(|&k| [scale * 1e-3 * m.nodes[k][0], -scale * 2e-4 * m.nodes[k][1], 0.0]).collect()
+    };
+    let (u1, u2, u0) = (u_of(1.0), u_of(2.0), u_of(0.0));
+    let plain = bulk(&m, e, &s, &Opt { want_mass: true, ..Default::default() });
+    let geo = |u: &[[f64; 3]], stability: bool| {
+        bulk(&m, e, &s, &Opt { want_mass: true, geometric: Some(Geometric { displacement: u, stability }), ..Default::default() })
+    };
+    let gs1 = geo(&u1, false);
+    let st1 = geo(&u1, true);
+    let st2 = geo(&u2, true);
+    let st0 = geo(&u0, true);
+    let gs0 = geo(&u0, false);
+    let n = plain.n;
+    assert_eq!(gs0.stiff, plain.stiff);
+    assert!(st0.mass.as_ref().unwrap().iter().all(|&x| x == 0.0), "no density mass under stability analysis");
+    let kg: Vec<f64> = gs1.stiff.iter().zip(&plain.stiff).map(|(a, b)| a - b).collect();
+    let ms1 = st1.mass.as_ref().unwrap();
+    let ms2 = st2.mass.as_ref().unwrap();
+    let scale = max_abs(&kg);
+    assert!(scale > 0.0);
+    for i in 0..n {
+        let mut row = 0.0;
+        for j in 0..n {
+            assert!((ms1[i * n + j] + kg[i * n + j]).abs() <= 1e-12 * scale, "mass slot is minus the stiffness term");
+            assert!((ms1[i * n + j] - ms1[j * n + i]).abs() <= 1e-15 * scale, "symmetric");
+            assert!((ms2[i * n + j] - 2.0 * ms1[i * n + j]).abs() <= 1e-12 * scale, "linear in the displacement");
+            row += ms1[i * n + j];
+        }
+        assert!(row.abs() <= 1e-12 * scale, "row {i} sums to {row}");
+    }
+    // The stiffness is untouched under stability analysis.
+    assert_eq!(st1.stiff, plain.stiff);
 }
 
 fn assemble(m: &Mesh, s: &Setup) -> (Vec<f64>, Vec<f64>) {
@@ -464,6 +512,7 @@ fn unsupported_shapes_are_refused() {
         want_mass: false,
         np: None,
         ip: None,
+        geometric: None,
     };
     let mut out = LocalSystem::zeros(0);
     assert!(matches!(

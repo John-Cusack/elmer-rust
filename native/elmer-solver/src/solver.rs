@@ -162,6 +162,12 @@ impl<'a> SolverCtx<'a> {
     }
 
     /// The `Solver n` section.
+    /// The running solver's section, to rewrite a keyword the framework
+    /// reads later (Elmer's `ListAddLogical( Solver % Values, ... )`).
+    pub fn params_mut(&mut self) -> &mut ParamMap {
+        &mut self.sim.slots[self.slot].params
+    }
+
     pub fn params(&self) -> &ParamMap {
         &self.sim.slots[self.slot].params
     }

@@ -76,6 +76,22 @@ pub struct StressBulkInput<'a> {
     pub np: Option<usize>,
     /// Quantities given at the integration points.
     pub ip: Option<&'a IpProps>,
+    /// The geometric stiffness of the prestressed state (the second pass of
+    /// `Geometric Stiffness` / `Stability Analysis`).
+    pub geometric: Option<Geometric<'a>>,
+}
+
+/// The geometric stiffness term of ElasticSolve's `LocalMatrix`
+/// (ElasticSolve.F90:4759): `INT sigma_ij dphi_p/dx_i dphi_q/dx_j`, the same
+/// for each displacement component, with `sigma` the constitutive stress of
+/// the current displacement (`GeomStress`: `C : sym(grad u)`, without the
+/// thermal or load offsets). Added to the stiffness, or with `stability`
+/// subtracted from the mass slot, where no density mass is then assembled.
+#[derive(Clone, Copy, Debug)]
+pub struct Geometric<'a> {
+    /// The displacement at the element nodes.
+    pub displacement: &'a [[f64; 3]],
+    pub stability: bool,
 }
 
 /// Shape function values at each Gauss point of the element's rule, `n_ip` rows
@@ -203,7 +219,21 @@ fn bulk_impl(
     let ndof = nd * cdim;
 
     *out = LocalSystem::zeros(ndof);
-    if inp.want_mass {
+    let geometric = inp.geometric;
+    if let Some(g) = geometric {
+        if axi {
+            return Err(StressError::Input(
+                "The geometric stiffness is implemented in cartesian coordinates only".into(),
+            ));
+        }
+        if g.displacement.len() != n || nd != n {
+            return Err(StressError::Input(format!("geometric stiffness needs {n} nodal displacements")));
+        }
+    }
+    // Stability analysis: the mass slot carries minus the geometric
+    // stiffness and no density mass.
+    let density_mass = inp.want_mass && !geometric.is_some_and(|g| g.stability);
+    if inp.want_mass || geometric.is_some_and(|g| g.stability) {
         out.mass = Some(vec![0.0; ndof * ndof]);
         if inp.damping.is_some() {
             out.damp = Some(vec![0.0; ndof * ndof]);
@@ -464,7 +494,7 @@ fn bulk_impl(
             }
         }
 
-        if inp.want_mass {
+        if density_mass {
             for p in 0..nd {
                 for q in 0..nd {
                     for i in 0..cdim {
@@ -473,6 +503,48 @@ fn bulk_impl(
                         mm[idx] += bas[p] * bas[q] * density * s;
                         if let Some(dm) = out.damp.as_mut() {
                             dm[idx] += bas[p] * bas[q] * damping * s;
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(g) = geometric {
+            // Grad(1:dim,1:dim) = MATMUL(LocalDisplacement, dBasisdx);
+            // Strain = (Grad' + Grad)/2; GeomStress = the law's stress of it.
+            let u = g.displacement;
+            let mut grad = ZERO3;
+            for i in 0..cdim {
+                for j in 0..cdim {
+                    let mut acc = 0.0;
+                    for k in 0..n {
+                        acc += u[k][i] * db[k][j];
+                    }
+                    grad[i][j] = acc;
+                }
+            }
+            let mut strain = ZERO3;
+            for i in 0..3 {
+                for j in 0..3 {
+                    strain[i][j] = (grad[j][i] + grad[i][j]) / 2.0;
+                }
+            }
+            let gs = law.stress(dim, false, &strain);
+            for p in 0..nd {
+                for q in 0..nd {
+                    let mut inner = 0.0;
+                    for i in 0..cdim {
+                        for j in 0..cdim {
+                            inner += db[p][i] * db[q][j] * gs[i][j];
+                        }
+                    }
+                    for k in 0..cdim {
+                        let idx = (cdim * p + k) * ndof + cdim * q + k;
+                        if g.stability {
+                            let mm = out.mass.as_mut().unwrap();
+                            mm[idx] -= s * inner;
+                        } else {
+                            out.stiff[idx] += s * inner;
                         }
                     }
                 }
