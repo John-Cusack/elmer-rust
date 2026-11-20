@@ -374,6 +374,8 @@ pub(crate) fn solve(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverError> {
     if comm.size() > 1 {
         return Err(unsupported("parallel eigen systems (ParallelArpackEigenSolve)"));
     }
+    // The inner direct solves use the section's method, UMFPACK by default.
+    let p = crate::linsys::serial_direct_default(&p, comm).unwrap_or(p);
     if p.logical("linear system complex") == Some(true) && p.logical("linear system skip complex") != Some(true) {
         return Err(unsupported("complex systems (ArpackEigenSolveComplex)"));
     }
