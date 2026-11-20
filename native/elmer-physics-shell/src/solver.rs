@@ -129,7 +129,9 @@ fn boundary_matrix(
     ld: bool,
     local_sol: &[f64],
 ) -> Result<Option<(LocalSystem, Vec<f64>)>, SolverError> {
-    let Some(bc) = ctx.bc_params(e) else { return Ok(None) };
+    let Some(bc) = ctx.bc_params(e) else {
+        return Ok(None);
+    };
     let force = vector_at_nodes(ctx, bc, "resultant force", 3, e)?;
     let couple = vector_at_nodes(ctx, bc, "resultant couple", 3, e)?;
     let springs = vector_at_nodes(ctx, bc, "spring", 6, e)?;
@@ -177,7 +179,8 @@ fn boundary_matrix(
                 for i in 0..n {
                     for j in 0..n {
                         stiff[(i * M + k) * dofs + j * M + k] += spring[k] * b[i] * b[j] * w;
-                        stiff[(i * M + 3 + k) * dofs + j * M + 3 + k] += spring[k + 3] * b[i] * b[j] * w;
+                        stiff[(i * M + 3 + k) * dofs + j * M + 3 + k] +=
+                            spring[k + 3] * b[i] * b[j] * w;
                     }
                 }
             }
@@ -209,7 +212,9 @@ fn boundary_matrix(
 fn displace(ctx: &SolverCtx<'_>, sgn: f64) {
     let Some(v) = ctx.primary() else { return };
     let Some(perm) = v.perm else { return };
-    let coords: Vec<V3> = (0..ctx.mesh.n_nodes() as u32).map(|i| ctx.mesh.coord(i)).collect();
+    let coords: Vec<V3> = (0..ctx.mesh.n_nodes() as u32)
+        .map(|i| ctx.mesh.coord(i))
+        .collect();
     let n = coords.len().min(perm.len());
     let _ = crate::motion::displace_mesh(&coords, v.values, sgn, &perm[..n], M);
 }
@@ -693,7 +698,9 @@ impl Solver for ShellSolver {
                         }
                     }
                 }
-                let Some((ls, rhs)) = boundary_matrix(ctx, e, ld, &sol)? else { continue };
+                let Some((ls, rhs)) = boundary_matrix(ctx, e, ld, &sol)? else {
+                    continue;
+                };
                 ctx.default_update(&ls, e)?;
                 if ld && iter == 1 {
                     for (i, &k) in nodes.iter().enumerate() {
@@ -772,7 +779,11 @@ impl Solver for ShellSolver {
             }
         }
         if displace_on {
-            ctx.info(CALLER, "Displacing the mesh with computed displacement field", 4);
+            ctx.info(
+                CALLER,
+                "Displacing the mesh with computed displacement field",
+                4,
+            );
             displace(ctx, 1.0);
         }
         Ok(())

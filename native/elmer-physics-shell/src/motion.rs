@@ -21,7 +21,13 @@ pub fn install_node_mover(m: Option<NodeMover>) -> Option<NodeMover> {
 /// `DisplaceMesh( Mesh, Update, sgn, Perm, DOFs, .FALSE., 3 )`: the first
 /// three components of each node's `DOFs` added `sgn` times. `None`
 /// without an installed mover.
-pub(crate) fn displace_mesh(coords: &[[f64; 3]], update: &[f64], sgn: f64, perm: &[u32], dofs: usize) -> Option<()> {
+pub(crate) fn displace_mesh(
+    coords: &[[f64; 3]],
+    update: &[f64],
+    sgn: f64,
+    perm: &[u32],
+    dofs: usize,
+) -> Option<()> {
     let mover = MOVER.with(|c| c.borrow().clone())?;
     let mut x = coords.to_vec();
     for (i, c) in x.iter_mut().enumerate().take(perm.len()) {
