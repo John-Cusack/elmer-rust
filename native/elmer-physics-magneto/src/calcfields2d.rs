@@ -116,9 +116,9 @@ pub fn init_section(model: &mut Model, i: usize, dim: usize) {
         .any(|c| logical(c, "calculate magnetic force") == Some(true) || logical(c, "calculate magnetic torque") == Some(true));
     let target_eigen = logical(&model.solvers[t.index - 1], "eigen analysis") == Some(true);
     // `_Init`: the integral results start at zero in the Simulation section.
-    model.simulation.insert("res: Eddy current power", Value::real(0.0));
+    elmer_solver::results::add_result(&mut model.simulation, "res: Eddy current power", 0.0);
     if logical(&model.solvers[i], "separate magnetic energy") != Some(true) {
-        model.simulation.insert("res: ElectroMagnetic Field Energy", Value::real(0.0));
+        elmer_solver::results::add_result(&mut model.simulation, "res: ElectroMagnetic Field Energy", 0.0);
     }
     let sp = &mut model.solvers[i];
     let add_new = |sp: &mut ParamMap, k: &str, v: Value| {
@@ -491,7 +491,6 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         "winding voltage",
         "relative permeability",
         "maxwell stress",
-        "nodal force",
         "nodal joule heating",
         "harmonic loss linear",
         "harmonic loss quadratic",
@@ -514,11 +513,39 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
     };
     let cd = field("current density", 3 * vdofs);
     let jh = field("joule heating", 1);
-    let fields = [&mfd, &mfs, &vp, &ef, &cd, &jh];
+    // `Nodal Force`: the assembled load itself, not projected.
+    let nf = field("nodal force", fdim);
+    let fields = [&mfd, &mfs, &vp, &ef, &cd, &jh, &nf];
     if mfs.any() {
         let m = &ctx.sim.model;
-        if m.body_forces.iter().chain(&m.materials).any(|b| has_prefix(b, "magnetization")) {
-            return Err(unsupported("Magnetic Field Strength with a magnetization"));
+        if m.body_forces.iter().chain(&m.materials).any(|b| b.get("magnetization").is_some() || b.get("magnetization im").is_some())
+        {
+            return Err(unsupported("a 'Magnetization' array"));
+        }
+    }
+    if nf.any() {
+        if !real {
+            return Err(unsupported("nodal forces of a harmonic target"));
+        }
+        if t.hcurl {
+            return Err(unsupported("nodal forces of an edge-element target"));
+        }
+        if axi {
+            return Err(unsupported("nodal forces in axial symmetry"));
+        }
+        if ctx.sim.model.boundary_conditions.iter().any(|b| b.get("air gap length").is_some()) {
+            return Err(unsupported("nodal forces with 'Air Gap Length' (CalcBoundaryModels)"));
+        }
+        if ctx.sim.model.bodies.iter().any(|b| b.get("torque groups").is_some()) {
+            return Err(unsupported("'Torque Groups' (NodalTorque)"));
+        }
+        if logical(&sp, "nodal force jxb") == Some(true) {
+            return Err(unsupported("'Nodal Force JxB'"));
+        }
+        for c in &ctx.sim.model.components {
+            if logical(c, "rotor mode") == Some(true) {
+                return Err(unsupported("a component in 'Rotor Mode'"));
+            }
         }
     }
     let ncol: usize = fields.iter().filter(|f| f.any()).map(|f| f.m).sum();
@@ -664,6 +691,24 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
             energy_known = false;
         }
         let nu_nodes = vec![nu.unwrap_or(0.0); n];
+        // GetComplexVector('Magnetization'): the body force's, else the
+        // material's; the real part enters H.
+        let mut magnetization: Option<[Vec<f64>; 3]> = None;
+        if mfs.any() {
+            for src in [&body_force, &material].into_iter().flatten() {
+                let found = (1..=3).any(|c| {
+                    src.get(&format!("magnetization {c}")).is_some() || src.get(&format!("magnetization im {c}")).is_some()
+                });
+                if found {
+                    magnetization = Some([
+                        scalar_at_nodes(ctx, src, "magnetization 1", e, n)?,
+                        scalar_at_nodes(ctx, src, "magnetization 2", e, n)?,
+                        scalar_at_nodes(ctx, src, "magnetization 3", e, n)?,
+                    ]);
+                    break;
+                }
+            }
+        }
         // GetPermittivity: `Relative Permittivity` times that of vacuum, else
         // `Permittivity`, else vacuum.
         let pr_nodes = match &material {
@@ -741,6 +786,36 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
                 };
                 energy[1] += s * w_dens;
             }
+            // NF_ip (CalcFields.F90:1810-1818): the virtual work of the field,
+            // -(Nu B)_l (grad N_k . B) + (H.B - w) d N_k / d x_l.
+            let mut nf_ip = vec![[0.0f64; 3]; if nf.any() { n } else { 0 }];
+            if nf.any() {
+                let r_ip = dot(basis, &nu_nodes);
+                let nub = |x: &[f64; 3], k: usize| {
+                    let mut v = 0.0;
+                    for (l, xl) in x.iter().enumerate() {
+                        v += if l == k { r_ip } else { 0.0 } * xl;
+                    }
+                    v
+                };
+                let b0 = &b[0];
+                let mut hdotb = 0.0;
+                for k in 0..3 {
+                    hdotb += nub(b0, k) * b0[k];
+                }
+                let mut wt = 0.0;
+                for k in 0..3 {
+                    wt += b0[k] * nub(b0, k);
+                }
+                let w_dens = 0.5 * wt;
+                for (k, nfk) in nf_ip.iter_mut().enumerate() {
+                    let d = ip.db[k];
+                    for l in 0..3 {
+                        let val = d[0] * b0[0] + d[1] * b0[1] + d[2] * b0[2];
+                        nfk[l] = nfk[l] - nub(b0, l) * val + (hdotb - w_dens) * d[l];
+                    }
+                }
+            }
             for p in 0..eq_n {
                 for q in 0..eq_n {
                     mass[q * eq_n + p] += s * basis[p] * basis[q];
@@ -779,8 +854,17 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
                         }
                         v
                     };
+                    // MG_ip = SUM(Magnetization(l, 1:n) * Basis(1:n)).
+                    let mg: [f64; 3] = match &magnetization {
+                        Some(m) => std::array::from_fn(|l| dot(&m[l], basis)),
+                        None => [0.0; 3],
+                    };
                     for c in 0..fdim {
-                        let h = if real { nmv(r_ip, &b[0], c) - 0.0 } else { nmv(r_ip, &b[0], c) - nmv(0.0, &b[1], c) - 0.0 };
+                        let h = if real {
+                            nmv(r_ip, &b[0], c) - mg[c]
+                        } else {
+                            nmv(r_ip, &b[0], c) - nmv(0.0, &b[1], c) - mg[c]
+                        };
                         force[k + c][p] += s * h * basis[p];
                     }
                     k += fdim;
@@ -838,6 +922,12 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
                     force[k][p] += coeff;
                     k += 1;
                 }
+                if nf.any() {
+                    for c in 0..fdim {
+                        force[k + c][p] += s * nf_ip[p][c];
+                    }
+                    k += fdim;
+                }
                 debug_assert!(k <= ncol);
             }
         }
@@ -879,7 +969,10 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
                 for i in 0..f.m {
                     let mut x = force[dofs].clone();
                     dofs += 1;
-                    lu_solve(eq_n, &mass, &mut x, &pivot);
+                    // `LocalCopy(EL_NF, ...)`: a nodal quantity, not solved.
+                    if !std::ptr::eq(*f, &nf) {
+                        lu_solve(eq_n, &mass, &mut x, &pivot);
+                    }
                     for (a, &r) in ind.iter().enumerate() {
                         var.values[var.dofs * r as usize + i] = x[a];
                     }
@@ -890,7 +983,7 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
     }
     let _ = omega;
     ctx.info(CALLER, &format!("Eddy current power: {}", elmer_solver::fortran_fmt::es(power, 15, 6)), 4);
-    ctx.sim.model.simulation.insert("res: Eddy current power", Value::real(power));
+    elmer_solver::results::add_result(&mut ctx.sim.model.simulation, "res: Eddy current power", power);
     let em_energy = energy[0] + energy[1];
     if energy_known {
         ctx.info(
@@ -898,7 +991,7 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
             &format!("ElectroMagnetic Field Energy: {}", elmer_solver::fortran_fmt::es(em_energy, 15, 6)),
             4,
         );
-        ctx.sim.model.simulation.insert("res: ElectroMagnetic Field Energy", Value::real(em_energy));
+        elmer_solver::results::add_result(&mut ctx.sim.model.simulation, "res: ElectroMagnetic Field Energy", em_energy);
     } else {
         // A SaveScalars without `Variable 1` saves the `res:` values.
         let saves = ctx.sim.model.solvers.iter().any(|p| {
@@ -929,6 +1022,18 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
                 }
                 continue;
             };
+            if std::ptr::eq(*f, &nf) {
+                // `NF % Values(i::fdim) = Gforce(:,dofs)`.
+                let var = ctx.sim.vars.by_id_mut(v);
+                for i in 0..f.m {
+                    for (r, g) in gforce[dofs].iter().enumerate() {
+                        var.values[f.m * r + i] = *g;
+                    }
+                    dofs += 1;
+                }
+                var.values_changed = true;
+                continue;
+            }
             let name = ctx.sim.vars.by_id(v).name.clone();
             ctx.info(CALLER, &format!("Solving for field: {name}"), 6);
             for i in 0..f.m {
@@ -957,11 +1062,139 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
             ctx.params_mut().0.insert(key, v);
         }
     }
+    if let Some(v) = nf.nodal {
+        component_nodal_forces(ctx, v)?;
+    } else if nf.elem.is_some() {
+        let calc = ctx.sim.model.components.iter().any(|c| {
+            logical(c, "calculate magnetic force") == Some(true) || logical(c, "calculate magnetic torque") == Some(true)
+        });
+        if calc {
+            return Err(unsupported("component forces from the elemental 'Nodal Force E' (ReduceElementalVar)"));
+        }
+    }
     if norm_index > 0 {
         ctx.info(CALLER, &format!("Reverting norm to: {save_norm}"), 4);
         ctx.sim.vars.by_id_mut(hr).conv.norm = save_norm;
     }
     Ok(())
+}
+
+/// CalcFields.F90:2657-2690 (no air gap, a nodal `Nodal Force`): the
+/// components' `Calculate Magnetic Force` and `Calculate Magnetic Torque`
+/// through `ComponentNodalForceReduction` (LumpingUtils.F90), stored as the
+/// component's `res: magnetic force i` and `res: magnetic torque`.
+fn component_nodal_forces(ctx: &mut SolverCtx<'_>, nfv: elmer_solver::VarId) -> Result<(), SolverError> {
+    let (perm, dofs, values) = {
+        let v = ctx.sim.vars.by_id(nfv);
+        (v.perm.clone().ok_or_else(|| SolverError::fatal(CALLER, "Nodal Force has no permutation"))?, v.dofs, v.values.clone())
+    };
+    let ncomp = ctx.sim.model.components.len();
+    for j in 0..ncomp {
+        let cp = ctx.sim.model.components[j].clone();
+        let want_force = logical(&cp, "calculate magnetic force") == Some(true);
+        let want_torque = logical(&cp, "calculate magnetic torque") == Some(true);
+        if !(want_force || want_torque) {
+            continue;
+        }
+        let name = cp.string("name").unwrap_or("").to_string();
+        let red = reduce_component(ctx, &cp, &perm, dofs, &values)?;
+        let Some((force, torque)) = red else { continue };
+        if want_force {
+            ctx.info(
+                CALLER,
+                &format!(
+                    "Magnetic force reduced: > {name} < :{}{}{}",
+                    elmer_solver::fortran_fmt::es(force[0], 15, 6),
+                    elmer_solver::fortran_fmt::es(force[1], 15, 6),
+                    elmer_solver::fortran_fmt::es(force[2], 15, 6)
+                ),
+                6,
+            );
+            let fdim = dofs;
+            for (i, f) in force.iter().enumerate().take(fdim) {
+                ctx.sim.model.components[j].insert(&format!("res: magnetic force {}", i + 1), Value::real(*f));
+            }
+        }
+        if want_torque {
+            ctx.info(CALLER, &format!("Magnetic torque reduced: > {name} < :{}", elmer_solver::fortran_fmt::es(torque, 15, 6)), 6);
+            ctx.sim.model.components[j].insert("res: magnetic torque", Value::real(torque));
+        }
+    }
+    Ok(())
+}
+
+/// `ComponentNodalForceReduction(..., NF, Force, Torque)` over the
+/// component's `Master Bodies` (or `Master Boundaries`), each node once.
+/// `None` when neither is given (Elmer warns and returns).
+fn reduce_component(
+    ctx: &SolverCtx<'_>,
+    cp: &ParamMap,
+    perm: &[u32],
+    dofs: usize,
+    values: &[f64],
+) -> Result<Option<([f64; 3], f64)>, SolverError> {
+    let ints = |k: &str| match cp.get(k) {
+        Some(Value::Integer(v)) => Some(v.clone()),
+        _ => None,
+    };
+    let (masters, bc_mode) = match (ints("master bodies"), ints("master boundaries")) {
+        (Some(b), _) => (b, false),
+        (None, Some(b)) => (b, true),
+        (None, None) => {
+            ctx.warn("ComponentNodalForceReduction", "> Master Bodies < or > Master Boundaries < not given");
+            return Ok(None);
+        }
+    };
+    let vec3 = |k: &str| -> Result<Option<[f64; 3]>, SolverError> {
+        match cp.get(k) {
+            None => Ok(None),
+            Some(Value::Real { data, .. }) if data.len() == 3 => Ok(Some([data[0], data[1], data[2]])),
+            Some(_) => Err(SolverError::fatal("ComponentNodalForceReduction", format!("Size of > {k} < should be 3!"))),
+        }
+    };
+    let origin = vec3("torque origin")?.unwrap_or([0.0; 3]);
+    let axis = match vec3("torque axis")? {
+        Some(a) => {
+            let l = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+            [a[0] / l, a[1] / l, a[2] / l]
+        }
+        None => [0.0, 0.0, 1.0],
+    };
+    let nb = ctx.mesh.n_bulk();
+    let range = if bc_mode { nb..nb + ctx.mesh.n_boundary() } else { 0..nb };
+    let mut visited = vec![false; ctx.mesh.n_nodes()];
+    let (mut force, mut torque) = ([0.0f64; 3], 0.0f64);
+    for t in range {
+        let e = ElemId(t as u32);
+        // Element % BoundaryInfo % Constraint, or Element % BodyId.
+        let id = if bc_mode { ctx.bc_id(e) } else { ctx.sim.model.body_of_tag(ctx.mesh.element(e).tag) };
+        let Some(id) = id else { continue };
+        if !masters.contains(&(id as i32)) {
+            continue;
+        }
+        for &node in ctx.mesh.element(e).nodes {
+            let k = perm.get(node as usize).copied().unwrap_or(NO_DOF);
+            if k == NO_DOF || visited[node as usize] {
+                continue;
+            }
+            visited[node as usize] = true;
+            let k = k as usize;
+            let f = [values[dofs * k], values[dofs * k + 1], if dofs == 3 { values[dofs * k + 2] } else { 0.0 }];
+            for c in 0..3 {
+                force[c] += f[c];
+            }
+            let p = ctx.mesh.coord(node);
+            let mut v1 = [p[0] - origin[0], p[1] - origin[1], p[2] - origin[2]];
+            let ax = axis[0] * v1[0] + axis[1] * v1[1] + axis[2] * v1[2];
+            for c in 0..3 {
+                v1[c] -= ax * axis[c];
+            }
+            // CrossProduct (ElementBasis.F90:2869).
+            let v2 = [v1[1] * f[2] - v1[2] * f[1], -v1[0] * f[2] + v1[2] * f[0], v1[0] * f[1] - v1[1] * f[0]];
+            torque += axis[0] * v2[0] + axis[1] * v2[1] + axis[2] * v2[2];
+        }
+    }
+    Ok(Some((force, torque)))
 }
 
 /// One integration point of the element loop: `s = IP % s * detJ` (times
@@ -978,6 +1211,8 @@ enum EdgeTarget {
 struct Ip {
     s: f64,
     basis: Vec<f64>,
+    /// `dBasisdx(1:n, :)` of the nodal kernel (empty for edge targets).
+    db: Vec<[f64; 3]>,
     b: [[f64; 3]; 2],
     e: [[f64; 3]; 2],
     vp: [[f64; 3]; 2],
@@ -1045,7 +1280,7 @@ fn nodal_points(
         for l in 0..vdofs {
             vp[l][2] = dot(&sol[l], basis);
         }
-        out.push(Ip { s, basis: basis.to_vec(), b, e, vp });
+        out.push(Ip { s, basis: basis.to_vec(), db: be.dbasis_dx[..n].to_vec(), b, e, vp });
     }
     Ok(out)
 }
@@ -1139,7 +1374,7 @@ fn edge_points(
                 ef[0][c] = -g[c];
             }
         }
-        out.push(Ip { s, basis: pt.basis[..n].to_vec(), b, e: ef, vp });
+        out.push(Ip { s, basis: pt.basis[..n].to_vec(), db: Vec::new(), b, e: ef, vp });
     }
     Ok((out, np))
 }
@@ -1221,7 +1456,7 @@ fn piola_points(ctx: &SolverCtx<'_>, pvar: elmer_solver::VarId, e: ElemId, degre
                 ef[0][c] = -g[c];
             }
         }
-        out.push(Ip { s, basis, b, e: ef, vp });
+        out.push(Ip { s, basis, db: Vec::new(), b, e: ef, vp });
     }
     Ok((out, np))
 }
