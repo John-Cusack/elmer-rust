@@ -118,8 +118,9 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
     }
 
     // An `-ip` exported variable read by a boundary condition: Elmer
-    // evaluates it at the boundary element's own Gauss points; the
-    // composition does not (IpVariable4 differs by 0.5%).
+    // evaluates it at the boundary element's own Gauss points
+    // (`InterpolateIPVariableToBoundary`). HeatSolver's `Heat Flux` does
+    // (`SolverCtx::boundary_real_at_ips`); other keys read it at the nodes.
     let ip_vars: Vec<String> = model
         .solvers
         .iter()
@@ -132,8 +133,15 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
         .filter(|spec| spec.kind == FieldKind::Ip)
         .map(|spec| spec.name)
         .collect();
+    let heat_solver = model.solvers.iter().any(|s| {
+        elmer_solver::solver::procedure_of(s)
+            .is_some_and(|(l, e)| l.eq_ignore_ascii_case("heatsolve") && e.eq_ignore_ascii_case("heatsolver"))
+    });
     for (i, bc) in model.boundary_conditions.iter().enumerate() {
         for (key, v) in &bc.0 {
+            if heat_solver && key == "heat flux" {
+                continue;
+            }
             let Value::Dependent(d) = v else { continue };
             let mut names = d.variables.iter().flat_map(|v| v.split(',')).map(normalize_key);
             if let Some(var) = names.find(|x| ip_vars.contains(x)) {

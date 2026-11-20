@@ -360,6 +360,7 @@ impl HeatSolver {
                 }
                 let at_nodes = HeatBcAtNodes {
                     heat_flux: Some(load),
+                    heat_flux_at_ips: None,
                     heat_transfer_coefficient: Some(coeff),
                     external_temperature: None,
                 };

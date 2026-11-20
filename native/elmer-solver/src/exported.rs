@@ -485,6 +485,113 @@ fn element_real_at_ip(
     Ok(basis.iter().zip(&f).fold(0.0, |s, (b, f)| s + b * f))
 }
 
+/// Whether `value` depends on an integration-point variable.
+pub(crate) fn depends_on_ip(sim: &Simulation, value: &Value) -> bool {
+    matches!(value, Value::Dependent(d) if d.variables.iter().flat_map(|v| v.split(','))
+        .any(|v| sim.vars.get(&elmer_core::normalize_key(v)).is_some_and(|x| x.kind == FieldKind::Ip)))
+}
+
+/// `ListGetElementReal(Handle, Basis, Element, GaussPoint)` of a boundary
+/// element's `value` that depends on an IP variable (`EvaluateAtIp`), at
+/// the boundary points `uvw`: the other fields are interpolated with the
+/// boundary basis (`VarsToValuesOnIps`), the IP variables are
+/// `InterpolateIPVariableToBoundary` (Lists.F90:5168): each parent with
+/// points fits its values (`Ip2DgFieldInElement`), the fit is interpolated
+/// with the boundary basis at the boundary's nodes, and two parents are
+/// averaged.
+pub(crate) fn boundary_ip_values(
+    sim: &Simulation,
+    mesh: &dyn MeshView,
+    value: &Value,
+    e: ElemId,
+    uvw: &[[f64; 3]],
+) -> Result<Vec<f64>, SolverError> {
+    let fe = sim.backends.fe.as_ref().ok_or_else(|| SolverError::NotWired("basis and quadrature for IP variables".into()))?;
+    let el = mesh.element(e);
+    let n = el.nodes.len();
+    let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| mesh.coord(k)).collect();
+    let axi = sim
+        .model
+        .simulation
+        .string("coordinate system")
+        .is_some_and(|c| matches!(elmer_core::normalize_key(c).as_str(), "axi symmetric" | "cylindric symmetric"));
+    let Value::Dependent(d) = value else { return Err(SolverError::fatal(CALLER, "not a dependent value")) };
+    // Per IP variable: the parents' fits at the boundary's nodes.
+    let mut fits: Vec<(String, Vec<Vec<f64>>)> = Vec::new();
+    for name in d.variables.iter().flat_map(|v| v.split(',')).map(elmer_core::normalize_key) {
+        let Some(v) = sim.vars.get(&name).filter(|v| v.kind == FieldKind::Ip) else { continue };
+        if v.dofs > 1 {
+            return Err(SolverError::Unsupported(format!("boundary evaluation of the {}-component IP variable {name}", v.dofs)));
+        }
+        let offs = v.perm.as_deref().ok_or_else(|| SolverError::fatal(CALLER, "IP field without a permutation"))?;
+        let mut parents = Vec::new();
+        for p in el.parents.iter().flatten() {
+            let t = p.0 as usize;
+            let (i1, i2) = (offs[t] as usize, offs[t + 1] as usize);
+            if i2 == i1 {
+                continue;
+            }
+            let pel = mesh.element(*p);
+            let pxyz: Vec<[f64; 3]> = pel.nodes.iter().map(|&k| mesh.coord(k)).collect();
+            let fdg = ip_to_dg_in_element(fe, pel.etype, &pxyz, &v.values[i1..i2], 1, axi)?.remove(0);
+            // fdg at the boundary's nodes (None where the parent lacks one).
+            parents.push(el.nodes.iter().map(|k| pel.nodes.iter().position(|q| q == k).map(|j| fdg[j])).collect::<Vec<_>>());
+        }
+        let parents: Vec<Vec<f64>> = parents.into_iter().map(|p| p.into_iter().map(|x| x.unwrap_or(f64::NAN)).collect()).collect();
+        fits.push((name, parents));
+    }
+    let fields = sim.fields(mesh);
+    let b = &sim.backends;
+    let mut ev = elmer_core::BasisEval::default();
+    let mut out = Vec::with_capacity(uvw.len());
+    for &p in uvw {
+        fe.basis.eval(el.etype, &xyz, p, &mut ev).map_err(|m| SolverError::fatal(CALLER, m))?;
+        let basis = &ev.basis[..n];
+        let ip: Vec<(String, f64)> = fits
+            .iter()
+            .map(|(name, parents)| {
+                let mut t = 0.0;
+                for f in parents {
+                    for i in 0..n {
+                        if !f[i].is_nan() {
+                            t += basis[i] * f[i];
+                        }
+                    }
+                }
+                if parents.len() == 2 {
+                    t /= 2.0;
+                }
+                (name.clone(), t)
+            })
+            .collect();
+        let at = BoundaryIp { inner: AtPoint { inner: &fields, nodes: el.nodes, basis }, ip: &ip };
+        out.push(crate::expr::eval_at_nodes_with(value, &[0], &at, b.matc.as_deref(), &b.udfs)?[0]);
+    }
+    Ok(out)
+}
+
+/// [`AtPoint`] with the IP variables' boundary values.
+struct BoundaryIp<'a> {
+    inner: AtPoint<'a>,
+    ip: &'a [(String, f64)],
+}
+
+impl FieldLookup for BoundaryIp<'_> {
+    fn value(&self, var: &str, node: u32) -> Option<f64> {
+        let key = elmer_core::normalize_key(var);
+        match self.ip.iter().find(|(n, _)| *n == key) {
+            Some((_, v)) => Some(*v),
+            None => self.inner.value(var, node),
+        }
+    }
+    fn coord(&self, node: u32) -> [f64; 3] {
+        self.inner.coord(node)
+    }
+    fn time(&self) -> f64 {
+        self.inner.time()
+    }
+}
+
 struct AtPoint<'a> {
     inner: &'a SimFields<'a>,
     nodes: &'a [u32],
