@@ -1,0 +1,13 @@
+[package]
+name = "elmer-physics-shell"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "ShellSolver (Reissner-Mindlin shells on a lines-of-curvature patch, MITC shear, large deflection) for the Rust-native Elmer rewrite"
+
+[dependencies]
+elmer-core.workspace = true
+elmer-fe = { path = "../elmer-fe" }
+elmer-solver = { path = "../elmer-solver" }
+thiserror.workspace = true

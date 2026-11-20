@@ -158,6 +158,11 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if is(params, ("MarchingODESolver", "MarchingODESolver")) {
             elmer_physics_meshtools::marching_defaults(params);
         }
+        // `ShellSolver_Init0`: the deflection variable, large deflection
+        // and the Simulation's `Initialize Dirichlet Conditions`.
+        if is(params, elmer_physics_shell::PROCEDURE) {
+            elmer_physics_shell::solver_defaults(params, &mut model.simulation);
+        }
         // `TopoOpt_init0` / `_init`: the elemental topology fields.
         if is(params, elmer_physics_topoopt::PROCEDURE) {
             elmer_physics_topoopt::solver_defaults(params);

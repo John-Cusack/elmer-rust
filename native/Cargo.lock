@@ -750,6 +750,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "elmer-physics-shell"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-fe",
+ "elmer-solver",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "elmer-physics-thermoelectric"
 version = "0.1.0"
 dependencies = [
@@ -797,6 +807,7 @@ dependencies = [
  "elmer-physics-magneto",
  "elmer-physics-meshtools",
  "elmer-physics-scalar",
+ "elmer-physics-shell",
  "elmer-physics-thermoelectric",
  "elmer-physics-topoopt",
  "elmer-savedata",
