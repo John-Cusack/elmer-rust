@@ -9,6 +9,7 @@ Oracle data. Changes only by ADR with captain sign-off.
 | `quick-release.tsv` | One row per registered quick test (482): verdict, runner mode (`plan` or `replay`), the result files captured, and the sha256 of its golden manifest. |
 | `classes.tsv` | Grading class per test: eigen, adaptive, Tier-A-unfit, structure-differs, no-field-output, lumped-matrix, test-local plugin (D12), MPI, replay. |
 | `mutation-summary.txt` | Mutation suite outcome over every captured result file. |
+| `per-run.tsv`, `per-run-tolerances.json` | Per-RUN capture of the 24 multi-RUN tests (below). |
 | `o6.txt` | O6 restart round trip (`scripts/o6-proof.sh`): 5/5 restart tests bit-stable. |
 | `../tolerances.json` | Per (test, result file, field, saved step) σ_F and Tier-A bar. |
 
@@ -84,6 +85,41 @@ fields.
   signs, compare clusters by principal angles).
 - The 24 are classed `tier-a-unfit` or `structure-differs` in `classes.tsv`
   and graded by O1+O4+O6, as §5.2 prescribes.
+
+## Per-RUN capture (`--per-run`)
+
+Elmer restarts its `Output File` at every `RUN` of a sif, so with one
+injected name the golden of a multi-RUN test held only the last RUN.
+`--per-run` (with `--o2`) gives every RUN but the last its own file,
+`case.run<j>.result`. It writes `Simulation :: Output File` one-liners
+before each later RUN, and the last RUN keeps `case.result`.
+
+- **24 quick tests** get per-RUN files (`per-run.tsv`: 149 run files).
+  Their final `case.result` is bitwise the same as the existing golden
+  (every byte after the timestamped header). Across all 482 tests, every
+  one of the 5,665 existing fields is unchanged; the only nonzero
+  difference is the known MPI 1-ulp case, OtherMeshResults_np4.
+- **Determinism:** a second Release capture agrees bitwise on all 18 of
+  the 24 that write fields. The ElementUnitTest family writes result
+  files without fields.
+- **σ_F:** the FMA and OpenBLAS arms were recaptured with `--per-run`.
+  `per-run-tolerances.json` holds the 161 new entries (137 `max10sigma`,
+  24 `cap-agree`), in the format of `../tolerances.json`. The 5,665
+  entries already there are identical, so that file does not change.
+  RotatingFlow's run-1 field has σ_F 1.5e-6 (> 0.1 × 1e-5); graded by
+  its per-RUN files, it would be Tier-A-unfit.
+- **Not used for candidate grading.** The change of `Output File` between
+  RUNs is a feature the Rust candidate refuses today ("RUN block 2
+  changes Simulation output file"). Graded with `--per-run`, the 10
+  multi-RUN tests it passes and the 2 it fails would turn into refusals. So
+  `grade-candidate.sh` keeps the one-file injection. Candidate verdicts
+  are unchanged with the new binary (checked on the 24 tests), and the
+  per-RUN golden serves the oracle's own checks (item 4 per RUN).
+
+The per-RUN golden (all 482 quick tests, Release) is under
+`/home/john/elmer-laptop-lanes/elmer-lane-oracle/perrun/golden-release/`
+on the oracle host. The FMA and OpenBLAS per-RUN captures of the 24 tests
+are beside it. `per-run.tsv` pins each manifest by hash.
 
 ## Mutation suite
 

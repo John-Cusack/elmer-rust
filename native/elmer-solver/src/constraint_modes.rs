@@ -41,6 +41,38 @@ pub(crate) struct Modes {
     pub count: usize,
 }
 
+/// The `_init` expansion of a solver's "compute a lumped matrix" flag
+/// (`Calculate Conductance Matrix` of HeatSolve, `Calculate Conductivity
+/// Matrix` of StatCurrentSolve, ...): when `flag` is on, `Constraint Modes
+/// Analysis`, `... Lumped`, `... Fluxes` and `... Matrix Symmetric` are
+/// added unless given (`ListAddNewLogical`), `Constraint Modes Matrix
+/// Filename` defaults to `filename`, and every BC's `Conductivity Body` is
+/// renamed `bc_key` (`ListRenameAllBC`).
+pub fn constraint_modes_lumping(ctx: &mut SolverCtx<'_>, flag: &str, filename: &str, bc_key: &str) {
+    if ctx.params().logical(flag) != Some(true) {
+        return;
+    }
+    let p = &mut ctx.sim.slots[ctx.slot].params;
+    for k in [
+        "Constraint Modes Analysis",
+        "Constraint Modes Lumped",
+        "Constraint Modes Fluxes",
+        "Constraint Modes Matrix Symmetric",
+    ] {
+        if p.get(k).is_none() {
+            p.insert(k, Value::Logical(true));
+        }
+    }
+    if p.get("constraint modes matrix filename").is_none() {
+        p.insert("Constraint Modes Matrix Filename", Value::Str(filename.to_string()));
+    }
+    for bc in &mut ctx.sim.model.boundary_conditions {
+        if let Some(v) = bc.0.remove("conductivity body") {
+            bc.insert(bc_key, v);
+        }
+    }
+}
+
 fn refuse(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
     let p = ctx.params();
     for k in [
@@ -75,11 +107,6 @@ fn refuse(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
     }
     if m.boundary_conditions.iter().any(|b| b.get("constraint mode direction").is_some()) {
         return Err(SolverError::Unsupported("Constraint Mode Direction".into()));
-    }
-    for k in ["constraint modes fluxes filename", "constraint modes matrix filename"] {
-        if p.get(k).is_some() {
-            return Err(SolverError::Unsupported(format!("Constraint Modes Analysis with {k}")));
-        }
     }
     if p.get("nonlinear post solvers").is_some() {
         return Err(SolverError::Unsupported("Constraint Modes Analysis with Nonlinear Post Solvers".into()));
@@ -216,6 +243,14 @@ pub(crate) fn solve_modes(ctx: &mut SolverCtx<'_>, modes: Modes) -> Result<f64, 
         if r.is_err() {
             break;
         }
+        // SolveCore.F90:4250: `Var % ConstraintModes(NMode,:) = x`.
+        if let Some(id) = ctx.sim.slots[ctx.slot].variable {
+            let v = ctx.sim.vars.by_id_mut(id);
+            let mode = v.values.clone();
+            let k = m as usize;
+            v.constraint_modes.resize(modes.count.max(k), Vec::new());
+            v.constraint_modes[k - 1] = mode;
+        }
         ctx.info(DRIVER, &format!("Mode {} computed, doing some postprocessing", i2s(i64::from(m))), 10);
         r = set_rhs(ctx, m, false);
         if r.is_err() {
@@ -312,6 +347,22 @@ fn finalize(ctx: &mut SolverCtx<'_>, mut c: Vec<Vec<f64>>) {
                 continue;
             }
             ctx.info(FIN, &format!("{:>3}{:>3}{}", i + 1, j + 1, crate::fortran_fmt::es(*v, 17, 9)), 5);
+        }
+    }
+    // `Constraint Modes Fluxes Filename` (or `... Matrix Filename`): the
+    // matrix one row per record, list-directed (`WRITE(10,*)
+    // FluxesMatrix(i,:)`), in the working directory.
+    let file = p
+        .string("constraint modes fluxes filename")
+        .or_else(|| p.string("constraint modes matrix filename"))
+        .map(str::to_string);
+    if let Some(file) = file {
+        let text: String = c
+            .iter()
+            .map(|row| row.iter().map(|&v| elmer_saveio::fortran::list_real(v)).collect::<String>() + "\n")
+            .collect();
+        if let Err(e) = std::fs::write(&file, text) {
+            ctx.warn(FIN, &format!("could not write {file}: {e}"));
         }
     }
     let nrm: f64 = c.iter().flatten().map(|v| v.abs()).sum();

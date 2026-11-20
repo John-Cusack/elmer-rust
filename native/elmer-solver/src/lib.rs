@@ -58,6 +58,7 @@ pub use backend::{
     AssemblyBackend, Backends, DofsBackend, FeBackend, LinearSolverRegistry, Perm, SolverDofs, TimeBackend, TimeTerms,
 };
 pub use coupled::{AssemblySolver, CoupledSystem};
+pub use constraint_modes::constraint_modes_lumping;
 pub use constraints::ConstraintMatrix;
 pub use change::{compute_change, ChangeEnv, ChangeReport, SolverState};
 pub use error::SolverError;

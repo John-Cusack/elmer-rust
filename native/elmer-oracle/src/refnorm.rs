@@ -269,6 +269,24 @@ pub fn expand_includes(text: &str, bases: &[&std::path::Path]) -> Result<String,
     Ok(out)
 }
 
+/// For each top-level `RUN` of a sif, the text Elmer has read when it
+/// compares after that RUN: everything before it, with the earlier `RUN`
+/// lines dropped (keys merge in file order, later ones win).
+pub fn run_prefixes(text: &str) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let runs = crate::runner::run_lines(text);
+    runs.iter()
+        .map(|&r| {
+            lines[..r]
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !runs.contains(i))
+                .map(|(_, l)| format!("{l}\n"))
+                .collect()
+        })
+        .collect()
+}
+
 /// Every solver's lowercased `Equation`, by solver number.
 pub fn solver_equations(text: &str) -> Vec<(u32, String)> {
     let mut out = Vec::new();
@@ -520,6 +538,16 @@ mod tests {
         assert!(expand_includes("include bad.sif\n", &[&dir]).unwrap_err().contains("defines more"));
         assert!(expand_includes("include none.sif\n", &[&dir]).unwrap_err().contains("not found"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn run_prefixes_accumulate_keys_up_to_each_run() {
+        let sif = "Solver 1\n Variable = T\nEnd\nSolver 1 :: Reference Norm = 1\nRUN\nSolver 2 :: Reference Norm = 2\nRUN\n";
+        let p = run_prefixes(sif);
+        assert_eq!(p.len(), 2);
+        assert_eq!(reference_solvers(&p[0]).unwrap().len(), 1);
+        let second = reference_solvers(&p[1]).unwrap();
+        assert_eq!(second.iter().map(|s| s.number).collect::<Vec<_>>(), [1, 2]);
     }
 
     #[test]

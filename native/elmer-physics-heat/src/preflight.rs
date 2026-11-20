@@ -57,10 +57,6 @@ const SOLVER: &[Rule] = &[
         "mesh refinement is not implemented",
     ),
     flag(
-        "Calculate Conductance Matrix",
-        "constraint modes are not implemented",
-    ),
-    flag(
         "Nonlinear System Linesearch",
         "DefaultLinesearch is not implemented",
     ),
@@ -93,7 +89,6 @@ const AT_IP: &str = "evaluation at integration points is not implemented";
 const BODY_FORCE: &[Rule] = &[
     present("Integral Heat Source", "not implemented"),
     present("Friction Heat", "not implemented"),
-    flag("Joule Heat", "coupled Joule heating is not implemented"),
     present("Perfusion Rate", "perfusion is not implemented"),
     flag("Heat Source At IP", AT_IP),
     flag("Volumetric Heat Source At IP", AT_IP),
@@ -221,6 +216,13 @@ pub fn check_supported(sections: &HeatSections<'_>) -> Result<(), HeatError> {
     }
     if let Some(b) = sections.body_force {
         scan(b, "body force", BODY_FORCE)?;
+        if legacy && b.logical("Joule Heat") == Some(true) {
+            return Err(HeatError::Unsupported {
+                section: "body force",
+                keyword: "Joule Heat".into(),
+                reason: "the legacy assembly's Joule heating is not implemented",
+            });
+        }
         if b.get("Smart Heater Control").is_some() && !legacy {
             // HeatSolver_init: `ListWarnUnsupportedKeyword` with FatalFound.
             return Err(HeatError::Unsupported {

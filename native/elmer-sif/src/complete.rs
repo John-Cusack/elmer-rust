@@ -41,13 +41,13 @@ pub fn complete_run(run: &mut Model, sif_path: &str) -> Result<(), String> {
 
 
 
+/// `FindSolverByProcName` (ElmerSolver.F90:1412): the first solver whose
+/// `Procedure` string contains `proc` (case-sensitive `INDEX`).
 fn find_solver_by_proc(solvers: &[crate::model::Section], proc: &str) -> Option<usize> {
     solvers.iter().position(|s| {
         matches!(
             s.get("procedure"),
-            Some(Entry { value: Value::Text { text, .. }, .. })
-            if text.split_whitespace().last().unwrap_or("") == proc
-                || text.split_whitespace().next().unwrap_or("") == proc
+            Some(Entry { value: Value::Text { text, .. }, .. }) if text.contains(proc)
         )
     })
 }
@@ -111,8 +111,15 @@ fn add_vtu_output_solver(run: &mut Model) {
         _ => return,
     };
     let Some(k) = post.find(".vtu") else { return };
-    if find_solver_by_proc(&run.solvers, "resultoutputsolver").is_some() {
-        return;
+    // An existing ResultOutputSolver that already writes VTU stops the hack
+    // ("ResultOutputSolver instance with VTU format already exists").
+    if let Some(j) = find_solver_by_proc(&run.solvers, "ResultOutputSolver") {
+        let s = &run.solvers[j];
+        let vtu = matches!(s.get("vtu format"), Some(Entry { value: Value::Logical(true), .. }))
+            || matches!(s.get("output format"), Some(Entry { value: Value::Text { text, .. }, .. }) if text == "vtu");
+        if vtu {
+            return;
+        }
     }
     sim.remove("post file");
     let stem = post[..k].to_string();
@@ -169,7 +176,7 @@ fn add_save_scalars_solver(run: &mut Model) {
         Some(Entry { value: Value::Text { text, .. }, .. }) => text.clone(),
         _ => return,
     };
-    if find_solver_by_proc(&run.solvers, "savescalars").is_some() {
+    if find_solver_by_proc(&run.solvers, "SaveScalars").is_some() {
         return;
     }
     let prefix_hits: Vec<(String, Value)> = sim

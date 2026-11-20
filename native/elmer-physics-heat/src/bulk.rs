@@ -3,7 +3,7 @@ use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, Quadrature};
 use crate::error::HeatError;
 use crate::material::{
     check_len, check_opt, interp, CompressModel, Conductivity, HeatBulkConfig, HeatMaterialAtNodes,
-    Stabilization,
+    JouleHeat, Stabilization,
 };
 
 /// Bulk element matrices of `LocalMatrixVec` (HeatSolve.F90:1006) for an
@@ -41,6 +41,11 @@ pub fn heat_bulk_local(
     if cfg.extra_functions > 0 {
         return Err(HeatError::Invalid(
             "the per-point kernel takes nodal elements only".into(),
+        ));
+    }
+    if mat.joule_heat.is_some() {
+        return Err(HeatError::Invalid(
+            "the per-point kernel has no Joule heat".into(),
         ));
     }
     if !(1..=3).contains(&cfg.dim) {
@@ -366,6 +371,23 @@ pub(crate) fn check_nodal_inputs(n: usize, mat: &HeatMaterialAtNodes) -> Result<
     }
     if let Some(v) = &mat.mesh_velocity {
         check_len("mesh velocity", n, v.len())?;
+    }
+    match &mat.joule_heat {
+        None => {}
+        Some(JouleHeat::Field {
+            electric_conductivity,
+            field,
+        }) => {
+            check_len("electric conductivity", n, electric_conductivity.len())?;
+            check_len("joule field", n, field.len())?;
+        }
+        Some(JouleHeat::Potential {
+            electric_conductivity,
+            potential,
+        }) => {
+            check_len("electric conductivity", n, electric_conductivity.len())?;
+            check_len("potential", n, potential.len())?;
+        }
     }
     if let Some(c) = &mat.compressibility {
         check_len("temperature", n, c.temperature.len())?;
