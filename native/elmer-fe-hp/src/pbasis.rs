@@ -615,7 +615,186 @@ impl PElementBasis {
     }
 }
 
+impl PElementBasis {
+    /// Second derivatives in the reference coordinates (`ddLBasisddx`):
+    /// along each reference axis a basis function's gradient is a
+    /// polynomial of degree at most its p, so the derivative of its
+    /// interpolant through `p + 3` Chebyshev-Lobatto points around `uvw`
+    /// (half width 1/8) is the exact one up to rounding; the result is
+    /// symmetrized.
+    fn reference_second_derivatives(&self, uvw: [f64; 3], dim: usize, nb: usize) -> Result<Vec<[[f64; 3]; 3]>, String> {
+        let s = &self.spec;
+        let pmax = s
+            .edge_degree
+            .iter()
+            .chain(&s.face_degree)
+            .copied()
+            .chain([s.bubble_p, 1])
+            .max()
+            .unwrap_or(1)
+            .max(1) as usize;
+        let m = pmax + 3;
+        let h = 0.125;
+        let t: Vec<f64> = (0..m).map(|j| h * (std::f64::consts::PI * j as f64 / (m - 1) as f64).cos()).collect();
+        // L_j'(0) of the Lagrange basis on the points t.
+        let w: Vec<f64> = (0..m)
+            .map(|j| {
+                let mut sum = 0.0;
+                for i in (0..m).filter(|&i| i != j) {
+                    let mut prod = 1.0 / (t[j] - t[i]);
+                    for l in (0..m).filter(|&l| l != i && l != j) {
+                        prod *= (0.0 - t[l]) / (t[j] - t[l]);
+                    }
+                    sum += prod;
+                }
+                sum
+            })
+            .collect();
+        let cap = s.capacity();
+        let mut val = vec![0.0; cap];
+        let mut grad = vec![[0.0; 3]; cap];
+        let mut dd = vec![[[0.0f64; 3]; 3]; nb];
+        for k in 0..dim {
+            for (j, &tj) in t.iter().enumerate() {
+                let mut p = uvw;
+                p[k] += tj;
+                let n2 = h1_p_basis_spec(s, p, &mut val, &mut grad)?;
+                if n2 != nb {
+                    return Err("p basis size changed along the axis".into());
+                }
+                for q in 0..nb {
+                    for l in 0..dim {
+                        dd[q][l][k] += w[j] * grad[q][l];
+                    }
+                }
+            }
+        }
+        for d in dd.iter_mut() {
+            for l in 0..dim {
+                for k in l + 1..dim {
+                    let a = 0.5 * (d[l][k] + d[k][l]);
+                    d[l][k] = a;
+                    d[k][l] = a;
+                }
+            }
+        }
+        Ok(dd)
+    }
+}
+
 impl ElementBasis for PElementBasis {
+    /// `ddBasisddx`: the reference second derivatives
+    /// ([`Self::reference_second_derivatives`]) taken to the global
+    /// coordinates by `GlobalSecondDerivatives` (ElemInfo.F90:10663), with
+    /// the element's geometry from all the coordinates given (as `eval`).
+    fn second_derivatives(&self, etype: ElementType, nodal_xyz: &[[f64; 3]], uvw: [f64; 3]) -> Result<Vec<[[f64; 3]; 3]>, String> {
+        let nn = n_nodes(etype.0)?;
+        if nodal_xyz.len() < nn {
+            return Err(format!("{} nodal coordinates given, {nn} needed", nodal_xyz.len()));
+        }
+        let cap = self.spec.capacity();
+        let mut val = vec![0.0; cap];
+        let mut grad = vec![[0.0; 3]; cap];
+        let nb = h1_p_basis_spec(&self.spec, uvw, &mut val, &mut grad)?;
+        let dim = match etype.family() {
+            2 => 1,
+            3 | 4 => 2,
+            _ => 3,
+        };
+        let ddl = self.reference_second_derivatives(uvw, dim, nb)?;
+        let ng = nodal_xyz.len().clamp(nn, nb);
+        let x = &nodal_xyz[..ng];
+        let mut dx = [[0.0f64; 3]; 3];
+        for r in 0..3 {
+            for i in 0..dim {
+                dx[r][i] = (0..ng).fold(0.0, |a, q| a + x[q][r] * grad[q][i]);
+            }
+        }
+        // Metric = the inverse of G = dx^T dx.
+        let mut g = [[0.0f64; 3]; 3];
+        for i in 0..dim {
+            for j in 0..dim {
+                g[i][j] = (0..3).fold(0.0, |a, r| a + dx[r][i] * dx[r][j]);
+            }
+        }
+        let metric: [[f64; 3]; 3] = match dim {
+            1 => [[1.0 / g[0][0], 0.0, 0.0], [0.0; 3], [0.0; 3]],
+            2 => {
+                let s = 1.0 / (g[0][0] * g[1][1] - g[0][1] * g[1][0]);
+                [[s * g[1][1], -s * g[0][1], 0.0], [-s * g[1][0], s * g[0][0], 0.0], [0.0; 3]]
+            }
+            _ => {
+                let d = g[0][0] * (g[1][1] * g[2][2] - g[1][2] * g[2][1]) - g[0][1] * (g[1][0] * g[2][2] - g[1][2] * g[2][0])
+                    + g[0][2] * (g[1][0] * g[2][1] - g[1][1] * g[2][0]);
+                let s = 1.0 / d;
+                let c = |a: usize, b: usize, c2: usize, d2: usize| g[a][b] * g[c2][d2] - g[a][d2] * g[c2][b];
+                [
+                    [s * c(1, 1, 2, 2), -s * c(0, 1, 2, 2), s * c(0, 1, 1, 2)],
+                    [-s * c(1, 0, 2, 2), s * c(0, 0, 2, 2), -s * c(0, 0, 1, 2)],
+                    [s * c(1, 0, 2, 1), -s * c(0, 0, 2, 1), s * c(0, 0, 1, 1)],
+                ]
+            }
+        };
+        // ddx(r,i,j), C2(i,j,k) = ddx . dx, C1(i,j,k) = Metric(k,:) . C2(i,j,:).
+        let mut ddx = [[[0.0f64; 3]; 3]; 3];
+        for r in 0..3 {
+            for i in 0..dim {
+                for j in 0..dim {
+                    ddx[r][i][j] = (0..ng).fold(0.0, |a, q| a + ddl[q][i][j] * x[q][r]);
+                }
+            }
+        }
+        let mut c1 = [[[0.0f64; 3]; 3]; 3];
+        for i in 0..dim {
+            for j in 0..dim {
+                let mut c2 = [0.0f64; 3];
+                for (k, c) in c2.iter_mut().enumerate().take(dim) {
+                    *c = (0..3).fold(0.0, |a, r| a + ddx[r][i][j] * dx[r][k]);
+                }
+                for k in 0..dim {
+                    c1[i][j][k] = (0..dim).fold(0.0, |a, l| a + metric[k][l] * c2[l]);
+                }
+            }
+        }
+        let mut out = Vec::with_capacity(nb);
+        for q in 0..nb {
+            let df = grad[q];
+            let mut ddf = ddl[q];
+            for i in 0..dim {
+                for j in 0..dim {
+                    ddf[i][j] -= (0..dim).fold(0.0, |a, k| a + c1[i][j][k] * df[k]);
+                }
+            }
+            let mut cddf = [[0.0f64; 3]; 3];
+            for i in 0..dim {
+                for j in 0..dim {
+                    let mut s = 0.0;
+                    for k in 0..dim {
+                        for l in 0..dim {
+                            s += metric[i][k] * metric[j][l] * ddf[k][l];
+                        }
+                    }
+                    cddf[i][j] = s;
+                }
+            }
+            let mut v = [[0.0f64; 3]; 3];
+            for i in 0..3 {
+                for j in 0..3 {
+                    let mut s = 0.0;
+                    for k in 0..dim {
+                        for l in 0..dim {
+                            s += dx[i][k] * dx[j][l] * cddf[k][l];
+                        }
+                    }
+                    v[i][j] = s;
+                }
+            }
+            out.push(v);
+        }
+        Ok(out)
+    }
+
+
     fn eval(
         &self,
         etype: ElementType,

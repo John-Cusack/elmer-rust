@@ -189,6 +189,8 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("SD_p-FEM_with_varying_p", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
     ("SD_Classical2DShell", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
     ("L2ndDerivatives", "L2ndDerivativesTest", "TestSolver", Hook::Solver(l2nd_derivatives::factory)),
+    ("P2ndDerivatives", "P2ndDerivativesTest", "TestSolver", Hook::Solver(crate::p2nd_derivatives::factory)),
+    ("SD_P2ndDerivatives", "P2ndDerivativesTest", "TestSolver", Hook::Solver(crate::p2nd_derivatives::factory)),
     ("StokesProj", "Pressure", "PressureSolver", Hook::Solver(stokes_proj::pressure_factory)),
     ("StokesProj", "Velocity", "VelocitySolver", Hook::Solver(stokes_proj::velocity_factory)),
     ("bentonite", "BentoniteSolver", "BentoniteSolver", Hook::Solver(bentonite::factory)),

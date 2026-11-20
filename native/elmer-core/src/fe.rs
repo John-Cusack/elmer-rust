@@ -37,4 +37,15 @@ pub trait ElementBasis {
         uvw: [f64; 3],
         out: &mut BasisEval,
     ) -> Result<(), String>;
+
+    /// `ElementInfo(.., ddBasisddx, SecondDerivatives = .TRUE.)`: the
+    /// global second derivatives of each basis function at one point.
+    fn second_derivatives(
+        &self,
+        _etype: ElementType,
+        _nodal_xyz: &[[f64; 3]],
+        _uvw: [f64; 3],
+    ) -> Result<Vec<[[f64; 3]; 3]>, String> {
+        Err("second derivatives of this basis are not implemented".into())
+    }
 }

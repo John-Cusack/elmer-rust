@@ -44,6 +44,7 @@ pub mod bentonite;
 pub mod compute_error;
 pub mod count_solver;
 pub mod sun_angle;
+pub mod p2nd_derivatives;
 pub mod mesh_colour;
 pub mod curved_bndry_pfem;
 pub mod edge_element_test;
