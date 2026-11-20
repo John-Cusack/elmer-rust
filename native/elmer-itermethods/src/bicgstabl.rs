@@ -370,6 +370,9 @@ impl<T: IterScalar> IterativeSolver<T> for BiCgStabL<T> {
 
             errorind = rnrm / bnrm;
             self.history.push(errorind);
+            if std::env::var_os("ELMER_RS_EIGDBG").is_some() && comm.rank() == 0 {
+                eprintln!("RND {} {:.4e} {:.4e}", self.history.0.len(), rnrm, errorind);
+            }
 
             if let Some(rb) = robust {
                 if rd >= rb.start_iteration {
