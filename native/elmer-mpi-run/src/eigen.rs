@@ -17,11 +17,8 @@
 //! `Eigen System Sorting`, and each vector is spread back over the local
 //! dofs (`ParallelUpdateResult`).
 //!
-//! Not installed in the run yet: partitioned eigen systems stay refused
-//! until the partitioned solves of multi-dof systems reproduce
-//! `SParIterSolver` to the last bit (the inner solves amplify any
-//! difference) and a partition without the solver's elements leaves the
-//! solver's communicator (`comm_active`).
+//! Refused: a partition without the solver's elements (Elmer's
+//! `comm_active` and its result-file layout on that partition).
 
 use elmer_core::{CsrMatrix, LinalgError, Logger, ParamMap, Params, SolveStatus};
 use elmer_dist::{dist_solve, DistCsr, DofLayout, Exchange};
@@ -57,6 +54,18 @@ impl ParEigenBackend for ParEigen {
         })?;
         let layout = ctx.layout_of(k).map_err(dist_err)?;
         let ex: &dyn Exchange = &*ctx.ex;
+        // A partition without the solver's elements has no matrix in Elmer
+        // (CreateMatrix finds no rows): it is left out of the solver's
+        // communicator (`comm_active`), keeps no modes, holds the variable
+        // over all its nodes and writes no final save. Not reproduced:
+        // refused on every rank.
+        let mut empty = [if k.nrows == 0 { 1.0 } else { 0.0 }];
+        ex.max_f64(&mut empty);
+        if empty[0] > 0.0 {
+            return Err(SolverError::Unsupported(
+                "Eigen Analysis: a partition without the solver's elements (comm_active) in parallel".into(),
+            ));
+        }
         // EnforceDirichletConditions zeroed the mass rows of every
         // constrained copy (after CommunicateDirichletBCs), and with
         // `Linear System Symmetric` their columns; the solver zeroed only

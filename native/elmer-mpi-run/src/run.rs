@@ -98,7 +98,13 @@ fn preflight(model: &Model, registry: &elmer_solver::SolverRegistry) -> Result<(
         if p.0.is_empty() || runs_never(p) {
             continue;
         }
-        let Some((lib, entry)) = procedure_of(p) else {
+        // A legacy `Equation` without `Procedure` gets one from
+        // `legacy_solvers` once the mesh is read (AddEquationBasics).
+        let legacy = || {
+            let eq = p.string("equation")?;
+            elmer_run::case::legacy_procedure(eq).map(|(l, e)| (l.to_string(), e.to_string()))
+        };
+        let Some((lib, entry)) = procedure_of(p).or_else(legacy) else {
             return Err(unsupported(format!("Solver {id}: no Procedure")));
         };
         // VTU output, one piece per partition: checked by `prepare_vtu_output`.
@@ -554,6 +560,7 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     });
     sim.backends.dofs = Some(Box::new(elmer_run::elmer_pdofs::PDofsBackend::new().with_matc(degree)));
     sim.backends.nodes = Some(Box::new(ParNodes));
+    sim.backends.eigen = Some(Arc::new(crate::eigen::ParEigen));
     elmer_run::elmer_fixtures::registry::install_live(&fixture_case, &mut sim, &moving);
     if let Some(h) = mesh.halo_elements() {
         sim.set_halo_elements(h.into());

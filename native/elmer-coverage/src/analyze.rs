@@ -71,7 +71,8 @@ fn section_features(kind: &str, p: &ParamMap, out: &mut Vec<String>) {
         let key = normalize_key(key);
         let t = text(v).unwrap_or_default();
         match key.as_str() {
-            "eigen analysis" if is_true(v) => feature("eigenvalue analysis"),
+            // `Eigen Analysis` runs serially and partitioned (real,
+            // consistent mass); what is not ported refuses at run time.
             "harmonic analysis" if is_true(v) => feature("harmonic analysis"),
             "linear system complex" if is_true(v) => feature("complex linear system"),
             "element" if elmer_run::case::native_element(p) => {}
@@ -353,7 +354,7 @@ mod tests {
         let b = blockers(&model, &elmer_run::solver_registry(), &[], "");
         assert_eq!(
             b,
-            vec!["feature: eigenvalue analysis", "feature: mortar / periodic / contact BC"]
+            vec!["feature: mortar / periodic / contact BC"]
         );
     }
 
