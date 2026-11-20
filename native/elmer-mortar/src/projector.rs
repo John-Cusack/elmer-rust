@@ -184,12 +184,22 @@ pub fn periodic_projector(
     // doubled one (no split) takes the ordinary path to its target.
     if flag(bc, "discontinuous boundary") {
         if let Some(perm) = env.discont_perm {
-            if weak {
-                return Err(MortarError::Unsupported(
-                    "Discontinuous Boundary Galerkin projector (WeightedProjectorDiscont)".into(),
-                ));
-            }
-            let mut p = nodal_projector_discont(perm, this);
+            let p = if weak {
+                crate::weighted::weighted_projector_discont(
+                    env.mesh,
+                    env.bc_of,
+                    this,
+                    perm,
+                    bc,
+                    env.solver,
+                    env.simulation,
+                    env.coord_dim,
+                    env.log,
+                )?
+            } else {
+                Some(nodal_projector_discont(perm, this))
+            };
+            let Some(mut p) = p else { return Ok(None) };
             finish(env, bc, &mut p);
             return Ok(Some(p));
         }
