@@ -917,6 +917,7 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
             case_dir: case_dir.clone(),
             ready: false,
             discont_perm: discont_perm.clone(),
+            jump: Default::default(),
         }));
     }
     let mut report = sim.run(mesh, log, comm)?;

@@ -151,6 +151,8 @@ pub fn weighted_projector(
         galerkin: true,
         slave_scale: 1.0,
         master_scale: 1.0,
+        mortar_perm: false,
+        rhs: None,
     })
 }
 
@@ -296,5 +298,7 @@ pub fn weighted_projector_discont(
         galerkin: true,
         slave_scale: 1.0,
         master_scale: 1.0,
+        mortar_perm: false,
+        rhs: None,
     }))
 }

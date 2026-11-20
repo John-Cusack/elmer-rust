@@ -45,6 +45,14 @@ pub struct Projector {
     /// `-1`.
     pub slave_scale: f64,
     pub master_scale: f64,
+    /// `MortarBC % Perm` is set (a Lagrange periodic boundary or a mortar
+    /// jump): a Galerkin row then scales the columns of its own rows' nodes
+    /// by `slave_scale`, the rest by `master_scale`, and sums the former
+    /// into the weight of `rhs`.
+    pub mortar_perm: bool,
+    /// `MortarBC % Rhs` by row (`Mortar BC Offset`); the constraint row gets
+    /// that weight times it.
+    pub rhs: Option<Vec<f64>>,
 }
 
 impl Projector {
@@ -137,6 +145,8 @@ pub fn nodal_projector(
         galerkin: false,
         slave_scale: 1.0,
         master_scale: 1.0,
+        mortar_perm: false,
+        rhs: None,
     })
 }
 
@@ -341,6 +351,8 @@ pub fn nodal_projector_discont(discont_perm: &[u32], bc: usize) -> Projector {
         galerkin: false,
         slave_scale: 1.0,
         master_scale: 1.0,
+        mortar_perm: false,
+        rhs: None,
     }
 }
 
@@ -524,6 +536,8 @@ mod tests {
             galerkin: false,
             slave_scale: 1.0,
             master_scale: 1.0,
+        mortar_perm: false,
+        rhs: None,
         };
         p.set_rowsum();
         assert_eq!(p.values, vec![0.25, -0.75, 1.0]);

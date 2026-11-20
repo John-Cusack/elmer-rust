@@ -48,6 +48,9 @@ pub(crate) struct MortarSolver {
     pub ready: bool,
     /// `Mesh % DiscontPerm` of a split discontinuous mesh.
     pub discont_perm: Option<Arc<Vec<u32>>>,
+    /// A mortar jump was set: the constraints are rebuilt before each solve
+    /// (`MortarBCsChanged`).
+    pub jump: std::cell::Cell<bool>,
 }
 
 impl MortarSolver {
@@ -93,8 +96,61 @@ impl MortarSolver {
             let scale = periodic_scale(*bc, name).unwrap_or(-1.0);
             p.slave_scale = -scale;
             p.master_scale = -1.0;
+            p.mortar_perm = true;
             projectors[i] = Some(p);
         }
+        // SetWeightedProjectorJump: `Mortar BC Offset` at the nodes of the
+        // boundary's elements, in MortarBC % Rhs by projector row. The
+        // Fortran sets it with the Dirichlet conditions, so it is redone
+        // before every solve.
+        let mut jump = false;
+        let key = format!("mortar bc offset {name}");
+        for (i, p) in projectors.iter_mut().enumerate() {
+            let Some(p) = p else { continue };
+            let bc = &model.boundary_conditions[i];
+            if bc.get(&key).is_none() {
+                continue;
+            }
+            jump = true;
+            let var = ctx.variable(name).ok_or_else(|| SolverError::fatal("SetWeightedProjectorJump", "no variable"))?;
+            let perm = var.perm.ok_or_else(|| SolverError::Unsupported("mortar BCs on a variable without Perm".into()))?;
+            let mut row_of = std::collections::HashMap::new();
+            for (r, &k) in p.inv_perm.iter().enumerate() {
+                if k != elmer_core::NO_DOF {
+                    row_of.insert(k, r);
+                }
+            }
+            let target_bc = bc.integer("mortar bc").unwrap_or(0);
+            let mut rhs = vec![0.0; p.n_rows()];
+            let mut done = vec![false; p.n_rows()];
+            let mesh = ctx.mesh;
+            for t in 0..mesh.n_boundary() {
+                let e = elmer_core::ElemId((mesh.n_bulk() + t) as u32);
+                let el = mesh.element(e);
+                if model.bc_of_tag(el.tag) != Some(i + 1) {
+                    continue;
+                }
+                let [left, right] = el.parents;
+                if if target_bc > 0 { left.is_none() } else { left.is_none() || right.is_none() } {
+                    continue;
+                }
+                let Some(voff) = ctx.real_at_nodes(bc, &key, e)? else { continue };
+                for (u, &node) in el.nodes.iter().enumerate() {
+                    if perm[node as usize] == elmer_core::NO_DOF {
+                        continue;
+                    }
+                    let Some(&r) = row_of.get(&node) else { continue };
+                    if done[r] {
+                        continue;
+                    }
+                    done[r] = true;
+                    rhs[r] = voff[u];
+                }
+            }
+            p.mortar_perm = true;
+            p.rhs = Some(rhs);
+        }
+        self.jump.set(jump);
         let var = ctx.variable(name).ok_or_else(|| SolverError::fatal("GenerateConstraintMatrix", "no variable"))?;
         let perm = var.perm.ok_or_else(|| SolverError::Unsupported("mortar BCs on a variable without Perm".into()))?;
         let target = ConstraintTarget {
@@ -125,6 +181,8 @@ impl Solver for MortarSolver {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
         if !self.ready {
             self.inner.init(ctx)?;
+        }
+        if !self.ready || self.jump.get() {
             let c = self.constraint_matrix(ctx)?;
             ctx.set_constraint_matrix(c);
             self.ready = true;
