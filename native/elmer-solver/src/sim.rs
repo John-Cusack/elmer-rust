@@ -2399,7 +2399,13 @@ impl Simulation {
                 // mesh's; the run goes on with the new one.
                 if let Some(change) = self.adaptive.pending.take() {
                     let new_mesh = self.wrap_mesh(change.mesh.clone());
-                    self.swap_mesh(mesh, &*new_mesh, log, comm)?;
+                    match self.adaptive.pending_coords.take() {
+                        Some(c) => {
+                            let old = crate::remesh::WithCoords { mesh, coords: &c };
+                            self.swap_mesh(&old, &*new_mesh, log, comm)?;
+                        }
+                        None => self.swap_mesh(mesh, &*new_mesh, log, comm)?,
+                    }
                     self.adaptive.depth += 1;
                     self.adaptive.finished = false;
                     self.adaptive.name = change.name.clone();

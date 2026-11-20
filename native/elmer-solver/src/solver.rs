@@ -493,6 +493,10 @@ impl<'a> SolverCtx<'a> {
     /// Asks the run to move to another mesh once this steady-state
     /// iteration is saved (adaptive mesh refinement, [`crate::remesh`]).
     pub fn request_mesh_change(&mut self, change: crate::remesh::MeshChange) {
+        // The old mesh as it is now: the interpolation runs here in
+        // RefineMesh, before the solver displaces the mesh.
+        let coords = (0..self.mesh.n_nodes() as u32).map(|k| self.mesh.coord(k)).collect();
+        self.sim.adaptive.pending_coords = Some(coords);
         self.sim.adaptive.pending = Some(change);
     }
 
