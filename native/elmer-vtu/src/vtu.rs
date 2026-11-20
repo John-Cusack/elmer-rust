@@ -346,7 +346,7 @@ pub fn render_vtu(
             })?;
             conn.push(match (&dpoints, &sel.node_map) {
                 // `DgPerm(TmpIndexes(j))` of Elmer2VtkIndexes' DG indexes.
-                (Some(d), _) => d.point_of(opts, e, local)? as i32,
+                (Some(d), _) => d.point_of(mesh, opts, e, local)? as i32,
                 (None, None) => node as i32,
                 (None, Some(m)) => m[node as usize] as i32,
             });
@@ -426,15 +426,32 @@ struct DiscontinuousPoints {
 }
 
 impl DiscontinuousPoints {
-    fn point_of(&self, opts: &VtuOptions, e: ElemId, local: usize) -> io::Result<u32> {
+    fn point_of(&self, mesh: &dyn MeshView, opts: &VtuOptions, e: ElemId, local: usize) -> io::Result<u32> {
         let layout = opts.dg_layout.as_ref().expect("checked when the points were made");
-        let d = layout
-            .index
-            .get(e.0 as usize)
-            .and_then(|ix| ix.get(local))
-            .copied()
-            .filter(|&d| d != elmer_core::NO_DOF)
-            .ok_or_else(|| invalid(format!("element {} has no DG index for local node {}", e.0 + 1, local + 1)))?;
+        let own = |t: usize, k: usize| layout.index.get(t).and_then(|ix| ix.get(k)).copied().filter(|&d| d != elmer_core::NO_DOF);
+        let d = match own(e.0 as usize, local) {
+            Some(d) => d,
+            // Elmer2VtkIndexes: a boundary element without DG indexes takes
+            // those of the first parent (Left, then Right) holding all its
+            // nodes.
+            None => {
+                let el = mesh.element(e);
+                let mut found = None;
+                for p in el.parents.iter().flatten() {
+                    let pn = mesh.element(*p).nodes;
+                    let all: Option<Vec<u32>> = el
+                        .nodes
+                        .iter()
+                        .map(|n| pn.iter().position(|m| m == n).and_then(|k| own(p.0 as usize, k)))
+                        .collect();
+                    if let Some(ix) = all {
+                        found = Some(ix[local]);
+                        break;
+                    }
+                }
+                found.ok_or_else(|| invalid(format!("element {} has no DG index for local node {}", e.0 + 1, local + 1)))?
+            }
+        };
         match self.perm.get(d as usize) {
             Some(&p) if p != u32::MAX => Ok(p),
             _ => Err(invalid(format!("DG index {} of element {} is not saved", d + 1, e.0 + 1))),
