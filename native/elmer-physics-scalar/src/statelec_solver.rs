@@ -329,7 +329,10 @@ impl Solver for StatElecSolver {
                         // LocalMatrix(Element, n, nd+nb, nb), then CondensateP(nd, nb).
                         // The basis takes the nodes in the order of the dofs (p
                         // tetrahedra are reordered); the values follow them.
-                        let p = p_element(d, e)?;
+                        // `VecAsm` is `Vector Assembly` here (no colours or
+                        // threads); without it the scalar ElementInfo.
+                        let vec_asm = ctx.params().logical("vector assembly") == Some(true);
+                        let p = p_element(d, e, !vec_asm)?;
                         let xyz: Vec<[f64; 3]> =
                             p.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
                         let mat = mat.reordered(el.nodes, &p.nodes);
@@ -398,7 +401,8 @@ impl Solver for StatElecSolver {
                     Some(d) => {
                         // A p boundary element lists its nodes in the parent's
                         // edge order (AssignLocalNumber); its values follow it.
-                        let p = p_element(d, e)?;
+                        // LocalMatrixBC always calls the scalar ElementInfo.
+                        let p = p_element(d, e, true)?;
                         let xyz: Vec<[f64; 3]> =
                             p.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
                         let bc = bc.reordered(el.nodes, &p.nodes);
@@ -493,13 +497,17 @@ struct PElement {
     nb: usize,
 }
 
-fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId) -> Result<PElement, SolverError> {
+///
+/// `scalar`: the basis of the scalar `ElementInfo` (PElementBase.F90 and
+/// `ElementMetric`), which `LocalMatrix` and `LocalMatrixBC` call; otherwise
+/// that of `ElementInfoVec`, as `LocalMatrixVec` uses under `Vector
+/// Assembly` (StatElecSolve.F90: `VecAsm`).
+fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId, scalar: bool) -> Result<PElement, SolverError> {
     let mut slots = Vec::new();
     d.element_slots(e, &mut slots);
+    let basis = if scalar { d.element_basis_scalar(e) } else { d.element_basis(e) };
     Ok(PElement {
-        basis: d
-            .element_basis(e)
-            .map_err(|m| SolverError::fatal("ElementInfo", m))?,
+        basis: basis.map_err(|m| SolverError::fatal("ElementInfo", m))?,
         rule: d
             .element_rule(e)
             .map_err(|m| SolverError::fatal("GaussPoints", m))?,

@@ -30,7 +30,7 @@ pub use exchange::{Exchange, MpiExchange, ThreadComm};
 pub use layout::{owners_by_lowest_rank, DofLayout};
 pub use linsys::{read_rank_system, RankSystem};
 pub use matrix::{DistCsr, DistOperator};
-pub use solve::{dist_solve, DistPrecond, DistSolveOptions};
+pub use solve::{dist_solve, dist_solve_kept, scaling_round_trip, DistPrecond, DistSolveOptions, KeptPrecond};
 
 /// Errors from distributed setup and solves. Setup is collective: when one
 /// rank fails, every rank returns an error rather than waiting forever.

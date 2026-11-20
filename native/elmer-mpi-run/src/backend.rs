@@ -14,7 +14,7 @@ use elmer_core::{
     normalize_key, CsrMatrix, ElemId, IterativeSolver, LinalgError, LinearOperator, LocalSystem, MeshView, ParamMap,
     Params, Preconditioner, SolveStats, SolveStatus, Value,
 };
-use elmer_dist::{dist_solve, DistCsr, DistError, DistPrecond, DistSolveOptions, DofLayout, Exchange};
+use elmer_dist::{dist_solve_kept, scaling_round_trip, DistCsr, DistError, DistPrecond, DistSolveOptions, DofLayout, Exchange};
 use elmer_itermethods::IterMethodsConfig;
 use elmer_sparse::Ilu;
 use elmer_solver::{AssemblyBackend, ElmerAssembly, LinearSolverRegistry, Perm, SolverError};
@@ -275,15 +275,22 @@ fn dist_iterative(p: &ParamMap, a: &CsrMatrix<f64>) -> Result<Box<dyn IterativeS
     } else {
         None
     };
-    Ok(Box::new(DistIterative { opts, itermethod, a: a.clone() }))
+    // IterSolve.F90:1108: `No Precondition Recompute` (and friends) keep
+    // the matrix's preconditioner from its earlier solve.
+    let reuse = elmer_solver::linsys::precond_reuse(p);
+    Ok(Box::new(DistIterative { opts, itermethod, a: a.clone(), reuse, diag: None }))
 }
 
 /// One distributed solve of the matrix it was built from: HUTI through
-/// `elmer_dist::dist_solve`, or an IterativeMethods.F90 method.
+/// `elmer_dist::dist_solve_kept`, or an IterativeMethods.F90 method.
 struct DistIterative {
     opts: DistSolveOptions,
     itermethod: Option<IterMethodsConfig>,
     a: CsrMatrix<f64>,
+    /// Solve with the preconditioner kept from the matrix's earlier solve.
+    reuse: bool,
+    /// The diagonal scaling the HUTI solve applied, for [`after_solve`](IterativeSolver::after_solve).
+    diag: Option<Vec<f64>>,
 }
 
 fn to_linalg(e: DistError) -> LinalgError {
@@ -310,7 +317,14 @@ impl IterativeSolver<f64> for DistIterative {
         let mut opts = self.opts.clone();
         opts.ndeg = ctx.dofs_of(&self.a);
         let stats = match &self.itermethod {
-            None => dist_solve(&*ctx.ex, &layout, &self.a, b, x, &opts, None).map_err(to_linalg)?,
+            None => {
+                let mut kept = ctx.take_kept(&self.a);
+                let r = dist_solve_kept(&*ctx.ex, &layout, &self.a, b, x, &opts, None, &mut kept, self.reuse);
+                ctx.put_kept(&self.a, kept);
+                let (stats, diag) = r.map_err(to_linalg)?;
+                self.diag = diag;
+                stats
+            }
             Some(cfg) => itermethod_solve(&*ctx.ex, &layout, &self.a, b, x, &opts, cfg)?,
         };
         // IterSolve.F90:1652-1659.
@@ -321,6 +335,17 @@ impl IterativeSolver<f64> for DistIterative {
             });
         }
         Ok(stats)
+    }
+
+    /// SParIterSolver scales the matrix itself and `BackScaleLinearSystem`
+    /// restores it by division: the system's own matrix takes that round
+    /// trip (its later solves, the constraint modes say, see it).
+    fn after_solve(&mut self, a: &mut CsrMatrix<f64>) {
+        if let Some(d) = self.diag.take() {
+            if d.len() == a.nrows {
+                scaling_round_trip(a, &d);
+            }
+        }
     }
 }
 

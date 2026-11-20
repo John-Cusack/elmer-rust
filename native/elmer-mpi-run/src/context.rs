@@ -25,6 +25,9 @@ struct Registered {
     /// The rows of the last Dirichlet conditions applied to it, after
     /// `CommunicateDirichletBCs` (every holder's constrained copies).
     dirichlet: Vec<u32>,
+    /// The preconditioner of its last distributed solve (the split inside
+    /// matrix's `ILUValues`), for `No Precondition Recompute`.
+    kept: elmer_dist::KeptPrecond,
 }
 
 /// Transport and ownership of one rank.
@@ -93,6 +96,7 @@ impl RankContext {
             layout: None,
             dofs,
             dirichlet: Vec::new(),
+            kept: None,
         });
     }
 
@@ -103,7 +107,7 @@ impl RankContext {
         // The dofs the matrix was created with stay.
         let dofs = m.iter().find(|r| r.row_ptr == a.row_ptr && r.col_idx == a.col_idx).map_or(1, |r| r.dofs);
         m.retain(|r| r.row_ptr != a.row_ptr || r.col_idx != a.col_idx);
-        m.push(Registered { row_ptr: a.row_ptr.clone(), col_idx: a.col_idx.clone(), gid, owner, layout: None, dofs, dirichlet: Vec::new() });
+        m.push(Registered { row_ptr: a.row_ptr.clone(), col_idx: a.col_idx.clone(), gid, owner, layout: None, dofs, dirichlet: Vec::new(), kept: None });
     }
 
     /// Every holder's value of each shared mesh node summed into each copy,
@@ -149,6 +153,21 @@ impl RankContext {
     pub fn dofs_of(&self, a: &CsrMatrix<f64>) -> usize {
         let m = self.matrices.borrow();
         m.iter().find(|r| r.row_ptr == a.row_ptr && r.col_idx == a.col_idx).map_or(1, |r| r.dofs)
+    }
+
+    /// Takes the preconditioner kept for a registered matrix (none when
+    /// there is none or `a` is not registered).
+    pub fn take_kept(&self, a: &CsrMatrix<f64>) -> elmer_dist::KeptPrecond {
+        let mut m = self.matrices.borrow_mut();
+        m.iter_mut().find(|r| r.row_ptr == a.row_ptr && r.col_idx == a.col_idx).and_then(|r| r.kept.take())
+    }
+
+    /// Keeps `p` for a registered matrix (dropped when `a` is not registered).
+    pub fn put_kept(&self, a: &CsrMatrix<f64>, p: elmer_dist::KeptPrecond) {
+        let mut m = self.matrices.borrow_mut();
+        if let Some(r) = m.iter_mut().find(|r| r.row_ptr == a.row_ptr && r.col_idx == a.col_idx) {
+            r.kept = p;
+        }
     }
 
     /// The rows [`set_dirichlet_rows`](Self::set_dirichlet_rows) recorded

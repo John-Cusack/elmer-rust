@@ -137,6 +137,30 @@ pub fn dist_solve(
     opts: &DistSolveOptions,
     sink: Option<OutputSink>,
 ) -> Result<SolveStats, DistError> {
+    dist_solve_kept(comm, layout, a, b, x, opts, sink, &mut None, false).map(|(stats, _)| stats)
+}
+
+/// A preconditioner kept between the solves of one matrix (the split inside
+/// matrix's ILU factors, which `No Precondition Recompute` reuses).
+pub type KeptPrecond = Option<Box<dyn Preconditioner<f64>>>;
+
+/// [`dist_solve`] that keeps its preconditioner in `kept`, and with `reuse`
+/// solves with the one already there (IterSolve.F90:1108, `No Precondition
+/// Recompute`) instead of computing it from this matrix. Also returns the
+/// diagonal scaling it applied, `None` when it did not scale (no scaling,
+/// or a zero rhs): what [`scaling_round_trip`] takes. Collective.
+#[allow(clippy::too_many_arguments)]
+pub fn dist_solve_kept(
+    comm: &dyn Exchange,
+    layout: &DofLayout,
+    a: &CsrMatrix<f64>,
+    b: &[f64],
+    x: &mut [f64],
+    opts: &DistSolveOptions,
+    sink: Option<OutputSink>,
+    kept: &mut KeptPrecond,
+    reuse: bool,
+) -> Result<(SolveStats, Option<Vec<f64>>), DistError> {
     let n = layout.n_local();
     agree(
         comm,
@@ -156,11 +180,14 @@ pub fn dist_solve(
     comm.sum_f64(&mut bb);
     if bb[0].sqrt() <= f64::MIN_POSITIVE {
         x.fill(0.0);
-        return Ok(SolveStats {
-            iterations: 0,
-            residual: 0.0,
-            status: SolveStatus::Converged,
-        });
+        return Ok((
+            SolveStats {
+                iterations: 0,
+                residual: 0.0,
+                status: SolveStatus::Converged,
+            },
+            None,
+        ));
     }
 
     let mut a = a.clone();
@@ -175,32 +202,49 @@ pub fn dist_solve(
     let b_own = layout.sum_to_owned(comm, &b);
     let mut x_own = layout.gather_owned(x);
 
-    let prec: Box<dyn Preconditioner<f64>> = match &opts.precond {
-        DistPrecond::None => Box::new(IdentityPrecond),
-        DistPrecond::Diagonal => Box::new(Ilu::diagonal(m.inside())),
-        DistPrecond::Ilu(k) => Box::new(agree(
-            comm,
-            Ilu::ilu_n(m.inside(), *k).map_err(|e| e.to_string()),
-        )?),
-        DistPrecond::Ilut(tol) => Box::new(agree(
-            comm,
-            Ilu::ilut(m.inside(), *tol).map_err(|e| e.to_string()),
-        )?),
-    };
+    if !(reuse && kept.is_some()) {
+        let prec: Box<dyn Preconditioner<f64>> = match &opts.precond {
+            DistPrecond::None => Box::new(IdentityPrecond),
+            DistPrecond::Diagonal => Box::new(Ilu::diagonal(m.inside())),
+            DistPrecond::Ilu(k) => Box::new(agree(
+                comm,
+                Ilu::ilu_n(m.inside(), *k).map_err(|e| e.to_string()),
+            )?),
+            DistPrecond::Ilut(tol) => Box::new(agree(
+                comm,
+                Ilu::ilut(m.inside(), *tol).map_err(|e| e.to_string()),
+            )?),
+        };
+        *kept = Some(prec);
+    }
+    let prec = kept.as_deref().expect("set above");
 
     let mut huti: Huti = Huti::new(opts.huti.clone());
     if let Some(s) = sink {
         huti.set_output(s);
     }
     let op = m.operator(comm);
-    let stats = huti.solve(&op, prec.as_ref(), &b_own, &mut x_own, comm)?;
+    let stats = huti.solve(&op, prec, &b_own, &mut x_own, comm)?;
 
     layout.owned_to_local(comm, &x_own, x);
     for (xi, d) in x.iter_mut().zip(&diag) {
         // BackScaleLinearSystem: x * Diag * RhsScaling, left to right.
         *xi = *xi * d * rhs_scaling;
     }
-    Ok(stats)
+    Ok((stats, opts.scaling.then_some(diag)))
+}
+
+/// What scaling a matrix by `d` (`A <- D A D`, [`dist_solve`]) and back
+/// (`BackScaleLinearSystem`: `A <- A / (D D)`) leaves on it, in place: each
+/// value `(v * (d_i d_j)) / (d_i d_j)`, as Elmer's own matrix after a
+/// partitioned solve.
+pub fn scaling_round_trip(a: &mut CsrMatrix<f64>, d: &[f64]) {
+    for i in 0..a.nrows {
+        for k in a.row_ptr[i]..a.row_ptr[i + 1] {
+            let s = d[i] * d[a.col_idx[k] as usize];
+            a.values[k] = (a.values[k] * s) / s;
+        }
+    }
 }
 
 /// `ScaleLinearSystemDiagonal` with `RhsScaling`: `A <- D A D`, `b <- D b / |D b|`,
