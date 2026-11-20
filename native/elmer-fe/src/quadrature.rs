@@ -380,4 +380,8 @@ impl Quadrature for ElmerQuadrature {
             Err(e) => panic!("GaussPoints: {e}"),
         }
     }
+
+    fn gauss_points_rel(&self, etype: ElementType, rel: i32) -> Option<Vec<QuadPoint>> {
+        gauss_points_rel(etype, rel).ok().map(|r| r.points())
+    }
 }

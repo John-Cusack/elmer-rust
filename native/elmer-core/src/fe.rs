@@ -12,6 +12,13 @@ pub struct QuadPoint {
 pub trait Quadrature {
     /// `np`: requested point count, or `None` for the element default.
     fn gauss_points(&self, etype: ElementType, np: Option<usize>) -> Vec<QuadPoint>;
+
+    /// `GaussPoints(Element, RelOrder = rel)` of a nodal element (`rel` of
+    /// -1, 0 or 1: `GaussPoints0`, `GaussPoints` or `GaussPoints2` of
+    /// elements.def); `None` where the implementation has no such rules.
+    fn gauss_points_rel(&self, etype: ElementType, rel: i32) -> Option<Vec<QuadPoint>> {
+        (rel == 0).then(|| self.gauss_points(etype, None))
+    }
 }
 
 #[derive(Clone, Debug, Default)]

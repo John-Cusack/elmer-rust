@@ -96,9 +96,10 @@ pub(crate) fn element_perm(mesh: &dyn MeshView, slot: &SolverSlot) -> (Vec<u32>,
     (perm, slot.active.len())
 }
 
-/// `CreateIpPerm`: the offset of each element's Gauss points (the default
-/// rule of an active element, or `Gauss Points on Ip Variables`), one entry
-/// more than the bulk and boundary elements.
+/// `CreateIpPerm`: the offset of each element's Gauss points (`Gauss Points
+/// on Ip Variables`, or the solver's rule of an active nodal element as
+/// `GaussPointsAdapt` gives it), one entry more than the bulk and boundary
+/// elements.
 pub(crate) fn ip_perm(
     sim: &Simulation,
     mesh: &dyn MeshView,
@@ -111,6 +112,29 @@ pub(crate) fn ip_perm(
         .as_ref()
         .ok_or_else(|| SolverError::NotWired("basis and quadrature for IP variables (elmer-fe)".into()))?;
     let n_ip = slot.params.integer("gauss points on ip variables").filter(|&n| n > 0);
+    // Without it, `GaussPointsAdapt(Element)` of the solver: `Number of
+    // Integration Points`, else `Bulk Relative Integration Order` over
+    // `Relative Integration Order`.
+    for (key, what) in [
+        ("element relative integration order", "Element Relative Integration Order"),
+        ("adaptive integration variable", "adaptive integration"),
+    ] {
+        if n_ip.is_none() && slot.params.get(key).is_some() {
+            return Err(SolverError::Unsupported(format!("IP variables with {what}")));
+        }
+    }
+    let np = slot.params.integer("number of integration points").filter(|&n| n > 0).map(|n| n as usize);
+    // `PDefs % Serendipity` of p elements.
+    let serendipity = sim.model.simulation.logical("serendipity p elements").unwrap_or(true);
+    let family_np = match slot.params.string("element integration points") {
+        Some(def) => parse_elemental_gauss_rules(def)?,
+        None => [0; 9],
+    };
+    let rel = match slot.params.get("bulk relative integration order") {
+        Some(_) => slot.params.integer("bulk relative integration order"),
+        None => slot.params.integer("relative integration order"),
+    }
+    .unwrap_or(0);
     let n = mesh.n_bulk() + mesh.n_boundary();
     let mut active = vec![false; n];
     for e in &slot.active {
@@ -125,14 +149,103 @@ pub(crate) fn ip_perm(
                 None => true,
             };
         if on {
-            count += match n_ip {
-                Some(k) => k as u32,
-                None => fe.quadrature.gauss_points(mesh.element(ElemId(t as u32)).etype, None).len() as u32,
+            let etype = mesh.element(ElemId(t as u32)).etype;
+            // `ElementalGaussNp` over the base count.
+            let np = match family_np.get(etype.family() as usize) {
+                Some(&k) if k > 0 => Some(k),
+                _ => np,
+            };
+            if let (None, Some(d)) = (n_ip, slot.dofs.as_deref()) {
+                count += p_rule_len(d, ElemId(t as u32), etype, np, rel, serendipity)? as u32;
+                offsets[t + 1] = count;
+                continue;
+            }
+            count += match (n_ip, np) {
+                (Some(k), _) => k as u32,
+                (None, Some(_)) => fe.quadrature.gauss_points(etype, np).len() as u32,
+                (None, None) => fe
+                    .quadrature
+                    .gauss_points_rel(etype, rel)
+                    .ok_or_else(|| {
+                        SolverError::fatal(
+                            "GaussPoints",
+                            format!("Relative Integration Order = {rel} but a non-p element only has rules for {{-1,0,1}}"),
+                        )
+                    })?
+                    .len() as u32,
             };
         }
         offsets[t + 1] = count;
     }
     Ok(offsets)
+}
+
+/// The point count `GaussPointsAdapt` gives p element `e` of the solver's
+/// dofs: `np` points, else its own rule, offset by `GaussPoints(Element,
+/// RelOrder = rel)`: `(NINT(n ** (1/dim)) + rel) ** dim` points of the
+/// tensor families, a serendipity quadrilateral's then mapped to its
+/// economic count.
+fn p_rule_len(
+    d: &dyn crate::SolverDofs,
+    e: ElemId,
+    etype: elmer_core::ElementType,
+    np: Option<usize>,
+    rel: i32,
+    serendipity: bool,
+) -> Result<usize, SolverError> {
+    let gauss = |m: String| SolverError::fatal("GaussPoints", m);
+    if let Some(np) = np {
+        return Ok(d.element_rule_np(e, np).map_err(gauss)?.len());
+    }
+    let own = d.element_rule(e).map_err(gauss)?.len();
+    if rel == 0 {
+        return Ok(own);
+    }
+    let dim = match etype.family() {
+        2 => 1,
+        4 => 2,
+        8 => 3,
+        f => {
+            return Err(SolverError::Unsupported(format!(
+                "IP variables with Relative Integration Order on p elements of family {f}"
+            )))
+        }
+    };
+    let p1d = (own as f64).powf(1.0 / dim as f64).round() as i32 + rel;
+    if p1d < 1 {
+        return Err(SolverError::fatal("GaussPoints", "Number of integration points must remain positive!"));
+    }
+    let mut n = (p1d as usize).pow(dim);
+    if serendipity && etype.family() == 4 {
+        n = match n {
+            9 => 8,
+            16 => 12,
+            25 => 20,
+            36 => 25,
+            49 => 36,
+            64 => 45,
+            81 => 60,
+            n => n,
+        };
+    }
+    Ok(d.element_rule_np(e, n).map_err(gauss)?.len())
+}
+
+/// `ParseElementalGaussRules`: the count after `-line`, `-tri`, `-quad`,
+/// `-tetra`, `-pyramid`, `-prism`, `-brick`, by element family (2..8).
+fn parse_elemental_gauss_rules(def: &str) -> Result<[usize; 9], SolverError> {
+    let def = def.to_ascii_lowercase();
+    let mut out = [0; 9];
+    let names = ["-line", "-tri", "-quad", "-tetra", "-pyramid", "-prism", "-brick"];
+    for (k, name) in names.iter().enumerate() {
+        let Some(j) = def.find(name) else { continue };
+        let rest = def[j + name.len()..].trim_start();
+        let num: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '-' || *c == '+').collect();
+        out[k + 2] = num.parse::<i64>().map(|n| n.max(0) as usize).map_err(|_| {
+            SolverError::fatal("ParseElementalGaussRules", format!("Problems reading integer from: {rest}"))
+        })?;
+    }
+    Ok(out)
 }
 
 /// The fields as seen at one point of an element: every variable and the
