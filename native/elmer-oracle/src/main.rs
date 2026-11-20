@@ -181,12 +181,20 @@ type Parsed = (String, elmer_oracle::result::ResultFile, Vec<elmer_oracle::resul
 
 /// `(solver, golden norm)` for every solver of `solvers` the grader can
 /// rebuild from `files`, with notes for the rest.
+/// How to choose among several files holding a solver's variable
+/// ([`elmer_oracle::refnorm::own_file`]).
+struct MeshChoice {
+    primary: Option<String>,
+    adaptive: bool,
+}
+
 fn resolve_solvers(
     solvers: &[elmer_oracle::refnorm::RefSolver],
     files: &[&Parsed],
     equations: &[(u32, String)],
     notes: &mut Vec<String>,
     non_nodal: &mut bool,
+    meshes: &MeshChoice,
 ) -> Vec<(u32, f64)> {
     let mut refnorms = Vec::new();
     let parsed = files;
@@ -198,7 +206,8 @@ fn resolve_solvers(
         let mut found = Vec::new();
         let mut why = String::from("not in any result file");
         let mut inferred = std::collections::BTreeSet::new();
-        for (_, r, vars, nodes) in parsed.iter().copied() {
+        let mut found_at: Vec<&str> = Vec::new();
+        for (rel, r, vars, nodes) in parsed.iter().copied() {
             let var = match &s.variable {
                 Ok(v) => v.clone(),
                 Err(e) if e == elmer_oracle::refnorm::NO_VARIABLE => {
@@ -218,15 +227,31 @@ fn resolve_solvers(
             if !vars.iter().any(|v| v.base_name() == var) {
                 continue;
             }
-            *non_nodal |= elmer_oracle::refnorm::non_nodal(vars, *nodes, &var);
+            let nn = elmer_oracle::refnorm::non_nodal(vars, *nodes, &var);
+            found_at.push(rel.as_str());
             match elmer_oracle::refnorm::golden_norm(r, vars, &var, |d| s.norm_opts(d)) {
-                Ok(n) => found.push(n),
+                Ok(n) => found.push((n, nn)),
                 Err(e) => {
                     why = e;
-                    found.push(f64::NAN);
+                    found.push((f64::NAN, nn));
                 }
             }
         }
+        // Several meshes carry the variable: keep the solver's own file.
+        if found.len() > 1 {
+            if let Some(own) = elmer_oracle::refnorm::own_file(
+                &found_at,
+                s.mesh.as_deref(),
+                meshes.primary.as_deref(),
+                meshes.adaptive,
+            ) {
+                let i = found_at.iter().position(|p| *p == own).unwrap_or(0);
+                found = vec![found[i]];
+                notes.push(format!("solver {}: own file {own}", s.number));
+            }
+        }
+        *non_nodal |= found.iter().any(|f| f.1);
+        let found: Vec<f64> = found.into_iter().map(|f| f.0).collect();
         if inferred.len() > 1 {
             notes.push(format!("solver {}: default variable differs between result files", s.number));
             continue;
@@ -447,6 +472,11 @@ fn refnorm_one(
         Err(why) => return skip(&why),
     };
     let runs = elmer_oracle::runner::run_count(&text);
+    let adaptive = text.to_lowercase().lines().any(|l| {
+        let code = l.split('!').next().unwrap_or("");
+        code.contains("adaptive mesh refinement") && code.contains("true")
+    });
+    let meshes = MeshChoice { primary: elmer_oracle::refnorm::primary_mesh(&text), adaptive };
     let files = elmer_oracle::sigma::result_files(&golden_run, &src).unwrap_or_default();
     let mut notes = Vec::new();
     let mut non_nodal = false;
@@ -487,7 +517,7 @@ fn refnorm_one(
             let is_case = |p: &&Parsed| std::path::Path::new(&p.0).file_name().is_some_and(|n| n == "case.result");
             let keep_case = registered.is_some() && parsed.iter().any(|p| is_case(&p));
             let all: Vec<&Parsed> = parsed.iter().filter(|p| !keep_case || is_case(p)).collect();
-            refnorms = resolve_solvers(&solvers, &all, &equations, &mut notes, &mut non_nodal);
+            refnorms = resolve_solvers(&solvers, &all, &equations, &mut notes, &mut non_nodal, &meshes);
         }
     } else if np > 1 {
         return skip(&format!("MPI with {runs} RUN blocks"));
@@ -527,7 +557,7 @@ fn refnorm_one(
                 return skip(&format!("{runs} RUN blocks; no golden {name} (use the --per-run golden)"));
             }
             let mut run_notes = Vec::new();
-            for (n, v) in resolve_solvers(&run_solvers, &mine, &equations, &mut run_notes, &mut non_nodal) {
+            for (n, v) in resolve_solvers(&run_solvers, &mine, &equations, &mut run_notes, &mut non_nodal, &meshes) {
                 run_refnorms.push((j, n, v));
             }
             notes.extend(run_notes.into_iter().map(|m| format!("RUN {j}: {m}")));
@@ -544,12 +574,7 @@ fn refnorm_one(
     if refnorms.is_empty() && run_refnorms.is_empty() {
         return skip(&notes.join("; "));
     }
-    if text.to_lowercase().lines().any(|l| {
-        let code = l.split('!').next().unwrap_or("");
-        code.contains("adaptive mesh refinement") && code.contains("true")
-    }) {
-        return skip("adaptive remeshing (O1+O4 class)");
-    }
+
     let run_dir = out_root.join(test);
     if run_dir.exists() {
         return skip("run dir exists; use a fresh out-root");

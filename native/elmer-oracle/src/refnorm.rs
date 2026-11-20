@@ -36,6 +36,8 @@ pub struct RefSolver {
     pub entry: Option<String>,
     /// `Coupled Solver = True`: the norm runs over the coupled unknowns.
     pub coupled: bool,
+    /// Lowercased solver-level `Mesh` (the solver runs on another mesh).
+    pub mesh: Option<String>,
 }
 
 /// Solver entries that assign `Solver % Variable % Norm` themselves
@@ -277,6 +279,9 @@ pub fn reference_solvers(text: &str) -> Result<Vec<RefSolver>, String> {
                     LEGACY.iter().find(|l| l.0 == eq).map(|l| l.2.to_string())
                 }),
                 entry: keys_entry(&k),
+                mesh: k.iter().rev().find(|(k, _)| k == "mesh").and_then(|(_, v)| {
+                    v.split_whitespace().next().map(|m| m.trim_matches('"').to_lowercase())
+                }),
                 coupled: k.iter().any(|(k, v)| k == "coupled solver" && v.to_lowercase().contains("true")),
                 equation,
             }
@@ -351,6 +356,45 @@ pub fn run_prefixes(text: &str) -> Vec<String> {
                 .collect()
         })
         .collect()
+}
+
+/// The `Mesh DB` mesh name of a sif (its Header, or a `Header ::`
+/// one-liner), lowercased.
+pub fn primary_mesh(text: &str) -> Option<String> {
+    text.lines().find_map(|l| {
+        let c = strip_sif_comment(l);
+        let rest = c.split("::").last().unwrap_or("");
+        (keyword_of(rest).as_deref() == Some("mesh db"))
+            .then(|| rest.split('"').nth(3).map(|m| m.trim().to_lowercase()))
+            .flatten()
+    })
+}
+
+/// Which of several result files holding a solver's variable is the
+/// solver's own: the one in its `Mesh`'s directory, after adaptive
+/// refinement the last refined mesh (`RefinedMesh<N>`, highest N), else the
+/// one in the `Mesh DB` mesh's directory. `None` when that leaves no single
+/// file.
+pub fn own_file<'a>(paths: &[&'a str], solver_mesh: Option<&str>, primary: Option<&str>, adaptive: bool) -> Option<&'a str> {
+    let dir = |p: &str| p.split('/').next().unwrap_or("").to_lowercase();
+    let pick = |m: &str| {
+        let hits: Vec<&'a str> = paths.iter().copied().filter(|p| dir(p) == m).collect();
+        (hits.len() == 1).then(|| hits[0])
+    };
+    if let Some(m) = solver_mesh {
+        return pick(m);
+    }
+    if adaptive {
+        let refined = paths
+            .iter()
+            .copied()
+            .filter_map(|p| Some((dir(p).strip_prefix("refinedmesh")?.parse::<u32>().ok()?, p)))
+            .max_by_key(|(n, _)| *n);
+        if let Some((_, p)) = refined {
+            return Some(p);
+        }
+    }
+    pick(primary?)
 }
 
 /// Every solver's lowercased `Equation`, by solver number.
@@ -573,6 +617,7 @@ mod tests {
             procedure: None,
             entry: None,
             coupled: false,
+            mesh: None,
         }
     }
 
@@ -620,6 +665,17 @@ mod tests {
         assert_eq!(reference_solvers(&p[0]).unwrap().len(), 1);
         let second = reference_solvers(&p[1]).unwrap();
         assert_eq!(second.iter().map(|s| s.number).collect::<Vec<_>>(), [1, 2]);
+    }
+
+    #[test]
+    fn own_file_follows_the_solver_mesh() {
+        let p = ["square-tri/case.result", "square-tri-isomesh/case.result", "RefinedMesh2/case.result", "RefinedMesh10/case.result"];
+        assert_eq!(own_file(&p, None, Some("square-tri"), false), Some("square-tri/case.result"));
+        assert_eq!(own_file(&p, Some("square-tri-isomesh"), Some("square-tri"), false), Some("square-tri-isomesh/case.result"));
+        assert_eq!(own_file(&p, None, Some("square-tri"), true), Some("RefinedMesh10/case.result"));
+        assert_eq!(own_file(&p, Some("global"), None, false), None);
+        assert_eq!(primary_mesh("Header\n  Mesh DB \".\" \"Square-Tri\"\n!  Mesh DB \".\" \"q\"\nEnd\n").as_deref(), Some("square-tri"));
+        assert_eq!(primary_mesh("Header :: Mesh DB \".\" \"strip\"\n").as_deref(), Some("strip"));
     }
 
     #[test]
