@@ -20,6 +20,8 @@ pub struct Model {
     pub body_forces: Vec<ParamMap>,
     pub initial_conditions: Vec<ParamMap>,
     pub boundary_conditions: Vec<ParamMap>,
+    /// `Component <n>` sections (`Model % Components`).
+    pub components: Vec<ParamMap>,
 }
 
 /// The sections that apply to one bulk element, through its body.

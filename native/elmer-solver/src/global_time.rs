@@ -248,3 +248,110 @@ mod tests {
         }
     }
 }
+
+/// `Time2ndOrder_CRS(dt, Matrix, Force, Alpha, Beta, PrevValues)`
+/// (TimeIntegrate.F90): the Bossak (`param_b < 0`) or generalized-alpha
+/// (`param_b` = rho_inf) terms of the global mass and damping matrices,
+/// added to the stiffness and the force, with `X, V, A, A2` the previous
+/// values' columns 3, 4, 5 and 7 (5 for Bossak).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn time_2nd_order_crs(
+    dt: f64,
+    a: &mut CsrMatrix<f64>,
+    mass: Option<&CsrMatrix<f64>>,
+    damp: Option<&CsrMatrix<f64>>,
+    force: &mut [f64],
+    param_a: f64,
+    param_b: f64,
+    prev: &[Vec<f64>],
+) -> Result<(), SolverError> {
+    if prev.len() < 7 {
+        return Err(SolverError::fatal("Time2ndOrder_CRS", "the variable lacks its seven previous-value columns"));
+    }
+    let (x, v, acc) = (&prev[2], &prev[3], &prev[4]);
+    let (alpha, beta, gamma, delta, a2);
+    if param_b >= 0.0 {
+        // rho_inf for the generalized-alpha method.
+        let b = param_b;
+        alpha = (2.0 * b - 1.0) / (b + 1.0);
+        beta = 1.0 / ((b + 1.0) * (b + 1.0));
+        gamma = (3.0 - b) / (2.0 * (b + 1.0));
+        delta = b / (b + 1.0);
+        a2 = &prev[6];
+    } else {
+        // Bossak.
+        alpha = param_a;
+        gamma = 0.5 - alpha;
+        beta = (1.0 - alpha) * (1.0 - alpha) / 4.0;
+        delta = 0.0;
+        a2 = &prev[4];
+    }
+    let c1 = (1.0 - alpha) / (1.0 - delta) / (beta * (dt * dt));
+    let c2 = (1.0 - alpha) / (1.0 - delta) / (beta * dt);
+    let c3 = delta / (1.0 - delta);
+    let c4 = -((1.0 - alpha) * (1.0 - 1.0 / (2.0 * beta)) + alpha) / (1.0 - delta);
+    let c5 = gamma / (beta * dt);
+    let c6 = gamma / beta - 1.0;
+    let c7 = -((1.0 - gamma) + gamma * (1.0 - 1.0 / (2.0 * beta))) * dt;
+    let n = a.nrows;
+    if let Some(m) = mass {
+        for i in 0..n {
+            let mut s = 0.0;
+            for j in m.row_ptr[i]..m.row_ptr[i + 1] {
+                let k = m.col_idx[j] as usize;
+                s += m.values[j] * (c1 * x[k] + c2 * v[k] + c3 * acc[k] + c4 * a2[k]);
+            }
+            force[i] += s;
+        }
+        for (st, mv) in a.values.iter_mut().zip(&m.values) {
+            *st += c1 * mv;
+        }
+    }
+    if let Some(d) = damp {
+        for i in 0..n {
+            let mut s = 0.0;
+            for j in d.row_ptr[i]..d.row_ptr[i + 1] {
+                let k = d.col_idx[j] as usize;
+                s += d.values[j] * (c5 * x[k] + c6 * v[k] + c7 * a2[k]);
+            }
+            force[i] += s;
+        }
+        for (st, dv) in a.values.iter_mut().zip(&d.values) {
+            *st += c5 * dv;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod second_order_tests {
+    use super::*;
+
+    fn one(v: f64) -> CsrMatrix<f64> {
+        CsrMatrix { nrows: 1, ncols: 1, row_ptr: vec![0, 1], col_idx: vec![0], values: vec![v], diag: Some(vec![0]) }
+    }
+
+    /// Bossak on `m x'' + d x' + k x = f`, one dof: the stiffness gains
+    /// `c1 m + c5 d` and the force the history terms, with Elmer's
+    /// coefficients.
+    #[test]
+    fn bossak_terms_of_a_single_dof() {
+        let (m, d, k, f, dt, al) = (2.0, 0.5, 3.0, 1.0, 0.1, -0.05);
+        let prev = vec![vec![0.0], vec![0.0], vec![0.4], vec![0.3], vec![0.2], vec![0.0], vec![9.0]];
+        let mut a = one(k);
+        let mut rhs = vec![f];
+        time_2nd_order_crs(dt, &mut a, Some(&one(m)), Some(&one(d)), &mut rhs, al, -1.0, &prev).unwrap();
+        let (gamma, beta) = (0.5 - al, (1.0 - al) * (1.0 - al) / 4.0);
+        let c1 = (1.0 - al) / (beta * dt * dt);
+        let c2 = (1.0 - al) / (beta * dt);
+        let c4 = -((1.0 - al) * (1.0 - 1.0 / (2.0 * beta)) + al);
+        let c5 = gamma / (beta * dt);
+        let c6 = gamma / beta - 1.0;
+        let c7 = -((1.0 - gamma) + gamma * (1.0 - 1.0 / (2.0 * beta))) * dt;
+        let want_k = k + c1 * m + c5 * d;
+        // A2 is column 5 for Bossak, not column 7.
+        let want_f = f + m * (c1 * 0.4 + c2 * 0.3 + c4 * 0.2) + d * (c5 * 0.4 + c6 * 0.3 + c7 * 0.2);
+        assert!((a.values[0] - want_k).abs() < 1e-9 * want_k.abs());
+        assert!((rhs[0] - want_f).abs() < 1e-9 * want_f.abs());
+    }
+}

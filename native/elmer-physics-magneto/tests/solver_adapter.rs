@@ -46,6 +46,7 @@ fn run_n(case: &str, sif: &str, keep: usize, tweak: impl Fn(&mut Model)) -> (f64
         body_forces: numbered(&m.body_forces),
         initial_conditions: numbered(&m.ics),
         boundary_conditions: numbered(&m.bcs),
+        components: Vec::new(),
     };
     tweak(&mut model);
     let (db, name) = m.header.mesh_db.clone().unwrap();

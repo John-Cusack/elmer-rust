@@ -210,6 +210,10 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if is(params, elmer_physics_shell::FACET_PROCEDURE) {
             elmer_physics_shell::facet_defaults(params);
         }
+        // `OdeSolver_init`: the global ODE matrix and its time terms.
+        if is(params, elmer_physics_scalar::ode_solver::PROCEDURE) {
+            elmer_physics_scalar::ode_solver::solver_defaults(params);
+        }
         // `TopoOpt_init0` / `_init`: the elemental topology fields.
         if is(params, elmer_physics_topoopt::PROCEDURE) {
             elmer_physics_topoopt::solver_defaults(params);

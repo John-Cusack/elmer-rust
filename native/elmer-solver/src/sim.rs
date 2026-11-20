@@ -127,6 +127,9 @@ pub struct LinearSystem {
     /// `Matrix % MassValues` on the matrix's pattern, kept for `Eigen
     /// Analysis` (`DefaultUpdateMass`); `None` otherwise.
     pub mass: Option<CsrMatrix<f64>>,
+    /// `Matrix % DampValues` on the matrix's pattern: the global damping
+    /// of a second-order `Ode Matrix` system; `None` otherwise.
+    pub damp: Option<CsrMatrix<f64>>,
 }
 
 /// One `Solver n` section at run time (Elmer `Solver_t`).
@@ -1179,6 +1182,11 @@ impl Simulation {
         if spec.kind == FieldKind::Global {
             let mut v = Variable::new(&spec.name, FieldKind::Global, spec.dofs, None, vec![0.0; spec.dofs]);
             v.output = spec.output;
+            if slot.time_order > 0 {
+                // The previous solutions, as for a field (MainUtils.F90:2510-2517).
+                let m = if slot.time_order == 2 { 7 } else { slot.order.max(slot.time_order as usize) };
+                v.prev_values = vec![vec![0.0; v.values.len()]; m];
+            }
             slot.variable = Some(self.vars.add_with_components(v, &spec.components)?);
             return Ok(());
         }
