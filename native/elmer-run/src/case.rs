@@ -177,6 +177,10 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if is(params, elmer_pdofs::mixed_poisson::PROCEDURE) {
             elmer_pdofs::mixed_poisson::solver_defaults(params, model.simulation.string("coordinate system"));
         }
+        // `SmitcSolver_Init0`: `-dofs 3 Deflection` and the global mass matrix.
+        if is(params, elmer_physics_shell::SMITC_PROCEDURE) {
+            elmer_physics_shell::smitc_defaults(params);
+        }
         // `TopoOpt_init0` / `_init`: the elemental topology fields.
         if is(params, elmer_physics_topoopt::PROCEDURE) {
             elmer_physics_topoopt::solver_defaults(params);
