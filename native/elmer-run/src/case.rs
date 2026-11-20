@@ -1202,6 +1202,9 @@ fn run_case_meshes(
     for p in model.solvers.iter_mut().filter(|p| elmer_physics_magneto::statmag::is_section(p)) {
         elmer_physics_magneto::statmag::init_section(p);
     }
+    for p in model.solvers.iter_mut().filter(|p| elmer_physics_magneto::emport::is_section(p)) {
+        elmer_physics_magneto::emport::init_section(p, &mut model.boundary_conditions);
+    }
     for p in model.solvers.iter_mut().filter(|p| elmer_physics_magneto::emwave::is_section(p)) {
         elmer_physics_magneto::emwave::init_section(p);
     }

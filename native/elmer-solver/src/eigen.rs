@@ -385,6 +385,7 @@ fn arpack_eigen_solve_complex(
     a: &CsrMatrix<Complex64>,
     mass: &CsrMatrix<Complex64>,
     cfg: &EigenConfig,
+    sigma: Complex64,
     inner: &mut ComplexInner<'_>,
 ) -> Result<elmer_eigen::EigenResult, SolverError> {
     use elmer_eigen::arpack::naupd::NWhich;
@@ -403,9 +404,6 @@ fn arpack_eigen_solve_complex(
         W::LI => NWhich::LI,
         W::SI => NWhich::SI,
     };
-    if cfg.shift != 0.0 {
-        return Err(unsupported("a shifted complex eigen system (Eigen System Shift)"));
-    }
     let z = Complex64::new(0.0, 0.0);
     let mut iter = 1usize;
     let mut resid = vec![z; n];
@@ -460,7 +458,7 @@ fn arpack_eigen_solve_complex(
         3 => return Err(SolverError::fatal(CALLER, "No shifts could be applied during implicit Arnoldi update, try increasing NCV.")),
         i => return Err(SolverError::fatal(CALLER, format!(" Error with ZNAUPD, info = {i:>11}"))),
     }
-    let r = zneupd::zneupd(true, z, true, n, which, nev, tol, &resid, ncv, &mut v, n, &au, &mut workd, &mut workl);
+    let r = zneupd::zneupd(true, sigma, true, n, which, nev, tol, &resid, ncv, &mut v, n, &au, &mut workd, &mut workl);
     if r.info != 0 {
         return Err(SolverError::fatal(CALLER, format!(" Error with ZNEUPD, info = {:>11}", r.info)));
     }
@@ -476,6 +474,118 @@ fn arpack_eigen_solve_complex(
         converged: au.iparam[4].max(0) as usize,
         residuals: None,
     })
+}
+
+fn sim_linear_zarpack<'a>(
+    linear: &'a mut crate::LinearSolverRegistry,
+    zarp: &'a mut elmer_eigen::arpack::znaupd::ZArpack,
+) -> (&'a mut crate::LinearSolverRegistry, &'a mut elmer_eigen::arpack::znaupd::ZArpack) {
+    (linear, zarp)
+}
+
+/// `ArpackEigenSolveComplex` of a `Linear System Complex` system (the
+/// interleaved real `Matrix % Values`, `MassValues`), in place as the
+/// Fortran works on the solver's matrix:
+/// `Values = Values - Sigma * MassValues` (the real part:
+/// `V - Re(sigma) M`) for `Eigen System Shift` (+ `Im`);
+/// `ScaleLinearSystem`'s complex diagonal `1/SQRT(ABS(CMPLX(A_ii, -A_i,i+1)))`
+/// on `Values` and `MassValues` (`Values(j) * (Diag(i) * Diag(col))`);
+/// ZNAUPD (mode 3, `BMAT = 'G'`) with the inner `DirectSolver` /
+/// `IterSolver` on the interleaved system (`Linear System Nullify Guess`
+/// starting from zero) and `CRS_ComplexMatrixVectorMultiply` with the
+/// mass; ZNEUPD with `sigma`; `EigenSystemSorting`; the vectors times
+/// `Diag(1:n:2)`, the values divided back (`/ (Diag(i) * Diag(col))`) and
+/// the shift added back (`V + Re(sigma) M`).
+fn complex_system_eigen(
+    p: &ParamMap,
+    k: &mut CsrMatrix<f64>,
+    mass: &mut CsrMatrix<f64>,
+    (linear, zarp): (&mut crate::LinearSolverRegistry, &mut elmer_eigen::arpack::znaupd::ZArpack),
+    cfg: &EigenConfig,
+    log: &dyn elmer_core::Logger,
+) -> Result<elmer_eigen::EigenResult, SolverError> {
+    let n = k.nrows;
+    if n % 2 != 0 || mass.values.len() != k.values.len() {
+        return Err(SolverError::fatal(CALLER, "a complex eigen system needs an interleaved matrix and mass on its pattern"));
+    }
+    let sigma = Complex64::new(cfg.shift, p.real("eigen system shift im").unwrap_or(0.0));
+    if sigma != Complex64::new(0.0, 0.0) {
+        for (v, m) in k.values.iter_mut().zip(&mass.values) {
+            *v -= sigma.re * m;
+        }
+    }
+    let scale = p.logical("linear system skip scaling") != Some(true) && p.logical("linear system scaling").unwrap_or(true);
+    let mut diag = vec![1.0f64; n];
+    if scale {
+        for i in (0..n).step_by(2) {
+            let j = (k.row_ptr[i]..k.row_ptr[i + 1]).find(|&j| k.col_idx[j] as usize == i);
+            let (dr, di) = match j {
+                Some(j) => (k.values[j], k.values[j + 1]),
+                None => (0.0, 0.0),
+            };
+            let s = Complex64::new(dr, -di).norm().sqrt();
+            let d = if s > f64::MIN_POSITIVE { 1.0 / s } else { 1.0 };
+            diag[i] = d;
+            diag[i + 1] = d;
+        }
+        for mat in [&mut *k, &mut *mass] {
+            for i in 0..n {
+                for j in mat.row_ptr[i]..mat.row_ptr[i + 1] {
+                    mat.values[j] *= diag[i] * diag[mat.col_idx[j] as usize];
+                }
+            }
+        }
+    }
+    let ac = crate::linsys::to_complex(k)?;
+    let mc = crate::linsys::to_complex(mass)?;
+    let kind = p.string("linear system solver").map(elmer_core::normalize_key).unwrap_or_default();
+    let mut direct = match kind.as_str() {
+        "direct" => match linear.select_for(p, k, log)? {
+            LinearSolverChoice::Direct(d) => Some(d),
+            LinearSolverChoice::Iterative { .. } => None,
+        },
+        _ => None,
+    };
+    if direct.is_none() {
+        return Err(unsupported("an iterative inner solve of a complex eigen system"));
+    }
+    let mut factored = false;
+    let kk: &CsrMatrix<f64> = k;
+    let mut inner = |b: &[Complex64], x: &mut [Complex64]| -> Result<(), SolverError> {
+        let d = direct.as_mut().expect("direct solver");
+        if !factored {
+            d.factor(kk)?;
+            factored = true;
+        }
+        let mut y: Vec<f64> = b.iter().flat_map(|z| [z.re, z.im]).collect();
+        d.solve_in_place(&mut y)?;
+        for (i, xi) in x.iter_mut().enumerate() {
+            *xi = Complex64::new(y[2 * i], y[2 * i + 1]);
+        }
+        Ok(())
+    };
+    let r = arpack_eigen_solve_complex(zarp, &ac, &mc, cfg, sigma, &mut inner);
+    let mut result = r?;
+    for v in &mut result.vectors {
+        for (i, x) in v.iter_mut().enumerate() {
+            *x *= diag[2 * i];
+        }
+    }
+    if scale {
+        for mat in [&mut *k, &mut *mass] {
+            for i in 0..n {
+                for j in mat.row_ptr[i]..mat.row_ptr[i + 1] {
+                    mat.values[j] /= diag[i] * diag[mat.col_idx[j] as usize];
+                }
+            }
+        }
+    }
+    if sigma != Complex64::new(0.0, 0.0) {
+        for (v, m) in k.values.iter_mut().zip(&mass.values) {
+            *v += sigma.re * m;
+        }
+    }
+    Ok(result)
 }
 
 /// The complex system `ChangeToHarmonicSystem` makes of a second-order
@@ -511,8 +621,9 @@ pub(crate) fn solve(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverError> {
     }
     // The inner direct solves use the section's method, UMFPACK by default.
     let p = crate::linsys::serial_direct_default(&p, comm).unwrap_or(p);
-    if p.logical("linear system complex") == Some(true) && p.logical("linear system skip complex") != Some(true) {
-        return Err(unsupported("complex systems (ArpackEigenSolveComplex)"));
+    let complex_system = p.logical("linear system complex") == Some(true) && p.logical("linear system skip complex") != Some(true);
+    if complex_system && p.logical("harmonic mode") == Some(true) {
+        return Err(unsupported("a Harmonic Mode of a complex system"));
     }
     if p.logical("lumped mass matrix") == Some(true) {
         return Err(unsupported("a lumped mass matrix"));
@@ -541,6 +652,24 @@ pub(crate) fn solve(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverError> {
     let mut mass = sys.mass.take().ok_or_else(|| SolverError::fatal(CALLER, "no mass matrix (DefaultUpdateMass)"))?;
     let k = &mut sys.matrix;
     let n = k.nrows;
+    if complex_system {
+        let r = complex_system_eigen(&p, k, &mut mass, sim_linear_zarpack(&mut sim.backends.linear, &mut sim.zarpack), &cfg, log);
+        sys.mass = Some(mass);
+        let result = r?;
+        elmer_eigen::log_summary(&result, cfg.tol, log);
+        if normalize != Normalize::None {
+            return Err(unsupported("eigenvector normalization of a complex system"));
+        }
+        let var = sim.vars.by_id_mut(id);
+        let spec = crate::norm::NormSpec::from_params(&p, var.dofs);
+        let (vals, m) = crate::norm::select_norm_entries(&spec, &var.values, n.min(var.values.len()), var.perm.as_deref(), mesh.n_nodes(), log);
+        let norm = crate::norm::compute_norm(&spec, &vals, m, comm);
+        var.conv.norm = norm;
+        var.eigen_values = result.values;
+        var.eigen_vectors = result.vectors;
+        log.info("SolveLinearSystem", &format!("Repointing {} eigenvalue components for: {}", var.dofs, var.name), 3);
+        return Ok(norm);
+    }
     if p.logical("harmonic mode") == Some(true) {
         // ChangeToHarmonicSystem + ArpackEigenSolveComplex. The damping
         // matrix is what the solver gave DefaultUpdateDamp; a solver that
@@ -579,7 +708,10 @@ pub(crate) fn solve(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverError> {
         let mut inner = |b: &[Complex64], x: &mut [Complex64]| -> Result<(), SolverError> {
             crate::linsys::solve_complex_elmer_product(&q, &a, b, x, log, comm)
         };
-        let mut result = arpack_eigen_solve_complex(&mut sim.zarpack, &a, &mc, &cfg, &mut inner)?;
+        if cfg.shift != 0.0 {
+            return Err(unsupported("a shifted complex eigen system (Eigen System Shift)"));
+        }
+        let mut result = arpack_eigen_solve_complex(&mut sim.zarpack, &a, &mc, &cfg, Complex64::new(0.0, 0.0), &mut inner)?;
         // BackScaleLinearSystem(EigenScaling = .TRUE.).
         if scale {
             for v in &mut result.vectors {

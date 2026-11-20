@@ -35,6 +35,7 @@ pub fn register(registry: &mut SolverRegistry) {
     crate::mgdyn2d_steady::register(registry);
     crate::statmag::register(registry);
     crate::emwave::register(registry);
+    crate::emport::register(registry);
     crate::helmholtz_bem::register(registry);
     crate::vhnodal::register(registry);
 }
