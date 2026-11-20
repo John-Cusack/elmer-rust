@@ -715,6 +715,9 @@ impl<'a> SolverCtx<'a> {
         }
         let mut idx = Vec::new();
         self.element_slots(e, &mut idx);
+        // DefUtils.F90:4874: UseLocalMatrixStorage before anything else.
+        let stored = self.use_local_matrix_storage(local, e)?;
+        let local = stored.as_ref().unwrap_or(local);
         // UpdateGlobalEquations (SolverBasics.F90:700-727): the local system
         // in the n-t coordinates of the element's n-t nodes.
         let rotated = self.rotate_nt(local, e, idx.len())?;
@@ -744,6 +747,67 @@ impl<'a> SolverCtx<'a> {
             sim.slots[self.slot].asm.boundary_touched = true;
         }
         Ok(())
+    }
+
+    /// `UseLocalMatrixStorage` (MatrixAssembly.F90:389) with `Local Matrix
+    /// Storage`: keeps the local system of an active bulk element and scales
+    /// it by the elemental `Matrix Multiplier Name` (`Matrix Multiplier
+    /// Invert`) and `Rhs Multiplier Name` fields. `None` when nothing
+    /// changes.
+    fn use_local_matrix_storage(&mut self, local: &LocalSystem, e: ElemId) -> Result<Option<LocalSystem>, SolverError> {
+        const CALLER: &str = "UseLocalMatrixStorage";
+        let slot = &mut self.sim.slots[self.slot];
+        if slot.params.logical("local matrix storage") != Some(true) {
+            return Ok(None);
+        }
+        for k in ["local matrix identical", "local matrix identical bodies"] {
+            if slot.params.logical(k) == Some(true) {
+                return Err(SolverError::Unsupported(format!("Local Matrix Storage with {k}")));
+            }
+        }
+        if slot.local_store.is_none() {
+            self.log.info("DefaultStart", &format!("Allocating local storage of size: {}", slot.active.len()), 7);
+            slot.local_store = Some(crate::sim::LocalStore::new(&slot.active));
+        }
+        let store = slot.local_store.as_mut().expect("allocated");
+        let Some(&ix) = store.inv.get(&e.0) else { return Ok(None) };
+        store.systems[ix] = Some((local.stiff.clone(), local.force.clone()));
+        let Some(name) = slot.params.string("matrix multiplier name").map(str::to_string) else {
+            return Ok(None);
+        };
+        let invert = slot.params.logical("matrix multiplier invert") == Some(true);
+        let rhs_name = slot.params.string("rhs multiplier name").map(str::to_string);
+        let factor = |vars: &crate::variable::VariableStore, name: &str| -> Result<Option<f64>, SolverError> {
+            let v = vars
+                .get(name)
+                .ok_or_else(|| SolverError::fatal(CALLER, format!("Field not found: {name}")))?;
+            if v.kind != elmer_core::FieldKind::Elemental {
+                return Err(SolverError::fatal(CALLER, format!("\"Field should be elemental: {name}")));
+            }
+            let slot = match v.perm.as_deref() {
+                Some(p) => match p.get(e.0 as usize) {
+                    Some(&s) if s != NO_DOF => s as usize,
+                    _ => return Ok(None),
+                },
+                None => e.0 as usize,
+            };
+            Ok(v.values.get(slot).copied())
+        };
+        let mut out = local.clone();
+        if let Some(c) = factor(&self.sim.vars, &name)? {
+            let c = if invert { 1.0 / c } else { c };
+            for k in &mut out.stiff {
+                *k *= c;
+            }
+        }
+        if let Some(r) = rhs_name {
+            if let Some(m) = factor(&self.sim.vars, &r)? {
+                for f in &mut out.force {
+                    *f *= m;
+                }
+            }
+        }
+        Ok(Some(out))
     }
 
     /// `RotateMatrix` of a local system of element `e` (`nslots` element
@@ -1215,29 +1279,7 @@ impl<'a> SolverCtx<'a> {
     /// (`TargetCoordinatesToTargetNodes`, `FindClosestNode`). `None` without
     /// either.
     pub(crate) fn target_nodes(&self, bc: &ParamMap) -> Option<Vec<u32>> {
-        let n = self.mesh.n_nodes();
-        if let Some(Value::Integer(ids)) = bc.get("target nodes") {
-            return Some(ids.iter().filter(|&&i| i >= 1 && i as usize <= n).map(|&i| i as u32 - 1).collect());
-        }
-        let Some(Value::Real { rows, cols, data }) = bc.get("target coordinates") else { return None };
-        let eps = bc.real("target coordinates eps").map_or(f64::MAX, |e| e * e);
-        let mut out = Vec::new();
-        for r in 0..*rows {
-            let c = &data[r * cols..(r + 1) * cols];
-            let mut best: Option<(f64, u32)> = None;
-            for node in 0..n as u32 {
-                let x = self.mesh.coord(node);
-                let d: f64 = c.iter().take(3).enumerate().map(|(k, ck)| (x[k] - ck).powi(2)).sum();
-                if d > eps {
-                    continue;
-                }
-                if best.is_none_or(|(m, _)| d < m) {
-                    best = Some((d, node));
-                }
-            }
-            out.extend(best.map(|(_, node)| node));
-        }
-        Some(out)
+        target_nodes_of(self.mesh, bc)
     }
 
     /// `CalculateNodalWeights(Solver, .TRUE., Perm, 'Periodic BC
@@ -2229,6 +2271,37 @@ pub(crate) fn solve_linear(
         }
         solved
     }
+}
+
+/// The nodes of a condition's `Target Nodes` (1-based in the input), or of
+/// its `Target Coordinates`: for each row the closest node within `Target
+/// Coordinates Eps` over as many coordinates as given
+/// (`TargetCoordinatesToTargetNodes`, `FindClosestNode`). `None` without
+/// either.
+pub(crate) fn target_nodes_of(mesh: &dyn MeshView, bc: &ParamMap) -> Option<Vec<u32>> {
+    let n = mesh.n_nodes();
+    if let Some(Value::Integer(ids)) = bc.get("target nodes") {
+        return Some(ids.iter().filter(|&&i| i >= 1 && i as usize <= n).map(|&i| i as u32 - 1).collect());
+    }
+    let Some(Value::Real { rows, cols, data }) = bc.get("target coordinates") else { return None };
+    let eps = bc.real("target coordinates eps").map_or(f64::MAX, |e| e * e);
+    let mut out = Vec::new();
+    for r in 0..*rows {
+        let c = &data[r * cols..(r + 1) * cols];
+        let mut best: Option<(f64, u32)> = None;
+        for node in 0..n as u32 {
+            let x = mesh.coord(node);
+            let d: f64 = c.iter().take(3).enumerate().map(|(k, ck)| (x[k] - ck).powi(2)).sum();
+            if d > eps {
+                continue;
+            }
+            if best.is_none_or(|(m, _)| d < m) {
+                best = Some((d, node));
+            }
+        }
+        out.extend(best.map(|(_, node)| node));
+    }
+    Some(out)
 }
 
 #[cfg(test)]

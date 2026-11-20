@@ -114,8 +114,11 @@ impl Simulation {
             let key = format!("{comp} load");
             let point = |p: &ParamMap| p.get("target nodes").is_some() || p.get("target coordinates").is_some();
             for p in self.model.boundary_conditions.iter().chain(&self.model.body_forces) {
-                if p.get(&format!("{key} dofs")).is_some() || (p.get(&key).is_some() && point(p)) {
-                    return Err(SolverError::Unsupported(format!("{key} on target nodes or as DOFs")));
+                if p.get(&format!("{key} dofs")).is_some() {
+                    return Err(SolverError::Unsupported(format!("{key} DOFs")));
+                }
+                if p.get(&key).is_some() && point(p) && p.get(&format!("{key} im")).is_some() {
+                    return Err(SolverError::Unsupported(format!("{key} im on target nodes")));
                 }
             }
             let nslots = self.vars.by_id(id).values.len() / dofs;
@@ -131,6 +134,10 @@ impl Simulation {
                 for sec in 0..n_sections {
                     let section = if bulk { &self.model.body_forces[sec] } else { &self.model.boundary_conditions[sec] };
                     let Some(val) = section.get(&key) else { continue };
+                    // Point loads come after the element loads.
+                    if !bulk && point(section) {
+                        continue;
+                    }
                     if !bulk && section.get("target boundaries").is_none() && section.get("name").is_none() {
                         continue;
                     }
@@ -163,6 +170,28 @@ impl Simulation {
                             done[k] = true;
                             rhs_add.push((dofs * k + dof, x));
                         }
+                    }
+                }
+            }
+            // SetPointLoads: the BCs' loads at their Target Nodes (or the
+            // nodes closest to their Target Coordinates).
+            for section in &self.model.boundary_conditions {
+                let Some(val) = section.get(&key) else { continue };
+                let Some(nodes) = crate::solver::target_nodes_of(mesh, section) else { continue };
+                if nodes.is_empty() {
+                    continue;
+                }
+                let w = crate::expr::eval_at_nodes_with(
+                    val,
+                    &nodes,
+                    &self.fields(mesh),
+                    self.backends.matc.as_deref(),
+                    &self.backends.udfs,
+                )?;
+                let v = self.vars.by_id(id);
+                for (&n, &x) in nodes.iter().zip(&w) {
+                    if let Some(k) = v.slot(n) {
+                        rhs_add.push((dofs * k + dof, x));
                     }
                 }
             }
