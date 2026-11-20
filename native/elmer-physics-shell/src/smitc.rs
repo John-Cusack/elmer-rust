@@ -40,7 +40,7 @@ pub fn smitc_defaults(p: &mut ParamMap) {
 pub struct SmitcSolver;
 
 /// `SUM( a(1:n) * Basis(1:n) )`.
-fn sum(a: &[f64], b: &[f64]) -> f64 {
+pub(crate) fn sum(a: &[f64], b: &[f64]) -> f64 {
     let mut s = 0.0;
     for (x, y) in a.iter().zip(b) {
         s += x * y;
@@ -49,7 +49,7 @@ fn sum(a: &[f64], b: &[f64]) -> f64 {
 }
 
 /// `StrainEnergyDensity( A, B, C, m, n, s )`: `A += s C^T (B C)`.
-fn strain_energy(a: &mut [f64], b: &[Vec<f64>], c: &[Vec<f64>], m: usize, n: usize, s: f64) {
+pub(crate) fn strain_energy(a: &mut [f64], b: &[Vec<f64>], c: &[Vec<f64>], m: usize, n: usize, s: f64) {
     let mut t = vec![vec![0.0f64; n]; m];
     for i in 0..m {
         for j in 0..n {
@@ -73,7 +73,7 @@ fn strain_energy(a: &mut [f64], b: &[Vec<f64>], c: &[Vec<f64>], m: usize, n: usi
 
 /// `ShearCorrectionFactor( Kappa, h, x, y, n, alpha )` (its triangle edge
 /// `x13 = x(1) - x(1)` included).
-fn shear_correction(h: f64, x: &[f64], y: &[f64], stab: f64) -> Result<f64, SolverError> {
+pub(crate) fn shear_correction(h: f64, x: &[f64], y: &[f64], stab: f64) -> Result<f64, SolverError> {
     let l = |dx: f64, dy: f64| (dx.powi(2) + dy.powi(2)).sqrt();
     let (alpha, hh) = match x.len() {
         3 => {
@@ -100,10 +100,10 @@ fn shear_correction(h: f64, x: &[f64], y: &[f64], stab: f64) -> Result<f64, Solv
     Ok(h.powi(2) / (h.powi(2) + alpha * hh.powi(2)))
 }
 
-type J2 = ([[f64; 2]; 2], [[f64; 2]; 2]);
+pub(crate) type J2 = ([[f64; 2]; 2], [[f64; 2]; 2]);
 
 /// `Jacobi3( Jmat, invJ, detJ, x, y )`.
-fn jacobi3(x: &[f64], y: &[f64]) -> J2 {
+pub(crate) fn jacobi3(x: &[f64], y: &[f64]) -> J2 {
     let j = [[x[1] - x[0], y[1] - y[0]], [x[2] - x[0], y[2] - y[0]]];
     let det = j[0][0] * j[1][1] - j[0][1] * j[1][0];
     (
@@ -116,7 +116,7 @@ fn jacobi3(x: &[f64], y: &[f64]) -> J2 {
 }
 
 /// `Jacobi4( Jmat, invJ, detJ, xi, eta, x, y )`.
-fn jacobi4(xi: f64, eta: f64, x: &[f64], y: &[f64]) -> J2 {
+pub(crate) fn jacobi4(xi: f64, eta: f64, x: &[f64], y: &[f64]) -> J2 {
     let dxi = [
         -(1.0 - eta) / 4.0,
         (1.0 - eta) / 4.0,
@@ -147,7 +147,7 @@ fn jacobi4(xi: f64, eta: f64, x: &[f64], y: &[f64]) -> J2 {
 }
 
 /// `Sdofs(k) = (Tau(1)*Jmat(1,c) + Tau(2)*Jmat(2,c)) / d` for column `c`.
-fn tj(tau: [f64; 2], j: &[[f64; 2]; 2], c: usize, d: f64) -> f64 {
+pub(crate) fn tj(tau: [f64; 2], j: &[[f64; 2]; 2], c: usize, d: f64) -> f64 {
     (tau[0] * j[0][c] + tau[1] * j[1][c]) / d
 }
 
