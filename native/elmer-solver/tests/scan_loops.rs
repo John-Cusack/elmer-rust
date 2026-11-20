@@ -13,7 +13,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use elmer_core::SerialComm;
-use elmer_solver::{Simulation, Solver, SolverCtx, SolverError, SolverRegistry, TextMatc};
+use elmer_solver::{Simulation, Solver, SolverCtx, SolverError, SolverRegistry};
 use support::poisson::{heat, heat_nl};
 use support::{sif_model, split_change, Capture};
 
@@ -45,7 +45,7 @@ fn run(heat_solver: elmer_solver::SolverFactory) -> (Result<(), SolverError>, Si
     reg.register("CountSolver2", "CountSolver", count);
     let log = Capture::default();
     let mut sim = Simulation::new(model);
-    sim.set_matc(Rc::new(TextMatc(elmer_sif::matc::matc_eval)));
+    sim.set_matc(Rc::new(support::SifMatc));
     sim.setup(&mesh, &reg, &log, &SerialComm).unwrap();
     let r = sim.run(&mesh, &log, &SerialComm).map(|_| ());
     (r, sim, log)

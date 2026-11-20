@@ -12,7 +12,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use elmer_core::SerialComm;
-use elmer_solver::{Simulation, SolverRegistry, TextMatc};
+use elmer_solver::{Simulation, SolverRegistry};
 use support::poisson::heat_nl;
 use support::{sif_model, split_change, Capture};
 
@@ -25,7 +25,7 @@ fn scanning_steps_time_and_solves_steady() {
     reg.register("HeatSolve", "HeatSolver", heat_nl);
     let log = Capture::default();
     let mut sim = Simulation::new(model);
-    sim.set_matc(Rc::new(TextMatc(elmer_sif::matc::matc_eval)));
+    sim.set_matc(Rc::new(support::SifMatc));
     sim.setup(&mesh, &reg, &log, &SerialComm).unwrap();
     let report = sim.run(&mesh, &log, &SerialComm).unwrap();
     assert_eq!(report.steps, 3);
