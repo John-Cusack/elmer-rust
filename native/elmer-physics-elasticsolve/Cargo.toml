@@ -10,6 +10,7 @@ description = "ElasticSolve (linear, St. Venant-Kirchhoff and neo-Hookean) for t
 elmer-core.workspace = true
 thiserror.workspace = true
 elmer-solver = { path = "../elmer-solver" }
+elmer-adaptive = { path = "../elmer-adaptive" }
 elmer-expr = { path = "../elmer-expr" }
 elmer-physics-elastic = { path = "../elmer-physics-elastic" }
 
