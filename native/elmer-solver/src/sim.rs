@@ -1544,6 +1544,9 @@ impl Simulation {
         if !steady && self.slots[ix].params.logical("nonlinear update exported variables") == Some(true) {
             self.update_exported_variables(ix, mesh, log)?;
         }
+        if !steady && self.slots[ix].params.get("nonlinear update components").is_some() {
+            return Err(SolverError::Unsupported("Nonlinear Update Components".into()));
+        }
         Ok(Some(report))
     }
 
@@ -1796,6 +1799,10 @@ impl Simulation {
             // UpdateDependentObjects(Solver, .TRUE.) (MainUtils.F90:5625).
             if self.slots[ix].params.logical("update exported variables") == Some(true) {
                 self.update_exported_variables(ix, mesh, log)?;
+            }
+            // ... and the components that depend on the solution.
+            if let Some(Value::Integer(list)) = self.slots[ix].params.get("update components").cloned() {
+                self.update_dependent_components(&list, mesh, log)?;
             }
             self.slots[ix].times_visited += 1;
         }

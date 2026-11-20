@@ -21,6 +21,7 @@
 
 pub mod assembly;
 pub mod backend;
+mod components;
 mod block_alias;
 mod block_driver;
 mod block_system;
