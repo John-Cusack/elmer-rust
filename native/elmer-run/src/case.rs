@@ -900,7 +900,7 @@ fn periodic_assembly(
 /// `Mesh % PeriodicPerm` / `PeriodicFlip` when a boundary condition has
 /// `Conforming BC` (`GeneratePeriodicProjectors`): `elmer-mortar`'s node
 /// map, which the solvers with `Apply Conforming BCs` number their dofs by.
-fn conforming_map(
+pub fn conforming_map(
     model: &Model,
     mesh: &dyn MeshView,
     coord_dim: usize,
