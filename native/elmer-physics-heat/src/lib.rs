@@ -38,6 +38,7 @@ mod boundary;
 mod bulk;
 mod error;
 mod legacy;
+mod legacy_compose;
 mod material;
 mod preflight;
 mod radiation;

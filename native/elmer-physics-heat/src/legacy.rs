@@ -246,7 +246,9 @@ impl HeatSolver {
                 } else {
                     Stabilization::None
                 };
-                heat_bulk_local(
+                // DiffuseConvectiveCompose's operation order where it is
+                // ported (legacy_compose.rs), else the shared kernel.
+                if !crate::legacy_compose::legacy_compose_local(
                     &*self.basis,
                     &*self.quad,
                     el.etype,
@@ -254,7 +256,17 @@ impl HeatSolver {
                     &mat,
                     &bulk_cfg,
                     &mut self.local,
-                )?;
+                )? {
+                    heat_bulk_local(
+                        &*self.basis,
+                        &*self.quad,
+                        el.etype,
+                        &xyz,
+                        &mat,
+                        &bulk_cfg,
+                        &mut self.local,
+                    )?;
+                }
                 heater_local = control
                     && ctx
                         .body_params(e)
