@@ -272,6 +272,10 @@ impl Solver for StatElecSolver {
         _transient: bool,
     ) -> Result<(), SolverError> {
         check_supported(ctx)?;
+        // StatElecSolve.F90:363.
+        if ctx.params().logical("follow p curvature") == Some(true) {
+            elmer_solver::follow_p::follow_p_curvature(ctx)?;
+        }
         let axi = axisymmetric(ctx)?;
         let dim = ctx.mesh.dim();
         let cfg = StatElecConfig {
@@ -329,8 +333,22 @@ impl Solver for StatElecSolver {
                         let xyz: Vec<[f64; 3]> =
                             p.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
                         let mat = mat.reordered(el.nodes, &p.nodes);
+                        // `Follow P Curvature`: the dofs past the nodes carry
+                        // coordinates (`GetElementNodes` fills them), so the
+                        // element maps with all its functions.
+                        let curved = ctx.p_geometry().map(|g| {
+                            let mut slots = Vec::new();
+                            d.element_slots(e, &mut slots);
+                            let mut ext = xyz.clone();
+                            ext.extend(slots[xyz.len().min(slots.len())..].iter().map(|s| g.get(s).copied().unwrap_or([0.0; 3])));
+                            IsoBasis { inner: &*p.basis, xyz: ext }
+                        });
+                        let basis: &dyn elmer_core::ElementBasis = match &curved {
+                            Some(c) => c,
+                            None => &*p.basis,
+                        };
                         stat_elec_bulk_local_with(
-                            &*p.basis,
+                            basis,
                             &p.rule,
                             el.etype,
                             &xyz,
@@ -449,6 +467,18 @@ impl StatElecSolver {
             Ok(Coefficient::Scalar(bulk_inputs(c, e, n)?.relative_permittivity))
         };
         post::postprocess(ctx, &*self.basis, &*self.quad, &mut self.post, &POST, &pcfg, eps0, &coef_of)
+    }
+}
+
+/// A p basis evaluated on the element's coordinates at all its dofs.
+struct IsoBasis<'a> {
+    inner: &'a dyn elmer_core::ElementBasis,
+    xyz: Vec<[f64; 3]>,
+}
+
+impl elmer_core::ElementBasis for IsoBasis<'_> {
+    fn eval(&self, etype: elmer_core::ElementType, _nodal_xyz: &[[f64; 3]], uvw: [f64; 3], out: &mut elmer_core::BasisEval) -> Result<(), String> {
+        self.inner.eval(etype, &self.xyz, uvw, out)
     }
 }
 
