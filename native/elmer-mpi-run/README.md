@@ -9,12 +9,13 @@ code, this crate installs `elmer-solver` backends that do the parallel step:
 
 | Rust | Elmer |
 |---|---|
-| `ParMesh` (partition reader `elmer-mpi`, ghost-first node order) | `LoadMesh` with `ParallelInfo` |
+| `ParMesh` (partition reader `elmer-mpi`, partition-file node order) | `LoadMesh` with `ParallelInfo` |
 | `ParAssembly::try_apply_dirichlet` | `EnforceDirichletConditions` parallel branch: `CommunicateDirichletBCs`, then rows scaled by the diagonal summed over ranks (`ScaleLinearSystem(ApplyScaling=.FALSE.)`) |
 | `linear_registry` → `elmer_dist::dist_solve` | `ParallelIter`: `ScaleLinearSystem` with `ParallelSumVector`, `SplitMatrix`, block-local preconditioner, HUTI on owned dofs |
 | `linear_registry` → `itermethod_solve` | the same, with BiCGStab(l), GCR or IDR(s) from `elmer-itermethods` in place of HUTI |
 | `levels::split` (`elmer-mesh-levels` per rank, then a collective numbering) | `SplitMeshEqual` with `SParEdgeNumbering` / `SParFaceNumbering` |
-| `prepare_slot` + `Norm Permutation` | `ComputeNorm` with `Nonlinear System Consistent Norm` (owned dofs only) |
+| `Simulation::set_node_owned` (`elmer-solver`) | `ComputeNorm` with `Nonlinear System Consistent Norm` (owned dofs only) |
+| `elmer_run::result_file` per rank | `SaveResult`'s `<Output File>.<rank>` |
 | `run_partitioned`, `MpiEngine`, `elmer-mpi-run` binary | `ElmerSolver_mpi` |
 
 ```sh
@@ -134,14 +135,14 @@ serial norm 0.16480021253114105:
 
 ## How it fits elmer-solver without changing it
 
-`elmer-solver` has no parallel hooks yet, so this crate works around three
-gaps. Each workaround is local to the run:
+`elmer-solver` has one parallel hook, node ownership
+(`Simulation::set_node_owned`): with it the consistent norm counts each
+shared dof once, on its owner, as `ComputeNorm` does through
+`NeighbourList(RowOf(j)) % Neighbours(1)`. The nodes keep their
+partition-file order, so the bandwidth optimisation gives Elmer's own
+per-partition `Perm` and each rank's `Output File` piece has Elmer's layout.
+This crate works around two more gaps, each local to the run:
 
-- **Consistent norm.** `ParMesh` numbers the nodes other ranks own first.
-  `prepare_slot` then sets `Norm Permutation = n_ghost + 1`. With that,
-  `elmer-solver`'s parallel `ComputeNorm` sums only the owned nodes, so each
-  shared node counts once. This only works for one dof per node; a
-  consistent norm on a vector variable is refused.
 - **Serial scaling.** `elmer-solver` would scale each rank's system by that
   rank's unsummed diagonal. `prepare_slot` moves `Linear System Scaling` to a
   private key and turns it off, and the distributed solve then scales with
@@ -152,9 +153,8 @@ gaps. Each workaround is local to the run:
 
 Two additive hooks would remove these workarounds:
 
-1. `elmer-solver`: a `Backends` entry that gives row ownership to
-   `ComputeChange`/`compute_norm_consistent`, and skips local scaling while a
-   parallel linear backend is installed.
+1. `elmer-solver`: skip local scaling while a parallel linear backend is
+   installed.
 2. `elmer-cli`: a way for the driver to ask the engine before it refuses
    native runs under more than one MPI rank. `MpiEngine` already implements
    `Engine`.

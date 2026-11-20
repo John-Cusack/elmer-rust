@@ -41,6 +41,48 @@ pub fn output_file(model: &mut Model, sif: &str, startinfo: Option<&str>) {
     model.simulation.insert("Binary Output", Value::Logical(true));
 }
 
+/// [`output_file`] on a staged sif's text, for a run whose front end the
+/// harness does not own (`elmer-mpi-run`): the two keywords go right after
+/// the `Simulation` header line. `None` when the Simulation section already
+/// names an `Output File`, or the text has no Simulation section.
+pub fn inject_text(text: &str, sif: &str, startinfo: Option<&str>) -> Option<String> {
+    let bare = |l: &str| l.split('!').next().unwrap_or("").trim().to_ascii_lowercase();
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let header = lines.iter().position(|l| bare(l) == "simulation")?;
+    let names_output = lines[header + 1..]
+        .iter()
+        .map(|l| bare(l))
+        .take_while(|l| l != "end")
+        .any(|l| l.starts_with("output file") && l["output file".len()..].trim_start().starts_with(['=', '(']));
+    if names_output {
+        return None;
+    }
+    let mut m = Model::default();
+    output_file(&mut m, sif, startinfo);
+    let name = m.simulation.string("output file")?;
+    let eol = if lines[header].ends_with('\n') { "" } else { "\n" };
+    let mut out = String::with_capacity(text.len() + 64);
+    for (i, l) in lines.iter().enumerate() {
+        out.push_str(l);
+        if i == header {
+            out.push_str(&format!("{eol}  Output File = \"{name}\"\n  Binary Output = True\n"));
+        }
+    }
+    Some(out)
+}
+
+/// [`inject_text`] on the sif file `path` in place. Sifs are bytes, not
+/// UTF-8: each byte is one char, so the round trip is lossless.
+pub fn inject_sif(path: &Path, startinfo: Option<&str>) -> std::io::Result<()> {
+    let bytes = std::fs::read(path)?;
+    let text: String = bytes.iter().map(|&b| char::from(b)).collect();
+    let sif = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    match inject_text(&text, sif, startinfo) {
+        Some(out) => std::fs::write(path, out.chars().map(|c| c as u32 as u8).collect::<Vec<u8>>()),
+        None => Ok(()),
+    }
+}
+
 /// A `.result` file by its first bytes (`elmer-oracle` `looks_like_result`).
 fn looks_like_result(path: &Path) -> bool {
     let mut head = [0u8; 16];
@@ -155,5 +197,21 @@ mod tests {
         output_file(&mut m, "case.sif", None);
         assert_eq!(m.simulation.string("output file"), Some("own.dat"));
         assert_eq!(m.simulation.get("binary output"), None);
+    }
+
+    #[test]
+    fn inject_text_adds_the_o2_keywords_after_the_simulation_header() {
+        let sif = "Header\n  Mesh DB \".\" \"angle\"\nEnd\n\nSimulation ! the run\n  Max Output Level = 5\nEnd\n";
+        let out = inject_text(sif, "case.sif", Some("case.sif")).unwrap();
+        assert_eq!(
+            out,
+            "Header\n  Mesh DB \".\" \"angle\"\nEnd\n\nSimulation ! the run\n  Output File = \"case.result\"\n  Binary Output = True\n  Max Output Level = 5\nEnd\n"
+        );
+        let out = inject_text("simulation\nend\n", "b.sif", Some("case.sif")).unwrap();
+        assert!(out.contains("Output File = \"b.result\""));
+        assert_eq!(inject_text("Simulation\n  Output File = \"own.dat\"\nEnd\n", "case.sif", None), None);
+        assert_eq!(inject_text("Header\nEnd\n", "case.sif", None), None);
+        // `Output File Final Only` is another keyword.
+        assert!(inject_text("Simulation\n  Output File Final Only = True\nEnd\n", "case.sif", None).is_some());
     }
 }

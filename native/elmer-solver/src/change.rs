@@ -7,11 +7,11 @@
 //! `Set Average Solution`, and parallel residual measures. The convergence
 //! monitor file is not written.
 
-use elmer_core::{Communicator, CsrMatrix, LinearOperator, Logger, ParamMap, Params};
+use elmer_core::{Communicator, CsrMatrix, LinearOperator, Logger, ParamMap, Params, NO_DOF};
 
 use crate::error::SolverError;
 use crate::fortran_fmt::{g, i2s};
-use crate::norm::{compute_norm, select_norm_entries, NormSpec};
+use crate::norm::{compute_norm, compute_norm_consistent, select_norm_entries, NormSpec};
 use crate::variable::Variable;
 
 const CALLER: &str = "ComputeChange";
@@ -33,6 +33,10 @@ pub struct ChangeEnv<'a> {
     pub rhs: Option<&'a [f64]>,
     /// Mesh node count (nodal norm).
     pub n_nodes: usize,
+    /// This rank's node ownership in a partitioned run, for `Nonlinear
+    /// System Consistent Norm` ([`crate::Simulation::set_node_owned`]);
+    /// `None` counts every dof.
+    pub node_owned: Option<&'a [bool]>,
     pub log: &'a dyn Logger,
     pub comm: &'a dyn Communicator,
 }
@@ -83,6 +87,41 @@ pub fn numerical_error(
     } else {
         log.warn(caller, &msg);
         Ok(())
+    }
+}
+
+/// Whether each entry the consistent norm sees is owned here, given node
+/// ownership `owned`: entry `j` is matrix row `RowOf(j)`, the row itself or,
+/// after the `Norm Permutation` compaction, the `Perm` value it came from;
+/// a row belongs to the node whose `Perm` points at it (SolverBasics.F90:
+/// 3295, `NeighbourList(RowOf(j)) % Neighbours(1) == MyPE`).
+fn consistent_rows(spec: &NormSpec, perm: Option<&[u32]>, owned: &[bool], n: usize) -> Vec<bool> {
+    let dofs = spec.dofs.max(1);
+    let mut row_owned = vec![true; n];
+    match perm {
+        Some(perm) => {
+            for (node, &p) in perm.iter().enumerate().filter(|(_, &p)| p != NO_DOF) {
+                let o = owned.get(node).copied().unwrap_or(true);
+                for k in 0..dofs {
+                    if let Some(r) = row_owned.get_mut(p as usize * dofs + k) {
+                        *r = o;
+                    }
+                }
+            }
+        }
+        None => {
+            for (j, r) in row_owned.iter_mut().enumerate() {
+                *r = owned.get(j / dofs).copied().unwrap_or(true);
+            }
+        }
+    }
+    match (spec.perm_start, perm) {
+        (Some(start), Some(perm)) => perm[start - 1..]
+            .iter()
+            .filter(|&&p| p != NO_DOF)
+            .map(|&p| row_owned.get(p as usize).copied().unwrap_or(true))
+            .collect(),
+        _ => row_owned,
     }
 }
 
@@ -283,9 +322,16 @@ pub fn compute_change(env: &ChangeEnv<'_>, var: &mut Variable, st: &mut SolverSt
     let prev_norm = if env.steady { var.conv.prev_norm } else { var.conv.norm };
 
     let spec = NormSpec::from_params(p, dofs);
+    let owned_rows = match env.node_owned {
+        Some(owned) if spec.consistent && env.comm.size() > 1 => Some(consistent_rows(&spec, var.perm.as_deref(), owned, n)),
+        _ => None,
+    };
     let norm_of = |x: &[f64], n: usize| {
         let (vals, m) = select_norm_entries(&spec, x, n, var.perm.as_deref(), env.n_nodes, env.log);
-        compute_norm(&spec, &vals, m, env.comm)
+        match &owned_rows {
+            Some(owned) => compute_norm_consistent(&spec, &vals, m, &|j| owned.get(j).copied().unwrap_or(true), env.comm),
+            None => compute_norm(&spec, &vals, m, env.comm),
+        }
     };
     let norm = norm_of(&var.values, n);
     var.conv.norm = norm;
@@ -603,4 +649,24 @@ fn reduce_max(comm: &dyn Communicator, v: f64) -> f64 {
     let mut b = [v];
     comm.max_f64(&mut b);
     b[0]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Rows follow the node whose `Perm` points at them; after the `Norm
+    /// Permutation` compaction, entry `j` is the row `Perm` gave it.
+    #[test]
+    fn consistent_rows_follow_the_perm() {
+        let perm = [2, 0, NO_DOF, 1];
+        let owned = [true, false, false, true];
+        let spec = NormSpec::l2(1);
+        assert_eq!(consistent_rows(&spec, Some(&perm), &owned, 3), vec![false, true, true]);
+        let two = NormSpec::l2(2);
+        assert_eq!(consistent_rows(&two, Some(&perm), &owned, 6), vec![false, false, true, true, true, true]);
+        assert_eq!(consistent_rows(&two, None, &owned, 4), vec![true, true, false, false]);
+        let compacted = NormSpec { perm_start: Some(2), ..NormSpec::l2(1) };
+        assert_eq!(consistent_rows(&compacted, Some(&perm), &owned, 3), vec![false, true]);
+    }
 }

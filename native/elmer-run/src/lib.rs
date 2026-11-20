@@ -18,6 +18,7 @@
 //! * `mortar`: `Apply Mortar BCs` through `elmer-mortar`'s constraint matrix.
 //! * `motion`: node coordinates the mesh mappers move.
 //! * [`output`]: the `Post File = *.vtu` auto-solver, written with `elmer-vtu`.
+//! * [`result_file`]: the `Output File` (`.result`) writer, one file per rank.
 //! * [`sif`]: [`SifFrontend`], `elmer-sif` as the case reader, with the mesh
 //!   reader pluggable until `elmer-mesh` merges.
 //! * [`unported`]: keywords whose feature no provider implements, refused
@@ -39,7 +40,7 @@ pub mod matc;
 pub mod mesh_db;
 mod mortar;
 mod motion;
-mod result_file;
+pub mod result_file;
 pub mod output;
 pub mod sif;
 pub mod unported;

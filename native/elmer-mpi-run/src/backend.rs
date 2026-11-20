@@ -66,37 +66,16 @@ fn no_context() -> SolverError {
     SolverError::NotWired("parallel backend used outside a partitioned run".into())
 }
 
-/// Switches a solver section to the parallel path, given its variable's
-/// dofs and this rank's `n_ghost` (owned nodes are `n_ghost..`):
-///
-/// * `Linear System Scaling` is moved to [`SCALING_KEY`] and set false, so
-///   `elmer-solver` does not scale with the unsummed local diagonal; the
-///   distributed solve scales with the summed one, as `ScaleLinearSystem`
-///   does in parallel.
-/// * `Nonlinear System Consistent Norm` counts each shared dof once, on its
-///   owner (`ComputeNorm`, SolverBasics.F90:3216). `Norm Permutation =
-///   n_ghost + 1` restricts `elmer-solver`'s parallel norm to the owned
-///   nodes, which [`crate::ParMesh`] numbers last; for one dof per node that
-///   is that norm. Several dofs, or a `Norm Permutation` of the case's own,
-///   are refused with the consistent norm.
-pub fn prepare_slot(params: &mut ParamMap, dofs: usize, n_ghost: usize) -> Result<(), SolverError> {
+/// Switches a solver section to the parallel path: `Linear System
+/// Scaling` is moved to [`SCALING_KEY`] and set false, so `elmer-solver`
+/// does not scale with the unsummed local diagonal; the distributed solve
+/// scales with the summed one, as `ScaleLinearSystem` does in parallel.
+/// (`Nonlinear System Consistent Norm` needs nothing here: the run gives
+/// `elmer-solver` the node ownership, [`elmer_solver::Simulation::set_node_owned`].)
+pub fn prepare_slot(params: &mut ParamMap) {
     let scaling = params.logical("linear system scaling").unwrap_or(true);
     params.insert(SCALING_KEY, Value::Logical(scaling));
     params.insert("Linear System Scaling", Value::Logical(false));
-    if params.logical("nonlinear system consistent norm") == Some(true) {
-        if params.get("norm permutation").is_some() {
-            return Err(SolverError::Unsupported("Norm Permutation with Nonlinear System Consistent Norm in parallel".into()));
-        }
-        if dofs != 1 {
-            return Err(SolverError::Unsupported(format!(
-                "Nonlinear System Consistent Norm in parallel for a {dofs}-dof variable"
-            )));
-        }
-        if n_ghost > 0 {
-            params.insert("Norm Permutation", Value::Integer(vec![n_ghost as i32 + 1]));
-        }
-    }
-    Ok(())
 }
 
 /// The section's `Linear System Scaling` as it was before [`prepare_slot`].
@@ -408,25 +387,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn prepare_slot_moves_scaling_and_restricts_the_consistent_norm() {
+    fn prepare_slot_moves_scaling() {
         let mut p = ParamMap::new();
         p.insert("Nonlinear System Consistent Norm", Value::Logical(true));
-        prepare_slot(&mut p, 1, 7).unwrap();
+        prepare_slot(&mut p);
         assert_eq!(p.logical("linear system scaling"), Some(false));
         assert!(scaling_of(&p));
-        assert_eq!(p.integer("norm permutation"), Some(8));
+        assert_eq!(p.get("norm permutation"), None);
 
         let mut q = ParamMap::new();
         q.insert("Linear System Scaling", Value::Logical(false));
-        prepare_slot(&mut q, 3, 7).unwrap();
+        prepare_slot(&mut q);
         assert!(!scaling_of(&q));
-        assert_eq!(q.get("norm permutation"), None);
-    }
-
-    #[test]
-    fn consistent_norm_of_a_vector_is_refused() {
-        let mut p = ParamMap::new();
-        p.insert("Nonlinear System Consistent Norm", Value::Logical(true));
-        assert!(matches!(prepare_slot(&mut p, 2, 7), Err(SolverError::Unsupported(_))));
     }
 }
