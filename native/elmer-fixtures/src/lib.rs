@@ -45,6 +45,7 @@ pub mod edge_element_test;
 pub mod edge_fe_interpolation;
 pub mod face_fe_interpolation;
 pub mod hooks;
+pub mod hrot;
 pub mod l2nd_derivatives;
 pub mod linalg;
 pub mod model_pde_handle;
