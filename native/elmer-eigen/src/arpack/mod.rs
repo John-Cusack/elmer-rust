@@ -9,6 +9,8 @@
 //! et al.). This is a translation; no Fortran is compiled or linked.
 
 pub mod blas;
+pub mod zblas;
+pub mod zlapack;
 pub mod lapack;
 pub mod lapack_ns;
 pub mod naupd;
