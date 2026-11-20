@@ -57,7 +57,7 @@ pub use bulk_vec::heat_bulk_local_vec;
 pub use error::HeatError;
 pub use material::{
     CompressModel, Compressibility, Conductivity, HeatBcAtNodes, HeatBoundaryConfig,
-    HeatBulkConfig, HeatMaterialAtNodes, Stabilization,
+    HeatBulkConfig, HeatMaterialAtNodes, JouleHeat, Stabilization,
 };
 pub use preflight::{check_supported, HeatSections, PROCEDURE};
 pub use solver::{factory, install_fe, register, solver_defaults, FeProvider, HeatSolver};

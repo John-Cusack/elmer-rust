@@ -6,7 +6,7 @@ mod support;
 use elmer_core::{ElementType, LocalSystem};
 use elmer_physics_heat::{
     heat_bulk_local, heat_bulk_local_vec, CompressModel, Compressibility, Conductivity,
-    HeatBulkConfig, HeatMaterialAtNodes, Stabilization,
+    HeatBulkConfig, HeatMaterialAtNodes, JouleHeat, Stabilization,
 };
 use support::{TestBasis, TestQuadrature};
 
@@ -198,4 +198,55 @@ fn a_constant_keyword_is_used_exactly() {
     let (u, _) = both(&unit, &cfg);
     assert_eq!(v.force, u.force);
     assert!(v.force.iter().all(|f| *f > 0.0));
+}
+
+/// Joule heat from a potential: `sigma |grad V|^2` at every point, added
+/// against each basis function. On the unit triangle with `V = 2x + 3y` and
+/// `sigma = 0.5` that is 6.5 everywhere, so each node gets 6.5 * area / 3.
+#[test]
+fn joule_heat_from_the_potential_gradient() {
+    let tri = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+    let mat = HeatMaterialAtNodes {
+        conductivity: Some(Conductivity::Scalar(vec![1.0; 3])),
+        joule_heat: Some(JouleHeat::Potential {
+            electric_conductivity: vec![0.5; 3],
+            potential: vec![0.0, 2.0, 3.0],
+        }),
+        ..Default::default()
+    };
+    let mut out = LocalSystem::zeros(0);
+    heat_bulk_local_vec(
+        &TestBasis,
+        &TestQuadrature,
+        ElementType(303),
+        &tri,
+        &mat,
+        &HeatBulkConfig::new(2),
+        &mut out,
+    )
+    .unwrap();
+    for f in &out.force {
+        assert!((f - 6.5 / 6.0).abs() < 1e-14, "{f}");
+    }
+    // A field instead: sigma * field = 0.5 * 4.
+    let mat = HeatMaterialAtNodes {
+        joule_heat: Some(JouleHeat::Field {
+            electric_conductivity: vec![0.5; 3],
+            field: vec![4.0; 3],
+        }),
+        ..mat
+    };
+    heat_bulk_local_vec(
+        &TestBasis,
+        &TestQuadrature,
+        ElementType(303),
+        &tri,
+        &mat,
+        &HeatBulkConfig::new(2),
+        &mut out,
+    )
+    .unwrap();
+    for f in &out.force {
+        assert!((f - 2.0 / 6.0).abs() < 1e-14, "{f}");
+    }
 }
