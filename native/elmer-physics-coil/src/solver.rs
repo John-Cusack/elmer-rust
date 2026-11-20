@@ -134,7 +134,10 @@ fn norm(v: &[f64]) -> f64 {
 
 /// The field values at the element's nodes through the solver's Perm.
 fn nodal(values: &[f64], perm: &[u32], nodes: &[u32]) -> Vec<f64> {
-    nodes.iter().map(|&k| values[perm[k as usize] as usize]).collect()
+    nodes
+        .iter()
+        .map(|&k| values[perm[k as usize] as usize])
+        .collect()
 }
 
 /// What the local matrices read of the solver's options.
@@ -149,13 +152,23 @@ struct Opts {
 impl Opts {
     /// The conductivity vector at a Gauss point: `CondAtIp` of
     /// LocalPotMatrix (`fix` the `CoilFix` values when they apply).
-    fn cond(&self, pt: &Point, el_cond: Option<&[f64]>, fix: Option<&[f64]>, pot: &[f64]) -> [f64; 3] {
+    fn cond(
+        &self,
+        pt: &Point,
+        el_cond: Option<&[f64]>,
+        fix: Option<&[f64]>,
+        pot: &[f64],
+    ) -> [f64; 3] {
         let mut cond = [1.0f64; 3];
         let fix_at = match fix {
             Some(f) => {
                 let fix_at = dot(&pt.basis, f);
                 if self.anisotropic {
-                    let grad = [grad_i(&pt.dbasis, 0, pot), grad_i(&pt.dbasis, 1, pot), grad_i(&pt.dbasis, 2, pot)];
+                    let grad = [
+                        grad_i(&pt.dbasis, 0, pot),
+                        grad_i(&pt.dbasis, 1, pot),
+                        grad_i(&pt.dbasis, 2, pot),
+                    ];
                     let abs = norm(&grad);
                     for i in 0..3 {
                         cond[i] = grad[i].abs() / abs;
@@ -196,7 +209,13 @@ fn el_cond(ctx: &SolverCtx<'_>, o: &Opts, e: ElemId) -> Result<Option<Vec<f64>>,
 
 /// `LocalPotMatrix`: `div( sigma grad u ) = 0` with the conductivity of
 /// [`Opts::cond`] (the `CoilFix` values from the second iteration on).
-fn local_pot(ctx: &SolverCtx<'_>, o: &Opts, e: ElemId, pot: &[f64], fix: Option<&[f64]>) -> Result<LocalSystem, SolverError> {
+fn local_pot(
+    ctx: &SolverCtx<'_>,
+    o: &Opts,
+    e: ElemId,
+    pot: &[f64],
+    fix: Option<&[f64]>,
+) -> Result<LocalSystem, SolverError> {
     let n = ctx.mesh.element(e).nodes.len();
     let elc = el_cond(ctx, o, e)?;
     let mut ls = LocalSystem::zeros(n);
@@ -218,11 +237,20 @@ fn local_pot(ctx: &SolverCtx<'_>, o: &Opts, e: ElemId, pot: &[f64], fix: Option<
 
 /// `LocalFixMatrix`: `-div( D grad c ) + |grad u| c = 1` for the
 /// conductivity fix `c` (`CFix Diffusion` D).
-fn local_fix(ctx: &SolverCtx<'_>, e: ElemId, pot: &[f64], diff: &[f64]) -> Result<LocalSystem, SolverError> {
+fn local_fix(
+    ctx: &SolverCtx<'_>,
+    e: ElemId,
+    pot: &[f64],
+    diff: &[f64],
+) -> Result<LocalSystem, SolverError> {
     let n = ctx.mesh.element(e).nodes.len();
     let mut ls = LocalSystem::zeros(n);
     for pt in element_points(ctx, e)? {
-        let grad = [grad_i(&pt.dbasis, 0, pot), grad_i(&pt.dbasis, 1, pot), grad_i(&pt.dbasis, 2, pot)];
+        let grad = [
+            grad_i(&pt.dbasis, 0, pot),
+            grad_i(&pt.dbasis, 1, pot),
+            grad_i(&pt.dbasis, 2, pot),
+        ];
         let abs = norm(&grad);
         let dreg = dot(&pt.basis, diff);
         let w = pt.weight;
@@ -251,12 +279,23 @@ fn local_fix(ctx: &SolverCtx<'_>, e: ElemId, pot: &[f64], diff: &[f64]) -> Resul
 
 /// `LocalFluxMatrix`: the mass matrix and the component `dimi` of `sigma
 /// grad u`.
-fn local_flux(ctx: &SolverCtx<'_>, o: &Opts, e: ElemId, pot: &[f64], fix: Option<&[f64]>, dimi: usize) -> Result<LocalSystem, SolverError> {
+fn local_flux(
+    ctx: &SolverCtx<'_>,
+    o: &Opts,
+    e: ElemId,
+    pot: &[f64],
+    fix: Option<&[f64]>,
+    dimi: usize,
+) -> Result<LocalSystem, SolverError> {
     let n = ctx.mesh.element(e).nodes.len();
     let elc = el_cond(ctx, o, e)?;
     let mut ls = LocalSystem::zeros(n);
     for pt in element_points(ctx, e)? {
-        let grad = [grad_i(&pt.dbasis, 0, pot), grad_i(&pt.dbasis, 1, pot), grad_i(&pt.dbasis, 2, pot)];
+        let grad = [
+            grad_i(&pt.dbasis, 0, pot),
+            grad_i(&pt.dbasis, 1, pot),
+            grad_i(&pt.dbasis, 2, pot),
+        ];
         let cond = o.cond(&pt, elc.as_deref(), fix, pot);
         let load = cond[dimi] * grad[dimi];
         let w = pt.weight;
@@ -308,7 +347,12 @@ impl Solver for CoilSolver {
         Ok(())
     }
 
-    fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
+    fn solve(
+        &mut self,
+        ctx: &mut SolverCtx<'_>,
+        _dt: f64,
+        _transient: bool,
+    ) -> Result<(), SolverError> {
         ctx.info(CALLER, "--------------------------------------", 4);
         ctx.info(CALLER, "Solving current distribution in a coil", 4);
         ctx.info(CALLER, "--------------------------------------", 4);
@@ -336,10 +380,16 @@ impl Solver for CoilSolver {
         ctx.info(CALLER, "Assuming that all coils are open!", 5);
         let bcs = &ctx.sim.model.boundary_conditions;
         if !bcs.iter().any(|b| flag(b, "coil start")) {
-            return Err(SolverError::fatal(CALLER, "> Coil Start < must be defined on some BC"));
+            return Err(SolverError::fatal(
+                CALLER,
+                "> Coil Start < must be defined on some BC",
+            ));
         }
         if !bcs.iter().any(|b| flag(b, "coil end")) {
-            return Err(SolverError::fatal(CALLER, "> Coil End < must be defined on some BC"));
+            return Err(SolverError::fatal(
+                CALLER,
+                "> Coil End < must be defined on some BC",
+            ));
         }
         let calc_curr = p.logical("calculate coil current").unwrap_or(true);
         let max_iter = match (o.fix_conductivity, o.anisotropic) {
@@ -358,7 +408,10 @@ impl Solver for CoilSolver {
         }
         let loads_name = format!("{sol_name} loads");
         if ctx.variable(&loads_name).is_none() {
-            return Err(SolverError::fatal(CALLER, &format!("> {sol_name} < Loads not associated!")));
+            return Err(SolverError::fatal(
+                CALLER,
+                format!("> {sol_name} < Loads not associated!"),
+            ));
         }
 
         // ChooseFixedEndNodes: +12 at the start, -12 at the end (ioffset =
@@ -402,14 +455,20 @@ impl Solver for CoilSolver {
         ctx.info(CALLER, "Coil system consists of 1 coils", 7);
         let nplus = set.iter().filter(|&&s| s > 0).count();
         let nminus = set.iter().filter(|&&s| s < 0).count();
-        ctx.info(CALLER, &format!("Set1 : {nplus} +nodes and {nminus} -nodes"), 4);
+        ctx.info(
+            CALLER,
+            &format!("Set1 : {nplus} +nodes and {nminus} -nodes"),
+            4,
+        );
         if nplus == 0 || nminus == 0 {
             ctx.warn(CALLER, "Cannot set Dirichlet conditions with this set");
         }
 
         let elems: Vec<ElemId> = ctx.active_elements().collect();
         let pot_of = |ctx: &SolverCtx<'_>, name: &str| -> Vec<f64> {
-            ctx.variable(name).map(|v| v.values.to_vec()).unwrap_or_default()
+            ctx.variable(name)
+                .map(|v| v.values.to_vec())
+                .unwrap_or_default()
         };
         for iter in 1..=max_iter {
             if iter > 1 {
@@ -431,12 +490,19 @@ impl Solver for CoilSolver {
                 ctx.default_solve()?;
                 ctx.set_param("Calculate Loads", Value::Logical(true));
                 let sol = pot_of(ctx, &sol_name);
-                ctx.variable_mut("coilfix").expect("checked").values.copy_from_slice(&sol);
+                ctx.variable_mut("coilfix")
+                    .expect("checked")
+                    .values
+                    .copy_from_slice(&sol);
             }
             ctx.info(CALLER, "Computing the dummy potential field", 4);
             ctx.default_initialize()?;
             let pot = pot_of(ctx, "coilpot");
-            let fix = if iter > 1 { Some(pot_of(ctx, "coilfix")) } else { None };
+            let fix = if iter > 1 {
+                Some(pot_of(ctx, "coilfix"))
+            } else {
+                None
+            };
             for &e in &elems {
                 let nodes = ctx.mesh.element(e).nodes.to_vec();
                 let fx = fix.as_ref().map(|f| nodal(f, &perm, &nodes));
@@ -455,7 +521,10 @@ impl Solver for CoilSolver {
             ctx.set_param("Skip Compute Nonlinear Change", Value::Logical(false));
             ctx.default_solve()?;
             let sol = pot_of(ctx, &sol_name);
-            ctx.variable_mut("coilpot").expect("checked").values.copy_from_slice(&sol);
+            ctx.variable_mut("coilpot")
+                .expect("checked")
+                .values
+                .copy_from_slice(&sol);
             scale_potential(ctx, &set, desired_curr, &loads_name)?;
         }
 
@@ -463,11 +532,19 @@ impl Solver for CoilSolver {
             ctx.info(CALLER, "Computing current densities", 20);
             ctx.set_param("Calculate Loads", Value::Logical(false));
             let pot = pot_of(ctx, "coilpot");
-            let fix = if o.fix_conductivity { Some(pot_of(ctx, "coilfix")) } else { None };
+            let fix = if o.fix_conductivity {
+                Some(pot_of(ctx, "coilfix"))
+            } else {
+                None
+            };
             let mut min_curr = [0.0f64; 3];
             let mut max_curr = [0.0f64; 3];
             for dimi in 0..dim {
-                ctx.info(CALLER, &format!("Computing current component: {}", dimi + 1), 6);
+                ctx.info(
+                    CALLER,
+                    &format!("Computing current component: {}", dimi + 1),
+                    6,
+                );
                 if ctx.variable("coilcurrent").is_none() {
                     return Err(SolverError::fatal(CALLER, "CoilCurrent not associated!"));
                 }
@@ -475,7 +552,8 @@ impl Solver for CoilSolver {
                 for &e in &elems {
                     let nodes = ctx.mesh.element(e).nodes.to_vec();
                     let fx = fix.as_ref().map(|f| nodal(f, &perm, &nodes));
-                    let ls = local_flux(ctx, &o, e, &nodal(&pot, &perm, &nodes), fx.as_deref(), dimi)?;
+                    let ls =
+                        local_flux(ctx, &o, e, &nodal(&pot, &perm, &nodes), fx.as_deref(), dimi)?;
                     ctx.default_update(&ls, e)?;
                 }
                 ctx.set_param("Skip Compute Nonlinear Change", Value::Logical(true));
@@ -488,8 +566,16 @@ impl Solver for CoilSolver {
                     cur.values[slot * dim + dimi] = *v;
                 }
             }
-            ctx.info(CALLER, &format!("Minimum current components: {min_curr:?}"), 7);
-            ctx.info(CALLER, &format!("Maximum current components: {max_curr:?}"), 7);
+            ctx.info(
+                CALLER,
+                &format!("Minimum current components: {min_curr:?}"),
+                7,
+            );
+            ctx.info(
+                CALLER,
+                &format!("Maximum current components: {max_curr:?}"),
+                7,
+            );
             if normalize {
                 normalize_current_density(ctx, &elems, dim, got_dens, got_curr, desired_dens)?;
             } else {
@@ -510,7 +596,10 @@ impl Solver for CoilSolver {
             }
         }
         let pot = pot_of(ctx, "coilpot");
-        ctx.primary_mut().expect("checked").values.copy_from_slice(&pot);
+        ctx.primary_mut()
+            .expect("checked")
+            .values
+            .copy_from_slice(&pot);
         ctx.info(CALLER, "All done", 7);
         Ok(())
     }
@@ -535,7 +624,9 @@ fn cut_interface_connections(ctx: &mut SolverCtx<'_>, set: &[i32]) -> Result<(),
             None => r
                 .clone()
                 .find(|&j| a.col_idx[j] as usize == i)
-                .ok_or_else(|| SolverError::fatal("CutInterfaceConnections", "no diagonal entry"))?,
+                .ok_or_else(|| {
+                    SolverError::fatal("CutInterfaceConnections", "no diagonal entry")
+                })?,
         };
         for j in r {
             let s2 = set[a.col_idx[j] as usize];
@@ -546,16 +637,27 @@ fn cut_interface_connections(ctx: &mut SolverCtx<'_>, set: &[i32]) -> Result<(),
             }
         }
     }
-    ctx.info("CutInterfaceConnections", &format!("Number of connections cut: {cnt}"), 7);
+    ctx.info(
+        "CutInterfaceConnections",
+        &format!("Number of connections cut: {cnt}"),
+        7,
+    );
     Ok(())
 }
 
 /// `ScalePotential`: the coil current from the nodal loads of the two ends
 /// (in node order), and `CoilPot` scaled to the desired current.
-fn scale_potential(ctx: &mut SolverCtx<'_>, set: &[i32], desired: f64, loads_name: &str) -> Result<(), SolverError> {
+fn scale_potential(
+    ctx: &mut SolverCtx<'_>,
+    set: &[i32],
+    desired: f64,
+    loads_name: &str,
+) -> Result<(), SolverError> {
     let (possum, negsum) = {
         let lv = ctx.variable(loads_name).expect("checked");
-        let lperm = lv.perm.ok_or_else(|| SolverError::fatal(CALLER, "loads without Perm"))?;
+        let lperm = lv
+            .perm
+            .ok_or_else(|| SolverError::fatal(CALLER, "loads without Perm"))?;
         let (mut possum, mut negsum) = (0.0, 0.0);
         for &j in lperm {
             if j == NO_DOF {
@@ -611,12 +713,18 @@ fn normalize_current_density(
     got_curr: bool,
     desired_dens: f64,
 ) -> Result<(), SolverError> {
-    ctx.info(CALLER, "Normalizing current density (as for stranded coil)", 5);
+    ctx.info(
+        CALLER,
+        "Normalizing current density (as for stranded coil)",
+        5,
+    );
     let (values, cperm) = {
-        let f = ctx
-            .variable("coilcurrent")
-            .ok_or_else(|| SolverError::fatal(CALLER, "CoilCurrent (nodal and elemental) not associated!"))?;
-        let cperm = f.perm.ok_or_else(|| SolverError::fatal(CALLER, "CoilCurrent without Perm"))?;
+        let f = ctx.variable("coilcurrent").ok_or_else(|| {
+            SolverError::fatal(CALLER, "CoilCurrent (nodal and elemental) not associated!")
+        })?;
+        let cperm = f
+            .perm
+            .ok_or_else(|| SolverError::fatal(CALLER, "CoilCurrent without Perm"))?;
         (f.values.to_vec(), cperm.to_vec())
     };
     let target = if !got_dens && got_curr {
@@ -664,4 +772,28 @@ fn normalize_current_density(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(p: &ParamMap, k: &str) -> Option<String> {
+        p.string(k).map(str::to_string)
+    }
+
+    #[test]
+    fn init_adds_the_coil_fields() {
+        let mut p = ParamMap::new();
+        p.insert("Coil Conductivity Fix", Value::Logical(true));
+        p.insert("Save Coil Set", Value::Logical(true));
+        solver_defaults(&mut p, 3);
+        assert_eq!(s(&p, "variable").as_deref(), Some("-nooutput CoilTmp"));
+        let exported: Vec<String> = (1..=4)
+            .filter_map(|k| s(&p, &format!("exported variable {k}")))
+            .collect();
+        assert_eq!(exported, ["CoilPot", "CoilFix", "CoilSet", "-dofs 3 CoilCurrent"]);
+        assert_eq!(p.logical("calculate loads"), Some(true));
+    }
+
 }

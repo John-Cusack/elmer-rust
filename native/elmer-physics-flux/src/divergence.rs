@@ -46,7 +46,11 @@ pub fn divergence_defaults(p: &mut ParamMap) {
     p.insert("Time derivative order", Value::Integer(vec![0]));
     add_new(p, "Linear System Solver", Value::Str("Iterative".into()));
     add_new(p, "Linear System Iterative Method", Value::Str("cg".into()));
-    add_new(p, "Linear System Preconditioning", Value::Str("ILU0".into()));
+    add_new(
+        p,
+        "Linear System Preconditioning",
+        Value::Str("ILU0".into()),
+    );
     add_new(p, "Linear System Max Iterations", Value::Integer(vec![500]));
     add_new(
         p,
@@ -228,4 +232,25 @@ fn sum_prod_d(db: &[[f64; 3]], i: usize, v: &[f64]) -> f64 {
         s += d[i] * x;
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn init_names_the_divergence_variable() {
+        let mut p = ParamMap::new();
+        p.insert("Divergence Variable", Value::Str("CoilCurrent".into()));
+        p.insert("Linear System Iterative Method", Value::Str("BiCGStab".into()));
+        divergence_defaults(&mut p);
+        assert_eq!(p.string("variable"), Some("Div CoilCurrent"));
+        assert_eq!(p.integer("variable dofs"), Some(1));
+        // ListAddNew: the section's own choice stays.
+        assert_eq!(p.string("linear system iterative method"), Some("BiCGStab"));
+        assert_eq!(p.string("linear system preconditioning"), Some("ILU0"));
+        let mut q = ParamMap::new();
+        divergence_defaults(&mut q);
+        assert_eq!(q.string("variable"), Some("Divergence"));
+    }
 }
