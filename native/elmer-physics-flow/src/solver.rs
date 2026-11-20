@@ -203,13 +203,8 @@ fn check_bc(bc: &ParamMap, var_name: &str) -> Result<(), SolverError> {
     if flag(Some(bc), &format!("normal-tangential {var_name}")) {
         return Err(unsupported("normal-tangential velocity"));
     }
-    for (prefix, what) in [
-        ("surface tension", "surface tension"),
-        ("periodic bc", "periodic boundary conditions"),
-    ] {
-        if has_prefix(bc, prefix) {
-            return Err(unsupported(what));
-        }
+    if has_prefix(bc, "surface tension") {
+        return Err(unsupported("surface tension"));
     }
     Ok(())
 }
