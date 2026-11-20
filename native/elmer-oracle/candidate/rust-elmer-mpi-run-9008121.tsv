@@ -1,0 +1,29 @@
+test	verdict	files	mismatches	detail
+AdvReactDB_np6	no-candidate-output	6	6	square/case.result.0: no candidate file; square/case.result.1: no candidate file; square/case.result.2: no candidate file; square/case.result.3: no candidate file; square/case.result.4: no candidate file; square/case.result.5: no candidate file
+AdvReactDBmap_np6	no-candidate-output	6	6	square/case.result.0: no candidate file; square/case.result.1: no candidate file; square/case.result.2: no candidate file; square/case.result.3: no candidate file; square/case.result.4: no candidate file; square/case.result.5: no candidate file
+AdvReactDG_np6	no-candidate-output	6	6	square/case.result.0: no candidate file; square/case.result.1: no candidate file; square/case.result.2: no candidate file; square/case.result.3: no candidate file; square/case.result.4: no candidate file; square/case.result.5: no candidate file
+AngleMetisLayer_np2	tier-a-pass	2	0	
+AngleMetisLayer_np3	tier-a-pass	3	0	
+AngleMetisLayer_np4	tier-a-pass	4	0	
+CapacitanceMatrix3_np3	no-candidate-output	3	3	plates/case.result.0: no candidate file; plates/case.result.1: no candidate file; plates/case.result.2: no candidate file
+CapacitanceMatrix4_np3	no-candidate-output	3	3	plates/case.result.0: no candidate file; plates/case.result.1: no candidate file; plates/case.result.2: no candidate file
+CoilSolver1_np2	no-candidate-output	2	2	Curve/case.result.0: no candidate file; Curve/case.result.1: no candidate file
+CoilSolver1_np4	no-candidate-output	4	4	Curve/case.result.0: no candidate file; Curve/case.result.1: no candidate file; Curve/case.result.2: no candidate file; Curve/case.result.3: no candidate file
+CoilSolverLoop_np2	no-candidate-output	2	2	Loop/case.result.0: no candidate file; Loop/case.result.1: no candidate file
+CoilSolverLoop_np4	no-candidate-output	4	4	Loop/case.result.0: no candidate file; Loop/case.result.1: no candidate file; Loop/case.result.2: no candidate file; Loop/case.result.3: no candidate file
+ComponentResistance_np4	no-candidate-output	4	4	blocks/case.result.0: no candidate file; blocks/case.result.1: no candidate file; blocks/case.result.2: no candidate file; blocks/case.result.3: no candidate file
+HeatControlExplicit_np3	no-candidate-output	3	3	square/case.result.0: no candidate file; square/case.result.1: no candidate file; square/case.result.2: no candidate file
+OtherMeshResults_np4	no-candidate-output	8	8	angle/case.result.0: no candidate file; angle/case.result.1: no candidate file; angle/case.result.2: no candidate file; angle/case.result.3: no candidate file; square/case.result.0: no candidate file; square/case.result.1: no candidate file; square/case.result.2: no candidate file; square/case.result.3: no candidate file
+ParallelSlices_np2	tier-a-pass	2	0	
+PoissonDG_np3	no-candidate-output	3	3	square/case.result.0: no candidate file; square/case.result.1: no candidate file; square/case.result.2: no candidate file
+PoissonDG_np8	no-candidate-output	8	8	square/case.result.0: no candidate file; square/case.result.1: no candidate file; square/case.result.2: no candidate file; square/case.result.3: no candidate file; square/case.result.4: no candidate file; square/case.result.5: no candidate file; square/case.result.6: no candidate file; square/case.result.7: no candidate file
+SD_CapacitanceMatrix3_np3	no-candidate-output	3	3	plates/case.result.0: no candidate file; plates/case.result.1: no candidate file; plates/case.result.2: no candidate file
+StressEigen2_np4	no-candidate-output	4	4	angle/case.result.0: no candidate file; angle/case.result.1: no candidate file; angle/case.result.2: no candidate file; angle/case.result.3: no candidate file
+StressEigen2_np8	no-candidate-output	8	8	angle/case.result.0: no candidate file; angle/case.result.1: no candidate file; angle/case.result.2: no candidate file; angle/case.result.3: no candidate file; angle/case.result.4: no candidate file; angle/case.result.5: no candidate file; angle/case.result.6: no candidate file; angle/case.result.7: no candidate file
+SunAngle_np3	no-candidate-output	3	3	square/case.result.0: no candidate file; square/case.result.1: no candidate file; square/case.result.2: no candidate file
+passive_np3	tier-a-FAIL	3	10	tmesh/case.result.0: temperature step 0: ExceedsTolerance { error: 1.7441532425650615e-11, allowed: 6.677968900997165e-12 }; tmesh/case.result.1: temperature step 0: ExceedsTolerance { error: 1.0186319860575434e-12, allowed: 3.9887260157143625e-13 }; tmesh/case.result.2: temperature step 0: ExceedsTolerance { error: 1.7435897170514633e-10, allowed: 6.678879671540014e-11 }
+passive_np8	tier-a-FAIL	8	3	tmesh/case.result.2: temperature step 1: ExceedsTolerance { error: 1.5314889567797203e-9, allowed: 1.464896205840955e-9 }; tmesh/case.result.3: temperature step 3: ExceedsTolerance { error: 7.25773010678795e-11, allowed: 5.711027145725914e-11 }
+poisson_transient_conforming_anti_np4	no-candidate-output	4	4	square/case.result.0: no candidate file; square/case.result.1: no candidate file; square/case.result.2: no candidate file; square/case.result.3: no candidate file
+poisson_transient_conforming_anti_np8	no-candidate-output	8	8	square/case.result.0: no candidate file; square/case.result.1: no candidate file; square/case.result.2: no candidate file; square/case.result.3: no candidate file; square/case.result.4: no candidate file; square/case.result.5: no candidate file; square/case.result.6: no candidate file; square/case.result.7: no candidate file
+radiation_np2	candidate-timeout	0	0	candidate killed after 588 s with no output (pristine 1.9 s; the golden has no result files)
+radiation_np4	candidate-timeout	0	0	candidate killed after 588 s with no output (pristine 2.6 s; the golden has no result files)

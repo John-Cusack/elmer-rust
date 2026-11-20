@@ -62,8 +62,42 @@ grader therefore runs the candidate in `<out>/<test>/<test dir>`, with
 (1dtests, BlockPoisson*, CoupledPoisson*, ModelPDE*, PoissonPFEM, …)
 refused with "procedure not registered".
 
-MPI variants (`_npN`, 28 tests) are not graded here. They need the
-candidate's `elmer-mpi-run` under the arm's `mpiexec`.
+## The partitioned Rust path: MPI quick tests
+
+`rust-elmer-mpi-run-9008121.tsv` grades `elmer-mpi-run` built from main
+`9008121` on the 28 registered `_npN` quick tests. The runner starts each
+under the arm's `mpiexec -n N` (Open MPI 4.1.6), with `ELMER_NATIVE=1`
+and `ELMER_FORTRAN_SOLVER` unset. `grade-tree` grades every per-partition
+golden file (`<mesh>/case.result.<rank>`) against the candidate's file of
+the same name.
+
+| Verdict | Tests |
+|---|---:|
+| `tier-a-pass` | **4** (AngleMetisLayer_np2/3/4, ParallelSlices_np2) |
+| `tier-a-FAIL` | 2 (passive_np3, passive_np8) |
+| `no-candidate-output` (refused) | 20 |
+| `candidate-timeout` | 2 (radiation_np2, radiation_np4) |
+
+- **Agreement with `elmer-coverage`:** exact. Its 4 MPI matches pass. Its
+  2 mismatches fail on the same fields (passive_np3 `temperature` step 0
+  at 1.7e-11 against a 6.7e-12 bar; passive_np8 step 1 at 1.5e-9 against
+  1.46e-9). Its refusals refuse.
+- **HeatControlExplicit_np3** stops on "procedure AlternatingSource is not
+  registered". It runs in the test's own directory name, as the serial
+  run does, but the serial binary resolves the D12 fixture and
+  `elmer-mpi-run` does not. This is a candidate-side gap.
+- **radiation_np2/np4** pass `elmer-coverage`'s static screen, but the
+  candidate wrote nothing in 588 s and was killed (pristine: 1.9 s and
+  2.6 s). Those two rows were added by hand: `grade-tree` skips a
+  test whose run was killed before the `run` link was made. Pristine
+  writes no result file for either, so neither could be field-graded.
+
+```sh
+printf '#!/bin/sh\nexec env -u ELMER_FORTRAN_SOLVER ELMER_NATIVE=1 HWLOC_COMPONENTS=-gl <target>/release/elmer-mpi-run "$@"\n' > ElmerSolver-rust-mpi
+awk -F'\t' '$3>1 {print $1}' <golden-root>/registry.tsv > mpi.txt
+scripts/grade-candidate.sh <oracle-bin> ElmerSolver-rust-mpi \
+  $S/build-release $S/src/fem/tests <golden-root> tolerances.json <out> 2 < mpi.txt
+```
 
 ```sh
 printf '#!/bin/sh\nexec env -u ELMER_FORTRAN_SOLVER ELMER_NATIVE=1 <target>/release/elmer-run "$@"\n' > ElmerSolver-rust
