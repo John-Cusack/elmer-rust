@@ -458,6 +458,11 @@ pub struct SifInject {
     /// Raise (never lower) `Max Output Level` in the Simulation section,
     /// so iteration counts reach the log as diagnostics.
     pub max_output: Option<u32>,
+    /// With `o2`, give each RUN of a multi-RUN sif its own result file
+    /// ([`per_run_result_name`]). Off by default: it adds a
+    /// `Simulation :: Output File` change between RUNs, which a candidate
+    /// need not support, so it serves the Fortran per-RUN golden only.
+    pub per_run: bool,
 }
 
 impl SifInject {
@@ -599,7 +604,94 @@ fn inject_text(text: &str, inj: &SifInject, result_name: &str) -> String {
     inject_text_with(text, inj, result_name, &[])
 }
 
+/// Top-level `RUN` lines of a sif (outside sections and comment blocks).
+pub fn run_count(text: &str) -> usize {
+    let mut n = 0;
+    let mut in_section = false;
+    let mut in_comment = false;
+    for line in text.lines() {
+        let lower = strip_sif_comment(line).trim().to_lowercase();
+        if in_comment {
+            in_comment = lower != "*/";
+        } else if in_section {
+            in_section = lower != "end";
+        } else if lower == "/*" {
+            in_comment = true;
+        } else if lower == "run" {
+            n += 1;
+        } else if !(lower.is_empty()
+            || lower.starts_with('$')
+            || lower.contains("::")
+            || lower.starts_with("include")
+            || lower.starts_with("echo ")
+            || lower.starts_with("check ")
+            || lower == "stop")
+        {
+            in_section = true;
+        }
+    }
+    n
+}
+
+/// The O2 file of RUN `j` (1-based) of a `runs`-RUN sif: every RUN but the
+/// last writes `<stem>.run<j>.result`, and the last keeps `result_name`,
+/// the file the golden of a single-RUN capture holds. Elmer restarts the
+/// output file at each RUN, so one shared name kept only the last one.
+pub fn per_run_result_name(result_name: &str, j: usize, runs: usize) -> String {
+    if runs <= 1 || j >= runs {
+        return result_name.to_string();
+    }
+    let stem = result_name.strip_suffix(".result").unwrap_or(result_name);
+    format!("{stem}.run{j}.result")
+}
+
 fn inject_text_with(text: &str, inj: &SifInject, result_name: &str, refnorms: &[(u32, f64)]) -> String {
+    let runs = if inj.per_run { run_count(text) } else { 1 };
+    let first = per_run_result_name(result_name, 1, runs);
+    let out = inject_text_single(text, inj, &first, refnorms);
+    // Only when the injection itself wrote the Output File: a sif naming
+    // its own keeps its own behaviour.
+    if runs <= 1 || !out.contains(&format!("  Output File = \"{first}\"\n")) {
+        return out;
+    }
+    // Before every RUN after the first, point Output File at that run's file.
+    let mut rebuilt = String::with_capacity(out.len() + 64 * runs);
+    let mut seen = 0;
+    let mut in_section = false;
+    let mut in_comment = false;
+    for line in out.lines() {
+        let lower = strip_sif_comment(line).trim().to_lowercase();
+        if in_comment {
+            in_comment = lower != "*/";
+        } else if in_section {
+            in_section = lower != "end";
+        } else if lower == "/*" {
+            in_comment = true;
+        } else if lower == "run" {
+            seen += 1;
+            if seen > 1 {
+                rebuilt.push_str(&format!(
+                    "Simulation :: Output File = \"{}\"\n",
+                    per_run_result_name(result_name, seen, runs)
+                ));
+            }
+        } else if !(lower.is_empty()
+            || lower.starts_with('$')
+            || lower.contains("::")
+            || lower.starts_with("include")
+            || lower.starts_with("echo ")
+            || lower.starts_with("check ")
+            || lower == "stop")
+        {
+            in_section = true;
+        }
+        rebuilt.push_str(line);
+        rebuilt.push('\n');
+    }
+    rebuilt
+}
+
+fn inject_text_single(text: &str, inj: &SifInject, result_name: &str, refnorms: &[(u32, f64)]) -> String {
     let mut out = String::new();
     let mut section = String::new();
     let mut block: Vec<String> = Vec::new();
@@ -1240,6 +1332,37 @@ pub fn known_bins(arm: &Arm) -> HashMap<String, String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn o2_gives_each_run_its_own_result_file() {
+        let sif = "Header\n Mesh DB \".\" \"m\"\nEnd\nSimulation\n Simulation Type = Steady\nEnd\nSolver 1\n Variable = T\nEnd\nSolver 1 :: Reference Norm = 1\nRUN\nSolver 1 :: Reference Norm = 2\nRUN\nSolver 1 :: Reference Norm = 3\nRUN\n";
+        assert_eq!(run_count(sif), 3);
+        let plain = SifInject { o2: true, ..SifInject::default() };
+        assert!(!inject_text_with(sif, &plain, "case.result", &[]).contains("case.run"));
+        let inj = SifInject { o2: true, per_run: true, ..SifInject::default() };
+        let out = inject_text_with(sif, &inj, "case.result", &[]);
+        let order: Vec<&str> = out
+            .lines()
+            .filter(|l| l.contains("Output File") || l.trim() == "RUN")
+            .collect();
+        assert_eq!(
+            order,
+            [
+                "  Output File = \"case.run1.result\"",
+                "RUN",
+                "Simulation :: Output File = \"case.run2.result\"",
+                "RUN",
+                "Simulation :: Output File = \"case.result\"",
+                "RUN"
+            ]
+        );
+        // One RUN, or a sif with its own Output File: unchanged behaviour.
+        let one = "Simulation\nEnd\nRUN\n";
+        assert!(inject_text_with(one, &inj, "case.result", &[]).contains("Output File = \"case.result\""));
+        let own = sif.replace(" Simulation Type = Steady\n", " Simulation Type = Steady\n Output File = mine.result\n");
+        let kept = inject_text_with(&own, &inj, "case.result", &[]);
+        assert!(!kept.contains("case.run") && !kept.contains("case.result"));
+    }
+
     fn test_arm() -> Arm {
         Arm {
             name: "test".to_string(),
@@ -1304,7 +1427,7 @@ mod tests {
     #[test]
     fn max_output_raises_never_lowers() {
         let sif = "Simulation\n  Max Output Level = 3\nEnd\n";
-        let inj = SifInject { o2: false, o2m: false, max_output: Some(5) };
+        let inj = SifInject { o2: false, o2m: false, max_output: Some(5), per_run: false };
         let once = inject_text(sif, &inj, "case.result");
         assert!(once.contains("Max Output Level = 5"));
         assert_eq!(inject_text(&once, &inj, "case.result"), once);
@@ -1342,7 +1465,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut sif = b"! Bj\xf6rn's case\nSimulation\n  Simulation Type = Steady\nEnd\n".to_vec();
         std::fs::write(dir.join("case.sif"), &sif).unwrap();
-        let inj = SifInject { o2: true, o2m: false, max_output: None };
+        let inj = SifInject { o2: true, o2m: false, max_output: None, per_run: false };
         inject_sif(&dir, &inj).unwrap();
         let out = std::fs::read(dir.join("case.sif")).unwrap();
         let tail = b"  Output File = \"case.result\"\n  Binary Output = Logical True\nEnd\n";
@@ -1355,7 +1478,7 @@ mod tests {
     #[test]
     fn table_end_does_not_close_the_section() {
         let sif = "Simulation\n  Density = Variable Coordinate 1\n    Real\n      0 1\n      1 2\n    End\n  Max Output Level = 5\nEnd\n";
-        let inj = SifInject { o2: true, o2m: false, max_output: None };
+        let inj = SifInject { o2: true, o2m: false, max_output: None, per_run: false };
         let out = inject_text(sif, &inj, "case.result");
         let table_end = out.find("    End\n").unwrap();
         let output = out.find("Output File").unwrap();
@@ -1370,7 +1493,7 @@ mod tests {
     #[test]
     fn directives_and_comments_do_not_hide_sections() {
         let sif = "Check Keywords \"Warn\"\n\nHeader :: Mesh DB \".\" \"square\"\n\nSimulation\n! Output File = \"old.dat\"\n! Max Output Level = 3\n  Max Output Level = 4\nEnd\n/*\nSolver 9\nEnd\n*/\nSolver 1 :: Reference Norm = 1.0\nRUN\n";
-        let inj = SifInject { o2: true, o2m: true, max_output: Some(5) };
+        let inj = SifInject { o2: true, o2m: true, max_output: Some(5), per_run: false };
         let out = inject_text(sif, &inj, "case.result");
         assert!(out.contains("  Output File = \"case.result\"\n"), "{out}");
         assert!(out.contains("! Max Output Level = 3\n"), "comment rewritten: {out}");
@@ -1482,7 +1605,7 @@ mod tests {
     #[test]
     fn injection_targets_sections_and_is_idempotent() {
         let sif = "Header\n  Mesh DB = \".\" \"m\"\nEnd\n\nSimulation\n  Simulation Type = \"Steady State\"\nEnd\n\nSolver 1\n  Equation = \"Heat Equation\"\nEnd\n";
-        let inj = SifInject { o2: true, o2m: true, max_output: None };
+        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false };
         let once = inject_text(sif, &inj, "case.result");
         assert!(once.contains("Output File = \"case.result\""));
         assert!(once.contains("Binary Output = Logical True"));
@@ -1500,7 +1623,7 @@ mod tests {
     #[test]
     fn injection_skips_files_without_target_sections() {
         let sif = "Header\n  Mesh DB = \".\" \"m\"\nEnd\n";
-        let inj = SifInject { o2: true, o2m: true, max_output: None };
+        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false };
         assert_eq!(inject_text(sif, &inj, "case.result"), sif);
     }
 
@@ -1510,9 +1633,9 @@ mod tests {
         // section; a bare word like RUN must not eat them (HeatControl2
         // lost its Reference Norm this way and graded vacuous).
         let sif = "Solver 1\n  Equation = \"Heat Equation\"\nEnd\n\nSolver 1 :: Reference Norm = 428.79\nRUN\n";
-        let idle = SifInject { o2: false, o2m: false, max_output: None };
+        let idle = SifInject { o2: false, o2m: false, max_output: None, per_run: false };
         assert_eq!(inject_text(sif, &idle, "case.result"), sif);
-        let inj = SifInject { o2: true, o2m: true, max_output: None };
+        let inj = SifInject { o2: true, o2m: true, max_output: None, per_run: false };
         let once = inject_text(sif, &inj, "case.result");
         assert!(once.contains("Solver 1 :: Reference Norm = 428.79"));
         assert!(once.contains("\nRUN\n"));

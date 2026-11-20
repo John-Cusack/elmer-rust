@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 fn usage() -> ! {
     eprintln!("usage:");
     eprintln!("  elmer-oracle plan <tests-dir> <test> [--np N]");
-    eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE] [--exit-verdict]");
-    eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N] [--o2] [--o2m] [--max-output L] [--solver CANDIDATE] [--exit-verdict]");
+    eprintln!("  elmer-oracle run <build-dir> <tests-dir> <test> <run-dir> [--np N] [--o2] [--o2m] [--per-run] [--max-output L] [--solver CANDIDATE] [--exit-verdict]");
+    eprintln!("  elmer-oracle capture <build-dir> <tests-dir> <test> <golden-dir> <manifest> [--np N] [--o2] [--o2m] [--per-run] [--max-output L] [--solver CANDIDATE] [--exit-verdict]");
     eprintln!("  elmer-oracle registry <build-dir> [--label L|'!L'] [--suite fem/tests|elmerice]");
     eprintln!("  elmer-oracle refnorm-validate <build-dir> <tests-dir> <golden-root> <out-root>");
     eprintln!("  elmer-oracle grade-tree <tests-dir> <golden-root> <candidate-root> <tolerances.json> [--fallback X]");
@@ -91,6 +91,7 @@ fn execute(args: &[String]) -> Executed {
             }
             "--o2" => inj.o2 = true,
             "--o2m" => inj.o2m = true,
+            "--per-run" => inj.per_run = true,
             "--exit-verdict" => exit_verdict = true,
             _ => {}
         }
