@@ -24,6 +24,7 @@
 pub mod boundary;
 pub mod bulk;
 pub mod error;
+pub mod gfortran;
 pub mod lumping;
 pub mod material;
 pub mod motion;

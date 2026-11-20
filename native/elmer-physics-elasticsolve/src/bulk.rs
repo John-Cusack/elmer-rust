@@ -83,9 +83,11 @@ pub(crate) fn displacement_gradient(
         g[1][0] = (0..n).map(|k| disp[k][1] * db[k][0]).sum();
         g[1][1] = (0..n).map(|k| disp[k][1] * db[k][1]).sum();
     } else {
+        // `Grad(1:dim,1:dim) = MATMUL(LocalDisplacement, dBasisdx)`, in
+        // libgfortran's arithmetic (elmer_physics_elastic::gfortran).
         for a in 0..dim {
             for b in 0..dim {
-                g[a][b] = (0..n).map(|k| disp[k][a] * db[k][b]).sum();
+                g[a][b] = elmer_physics_elastic::gfortran::matmul_dot(n, |k| (disp[k][a], db[k][b]));
             }
         }
     }

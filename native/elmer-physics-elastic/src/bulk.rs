@@ -510,17 +510,14 @@ fn bulk_impl(
         }
 
         if let Some(g) = geometric {
-            // Grad(1:dim,1:dim) = MATMUL(LocalDisplacement, dBasisdx);
-            // Strain = (Grad' + Grad)/2; GeomStress = the law's stress of it.
+            // Grad(1:dim,1:dim) = MATMUL(LocalDisplacement, dBasisdx), in
+            // libgfortran's arithmetic ([`crate::gfortran`]); Strain =
+            // (Grad' + Grad)/2; GeomStress = the law's stress of it.
             let u = g.displacement;
             let mut grad = ZERO3;
             for i in 0..cdim {
                 for j in 0..cdim {
-                    let mut acc = 0.0;
-                    for k in 0..n {
-                        acc += u[k][i] * db[k][j];
-                    }
-                    grad[i][j] = acc;
+                    grad[i][j] = crate::gfortran::matmul_dot(n, |k| (u[k][i], db[k][j]));
                 }
             }
             let mut strain = ZERO3;
