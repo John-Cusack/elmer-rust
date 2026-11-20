@@ -143,7 +143,12 @@ struct SolverContact {
     /// `Flat Projector Coordinate` as `FlatInterfaceMeshes` stores it.
     flat_dim: Vec<usize>,
     bcs: HashMap<usize, MortarBc>,
+    /// The mesh as `begin_initialize` moved it, with the move to undo.
+    moved: Option<Moved>,
 }
+
+/// (moved coordinates, solution, perm, dofs) of a `DisplaceMesh(+1)`.
+type Moved = (Vec<[f64; 3]>, Vec<f64>, Vec<u32>, usize);
 
 /// The contact backend: the state of every contact solver, by solver id.
 pub struct MortarContact {
@@ -203,7 +208,7 @@ fn check_solver(p: &dyn Params, simulation: &dyn Params) -> Result<(), SolverErr
 }
 
 /// Boundary-level keywords of a contact boundary whose code is not ported.
-fn check_bc(bc: &dyn Params, var: &str) -> Result<(), SolverError> {
+fn check_bc(bc: &dyn Params) -> Result<(), SolverError> {
     for k in [
         "rotational projector",
         "cylindrical projector",
@@ -215,9 +220,6 @@ fn check_bc(bc: &dyn Params, var: &str) -> Result<(), SolverError> {
         if flag(bc, k) {
             return Err(unsupported(&format!("'{k}' on a contact boundary")));
         }
-    }
-    if flag(bc, &format!("normal-tangential {var}")) {
-        return Err(unsupported("normal-tangential contact"));
     }
     for k in [
         "contact bc",
@@ -285,6 +287,29 @@ fn contact_type(bc: &dyn Params, ctx: &SolverCtx<'_>) -> Result<ContactType, Sol
 }
 
 impl elmer_solver::ContactBackend for MortarContact {
+    fn begin_initialize(&self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        // DefUtils.F90:3916-3928: with an n-t boundary or a nonlinear
+        // projector, `Displace Mesh At Init` (ElasticSolver_Init's default)
+        // moves the mesh by the solution for the n-t setup and the
+        // projectors; `initialize` moves it back.
+        let name = ctx.variable_name().ok_or_else(|| fatal("solver has no variable"))?.to_string();
+        let f = ctx.primary().ok_or_else(|| fatal("solver has no variable"))?;
+        let perm = f.perm.ok_or_else(|| fatal("solver variable has no permutation"))?.to_vec();
+        let (values, dofs) = (f.values.to_vec(), f.dofs);
+        let bcs = &ctx.sim.model.boundary_conditions;
+        let any_nt = bcs.iter().any(|b| flag(b, &format!("normal-tangential {name}")));
+        let any_proj = bcs.iter().any(|b| flag(b, "mortar bc nonlinear"));
+        let do_displace = dofs > 1 && (any_nt || any_proj) && ctx.params().logical("displace mesh at init").unwrap_or(true);
+        let Some(m) = mover().filter(|_| do_displace) else { return Ok(()) };
+        let base: Vec<[f64; 3]> = (0..ctx.mesh.n_nodes() as u32).map(|n| ctx.mesh.coord(n)).collect();
+        let moved = displaced(&base, &values, 1.0, &perm, dofs);
+        ctx.info("DefaultInitialize", "Displacing mesh for nonlinear projectors", 8);
+        m(&moved);
+        let id = ctx.solver_id();
+        self.state.lock().expect("contact state").entry(id).or_default().moved = Some((moved, values, perm, dofs));
+        Ok(())
+    }
+
     fn initialize(&self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         check_solver(ctx.params(), ctx.simulation_params())?;
         if ctx.solver_dofs().is_some() {
@@ -301,7 +326,7 @@ impl elmer_solver::ContactBackend for MortarContact {
         }
         for (i, bc) in ctx.sim.model.boundary_conditions.iter().enumerate() {
             if bc.get("mortar bc").is_some() || bc.get("contact bc").is_some() {
-                check_bc(bc, &name).map_err(|e| match e {
+                check_bc(bc).map_err(|e| match e {
                     SolverError::Unsupported(m) => SolverError::Unsupported(format!("{m} (boundary condition {})", i + 1)),
                     e => e,
                 })?;
@@ -316,14 +341,10 @@ impl elmer_solver::ContactBackend for MortarContact {
         let (values, dofs) = (f.values.to_vec(), f.dofs);
         let any_proj = ctx.sim.model.boundary_conditions.iter().any(|b| flag(b, "mortar bc nonlinear"));
         let do_displace = dofs > 1 && any_proj && ctx.params().logical("displace mesh at init").unwrap_or(true);
-        let mover = mover().filter(|_| do_displace);
-        let base: Vec<[f64; 3]> = (0..ctx.mesh.n_nodes() as u32).map(|n| ctx.mesh.coord(n)).collect();
-        let moved = do_displace.then(|| displaced(&base, &values, 1.0, &perm, dofs));
-        if let (Some(m), Some(x)) = (&mover, &moved) {
-            ctx.info("DefaultInitialize", "Displacing mesh for nonlinear projectors", 8);
-            m(x);
-        }
-        let view_values = if do_displace && mover.is_none() { values.clone() } else { vec![0.0; values.len()] };
+        let id = ctx.solver_id();
+        let moved = self.state.lock().expect("contact state").entry(id).or_default().moved.take();
+        // Without the runner's mover, a displaced view of the mesh instead.
+        let view_values = if do_displace && moved.is_none() { values.clone() } else { vec![0.0; values.len()] };
         let disp = DisplacedMesh { mesh: ctx.mesh, values: &view_values, perm: &perm, dofs };
         let model = &ctx.sim.model;
         let bcs: Vec<&dyn Params> = model.boundary_conditions.iter().map(|b| b as &dyn Params).collect();
@@ -364,10 +385,9 @@ impl elmer_solver::ContactBackend for MortarContact {
                 flat_dim[i] = crate::level::flat_interface_meshes(&mut b1, &mut b2, bcs[i], self.coord_dim, &NullLogger);
             }
         }
-        if let (Some(m), Some(x)) = (&mover, &moved) {
-            m(&displaced(x, &values, -1.0, &perm, dofs));
+        if let (Some(m), Some((x, u, p, d))) = (mover(), &moved) {
+            m(&displaced(x, u, -1.0, p, *d));
         }
-        let id = ctx.solver_id();
         let mut state = self.state.lock().expect("contact state");
         let s = state.entry(id).or_default();
         s.projectors = projectors;
@@ -533,11 +553,28 @@ fn determine_contact(ctx: &mut SolverCtx<'_>, s: &mut SolverContact, first_time:
     nact_v.iter_mut().for_each(|v| *v = -1.0);
     stick_v.iter_mut().for_each(|v| *v = -1.0);
 
+    // RotatedDisplacementField: the solution in the n-t components of the
+    // n-t nodes, which the assembled system is written in.
+    let any_rotated = (0..field_perm.len() as u32).any(|i| ctx.nt_solution_rotation(i).is_some());
+    let mut x = values.clone();
+    if any_rotated {
+        ctx.info(CALLER, "Rotating displacement field", 8);
+        for (i, &j) in field_perm.iter().enumerate() {
+            if j == NO_DOF || ctx.nt_solution_rotation(i as u32).is_none() {
+                continue;
+            }
+            let j = j as usize;
+            let mut v = [0.0; 3];
+            v[..cdofs].copy_from_slice(&x[dofs * j..dofs * j + cdofs]);
+            let r = ctx.nt_rotate(v, i as u32);
+            x[dofs * j..dofs * j + cdofs].copy_from_slice(&r[..cdofs]);
+        }
+    }
     // CalculateContactLoad: A x - b of the assembled system.
     let load = {
         let sys = ctx.system().ok_or_else(|| fatal("no assembled system"))?;
         let mut r = vec![0.0; sys.matrix.nrows];
-        sys.matrix.apply(&values[..sys.matrix.nrows], &mut r);
+        sys.matrix.apply(&x[..sys.matrix.nrows], &mut r);
         for (ri, bi) in r.iter_mut().zip(&sys.rhs) {
             *ri -= bi;
         }
@@ -563,7 +600,19 @@ fn determine_contact(ctx: &mut SolverCtx<'_>, s: &mut SolverContact, first_time:
             None => bc.integer("flat projector coordinate").map_or(cdofs, |d| d as usize),
         };
         let ctype = contact_type(bc, ctx)?;
-        let dof_n = active_dir;
+        // CU:299-310: an n-t contact boundary works in the n-t components,
+        // the normal first, and its master side enters with -1.
+        let rotated = flag(bc, &format!("normal-tangential {name}"));
+        if rotated {
+            let master_ind = bc.integer("mortar bc").unwrap_or(0).max(0) as usize;
+            let master_nt = master_ind > 0
+                && ctx.sim.model.boundary_conditions.get(master_ind - 1).is_some_and(|m| flag(m, &format!("normal-tangential {name}")));
+            if master_ind > 0 && !master_nt {
+                return Err(fatal(format!("Master boundary {master_ind} should also have N-T coordinates!")));
+            }
+            ctx.info(CALLER, "We have a normal-tangential system", 6);
+        }
+        let dof_n = if rotated { 1 } else { active_dir };
         let dof_t1 = (1..=cdofs).find(|&i| i != dof_n).unwrap_or(0);
         let mut normal = [0.0; 3];
         normal[active_dir - 1] = 1.0;
@@ -599,7 +648,7 @@ fn determine_contact(ctx: &mut SolverCtx<'_>, s: &mut SolverContact, first_time:
             m.perm = perm;
             ctx.info(CALLER, "Copied > Active < flag to changed projector", 8);
         }
-        m.master_scale = 1.0;
+        m.master_scale = if rotated { -1.0 } else { 1.0 };
 
         // CalculateContactPressure: the slave side's normal and slip loads.
         let mut node_done = vec![false; field_perm.len()];
@@ -654,7 +703,7 @@ fn determine_contact(ctx: &mut SolverCtx<'_>, s: &mut SolverContact, first_time:
                     for (l, fl) in force.iter_mut().enumerate().take(cdofs) {
                         *fl = load[dofs * k as usize + l];
                     }
-                    let nf = force[0] * nrm[0] + force[1] * nrm[1] + force[2] * nrm[2];
+                    let nf = if rotated { force[0] } else { force[0] * nrm[0] + force[1] * nrm[1] + force[2] * nrm[2] };
                     let sf = (force[0].powi(2) + force[1].powi(2) + force[2].powi(2) - nf.powi(2)).max(0.0).sqrt();
                     nload_v[j] -= sw * be.basis[i] * nf;
                     sload_v[j] += sw * be.basis[i] * sf;
@@ -702,6 +751,16 @@ fn determine_contact(ctx: &mut SolverCtx<'_>, s: &mut SolverContact, first_time:
             if j == NO_DOF {
                 continue;
             }
+            // LocalNormal: the row node's n-t normal (GetSolutionRotation), the
+            // contact normal on a Cartesian boundary.
+            let gap_normal = if rotated {
+                match ctx.nt_solution_rotation(j) {
+                    Some(a) => [a[0][0], a[1][0], a[2][0]],
+                    None => [1.0, 0.0, 0.0],
+                }
+            } else {
+                normal
+            };
             let (mut wsum, mut wsum_m) = (0.0f64, 0.0f64);
             let (mut dist, mut gap) = (0.0f64, 0.0f64);
             if ctype == ContactType::Slip {
@@ -731,7 +790,7 @@ fn determine_contact(ctx: &mut SolverCtx<'_>, s: &mut SolverContact, first_time:
                     let l = l as usize;
                     let disp = [values[dofs * l], values[dofs * l + 1], if cdofs == 2 { 0.0 } else { values[dofs * l + 2] }];
                     let mut c = ctx.mesh.coord(k);
-                    gap += coeff * (normal[0] * c[0] + normal[1] * c[1] + normal[2] * c[2]);
+                    gap += coeff * (gap_normal[0] * c[0] + gap_normal[1] * c[1] + gap_normal[2] * c[2]);
                     for d in 0..3 {
                         c[d] += disp[d];
                     }

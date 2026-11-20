@@ -657,8 +657,14 @@ impl<'a> SolverCtx<'a> {
         if let (Some(d), true) = (sys.damp.as_mut(), harmonic_eigen) {
             d.values.iter_mut().for_each(|v| *v = 0.0);
         }
+        // DefUtils.F90:3916-3952: the mesh moved by the solution for the n-t
+        // normals and the nonlinear projectors, then moved back.
+        let contact = self.contact_backend()?;
+        if let Some(c) = &contact {
+            c.begin_initialize(self)?;
+        }
         self.setup_normal_tangential()?;
-        if let Some(c) = self.contact_backend()? {
+        if let Some(c) = &contact {
             c.initialize(self)?;
         }
         // DefUtils.F90:3973: solvers that contribute to this assembly.
@@ -691,7 +697,15 @@ impl<'a> SolverCtx<'a> {
             .map(|b| b.nodal_periodic_projectors())
             .unwrap_or_default();
         let bc_of = |e: ElemId| self.bc_id(e);
-        let nt = crate::nt::NtSystem::build(self.mesh, &self.sim.model, &bc_of, &name, self.mesh.dim(), &projectors)?;
+        let nt = crate::nt::NtSystem::build(
+            self.mesh,
+            &self.sim.model,
+            &bc_of,
+            &name,
+            self.mesh.dim(),
+            &projectors,
+            self.sim.backends.fe.as_ref(),
+        )?;
         self.sim.slots[self.slot].nt = nt;
         Ok(())
     }
@@ -1193,6 +1207,40 @@ impl<'a> SolverCtx<'a> {
         match &self.sim.backends.contact {
             Some(c) => Ok(Some(c.clone())),
             None => Err(SolverError::NotWired("mortar contact (Apply Contact BCs)".into())),
+        }
+    }
+
+    /// `GetSolutionRotation(A, node)` (SolverBasics.F90): the columns of the
+    /// node's n-t frame (normal, tangents), `None` off the n-t boundary.
+    pub fn nt_solution_rotation(&self, node: u32) -> Option<[[f64; 3]; 3]> {
+        let nt = self.sim.slots[self.slot].nt.as_ref()?;
+        let k = *nt.reorder.get(node as usize)? as usize;
+        if k == 0 {
+            return None;
+        }
+        let n = nt.normals[k - 1];
+        let mut a = [[0.0; 3]; 3];
+        if self.mesh.dim() == 2 {
+            a[0][0] = n[0];
+            a[0][1] = -n[1];
+            a[1][0] = n[1];
+            a[1][1] = n[0];
+            a[2][2] = 1.0;
+        } else {
+            let (t1, t2) = (nt.tangent1[k - 1], nt.tangent2[k - 1]);
+            for r in 0..3 {
+                a[r] = [n[r], t1[r], t2[r]];
+            }
+        }
+        Some(a)
+    }
+
+    /// `RotateNTSystem(Vec, node)`: a Cartesian vector in the node's n-t
+    /// system (unchanged off the n-t boundary).
+    pub fn nt_rotate(&self, v: [f64; 3], node: u32) -> [f64; 3] {
+        match self.sim.slots[self.slot].nt.as_ref() {
+            Some(nt) => nt.rotate_vector(v, node, self.mesh.dim()),
+            None => v,
         }
     }
 
@@ -2108,10 +2156,13 @@ impl<'a> SolverCtx<'a> {
         let nullify = p.logical("linear system nullify guess") == Some(true)
             || (p.logical("linear system nullify first guess") == Some(true) && nonlin_iter.is_some_and(|i| i.round() <= 1.0));
         let nt_sys = slot.nt.clone().filter(|_| p.logical("back rotate n-t solution").unwrap_or(true));
-        if slot.nt.is_some() && (ca.is_some() || eliminate || residual_mode) {
+        if slot.nt.is_some() && (eliminate || residual_mode) {
             return Err(SolverError::Unsupported(
-                "normal-tangential systems with linear constraints, EliminateDirichlet or residual mode".into(),
+                "normal-tangential systems with EliminateDirichlet or residual mode".into(),
             ));
+        }
+        if slot.nt.is_some() && ca.is_some() && p.logical("calculate loads") == Some(true) {
+            return Err(SolverError::Unsupported("Calculate Loads of a normal-tangential system with linear constraints".into()));
         }
         if eliminate && ca.is_some() {
             return Err(SolverError::Unsupported("Before Linsolve = EliminateDirichlet with linear constraints".into()));
@@ -2134,6 +2185,12 @@ impl<'a> SolverCtx<'a> {
                 prec_values: None,
             };
             sim.slots[slot_ix].lin_converged = solve_linear(&sim.backends.linear, &env, p, a, b, x, bnorm, nullify, log, comm)?;
+            // SolveCore.F90:1744-1748: SolveLinearSystem back-rotates the n-t
+            // dofs of the collection solution (through the variable's perm,
+            // so only its first n entries).
+            if let (Some(nt), Some(perm)) = (nt_sys.as_ref(), var.perm.clone()) {
+                nt.back_rotate(&mut x[..n], &perm, var.dofs, mesh.dim());
+            }
             // ComputeChange over the collection solution, multipliers
             // included; then 'Picking solution from collection solution'.
             // Without NonlinValues the Fortran's x0 is the variable's own
