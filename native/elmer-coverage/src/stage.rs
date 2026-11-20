@@ -24,6 +24,9 @@ pub enum Step {
     Other(String),
 }
 
+/// The prestep a partitioned run with `${VIEWFACTORS_BIN}` reports.
+const PARTITIONED_VIEWFACTORS: &str = "ViewFactors (partitioned radiation: RadiationParallelMeshDistribute)";
+
 /// A CMake command call: lowercased name and its arguments, quotes removed.
 fn calls(text: &str) -> Vec<(String, Vec<String>)> {
     let src: String = text
@@ -129,8 +132,13 @@ pub fn steps(runtest: &str, nprocs: u32, source: &Path) -> Vec<Step> {
                     )),
                     // `elmer-physics-heat` computes the view and radiator
                     // factors in process (`elmer-viewfactors`), serially
-                    // only: a partitioned run still needs the prestep.
-                    Some("${VIEWFACTORS_BIN}") if nprocs > 1 => steps.push(Step::Other("ViewFactors".into())),
+                    // only. A partitioned radiation run also needs
+                    // `RadiationParallelMeshDistribute` (MeshBasics.F90:1411):
+                    // every radiating boundary element and its nodes imported
+                    // into each partition, the Gebhart couplings to those
+                    // nodes in the parallel matrix, and the Gebhart factors
+                    // solved on one rank and broadcast. Not ported.
+                    Some("${VIEWFACTORS_BIN}") if nprocs > 1 => steps.push(Step::Other(PARTITIONED_VIEWFACTORS.into())),
                     Some("${RADIATORS_BIN}") if nprocs > 1 => steps.push(Step::Other("Radiators".into())),
                     Some("${VIEWFACTORS_BIN}") | Some("${RADIATORS_BIN}") => {}
                     Some("${MESH2D_BIN}") => steps.push(Step::Other("Mesh2D".into())),
@@ -376,7 +384,7 @@ mod tests {
     fn other_tools() {
         let text = "execute_process(COMMAND ${VIEWFACTORS_BIN} a)\nexecute_process(COMMAND ${MESH2D_BIN} k.mif .)\n";
         assert_eq!(steps(text, 1, Path::new("/s")), vec![Step::Other("Mesh2D".into())]);
-        assert_eq!(steps(text, 2, Path::new("/s")), vec![Step::Other("ViewFactors".into()), Step::Other("Mesh2D".into())]);
+        assert_eq!(steps(text, 2, Path::new("/s")), vec![Step::Other(PARTITIONED_VIEWFACTORS.into()), Step::Other("Mesh2D".into())]);
     }
 
     #[test]
