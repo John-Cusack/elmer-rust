@@ -42,6 +42,16 @@ use crate::ModelView;
 
 type Build = fn(Arc<dyn ModelView>) -> Udf;
 
+/// The `fem/tests` directory of a ctest name: `ADD_ELMER_TEST(name NPROCS 1
+/// 3)` runs one directory as `name` and `name_np3`, so the `_np<N>` suffix
+/// is dropped.
+fn source_case(case: &str) -> &str {
+    match case.rsplit_once("_np") {
+        Some((base, n)) if !base.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => base,
+        _ => case,
+    }
+}
+
 /// `(case, library, entry, builder)`. Library and entry are the strings the
 /// case's `Procedure` keyword uses.
 const FIXTURES: &[(&str, &str, &str, Build)] = &[
@@ -64,12 +74,14 @@ const FIXTURES: &[(&str, &str, &str, Build)] = &[
 
 /// The `(library, entry)` pairs ported for `case`, empty when none are.
 pub fn procedures(case: &str) -> Vec<(&'static str, &'static str)> {
+    let case = source_case(case);
     FIXTURES.iter().filter(|f| f.0 == case).map(|f| (f.1, f.2)).collect()
 }
 
 /// A new instance of the fixture `case` uses for `Procedure "library" "entry"`,
 /// bound to `model`. `None` when that plugin is not ported.
 pub fn lookup(case: &str, library: &str, entry: &str, model: Arc<dyn ModelView>) -> Option<Udf> {
+    let case = source_case(case);
     FIXTURES
         .iter()
         .find(|f| f.0 == case && f.1 == library && f.2.eq_ignore_ascii_case(entry))
@@ -80,6 +92,7 @@ pub fn lookup(case: &str, library: &str, entry: &str, model: Arc<dyn ModelView>)
 /// case's SIF uses, as new instances. Returns how many were registered; zero
 /// means the case has no ported plugins.
 pub fn install(case: &str, model: Arc<dyn ModelView>, registry: &UdfRegistry) -> usize {
+    let case = source_case(case);
     let mut n = 0;
     for (c, lib, entry, build) in FIXTURES {
         if *c == case {
@@ -180,6 +193,7 @@ const SECTION_INITS: &[(&str, &str, &str, SectionInit)] = &[
 ];
 
 fn hooks(case: &str) -> impl Iterator<Item = (&'static str, &'static str, Hook)> + '_ {
+    let case = source_case(case);
     let assembly = POISSON_ASSEMBLY_CASES.contains(&case).then_some([
         ("PoissonAssembly", "BulkAssembly", Hook::Assembly(|| Box::new(PoissonBulk::default()))),
         ("PoissonAssembly", "BoundaryAssembly", Hook::Assembly(|| Box::new(PoissonBoundary::default()))),
@@ -218,6 +232,7 @@ pub fn register(case: &str, registry: &mut SolverRegistry) -> usize {
 /// solver's variable). Call it on the model before `Simulation::new`.
 /// Returns how many sections were edited.
 pub fn init_sections(case: &str, model: &mut Model) -> usize {
+    let case = source_case(case);
     let mut n = 0;
     for p in &mut model.solvers {
         let Some((lib, entry)) = procedure_of(p) else { continue };
@@ -231,4 +246,20 @@ pub fn init_sections(case: &str, model: &mut Model) -> usize {
         }
     }
     n
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mpi_test_names_use_their_directory() {
+        assert_eq!(source_case("HeatControlExplicit_np3"), "HeatControlExplicit");
+        assert_eq!(source_case("passive_np8"), "passive");
+        for keep in ["HeatControlExplicit", "x_np", "_np3", "a_npx", "1dtests"] {
+            assert_eq!(source_case(keep), keep);
+        }
+        assert_eq!(procedures("HeatControlExplicit_np3"), procedures("HeatControlExplicit"));
+        assert!(!procedures("HeatControlExplicit_np3").is_empty());
+    }
 }

@@ -166,7 +166,9 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     }
     let mut model = loaded.model;
     let case_dir: PathBuf = loaded.case_dir;
-    let registry = elmer_run::solver_registry();
+    // The case's test-local plugin ports, as elmer-run's serial path.
+    let fixture_case = elmer_run::fixture_case(&case_dir);
+    let registry = elmer_run::solver_registry_for(&fixture_case);
     preflight(&model, &registry)?;
     // A solver that never runs and owns no variable is left out, as a gap in
     // the numbering: its procedure would still be built at setup.
@@ -186,10 +188,12 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     let (ctx, _guard) = RankContext::install(ex, mesh.node_gids().to_vec(), mesh.node_owners().to_vec());
     let comm: &dyn Communicator = &*ctx.ex;
 
+    elmer_run::elmer_fixtures::registry::init_sections(&fixture_case, &mut model);
     let mut sim = Simulation::new(model);
     sim.set_matc(Rc::new(SifMatc));
     sim.backends.assembly = Some(Box::new(ParAssembly));
     sim.backends.linear = linear_registry();
+    elmer_run::elmer_fixtures::registry::install_live(&fixture_case, &mut sim, &mesh);
     sim.setup(&mesh, &registry, log, comm)?;
     if let Some(writer) = elmer_run::result_file::writer(&sim.model, &loaded.mesh_dir, rank, np, log) {
         sim.set_save_current(Box::new(writer));

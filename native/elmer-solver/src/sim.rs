@@ -422,6 +422,11 @@ impl Simulation {
         self.node_owned = Some(owned);
     }
 
+    /// [`Simulation::set_node_owned`]'s flags, `None` in a serial run.
+    pub(crate) fn node_owned(&self) -> Option<&[bool]> {
+        self.node_owned.as_deref()
+    }
+
     /// The live model view for user functions that read node coordinates,
     /// `Time` or other fields (Elmer passes them `Model`). Created on the
     /// first call and kept current from then on; see [`LiveModel`].

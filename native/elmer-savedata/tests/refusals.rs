@@ -7,7 +7,7 @@ mod support;
 
 use std::path::PathBuf;
 
-use elmer_core::{Communicator, ParamMap, SerialComm, Value};
+use elmer_core::{Communicator, ParamMap, Params, SerialComm, Value};
 use elmer_solver::{Model, SolverError, SolverRegistry};
 use support::harness::*;
 use support::meshio::{read_elmer_mesh, Mesh};
@@ -126,6 +126,8 @@ fn integrals_without_an_element_library_are_not_wired() {
     c.visit(ix, false).unwrap();
 }
 
+/// Rank 0 of two; the other rank holds 5 for every `max_f64` (so `-5` for
+/// a minimum, which reduces as the maximum of the negated values).
 struct TwoPartitions;
 
 impl Communicator for TwoPartitions {
@@ -136,21 +138,56 @@ impl Communicator for TwoPartitions {
         2
     }
     fn sum_f64(&self, _: &mut [f64]) {}
-    fn max_f64(&self, _: &mut [f64]) {}
+    fn max_f64(&self, buf: &mut [f64]) {
+        buf.iter_mut().for_each(|x| *x = x.max(5.0));
+    }
     fn barrier(&self) {}
 }
 
 #[test]
-fn mpi_reductions_are_refused_at_the_first_visit() {
+fn mpi_runs_need_parallel_reduce_and_reducible_operators() {
     let mut c = Case::bare(mesh(), mesh_model());
     c.field("Temperature", 1, |x| vec![x[0]]);
+    // Per-partition files (no Parallel Reduce) and SaveLine stay refused.
     let a = c.hook("SaveScalars", with_oper("max")).unwrap();
     let b = c.hook("SaveLine", sec(&[("Variable 1", st("temperature"))])).unwrap();
-    for ix in [a, b] {
+    for (ix, why) in [(a, "Parallel Reduce"), (b, "MPI")] {
         match c.visit_with(ix, &TwoPartitions) {
-            Err(SolverError::Unsupported(m)) => assert!(m.contains("MPI"), "{m}"),
+            Err(SolverError::Unsupported(m)) => assert!(m.contains(why), "{m}"),
             other => panic!("{other:?}"),
         }
     }
+    // An operator whose reduction is not implemented.
+    let mut p = with_oper("int");
+    p.insert("Parallel Reduce", yes());
+    let ix = c.hook("SaveScalars", p).unwrap();
+    match c.visit_with(ix, &TwoPartitions) {
+        Err(SolverError::Unsupported(m)) => assert!(m.contains("in parallel"), "{m}"),
+        other => panic!("{other:?}"),
+    }
     let _ = SerialComm;
+}
+
+/// AddToSaveList: with `Parallel Reduce` the extrema are reduced over the
+/// ranks and their names get ` : mpi_<op>`.
+#[test]
+fn parallel_reduce_takes_the_extrema_over_the_ranks() {
+    let mut c = Case::bare(mesh(), mesh_model());
+    c.field("Temperature", 1, |x| vec![x[0]]);
+    let ix = c
+        .hook(
+            "SaveScalars",
+            sec(&[
+                ("Variable 1", st("temperature")),
+                ("Operator 1", st("max")),
+                ("Variable 2", st("temperature")),
+                ("Operator 2", st("min")),
+                ("Parallel Reduce", yes()),
+            ]),
+        )
+        .unwrap();
+    c.visit_with(ix, &TwoPartitions).unwrap();
+    let s = &c.sim.model.simulation;
+    assert_eq!(s.real("max: temperature : mpi_max"), Some(5.0));
+    assert_eq!(s.real("min: temperature : mpi_min"), Some(-5.0));
 }

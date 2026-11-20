@@ -45,7 +45,9 @@ pub mod output;
 pub mod sif;
 pub mod unported;
 
-pub use case::{run_case, run_case_with, Case, Outcome, RunEnv};
+pub use case::{fixture_case, run_case, run_case_with, Case, Outcome, RunEnv};
+/// The test-local plugin ports, for runners built on this crate.
+pub use elmer_fixtures;
 pub use compose::{coordinate_system, fe_backend, fe_provider, install_fe, solver_registry, solver_registry_for};
 pub use matc::SifMatc;
 pub use engine::{Frontend, LoadedCase, NativeEngine};
