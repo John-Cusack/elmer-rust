@@ -1,7 +1,8 @@
 //! The residual estimators HeatSolve gives RefineMesh
 //! (`HeatSolver_Inside_Residual`, `HeatSolver_Edge_Residual`,
 //! `HeatSolver_Boundary_Residual`, HeatSolve.F90) for adaptive mesh
-//! refinement, in Cartesian coordinates on linear elements.
+//! refinement, in Cartesian coordinates on linear and quadratic triangles
+//! and linear quadrilaterals.
 //!
 //! Refused: other coordinate systems, convection, the compressible
 //! (perfect gas) density, radiation boundaries, transient runs and p
@@ -99,17 +100,29 @@ fn coords(mesh: &dyn MeshView, nodes: &[u32]) -> Vec<[f64; 3]> {
     nodes.iter().map(|&k| mesh.coord(k)).collect()
 }
 
-/// `Element % TYPE % NodeU/V/W` of a linear triangle or quadrilateral.
+/// `Element % TYPE % NodeU/V/W`.
 fn node_uvw(etype: ElementType, k: usize) -> [f64; 3] {
-    match etype.0 {
-        303 => [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]][k],
-        _ => [
-            [-1.0, -1.0, 0.0],
-            [1.0, -1.0, 0.0],
-            [1.0, 1.0, 0.0],
-            [-1.0, 1.0, 0.0],
-        ][k],
+    let d = elmer_fe::element_type(etype.0).expect("a checked element type");
+    let at = |v: &Vec<f64>| v.get(k).copied().unwrap_or(0.0);
+    [at(&d.node_u), at(&d.node_v), at(&d.node_w)]
+}
+
+/// `NormalVector( Edge, EdgeNodes, u, v, .FALSE. )` of a line element in
+/// 2-D: `(-dydu, dxdu) / SQRT(dxdu**2 + dydu**2)` with the local gradients
+/// at `u`.
+fn line_normal(etype: ElementType, xyz: &[[f64; 3]], u: f64) -> [f64; 3] {
+    let d = elmer_fe::element_type(etype.0).expect("a line element");
+    let mut dl = vec![[0.0f64; 3]; d.n_nodes];
+    elmer_fe::basis::nodal_first_derivatives(d, u, 0.0, 0.0, &mut dl);
+    let (mut dxdu, mut dydu) = (0.0, 0.0);
+    for k in 0..d.n_nodes {
+        dxdu += dl[k][0] * xyz[k][0];
     }
+    for k in 0..d.n_nodes {
+        dydu += dl[k][0] * xyz[k][1];
+    }
+    let det = 1.0 / (dxdu * dxdu + dydu * dydu).sqrt();
+    [-dydu * det, dxdu * det, 0.0]
 }
 
 /// The parent-local coordinates of the edge point with `edge_basis`.
@@ -173,7 +186,7 @@ impl HeatEstimator {
         }
         for e in 0..ctx.mesh.n_bulk() {
             let t = ctx.mesh.element(ElemId(e as u32)).etype.0;
-            if t != 303 && t != 404 {
+            if t != 303 && t != 306 && t != 404 {
                 return Err(unsupported(&format!("element type {t}")));
             }
         }
@@ -204,21 +217,32 @@ impl Estimator for HeatEstimator {
         };
         let mut fnorm = 0.0;
         let mut rnorm = 0.0;
+        let quadratic = el.etype.0 == 306;
+        let mut dd = Vec::new();
         for (uvw, w) in gauss(ctx, el.etype)? {
             let ev = basis_at(ctx, el.etype, &xyz, uvw)?;
             let b = &ev.basis[..n];
             let s = w * ev.det_j;
             let density = sum(&dens, b);
+            let conductivity = sum(&cond, b);
             let mut residual = if vol {
                 -sum(&src, b)
             } else {
                 -density * sum(&src, b)
             };
+            // `ddBasisddx`: zero on linear elements.
+            if quadratic {
+                elmer_fe::LagrangeBasis::default()
+                    .eval_hessian(el.etype, &xyz, uvw, &mut dd)
+                    .map_err(|m| SolverError::fatal("ElementInfo", m))?;
+            }
             for j in 0..dim {
                 let dbj: Vec<f64> = ev.dbasis_dx[..n].iter().map(|d| d[j]).collect();
                 residual -= sum(&t, &dbj) * sum(&cond, &dbj);
-                // `Conductivity * SUM( T * ddBasisddx(:,j,j) )`: zero for
-                // linear elements.
+                if quadratic {
+                    let ddj: Vec<f64> = dd[..n].iter().map(|d| d[j][j]).collect();
+                    residual -= conductivity * sum(&t, &ddj);
+                }
             }
             for _ in 0..dim {
                 fnorm += s * (density * sum(&src, b)).powi(2);
@@ -232,21 +256,17 @@ impl Estimator for HeatEstimator {
 
     fn edge(&mut self, ctx: &SolverCtx<'_>, edge: &Edge) -> Result<[f64; 2], SolverError> {
         let dim = ctx.mesh.dim();
-        let en = edge.nodes.to_vec();
+        let en = edge.element_nodes();
+        let et = edge.etype();
         let exyz = coords(ctx.mesh, &en);
         let mut grad = [[0.0f64; 2]; 3];
         let mut len = 0.0;
         let mut rnorm = 0.0;
-        // The unchecked normal of the line (NormalVector, Check = .FALSE.).
-        let (dxdu, dydu) = (
-            0.0 + -0.5 * exyz[0][0] + 0.5 * exyz[1][0],
-            0.0 + -0.5 * exyz[0][1] + 0.5 * exyz[1][1],
-        );
-        let det = 1.0 / (dxdu * dxdu + dydu * dydu).sqrt();
-        let normal = [-dydu * det, dxdu * det, 0.0];
-        for (uvw, w) in gauss(ctx, ElementType(202))? {
-            let ev = basis_at(ctx, ElementType(202), &exyz, uvw)?;
-            let eb = ev.basis[..2].to_vec();
+        for (uvw, w) in gauss(ctx, et)? {
+            let ev = basis_at(ctx, et, &exyz, uvw)?;
+            let eb = ev.basis[..en.len()].to_vec();
+            // The unchecked normal of the line (NormalVector, Check = .FALSE.).
+            let normal = line_normal(et, &exyz, uvw[0]);
             let s = w * ev.det_j;
             for (i, side) in [edge.left, edge.right].into_iter().enumerate() {
                 let Some(p) = side else { continue };

@@ -46,6 +46,11 @@ pub struct StatCurrentSolver {
     quad: Box<dyn Quadrature + Send>,
     local: LocalSystem,
     post: PotentialPostLocal,
+    /// RefineMesh's state (`Adaptive Mesh Refinement`).
+    refine: elmer_adaptive::RefineState,
+    /// `StatCurrentSolver_post` owed to the mesh RefineMesh moved to: the
+    /// core runs it after the solver, on the new mesh (MainUtils.F90:5504).
+    post_pending: bool,
 }
 
 impl StatCurrentSolver {
@@ -55,6 +60,8 @@ impl StatCurrentSolver {
             quad,
             local: LocalSystem::zeros(0),
             post: PotentialPostLocal::default(),
+            refine: Default::default(),
+            post_pending: false,
         }
     }
 }
@@ -122,7 +129,6 @@ fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
             "harmonic mode",
             "the complex harmonic assembly is not ported",
         ),
-        ("adaptive mesh refinement", "mesh refinement is not ported"),
         (
             "calculate elemental fields",
             "elemental (-dg) fields are not ported",
@@ -251,6 +257,11 @@ impl Solver for StatCurrentSolver {
             eps0,
             quad_points: None,
         };
+        // The previous visit's postprocessing, owed to this (new) mesh with
+        // its interpolated potential.
+        if std::mem::take(&mut self.post_pending) {
+            self.run_post(ctx, dim, axi)?;
+        }
         let maxiter = ctx
             .params()
             .integer("nonlinear system max iterations")
@@ -337,23 +348,34 @@ impl Solver for StatCurrentSolver {
             }
         }
 
+        // StatCurrentSolve.F90: RefineMesh after DefaultFinish, then the
+        // core's `StatCurrentSolver_post` (on the new mesh when RefineMesh
+        // made one).
+        let p = ctx.params();
+        if p.logical("adaptive mesh refinement") == Some(true) && p.logical("library adaptivity") != Some(true) {
+            let mut est = elmer_adaptive::diffusion::DiffusionEstimator::STAT_CURRENT;
+            est.check(ctx)?;
+            elmer_adaptive::refine_mesh(ctx, &mut self.refine, &mut est)?;
+        }
         if post::post_active(ctx.params(), &POST) {
-            let pcfg = PostConfig {
-                dim,
-                axisymmetric: axi,
-                quad_points: None,
-            };
-            post::postprocess(
-                ctx,
-                &*self.basis,
-                &*self.quad,
-                &mut self.post,
-                &POST,
-                &pcfg,
-                1.0,
-                &bulk_coefficient,
-            )?;
+            if ctx.sim.has_pending_mesh() {
+                self.post_pending = true;
+            } else {
+                self.run_post(ctx, dim, axi)?;
+            }
         }
         Ok(())
+    }
+}
+
+impl StatCurrentSolver {
+    /// `StatCurrentSolver_post`: the field postprocessing.
+    fn run_post(&mut self, ctx: &mut SolverCtx<'_>, dim: usize, axi: bool) -> Result<(), SolverError> {
+        let pcfg = PostConfig {
+            dim,
+            axisymmetric: axi,
+            quad_points: None,
+        };
+        post::postprocess(ctx, &*self.basis, &*self.quad, &mut self.post, &POST, &pcfg, 1.0, &bulk_coefficient)
     }
 }

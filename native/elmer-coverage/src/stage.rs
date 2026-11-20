@@ -22,6 +22,14 @@ pub enum Step {
     /// a directory of the run (`reload` puts its restart file in the mesh
     /// directory). Paths are relative to the run directory.
     Copy(Vec<String>, String),
+    /// `file(MAKE_DIRECTORY <dir>)`, relative to the run directory.
+    MakeDir(String),
+    /// `file(REMOVE <files>)`, relative to the run directory.
+    Remove(Vec<String>),
+    /// `${MESH2D_BIN} <args>` in a serial run: the pristine `Mesh2D`, an
+    /// external tool (GPL, not ported) as ElmerGrid is. Adaptive remeshing
+    /// runs it again from the solver, through the child's `PATH`.
+    Mesh2D(Vec<String>),
     /// `${VIEWFACTORS_BIN}` in a serial run: the heat solver computes the
     /// factors itself, but from the mesh files as they are, not from the
     /// `f20.12` rewrite RadiationFactors makes when it runs `ViewFactors`
@@ -151,7 +159,8 @@ pub fn steps(runtest: &str, nprocs: u32, source: &Path) -> Vec<Step> {
                     Some("${RADIATORS_BIN}") if nprocs > 1 => steps.push(Step::Other("Radiators".into())),
                     Some("${VIEWFACTORS_BIN}") => steps.push(Step::ViewFactors),
                     Some("${RADIATORS_BIN}") => {}
-                    Some("${MESH2D_BIN}") => steps.push(Step::Other("Mesh2D".into())),
+                    Some("${MESH2D_BIN}") if nprocs > 1 => steps.push(Step::Other("Mesh2D".into())),
+                    Some("${MESH2D_BIN}") => steps.push(Step::Mesh2D(cmd[1..].to_vec())),
                     Some(other) => steps.push(Step::Other(other.trim_matches(&['$', '{', '}'][..]).to_string())),
                     None => {}
                 }
@@ -162,6 +171,14 @@ pub fn steps(runtest: &str, nprocs: u32, source: &Path) -> Vec<Step> {
                 if let Some(dest) = words.get(p + 1) {
                     steps.push(Step::Copy(words[..p].to_vec(), dest.clone()));
                 }
+            }
+            "file" if args.first().is_some_and(|a| a.eq_ignore_ascii_case("MAKE_DIRECTORY")) => {
+                for d in &args[1..] {
+                    steps.push(Step::MakeDir(substitute(d, nprocs, source)));
+                }
+            }
+            "file" if args.first().is_some_and(|a| a.eq_ignore_ascii_case("REMOVE")) => {
+                steps.push(Step::Remove(args[1..].iter().map(|a| substitute(a, nprocs, source)).collect()));
             }
             "run_elmer_test" => steps.push(Step::Solve(None)),
             "execute_elmer_solver" => steps.push(Step::Solve(args.first().cloned())),
@@ -301,7 +318,7 @@ pub fn owns_scratch(scratch: &Path) -> bool {
 
 /// Stages `test` in `scratch/<name>`, replacing an earlier copy. Refuses
 /// a scratch that [`prepare_scratch`] did not take.
-pub fn stage(test: &QuickTest, steps: &[Step], scratch: &Path, elmergrid: &Path) -> Result<PathBuf, String> {
+pub fn stage(test: &QuickTest, steps: &[Step], scratch: &Path, elmergrid: &Path, mesh2d: &Path) -> Result<PathBuf, String> {
     if !owns_scratch(scratch) {
         return Err(format!("scratch {} is not an elmer-coverage scratch (no {SCRATCH_MARKER})", scratch.display()));
     }
@@ -314,6 +331,27 @@ pub fn stage(test: &QuickTest, steps: &[Step], scratch: &Path, elmergrid: &Path)
     for step in steps {
         if let Step::Copy(files, dest) = step {
             copy_into(&dir, files, dest)?;
+        }
+        if let Step::MakeDir(d) = step {
+            let to = inside(&dir, d).ok_or_else(|| format!("file(MAKE_DIRECTORY): {d} outside the run directory"))?;
+            fs::create_dir_all(&to).map_err(|e| format!("file(MAKE_DIRECTORY) {}: {e}", to.display()))?;
+        }
+        if let Step::Remove(files) = step {
+            for f in files {
+                let p = inside(&dir, f).ok_or_else(|| format!("file(REMOVE): {f} outside the run directory"))?;
+                let _ = fs::remove_file(&p);
+            }
+        }
+        if let Step::Mesh2D(args) = step {
+            let mut cmd = Command::new("nice");
+            cmd.args(["-n", "10"]).arg(mesh2d).args(args).current_dir(&dir);
+            match run_limited(cmd, Duration::from_secs(120)) {
+                Ok((Some(0), _)) => {}
+                Ok((code, timed_out)) => {
+                    return Err(format!("Mesh2D {} failed ({})", args.join(" "), if timed_out { "timeout".into() } else { format!("{code:?}") }))
+                }
+                Err(e) => return Err(format!("Mesh2D: {e}")),
+            }
         }
         if let Step::ElmerGrid(args) = step {
             let mut cmd = Command::new("nice");
@@ -376,7 +414,7 @@ mod tests {
             nprocs: 1,
             labels: vec![],
         };
-        assert!(stage(&test, &[], &foreign, Path::new("ElmerGrid")).is_err());
+        assert!(stage(&test, &[], &foreign, Path::new("ElmerGrid"), Path::new("Mesh2D")).is_err());
         assert_eq!(fs::read_to_string(foreign.join("SomeTest/keep.txt")).unwrap(), "old lane data");
 
         let fresh = tmp("fresh");
@@ -438,9 +476,18 @@ mod tests {
     }
 
     #[test]
+    fn make_directory_and_remove() {
+        let text = "file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/kulma)\nfile(REMOVE mesh.nodes mesh.header)\n";
+        assert_eq!(
+            steps(text, 1, Path::new("/s")),
+            vec![Step::MakeDir("./kulma".into()), Step::Remove(vec!["mesh.nodes".into(), "mesh.header".into()])]
+        );
+    }
+
+    #[test]
     fn other_tools() {
         let text = "execute_process(COMMAND ${VIEWFACTORS_BIN} a)\nexecute_process(COMMAND ${MESH2D_BIN} k.mif .)\n";
-        assert_eq!(steps(text, 1, Path::new("/s")), vec![Step::ViewFactors, Step::Other("Mesh2D".into())]);
+        assert_eq!(steps(text, 1, Path::new("/s")), vec![Step::ViewFactors, Step::Mesh2D(vec!["k.mif".into(), ".".into()])]);
         assert_eq!(steps(text, 2, Path::new("/s")), vec![Step::Other(PARTITIONED_VIEWFACTORS.into()), Step::Other("Mesh2D".into())]);
     }
 

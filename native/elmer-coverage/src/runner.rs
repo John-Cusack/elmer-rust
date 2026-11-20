@@ -17,6 +17,8 @@ pub struct Config {
     /// The harness binary, re-run as the per-solve child.
     pub exe: PathBuf,
     pub elmergrid: PathBuf,
+    /// The pristine `Mesh2D` (an external tool, as Elmer spawns it).
+    pub mesh2d: PathBuf,
     pub scratch: PathBuf,
     /// Per solver run.
     pub timeout: Duration,
@@ -78,6 +80,16 @@ fn run_child(cfg: &Config, dir: &Path, sif: &str, recipe: &Recipe, static_only: 
         .stderr(err);
     // The test ran `ViewFactors` before the solver (elmer-physics-heat
     // radiation.rs: the factors then come from the unmodified mesh).
+    // Adaptive remeshing spawns `Mesh2D` from the solver (External_ReMesh),
+    // found through the `PATH` as Elmer's test macros arrange it.
+    if let Some(bin) = cfg.mesh2d.parent() {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let mut dirs = vec![bin.to_path_buf()];
+        dirs.extend(std::env::split_paths(&path));
+        if let Ok(p) = std::env::join_paths(dirs) {
+            cmd.env("PATH", p);
+        }
+    }
     if recipe.steps.iter().any(|s| matches!(s, Step::ViewFactors)) {
         cmd.env("ELMER_VIEWFACTORS_PRESTEP", "1");
     }
@@ -235,7 +247,7 @@ pub fn run_test(cfg: &Config, test: &QuickTest) -> Record {
         detail: String::new(),
     };
     let mesh_steps: Vec<Step> = if static_only { vec![] } else { recipe.steps.clone() };
-    let dir = match stage::stage(test, &mesh_steps, &cfg.scratch, &cfg.elmergrid) {
+    let dir = match stage::stage(test, &mesh_steps, &cfg.scratch, &cfg.elmergrid, &cfg.mesh2d) {
         Ok(d) => d,
         Err(e) => {
             record.verdict = Verdict::Error;

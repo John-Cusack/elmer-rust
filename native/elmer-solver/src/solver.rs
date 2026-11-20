@@ -497,10 +497,20 @@ impl<'a> SolverCtx<'a> {
         // RefineMesh, before the solver displaces the mesh.
         let coords = (0..self.mesh.n_nodes() as u32).map(|k| self.mesh.coord(k)).collect();
         self.sim.adaptive.pending_coords = Some(coords);
+        self.sim.adaptive.pending_var = self.primary().map(|f| f.name.to_string());
         self.sim.adaptive.pending = Some(change);
     }
 
     /// `Mesh % AdaptiveFinished`: the current mesh needs no more refinement.
+    /// A mesh directory read with the runner's reader (an external
+    /// mesher's output, `External_ReMesh`).
+    pub fn load_mesh(&mut self, dir: &std::path::Path) -> Result<Box<dyn elmer_core::MeshView>, SolverError> {
+        match self.sim.adaptive.loader.as_mut() {
+            Some(l) => l(dir),
+            None => Err(SolverError::NotWired("a mesh reader (Simulation::set_mesh_loader)".into())),
+        }
+    }
+
     pub fn set_adaptive_finished(&mut self, finished: bool) {
         self.sim.adaptive.finished = finished;
     }

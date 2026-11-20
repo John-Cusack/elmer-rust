@@ -83,6 +83,10 @@ impl MeshView for WithCoords<'_> {
 pub type MeshWriterFactory =
     Box<dyn FnMut(&str, &Simulation) -> Result<Option<Box<dyn SaveCurrent>>, SolverError>>;
 
+/// Reads an Elmer mesh directory the way the runner reads its first mesh
+/// (`LoadMesh2` of `External_ReMesh`).
+pub type MeshLoader = Box<dyn FnMut(&std::path::Path) -> Result<Box<dyn MeshView>, SolverError>>;
+
 /// The run's adaptive-mesh state.
 #[derive(Default)]
 pub struct AdaptiveMeshes {
@@ -90,12 +94,15 @@ pub struct AdaptiveMeshes {
     /// The old mesh's coordinates when the change was asked for: RefineMesh
     /// interpolates there, before the solver displaces its mesh.
     pub(crate) pending_coords: Option<Vec<[f64; 3]>>,
+    /// The variable of the solver that asked for the change.
+    pub(crate) pending_var: Option<String>,
     /// `Mesh % AdaptiveFinished` of the current mesh.
     pub(crate) finished: bool,
     /// `Mesh % AdaptiveDepth` of the current mesh.
     pub(crate) depth: usize,
     pub(crate) writer: Option<MeshWriterFactory>,
     pub(crate) wrapper: Option<MeshWrapper>,
+    pub(crate) loader: Option<MeshLoader>,
     /// Name of the current mesh, empty for the run's first mesh.
     pub(crate) name: String,
 }
@@ -105,6 +112,11 @@ fn unsupported(what: &str) -> SolverError {
 }
 
 impl Simulation {
+    /// Installs the mesh reader of [`SolverCtx::load_mesh`](crate::SolverCtx::load_mesh).
+    pub fn set_mesh_loader(&mut self, f: MeshLoader) {
+        self.adaptive.loader = Some(f);
+    }
+
     /// Installs the factory of the per-mesh result writers.
     pub fn set_mesh_writer_factory(&mut self, f: MeshWriterFactory) {
         self.adaptive.writer = Some(f);
@@ -301,6 +313,26 @@ impl Simulation {
             }
             // RefineMesh: `NewVar % Norm = SQRT( SUM( Values**2 ) / k )` over
             // the slots with a dof.
+            // RefineMesh interpolates the refining solver's variable with the
+            // identity permutation, then `UpdateSolverMesh` gives it the
+            // solver's (bandwidth-optimised) permutation without moving the
+            // values: until the next solve the value at equation `j` is the
+            // one of node `j`.
+            if self.adaptive.pending_var.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(&ov.name)) {
+                if let Some(p) = new_perm.as_deref().filter(|p| p.iter().enumerate().any(|(i, &k)| k as usize != i)) {
+                    if p.iter().any(|&k| k == NO_DOF) || p.len() != n_new {
+                        return Err(unsupported(&format!(
+                            "{}: the refining solver on part of the new mesh with a reordered permutation",
+                            ov.name
+                        )));
+                    }
+                    let by_node: Vec<f64> = (0..n_new)
+                        .flat_map(|n| (0..dofs).map(move |d| (n, d)))
+                        .map(|(n, d)| nv.values[dofs * p[n] as usize + d])
+                        .collect();
+                    nv.values[..by_node.len()].copy_from_slice(&by_node);
+                }
+            }
             let k = match &nv.perm {
                 Some(p) => p.iter().filter(|&&x| x != NO_DOF).count(),
                 None => nv.values.len(),
@@ -311,6 +343,7 @@ impl Simulation {
             }
             nv.conv.norm = (s / k.max(1) as f64).sqrt();
         }
+        self.adaptive.pending_var = None;
         for ix in 0..self.slots.len() {
             if let Some(id) = self.slots[ix].variable {
                 let v = self.vars.by_id(id);
