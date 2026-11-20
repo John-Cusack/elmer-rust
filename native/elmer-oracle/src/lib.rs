@@ -9,6 +9,7 @@ pub mod grade;
 pub mod manifest;
 pub mod mutation;
 pub mod norm;
+pub mod o7;
 pub mod refnorm;
 pub mod registry;
 pub mod result;

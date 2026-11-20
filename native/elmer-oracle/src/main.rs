@@ -20,6 +20,7 @@ fn usage() -> ! {
     eprintln!("  elmer-oracle sigma-table <tests-dir> <out.json> <golden-root> <arm=root>...");
     eprintln!("  elmer-oracle grade-fields <golden.result> <candidate.result> [--tol X] [--tolerances T --test NAME [--file REL]]");
     eprintln!("  elmer-oracle manifest <dir> <out> --origin NAME");
+    eprintln!("  elmer-oracle o7-replay <build-dir> <shim.so> <in-dir> <out-dir>");
     eprintln!("  elmer-oracle bins <build-dir>");
     eprintln!("  elmer-oracle discover <tests-dir>");
     std::process::exit(2);
@@ -616,6 +617,47 @@ fn main() {
             if errors > 0 {
                 std::process::exit(1);
             }
+        }
+        "o7-replay" => {
+            // o7-replay <build-dir> <shim.so> <in-dir> <out-dir>: evaluate
+            // the inputs of <in-dir>/{rules,info}.txt on the pristine arm
+            // (o7.rs) and write the results in the same format.
+            if args.len() < 6 {
+                usage();
+            }
+            let (build, shim, input, out) =
+                (Path::new(&args[2]), Path::new(&args[3]), Path::new(&args[4]), Path::new(&args[5]));
+            let fail = |e: &dyn std::fmt::Display| -> ! {
+                eprintln!("o7-replay: {e}");
+                std::process::exit(1)
+            };
+            let read = |name: &str| std::fs::read_to_string(input.join(name)).unwrap_or_else(|e| fail(&e));
+            let shim = elmer_oracle::o7::Shim::load(build, shim).unwrap_or_else(|e| fail(&e));
+            let rules = elmer_oracle::o7::parse_rules(&read("rules.txt")).unwrap_or_else(|e| fail(&e));
+            let info = elmer_oracle::o7::parse_info(&read("info.txt")).unwrap_or_else(|e| fail(&e));
+            let got_rules = elmer_oracle::o7::replay_rules(&shim, &rules).unwrap_or_else(|e| fail(&e));
+            let got_info = elmer_oracle::o7::replay_info(&shim, &info).unwrap_or_else(|e| fail(&e));
+            std::fs::create_dir_all(out).unwrap_or_else(|e| fail(&e));
+            std::fs::write(out.join("rules.txt"), elmer_oracle::o7::write_rules(&got_rules))
+                .unwrap_or_else(|e| fail(&e));
+            std::fs::write(out.join("info.txt"), elmer_oracle::o7::write_info(&got_info))
+                .unwrap_or_else(|e| fail(&e));
+            let dr = elmer_oracle::o7::diff_rules(&rules, &got_rules, false);
+            let dr_w = elmer_oracle::o7::diff_rules(&rules, &got_rules, true);
+            let di = elmer_oracle::o7::diff_info(&info, &got_info);
+            let points: usize = info.iter().map(|e| e.pts.len()).sum();
+            for d in dr.iter().chain(&di).take(40) {
+                eprintln!("  {d}");
+            }
+            eprintln!(
+                "rules={} rule-diffs={} (without quad w: {}) elements={} points={} info-diffs={}",
+                rules.len(),
+                dr.len(),
+                dr_w.len(),
+                info.len(),
+                points,
+                di.len()
+            );
         }
         "refnorm-validate" => {
             // refnorm-validate <build-dir> <tests-dir> <golden-root> <out-root>:
