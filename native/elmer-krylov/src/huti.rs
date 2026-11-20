@@ -58,8 +58,14 @@ pub type OutputSink = Box<dyn FnMut(&str) + Send>;
 /// The initial guess is always the caller's `x` (IterSolve passes
 /// `HUTI_USERSUPPLIEDX`). Iteration lines go to stdout unless a sink is set
 /// with [`Huti::set_output`].
+/// `stopcfun(x, b, r)`: the user stop criterion's residual.
+pub type StopDyn<T> = dyn Fn(&[T], &[T], &[T]) -> f64 + Send;
+/// A boxed [`StopDyn`].
+pub type StopFn<T> = Box<StopDyn<T>>;
+
 pub struct Huti<T: HutiScalar = f64> {
     pub cfg: HutiConfig,
+    stop: Option<StopFn<T>>,
     sink: Option<OutputSink>,
     history: Vec<f64>,
     info: Option<HutiInfo>,
@@ -70,11 +76,19 @@ impl<T: HutiScalar> Huti<T> {
     pub fn new(cfg: HutiConfig) -> Self {
         Huti {
             cfg,
+            stop: None,
             sink: None,
             history: Vec::new(),
             info: None,
             _scalar: PhantomData,
         }
+    }
+
+    /// The user stop criterion `stopcfun(x, b, r)` (`HUTI_USUPPLIED_STOPC`),
+    /// for [`crate::HutiStop::UserSupplied`].
+    pub fn with_stop(mut self, f: StopFn<T>) -> Self {
+        self.stop = Some(f);
+        self
     }
 
     /// Send iteration lines here instead of stdout.
@@ -104,9 +118,15 @@ pub(crate) struct Ops<'a, T: HutiScalar> {
     comm: &'a dyn Communicator,
     /// Unconjugated dot product: complex CG (IterSolve.F90:1508-1520).
     bilinear: bool,
+    stop: Option<&'a StopDyn<T>>,
 }
 
 impl<T: HutiScalar> Ops<'_, T> {
+    /// `stopcfun(x, b, r)` (`HUTI_USUPPLIED_STOPC`).
+    pub(crate) fn user_stop(&self, x: &[T], b: &[T], r: &[T]) -> f64 {
+        (self.stop.expect("checked before the iteration"))(x, b, r)
+    }
+
     pub(crate) fn mv(&self, x: &[T], y: &mut [T]) {
         self.a.apply(x, y);
     }
@@ -235,12 +255,16 @@ impl<T: HutiScalar> IterativeSolver<T> for Huti<T> {
         } else {
             (&ident, m)
         };
+        if cfg.stop_crit == crate::config::HutiStop::UserSupplied && self.stop.is_none() {
+            return Err(LinalgError::Unsupported("a user stop criterion without its function".into()));
+        }
         let ops = Ops {
             a,
             pl,
             pr,
             comm,
             bilinear: T::COMPLEX && cfg.method == HutiMethod::Cg,
+            stop: self.stop.as_deref(),
         };
 
         let mut stdout = |line: &str| println!("{line}");

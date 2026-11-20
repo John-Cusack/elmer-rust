@@ -537,6 +537,16 @@ impl<'a> SolverCtx<'a> {
         crate::expr::eval_at_nodes_with(v, nodes, &sf, b.matc.as_deref(), &b.udfs).map(Some)
     }
 
+    /// `ListGetReal(section, key, n, Indexes)` at arbitrary mesh `nodes`
+    /// (an edge's, say), `None` when the section lacks the keyword.
+    pub fn real_at_node_list(&self, section: &ParamMap, key: &str, nodes: &[u32]) -> Result<Option<Vec<f64>>, SolverError> {
+        let Some(v) = section.get(key) else { return Ok(None) };
+        let b = &self.sim.backends;
+        let fields = self.fields();
+        let sf = crate::expr::SectionFields { inner: &fields, section, matc: b.matc.as_deref(), udfs: &b.udfs, depth: 0 };
+        crate::expr::eval_at_nodes_with(v, nodes, &sf, b.matc.as_deref(), &b.udfs).map(Some)
+    }
+
     /// Makes `e` the `Model % CurrentElement` user functions see
     /// ([`elmer_expr::current_element`]), as `GetActiveElement` /
     /// `GetBoundaryElement` do in the Fortran loops.

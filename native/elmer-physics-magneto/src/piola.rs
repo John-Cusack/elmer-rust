@@ -101,8 +101,20 @@ fn check(ctx: &SolverCtx<'_>, sp: &ParamMap) -> Result<(), SolverError> {
     }
     let model = &ctx.sim.model;
     let sim_type = model.simulation.string("simulation type").unwrap_or("steady state");
-    if !sim_type.trim().to_ascii_lowercase().starts_with("steady") {
+    let st = sim_type.trim().to_ascii_lowercase();
+    if !st.starts_with("steady") && st != "transient" {
         return Err(unsupported(format!("Simulation Type = {sim_type}")));
+    }
+    if st == "transient" {
+        if sp.logical("use global mass matrix") != Some(true) {
+            return Err(SolverError::fatal(CALLER, "a transient run without the global mass matrix of WhitneyAVSolver_Init0"));
+        }
+        if ctx.params().integer("time derivative order").is_some_and(|o| o != 1) {
+            return Err(unsupported("a second-order time derivative"));
+        }
+        if degree(sp) == 2 {
+            return Err(unsupported("a transient second-order basis"));
+        }
     }
     match sp.string("linear system solver").map(elmer_core::normalize_key).as_deref() {
         Some("direct") | Some("block") => return Err(unsupported("a direct or block linear solver")),
@@ -143,16 +155,129 @@ fn check(ctx: &SolverCtx<'_>, sp: &ParamMap) -> Result<(), SolverError> {
 
 /// `GaussPointsAdapt(EdgeBasis=.TRUE.)` of the Piola basis: 27 points on
 /// the brick for either degree (the p-reference brick is the standard
-/// one). Other element types are refused.
-fn rule(code: u16) -> Result<elmer_fe::quadrature::GaussRule, SolverError> {
+/// one), 11 on the p-reference tetrahedron (first order). Other element
+/// types are refused.
+fn rule(code: u16, degree: u8) -> Result<elmer_fe::quadrature::GaussRule, SolverError> {
+    let fatal = |e: elmer_fe::FeError| SolverError::fatal(CALLER, e.to_string());
     match code {
-        808 | 827 => elmer_fe::quadrature::gauss_points(ElementType(808), Some(27)).map_err(|e| SolverError::fatal(CALLER, e.to_string())),
+        808 | 827 => elmer_fe::quadrature::gauss_points(ElementType(808), Some(27)).map_err(fatal),
+        504 if degree == 1 => {
+            // GaussPointsTetra(11, PReferenceElement=.TRUE.).
+            let mut p = elmer_fe::quadrature::gauss_points_tetra(11).map_err(fatal)?;
+            for i in 0..p.len() {
+                let (uq, vq, wq, sq) = (p.u[i], p.v[i], p.w[i], p.s[i]);
+                p.u[i] = -1.0 + 2.0 * uq + vq + wq;
+                p.v[i] = 3.0f64.sqrt() * vq + 1.0 / 3.0f64.sqrt() * wq;
+                p.w[i] = 8.0f64.sqrt() / 3.0f64.sqrt() * wq;
+                p.s[i] = 8.0f64.sqrt() * 2.0 * sq;
+            }
+            Ok(p)
+        }
         c => Err(unsupported(format!("element type {c}"))),
     }
 }
 
+/// `VectorElementEdgeDOFs(List, Edge, 2, Parent, np, Name, Integral)` of the
+/// lowest-order basis (DefUtils.F90): the integral over the edge of `L +
+/// V . e`, `L` the scalar `Name` and `V` the components `Name 1..3` at the
+/// edge's nodes, `e` the unit tangent from node `a` to node `b` (the
+/// parent's edge map), negated when `b`'s global id is the smaller.
+fn edge_dof_value(ctx: &SolverCtx<'_>, list: &ParamMap, name: &str, a: u32, b: u32) -> Result<f64, SolverError> {
+    let nodes = [a, b];
+    let zero = || vec![0.0; 2];
+    let load = ctx.real_at_node_list(list, name, &nodes)?.unwrap_or_else(zero);
+    let mut vload = [zero(), zero(), zero()];
+    for (c, v) in vload.iter_mut().enumerate() {
+        if let Some(x) = ctx.real_at_node_list(list, &format!("{name} {}", c + 1), &nodes)? {
+            *v = x;
+        }
+    }
+    let xyz = [ctx.mesh.coord(a), ctx.mesh.coord(b)];
+    let mut e = [xyz[1][0] - xyz[0][0], xyz[1][1] - xyz[0][1], xyz[1][2] - xyz[0][2]];
+    let len = (e[0] * e[0] + e[1] * e[1] + e[2] * e[2]).sqrt();
+    for x in e.iter_mut() {
+        *x /= len;
+    }
+    let fatal = |m: String| SolverError::fatal("VectorElementEdgeDOFs", m);
+    let def = elmer_fe::element_type(202).map_err(|x| fatal(x.to_string()))?;
+    let ip = elmer_fe::quadrature::gauss_points(ElementType(202), None).map_err(|x| fatal(x.to_string()))?;
+    let mut st = elmer_fe::MetricStatus::default();
+    let mut be = elmer_core::BasisEval::default();
+    let mut integral = 0.0;
+    for p in 0..ip.len() {
+        elmer_fe::element_info(def, &xyz, [ip.u[p], ip.v[p], ip.w[p]], 3, &mut st, &mut be).map_err(|x| fatal(x.to_string()))?;
+        let s = ip.s[p] * be.det_j;
+        let l = load[0] * be.basis[0] + load[1] * be.basis[1];
+        let vl: [f64; 3] = std::array::from_fn(|c| vload[c][0] * be.basis[0] + vload[c][1] * be.basis[1]);
+        integral += s * (l + (vl[0] * e[0] + vl[1] * e[1] + vl[2] * e[2]));
+    }
+    if b < a {
+        integral = -integral;
+    }
+    Ok(integral)
+}
+
+/// `InitCond` for `<var> {e}` (ElmerSolver.F90:2332-2347): each active bulk
+/// element with a body `Initial Condition` giving it sets its edges' DOFs
+/// with [`edge_dof_value`], element by element. First-order basis only.
+pub(crate) fn edge_initial_conditions(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+    let var = ctx.variable_name().unwrap_or("av").to_ascii_lowercase();
+    let key = format!("{var} {{e}}");
+    if !ctx.sim.model.initial_conditions.iter().any(|ic| has_prefix(ic, &key)) {
+        return Ok(());
+    }
+    if degree(ctx.params()) != 1 {
+        return Err(unsupported("'{e}' initial conditions of the second-order basis"));
+    }
+    if ctx.solver_dofs().is_none() {
+        return Err(SolverError::fatal(CALLER, "the edge element DOFs (no DofsBackend)"));
+    }
+    let nb = ctx.mesh.n_bulk();
+    let active: Vec<ElemId> = ctx.active_elements().filter(|e| (e.0 as usize) < nb).collect();
+    let mut slots = Vec::new();
+    let mut set: Vec<(u32, f64)> = Vec::new();
+    for &e in &active {
+        let Some(ic) = ctx.body_params(e).and_then(|b| b.initial_condition).cloned() else { continue };
+        if !has_prefix(&ic, &key) {
+            continue;
+        }
+        let el = ctx.mesh.element(e);
+        let (code, nodes) = (el.etype.0, el.nodes.to_vec());
+        let emap = edge_map(code / 100);
+        ctx.element_slots(e, &mut slots);
+        let np = slots.len() - emap.len();
+        for (l, &[i, j]) in emap.iter().enumerate() {
+            let slot = slots[np + l];
+            if slot == NO_DOF {
+                continue;
+            }
+            set.push((slot, edge_dof_value(ctx, &ic, &key, nodes[i], nodes[j])?));
+        }
+    }
+    let id = ctx.solver_id();
+    let var_id = ctx
+        .sim
+        .slots
+        .iter()
+        .find(|s| s.id == id)
+        .and_then(|s| s.variable)
+        .ok_or_else(|| SolverError::fatal(CALLER, "solver has no variable"))?;
+    let v = ctx.sim.vars.by_id_mut(var_id);
+    for (s, x) in set {
+        v.values[s as usize] = x;
+    }
+    v.values_changed = true;
+    Ok(())
+}
+
 /// The bulk element's local system.
-fn local_matrix(ctx: &SolverCtx<'_>, e: ElemId, nd: usize, degree: u8) -> Result<(Local, usize), SolverError> {
+fn local_matrix(
+    ctx: &SolverCtx<'_>,
+    e: ElemId,
+    nd: usize,
+    degree: u8,
+    transient: bool,
+) -> Result<(Local, usize, Option<Vec<f64>>), SolverError> {
     let el = ctx.mesh.element(e);
     let code = el.etype.0;
     let n = el.nodes.len();
@@ -175,8 +300,9 @@ fn local_matrix(ctx: &SolverCtx<'_>, e: ElemId, nd: usize, degree: u8) -> Result
         }
     }
     let co = BulkCoeffs { nu: vec![nu; n], sigma: vec![sigma; n], load: vec![load; n] };
-    let rule = rule(code)?;
+    let rule = rule(code, degree)?;
     let mut loc = Local::new(nd);
+    let mut mass = transient.then(|| vec![0.0; nd * nd]);
     let mut np = usize::MAX;
     for t in 0..rule.len() {
         let uvw = [rule.u[t], rule.v[t], rule.w[t]];
@@ -187,8 +313,11 @@ fn local_matrix(ctx: &SolverCtx<'_>, e: ElemId, nd: usize, degree: u8) -> Result
             _ => return Err(SolverError::fatal(CALLER, format!("{nd} element DOFs for {} edge basis functions", ev.dofs))),
         };
         add_bulk_point(&mut loc, &basis, &dbasis, &ev.edge, &ev.curl, ev.det, rule.s[t], np, &co);
+        if let Some(m) = mass.as_mut() {
+            crate::local::add_mass_point(m, nd, &basis, &dbasis, &ev.edge, ev.det, rule.s[t], np, &co);
+        }
     }
-    Ok((loc, np))
+    Ok((loc, np, mass))
 }
 
 /// The edge basis, nodal `Basis` and `dBasisdx` at a point.
@@ -247,17 +376,22 @@ fn edge_dirichlet(
     let nb = ctx.mesh.n_bulk();
     let active: std::collections::HashSet<u32> = ctx.active_elements().map(|e| e.0).collect();
     let boundary: Vec<ElemId> = ctx.boundary_elements().collect();
-    let mut fixed = Vec::new();
+    let mut fixed: Vec<(u32, f64)> = Vec::new();
     let mut slots = Vec::new();
     for &b in &boundary {
         let Some(bc) = ctx.bc_params(b) else { continue };
         if !has_prefix(bc, &prefix) {
             continue;
         }
+        // Nonzero values: VectorElementEdgeDOFs, first-order basis only.
+        let mut nonzero = false;
         for (k, _) in bc.0.iter().filter(|(k, _)| k.starts_with(&prefix)) {
-            if const_real(bc, k).map_err(magneto)? != Some(0.0) {
-                return Err(unsupported(format!("a nonzero edge Dirichlet value '{k}'")));
+            if const_real(bc, k).ok().flatten() != Some(0.0) {
+                nonzero = true;
             }
+        }
+        if nonzero && degree != 1 {
+            return Err(unsupported("a nonzero edge Dirichlet value of the second-order basis"));
         }
         let el = ctx.mesh.element(b);
         let fam = el.etype.0 / 100;
@@ -285,19 +419,27 @@ fn edge_dirichlet(
         ctx.element_slots(parent, &mut slots);
         for (l, &[i, j]) in emap.iter().enumerate() {
             if bnodes.contains(&pnodes[i]) && bnodes.contains(&pnodes[j]) {
-                fixed.extend_from_slice(&slots[np + edofs * l..np + edofs * (l + 1)]);
+                if nonzero {
+                    let v = edge_dof_value(ctx, bc, &prefix, pnodes[i], pnodes[j])?;
+                    fixed.push((slots[np + l], v));
+                } else {
+                    fixed.extend(slots[np + edofs * l..np + edofs * (l + 1)].iter().map(|&s| (s, 0.0)));
+                }
             }
         }
         // The square face's own DOFs (a tetrahedron's faces have none in
         // the first-order basis).
         if pel.etype.0 / 100 == 8 {
+            if nonzero {
+                return Err(unsupported("a nonzero edge Dirichlet value on bricks (SolveLocalFaceDOFs)"));
+            }
             let first = np + edofs * emap.len() + fdofs * q;
-            fixed.extend_from_slice(&slots[first..first + fdofs]);
+            fixed.extend(slots[first..first + fdofs].iter().map(|&s| (s, 0.0)));
         } else if degree == 2 {
             return Err(unsupported("second-order '{e}' conditions on tetrahedra"));
         }
     }
-    Ok(fixed.into_iter().filter(|&s| s != NO_DOF).map(|s| (s, 0.0)).collect())
+    Ok(fixed.into_iter().filter(|&(s, _)| s != NO_DOF).collect())
 }
 
 /// `ConstrainUnused`: rows with a zero diagonal become identity rows.
@@ -315,8 +457,8 @@ fn constrain_unused(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
     Ok(())
 }
 
-/// The steady Piola `WhitneyAVSolver`.
-pub fn solve(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+/// The Piola `WhitneyAVSolver`, steady or (first order) transient.
+pub fn solve(ctx: &mut SolverCtx<'_>, transient: bool) -> Result<(), SolverError> {
     let sp = ctx.params().clone();
     if sp.logical("second kind basis") == Some(true) {
         return Err(unsupported("the second-kind basis"));
@@ -351,8 +493,13 @@ pub fn solve(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
             return Err(SolverError::fatal(CALLER, format!("element {} lacks DOFs", e.0)));
         }
         let nd = slots.len();
-        let (loc, np) = local_matrix(ctx, e, nd, degree)?;
+        let (loc, np, mass) = local_matrix(ctx, e, nd, degree, transient)?;
         nodal.insert(e.0, np);
+        // DefaultUpdateMass: the global mass matrix (`Use Global Mass
+        // Matrix`), whose time terms DefaultFinishAssembly adds.
+        if let Some(m) = mass {
+            ctx.default_update_mass(&m, e)?;
+        }
         let ls = LocalSystem { n: nd, stiff: loc.stiff, mass: None, damp: None, force: loc.force };
         ctx.default_update(&ls, e)?;
     }
@@ -362,7 +509,7 @@ pub fn solve(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
     ctx.default_dirichlet_after(&fixed)?;
     constrain_unused(ctx)?;
     ctx.default_solve()?;
-    if nodal.values().all(|&np| np == 0) {
+    if !transient && sp.get("variable output").is_none() && nodal.values().all(|&np| np == 0) {
         // WhitneyAVSolver_Init0: `Variable Output = False` without the
         // scalar potential in steady state.
         if let Some(var_id) = ctx.sim.slots[ix].variable {

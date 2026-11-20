@@ -241,6 +241,7 @@ fn stop<T: HutiScalar>(
         HutiStop::PseudoResidual => pseudo_res(r, trv),
         HutiStop::PseudoResidualScaledByB => pseudo_res(r, trv) / nb.rhs,
         HutiStop::PseudoResidualScaledByPrecB => pseudo_res(r, trv) / nb.precrhs,
+        HutiStop::UserSupplied => unreachable!("a user stop criterion is BiCGStab(2)'s only"),
         HutiStop::XDiffNorm => {
             for i in 0..n {
                 r[i] = eta * d[i];

@@ -69,8 +69,13 @@ pub fn whitney_kind(params: &ParamMap) -> Option<bool> {
 /// `Quadratic Approximation` (steady state, no Lagrange gauge) the Piola
 /// one of [`crate::piola::init_element`]. Sections with the options that pick
 /// other bases are left alone (the solvers refuse them).
-pub fn whitney_init_section(params: &mut ParamMap, body_forces: &[ParamMap], bcs: &[ParamMap]) {
+pub fn whitney_init_section(params: &mut ParamMap, body_forces: &[ParamMap], bcs: &[ParamMap], transient: bool) {
     let Some(harmonic) = whitney_kind(params) else { return };
+    // `ListAddLogical('Use Global Mass Matrix', .TRUE.)`: only a transient
+    // run assembles the mass.
+    if !harmonic && transient {
+        params.insert("Use Global Mass Matrix", Value::Logical(true));
+    }
     if params.get("element").is_some() {
         return;
     }
@@ -85,7 +90,7 @@ pub fn whitney_init_section(params: &mut ParamMap, body_forces: &[ParamMap], bcs
     }
     if on("use piola transform") || on("quadratic approximation") {
         if !harmonic && !on("use lagrange gauge") {
-            let e = crate::piola::init_element(static_cond, on("quadratic approximation"));
+            let e = crate::piola::init_element(static_cond || transient, on("quadratic approximation"));
             params.insert("Element", Value::Str(e.into()));
         }
         return;
@@ -211,12 +216,20 @@ impl Case {
 }
 
 impl Solver for WhitneyAv {
-    fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, transient: bool) -> Result<(), SolverError> {
-        if transient {
-            return Err(SolverError::Unsupported("transient WhitneyAVSolver".into()));
-        }
+    /// `InitCond`'s `<var> {e}` initial conditions of the Piola basis.
+    fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         if !self.harmonic && crate::piola::is_piola(ctx.params()) {
-            return crate::piola::solve(ctx);
+            crate::piola::edge_initial_conditions(ctx)?;
+        }
+        Ok(())
+    }
+
+    fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, transient: bool) -> Result<(), SolverError> {
+        if !self.harmonic && crate::piola::is_piola(ctx.params()) {
+            return crate::piola::solve(ctx, transient);
+        }
+        if transient {
+            return Err(SolverError::Unsupported("transient WhitneyAVSolver without the Piola basis".into()));
         }
         let case = Case::from_view(ctx.mesh, &ctx.sim.model);
         let id = ctx.solver_id();

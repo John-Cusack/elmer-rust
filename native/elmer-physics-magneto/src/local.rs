@@ -218,6 +218,49 @@ pub(crate) fn add_bulk_point(
     }
 }
 
+/// The transient `MASS` of `LocalMatrix` (WhitneyAVSolver.F90:2068) at one
+/// integration point, without electrodynamics, Darwin, coils or laminates:
+/// `<C eta_j, grad v_p>` in a conductor and `<C eta_j, eta_i>`, row-major
+/// `nd x nd`. The conductivity is interpolated as in [`add_bulk_point`].
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn add_mass_point(
+    mass: &mut [f64],
+    nd: usize,
+    basis: &[f64],
+    db: &[[f64; 3]],
+    w: &[[f64; 3]],
+    det_j: f64,
+    s: f64,
+    np: usize,
+    co: &BulkCoeffs,
+) {
+    let n = basis.len();
+    let ne = w.len();
+    let mut c = [[0.0; 3]; 3];
+    for (i, ci) in c.iter_mut().enumerate() {
+        for (j, cij) in ci.iter_mut().enumerate() {
+            let mut v = 0.0;
+            for k in 0..n {
+                v += co.sigma[k][i][j] * basis[k];
+            }
+            *cij = v;
+        }
+    }
+    let csum: f64 = c.iter().flatten().map(|x| x.abs()).sum();
+    if csum > elmer_sparse::AEPS {
+        for p in 0..np {
+            for (j, wj) in w.iter().enumerate() {
+                mass[p * nd + np + j] += dot(&matvec(&c, wj), &db[p]) * det_j * s;
+            }
+        }
+    }
+    for i in 0..ne {
+        for j in 0..ne {
+            mass[(np + i) * nd + np + j] += dot(&matvec(&c, &w[j]), &w[i]) * det_j * s;
+        }
+    }
+}
+
 /// The real parts of the harmonic `LocalMatrix` (WhitneyAVHarmonicSolver.F90:1234)
 /// for real coefficients and without electrodynamics: the stiffness `K`
 /// and damping `D` matrices, combined by the caller into `K + i omega D`
