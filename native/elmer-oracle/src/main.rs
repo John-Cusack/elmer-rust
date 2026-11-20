@@ -214,12 +214,16 @@ fn refnorm_one(
         .iter()
         .map(|&b| char::from(b))
         .collect();
+    let golden_run = golden_root.join(test).join("run");
+    let text = match elmer_oracle::refnorm::expand_includes(&text, &[&golden_run, &src]) {
+        Ok(t) => t,
+        Err(why) => return skip(&why),
+    };
     let solvers = match elmer_oracle::refnorm::reference_solvers(&text) {
         Ok(s) if s.is_empty() => return skip("no Reference Norm in a Solver section"),
         Ok(s) => s,
         Err(why) => return skip(&why),
     };
-    let golden_run = golden_root.join(test).join("run");
     let files = elmer_oracle::sigma::result_files(&golden_run, &src).unwrap_or_default();
     let mut refnorms = Vec::new();
     let mut notes = Vec::new();

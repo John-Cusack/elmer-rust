@@ -34,6 +34,11 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
   saved root variable that the preamble assigns to its `Equation`.
   Coupled solvers, equations shared by several solvers, and several
   candidates stay out of class.
+- **Includes.** A top-level `include <file>` that only defines MATC
+  variables (`$` lines: `params.sif`, the `mesh.names` ElmerGrid writes)
+  is expanded as Elmer reads it. The file is looked up in the golden run
+  dir, then the source dir. An include that defines sections stays out of
+  class, because the override goes into the main sif.
 - **Norm options.** Default, plus the velocity-only norm that FlowSolve,
   IncompressibleNS and FilmFlowSolver set internally
   (`Nonlinear System Norm DOFs = DOFs - 1`). `ComputeNorm` then sums each
@@ -44,18 +49,18 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
 
 | Verdict | Tests |
 |---|---:|
-| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **329** (361 solvers) |
-| grader gap: the solver sets its own norm (FluxSolver, VectorHelmholtzNodal, WhitneyAVSolver) | 5 |
+| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **338** (370 solvers) |
+| grader gap: the solver sets its own norm (FluxSolver, VectorHelmholtzNodal, WhitneyAVSolver) | 7 |
 | grader gap: DG field (PoissonDG) | 1 |
 | unexplained mismatch (PhaseChange3, solver 3 `PhaseSurface`) | 1 |
-| out of the validated class | 146 |
+| out of the validated class | 135 |
 
 Before this widening the class held 223 tests (238 solvers). All 223 are
 still bitwise, each with at least as many solvers as before.
 
 **Kill check (§5.2).** Every test in the class that ran without a bitwise
-match is counted: 7/482 = 1.5% of the quick tests, under the 2% bar.
-Six of them are grader gaps. In each, the values are all in the file, but
+match is counted: 9/482 = 1.9% of the quick tests, under the 2% bar.
+Eight of them are grader gaps. In each, the values are all in the file, but
 the solver's norm is not `ComputeNorm` of them:
 - 34 solver entries assign `Solver % Variable % Norm` themselves (grep of
   the pristine `fem/src/modules`, listed in `SELF_NORM` in
@@ -79,17 +84,16 @@ Each test is listed under the first reason in its row.
 | `Show Norm` / `Show Norm Index` (a SaveScalars value is the norm) | 23 |
 | custom `runtest.cmake` (replay) | 13 |
 | variable in several result files (several meshes) | 12 |
-| sif uses `Include` | 12 |
 | variable not in any result file (global, or not output) | 9 |
 | duplicate `Solver N` sections (merged by Elmer) | 7 |
 | no `Variable`: coupled solver | 5 |
-| no `Variable`: several saved variables of its equation | 5 |
+| no `Variable`: several saved variables of its equation | 6 |
 | no `Variable`: no saved variable of its equation | 4 |
 | other (`-nooutput`, several solver runs) | 2 |
 | non-nodal unknowns | 1 |
 
 So item 4 is **not** done for every captured test. The validated class
-covers 329 of the 482 quick tests. Widening it further means per-run
+covers 338 of the 482 quick tests. Widening it further means per-run
 checks for multi-`RUN` sifs, the SaveScalars-style norms, and per-mesh
 result files.
 
