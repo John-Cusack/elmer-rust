@@ -21,7 +21,7 @@ use crate::radiation::{is_diffuse_gray, temps4, DiffuseGray};
 use crate::radiators::{is_radiator_bc, Radiators};
 use crate::{
     check_supported, heat_boundary_local, heat_bulk_local_vec, CompressModel, Compressibility,
-    HeatError, HeatMaterialAtNodes, HeatSections, PROCEDURE,
+    HeatError, HeatMaterialAtNodes, HeatSections, JouleHeat, PROCEDURE,
 };
 
 /// Builds the element basis and quadrature the solver integrates with. The
@@ -248,7 +248,65 @@ pub(crate) fn bulk_inputs(
             Some(m) => compressibility(ctx, m, e, flow, dt)?,
             None => None,
         },
+        joule_heat: match bf.is_some_and(|b| b.logical("Joule Heat") == Some(true)) {
+            true => joule_heat(ctx, m, e, n)?,
+            false => None,
+        },
     })
+}
+
+/// `JouleHeat` (Differentials.F90:284): the field Joule heating takes, the
+/// first of `Joule Heating e`, `Joule Field`, `Potential` and `Magnetic
+/// Field 1` that exists. `None` (no heat) when none does, or when a node of
+/// `e` is outside the field.
+fn joule_heat(
+    ctx: &SolverCtx<'_>,
+    m: Option<&ParamMap>,
+    e: ElemId,
+    n: usize,
+) -> Result<Option<JouleHeat>, SolverError> {
+    let unsupported = |what: &str| {
+        Err(SolverError::Unsupported(format!(
+            "HeatSolver: Joule Heat from the {what} variable"
+        )))
+    };
+    let vars = &ctx.sim.vars;
+    let name = if vars.get("Joule Heating e").is_some() {
+        return unsupported("Joule Heating e");
+    } else if vars.get("Joule Field").is_some() {
+        "Joule Field"
+    } else if vars.get("Potential").is_some() {
+        "Potential"
+    } else if vars.get("Magnetic Field 1").is_some() {
+        return unsupported("Magnetic Field 1");
+    } else {
+        ctx.warn(
+            "JouleHeat",
+            "Joule heating requested but no field to compute it!",
+        );
+        return Ok(None);
+    };
+    let var = vars.get(name).expect("checked above");
+    let mut values = Vec::with_capacity(n);
+    for &nn in ctx.mesh.element(e).nodes {
+        match var.perm.as_deref().map_or(nn, |p| p[nn as usize]) {
+            NO_DOF => return Ok(None),
+            k => values.push(var.values[var.dofs * k as usize]),
+        }
+    }
+    let electric_conductivity =
+        real_at_nodes(ctx, m, "Electric Conductivity", e)?.unwrap_or_else(|| vec![0.0; n]);
+    Ok(Some(if name == "Potential" {
+        JouleHeat::Potential {
+            electric_conductivity,
+            potential: values,
+        }
+    } else {
+        JouleHeat::Field {
+            electric_conductivity,
+            field: values,
+        }
+    }))
 }
 
 /// The convection field (`Temperature Convection Field`, else `Flow

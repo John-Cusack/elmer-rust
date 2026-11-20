@@ -7,7 +7,7 @@ use crate::bulk::{check_nodal_inputs, interp_diag, interp_full, reset};
 use crate::error::HeatError;
 use crate::linear_forms::{grad_u_dot_grad_u, grad_u_dot_u, u_dot_f, u_dot_v};
 use crate::material::{
-    CompressModel, Conductivity, HeatBulkConfig, HeatMaterialAtNodes, Stabilization,
+    CompressModel, Conductivity, HeatBulkConfig, HeatMaterialAtNodes, JouleHeat, Stabilization,
 };
 
 /// [`crate::heat_bulk_local`] in the summation order of `LocalMatrixVec`
@@ -331,6 +331,42 @@ pub fn heat_bulk_local_vec(
         if !stream.is_empty() {
             let tw: Vec<f64> = (0..ngp).map(|t| tau[t] * w[t]).collect();
             u_dot_f(ngp, nf, &stream, &tw, &src, &mut out.force);
+        }
+    }
+
+    // Joule heat: FORCE += DetJ * JouleH * Basis at each point where it is
+    // not zero.
+    if let Some(j) = &mat.joule_heat {
+        for t in 0..ngp {
+            let jh = match j {
+                JouleHeat::Field {
+                    electric_conductivity,
+                    field,
+                } => {
+                    let sigma = field_at(&bas, nf, n, t, electric_conductivity.iter().copied());
+                    sigma * field_at(&bas, nf, n, t, field.iter().copied())
+                }
+                JouleHeat::Potential {
+                    electric_conductivity,
+                    potential,
+                } => {
+                    let sigma = field_at(&bas, nf, n, t, electric_conductivity.iter().copied());
+                    let mut bb = 0.0;
+                    for k in 0..dim {
+                        let mut b = 0.0;
+                        for (p, v) in potential.iter().enumerate() {
+                            b += grad(t, p, k) * v;
+                        }
+                        bb += b * b;
+                    }
+                    sigma * bb
+                }
+            };
+            if jh != 0.0 {
+                for p in 0..nf {
+                    out.force[p] += w[t] * jh * bas[t * nf + p];
+                }
+            }
         }
     }
 

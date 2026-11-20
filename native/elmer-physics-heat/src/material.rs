@@ -113,6 +113,27 @@ pub struct HeatMaterialAtNodes {
     pub heat_transfer_multiplier: Option<Vec<f64>>,
     /// The material's `Compressibility Model`; `None` is incompressible.
     pub compressibility: Option<Compressibility>,
+    /// `Joule Heat = True` in the body force, with the field it is computed
+    /// from; `None` adds no Joule heat.
+    pub joule_heat: Option<JouleHeat>,
+}
+
+/// The Joule heat `JouleHeat` (Differentials.F90:284) computes at each
+/// integration point, which `LocalMatrixVec` adds to the force after the
+/// source. `Electric Conductivity` and the field are nodal values, always
+/// interpolated.
+#[derive(Clone, Debug, PartialEq)]
+pub enum JouleHeat {
+    /// The `Joule Field` variable: `sigma * field`.
+    Field {
+        electric_conductivity: Vec<f64>,
+        field: Vec<f64>,
+    },
+    /// The `Potential` variable: `sigma * |grad V|^2`.
+    Potential {
+        electric_conductivity: Vec<f64>,
+        potential: Vec<f64>,
+    },
 }
 
 /// A `Compressibility Model` of `LocalMatrixVec` (HeatSolve.F90:1300): the
