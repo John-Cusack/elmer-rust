@@ -489,7 +489,7 @@ pub fn dsteqr_v(n: usize, d: &mut [f64], e: &mut [f64], z: &mut [f64], ldz: usiz
 /// `DORG2L(m, n, k, a, lda, tau, work, info)`: the `m x n` Q of the last
 /// `k` elementary reflectors `H(k) ... H(1)` of a QL factorisation (the
 /// unblocked path of `DORGQL`).
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
 pub fn dorg2l(m: usize, n: usize, k: usize, a: &mut [f64], lda: usize, tau: &[f64], work: &mut [f64]) {
     if n == 0 {
         return;
