@@ -1112,9 +1112,9 @@ impl Simulation {
         // (`Variable_on_nodes_on_elements`), made at mesh load.
         let dg = layout.as_ref().and_then(|d| d.dg_layout().cloned());
         let kind = if dg.is_some() { FieldKind::Dg } else { FieldKind::Nodal };
-        if let Some(ix) = dg {
+        if let Some(ix) = &dg {
             if self.dg_indexes.is_none() {
-                self.dg_indexes = Some(ix);
+                self.dg_indexes = Some(ix.clone());
             }
         }
         slot.dofs = layout;
@@ -1122,15 +1122,8 @@ impl Simulation {
         let mut values = vec![0.0; perm.n_slots * spec.dofs];
         if apply_ics {
             if kind == FieldKind::Dg {
-                let names = std::iter::once(&spec.name).chain(&spec.components);
-                let given = names.into_iter().any(|n| self.model.initial_conditions.iter().any(|ic| ic.get(n).is_some()));
-                let used = self.model.bodies.iter().any(|b| b.integer("initial condition").is_some());
-                if given && used {
-                    return Err(SolverError::Unsupported(format!(
-                        "Solver {}: initial conditions of the DG variable {}",
-                        slot.id, spec.name
-                    )));
-                }
+                let ix = dg.as_ref().expect("a DG kind has a layout");
+                self.apply_dg_initial_conditions(slot, spec, mesh, ix, &perm_arc, &mut values)?;
             } else {
                 self.apply_initial_conditions(slot, spec, mesh, &perm_arc, &mut values)?;
             }
@@ -1186,6 +1179,64 @@ impl Simulation {
                     if s != NO_DOF {
                         values[s as usize * spec.dofs + k] = x;
                     }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `InitCond` (ElmerSolver.F90) for a `Variable_on_nodes_on_elements`:
+    /// each bulk element with a body `Initial Condition` sets the values at
+    /// its DG indexes, `Var % Values(Var % Perm(DGIndexes(k))) = Work(k)`,
+    /// in element order (a node shared by elements of one reduced-basis
+    /// group takes the last one). Initial conditions on boundary elements
+    /// (a BC `Initial Condition`) are refused.
+    fn apply_dg_initial_conditions(
+        &self,
+        slot: &SolverSlot,
+        spec: &VarSpec,
+        mesh: &dyn MeshView,
+        ix: &crate::exported::DgIndexes,
+        perm: &[u32],
+        values: &mut [f64],
+    ) -> Result<(), SolverError> {
+        if spec.dofs != 1 {
+            return Err(SolverError::Unsupported(format!(
+                "Solver {}: initial conditions of the {}-component DG variable {}",
+                slot.id, spec.dofs, spec.name
+            )));
+        }
+        let key = spec.name.as_str();
+        if !self.model.initial_conditions.iter().any(|ic| ic.get(key).is_some()) {
+            return Ok(());
+        }
+        if self.model.boundary_conditions.iter().any(|bc| bc.get("initial condition").is_some()) {
+            return Err(SolverError::Unsupported(format!(
+                "Solver {}: boundary initial conditions of the DG variable {}",
+                slot.id, spec.name
+            )));
+        }
+        let fields = self.fields(mesh);
+        let b = &self.backends;
+        for (t, dgi) in ix.index.iter().enumerate().take(mesh.n_bulk()) {
+            let el = mesh.element(ElemId(t as u32));
+            let Some(ic) = self
+                .model
+                .body_of_tag(el.tag)
+                .and_then(|b| self.model.body_params(b))
+                .and_then(|b| b.initial_condition)
+            else {
+                continue;
+            };
+            let Some(val) = ic.get(key) else { continue };
+            let xs = crate::expr::eval_at_nodes_with(val, el.nodes, &fields, b.matc.as_deref(), &b.udfs)?;
+            for (&d, &x) in dgi.iter().zip(&xs) {
+                if d == NO_DOF {
+                    continue;
+                }
+                let s = perm.get(d as usize).copied().unwrap_or(NO_DOF);
+                if s != NO_DOF {
+                    values[s as usize] = x;
                 }
             }
         }
