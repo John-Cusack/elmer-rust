@@ -829,6 +829,12 @@ impl Simulation {
         if slot.params.logical("eigen analysis") == Some(true) {
             slot.nof_eigen = slot.params.integer("eigen system values").filter(|&n| n > 0).map_or(0, |n| n as usize);
         }
+        // MainUtils.F90:2631: a `Harmonic Analysis` solver keeps `Harmonic
+        // System Values` (1 by default) solutions as its eigenvectors, and
+        // gets a mass matrix.
+        else if slot.params.logical("harmonic analysis") == Some(true) {
+            slot.nof_eigen = slot.params.integer("harmonic system values").filter(|&n| n > 1).map_or(1, |n| n as usize);
+        }
         // Without a registry (a mesh change) the caller moves the instance.
         if let Some(registry) = registry {
             if let Some((lib, entry)) = procedure_of(&slot.params) {

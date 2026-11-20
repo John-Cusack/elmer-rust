@@ -76,7 +76,7 @@ pub struct HelmholtzLocal {
 }
 
 impl HelmholtzLocal {
-    fn reset(&mut self, n: usize) {
+    pub(crate) fn reset(&mut self, n: usize) {
         self.n = n;
         self.stiff.clear();
         self.stiff.resize(n * n, Complex64::new(0.0, 0.0));

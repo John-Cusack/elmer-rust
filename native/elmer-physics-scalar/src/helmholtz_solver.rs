@@ -78,13 +78,26 @@ fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
         }
     }
     for bc in &model.boundary_conditions {
-        for key in ["flow interface", "structure interface"] {
-            if flag(bc, key) {
-                return Err(unsupported(
-                    format!("Boundary Condition \"{key}\""),
-                    "harmonic flow and structure coupling is not ported",
-                ));
-            }
+        if flag(bc, "flow interface") {
+            return Err(unsupported(
+                "Boundary Condition \"flow interface\"",
+                "harmonic flow coupling is not ported",
+            ));
+        }
+    }
+    if model.boundary_conditions.iter().any(|bc| flag(bc, "structure interface")) {
+        let p = ctx.params();
+        if p.integer("displacement variable eigenmode").is_none_or(|m| m <= 0) {
+            return Err(unsupported(
+                "Boundary Condition \"structure interface\" without \"Displacement Variable EigenMode\"",
+                "only the eigenmode (DispMode 1) displacement is ported",
+            ));
+        }
+        if flag(p, "displacement variable frequency") {
+            return Err(unsupported("Solver keyword \"Displacement Variable Frequency\"", "not ported"));
+        }
+        if axisymmetric(ctx)? {
+            return Err(unsupported("a structure interface in axisymmetric coordinates", "the metric factor is not ported"));
         }
     }
     Ok(())
@@ -285,11 +298,108 @@ impl Solver for HelmholtzSolver {
                 }
             }
 
+            self.structure_interface(ctx, &bnd, omega)?;
+
             ctx.default_dirichlet()?;
             ctx.default_solve()?;
             if ctx.default_converged() {
                 break;
             }
+        }
+        Ok(())
+    }
+}
+
+impl HelmholtzSolver {
+    /// HelmholtzSolve.F90:410-460 for `Structure Interface` boundaries: the
+    /// wall velocity `i omega u` of the displacement eigenmode
+    /// (`Displacement Variable EigenMode`, `DispMode = 1`) enters the
+    /// right-hand side through `LocalInterfaceMatrix`: `FORCE(p) -= s
+    /// Basis(p) i omega (n . v)`, with the checked `NormalVector`.
+    fn structure_interface(&mut self, ctx: &mut SolverCtx<'_>, bnd: &[ElemId], omega: f64) -> Result<(), SolverError> {
+        if !ctx.sim.model.boundary_conditions.iter().any(|bc| flag(bc, "structure interface")) {
+            return Ok(());
+        }
+        let p = ctx.params().clone();
+        let vname = p.string("displacement variable name").unwrap_or("displacement").to_string();
+        let mode = p.integer("displacement variable eigenmode").unwrap_or(0) as usize;
+        let (eig, dperm, ddofs) = {
+            let dv = ctx
+                .sim
+                .vars
+                .get(&vname)
+                .ok_or_else(|| SolverError::fatal(CALLER, format!("No displacement variable associated:{vname}")))?;
+            let eig = dv
+                .eigen_vectors
+                .get(mode - 1)
+                .cloned()
+                .ok_or_else(|| SolverError::fatal(CALLER, "Requested eigenmode does not exist"))?;
+            (eig, dv.perm.as_deref().map(<[u32]>::to_vec), dv.dofs)
+        };
+        let dim = ctx.mesh.dim();
+        if ddofs < dim {
+            return Err(SolverError::fatal(CALLER, "Eigenmode displacement field should have at least 1*dim components"));
+        }
+        let iu = Complex64::new(0.0, 1.0);
+        let mut dofs = Vec::new();
+        let mut be = elmer_core::BasisEval::default();
+        for &e in bnd {
+            ctx.element_dofs(e, &mut dofs);
+            if dofs.contains(&NO_DOF) {
+                continue;
+            }
+            let el = ctx.mesh.element(e);
+            if el.etype.family() == 1 {
+                continue;
+            }
+            if !ctx.bc_params(e).is_some_and(|bc| flag(bc, "structure interface")) {
+                continue;
+            }
+            let nodes = el.nodes.to_vec();
+            let etype = el.etype;
+            let n = nodes.len();
+            let xyz: Vec<[f64; 3]> = nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+            // WallVelocity = ImUnit * AngularFrequency * u.
+            let mut wall = vec![[Complex64::new(0.0, 0.0); 3]; n];
+            for (j, &node) in nodes.iter().enumerate() {
+                let k = match &dperm {
+                    Some(pm) if pm[node as usize] == NO_DOF => {
+                        return Err(SolverError::fatal("HelmholtzSolve", "Displacement solution is not available on boundary"))
+                    }
+                    Some(pm) => pm[node as usize] as usize,
+                    None => node as usize,
+                };
+                for l in 0..dim {
+                    wall[j][l] = eig[k * ddofs + l];
+                }
+            }
+            let iw = iu * omega;
+            for w in wall.iter_mut() {
+                for c in w.iter_mut() {
+                    *c = iw * *c;
+                }
+            }
+            self.complex.reset(n);
+            let ips = self.quad.gauss_points(etype, None);
+            for qp in &ips {
+                self.basis.eval(etype, &xyz, qp.uvw, &mut be).map_err(|m| SolverError::fatal("ElementInfo", m.to_string()))?;
+                let s = qp.weight * be.det_j;
+                let normal = elmer_solver::boundary_normal(ctx.mesh, &ctx.sim.model, e, [qp.uvw[0], qp.uvw[1]])?;
+                let mut normvelo = Complex64::new(0.0, 0.0);
+                for i in 0..dim {
+                    let mut sum = Complex64::new(0.0, 0.0);
+                    for j in 0..n {
+                        sum += wall[j][i] * be.basis[j];
+                    }
+                    normvelo += normal[i] * sum;
+                }
+                for pp in 0..n {
+                    let t = s * be.basis[pp] * iu * omega * normvelo;
+                    self.complex.force[pp] -= t;
+                }
+            }
+            self.complex.to_real(&mut self.local);
+            ctx.default_update(&self.local, e)?;
         }
         Ok(())
     }
