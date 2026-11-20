@@ -262,7 +262,7 @@ pub fn run_test(cfg: &Config, test: &QuickTest) -> Record {
     let start = Instant::now();
     let mut verdict: Option<Verdict> = None;
     let mut libs = Vec::new();
-    for sif in &sifs {
+    for (i, sif) in sifs.iter().enumerate() {
         let r = match mpi_run {
             // The static screen first: a case it refuses is not run.
             Some(bin) if !static_only => {
@@ -275,10 +275,17 @@ pub fn run_test(cfg: &Config, test: &QuickTest) -> Record {
             }
             _ => run_child(cfg, &dir, sif, &recipe, static_only),
         };
-        verdict = Some(match verdict {
-            None => r.verdict.clone(),
-            Some(v) => v.worst(r.verdict.clone()),
-        });
+        // A preparatory run without a reference (`EXECUTE_ELMER_SOLVER(init.sif)`
+        // writing a restart file) proves nothing by itself: ctest judges only
+        // the last run's TEST.PASSED, and the field check still grades what
+        // the preparatory run wrote.
+        let prestep_unchecked = i + 1 < sifs.len() && r.verdict == Verdict::NoOracle;
+        if !prestep_unchecked {
+            verdict = Some(match verdict {
+                None => r.verdict.clone(),
+                Some(v) => v.worst(r.verdict.clone()),
+            });
+        }
         if !r.detail.is_empty() && record.detail.is_empty() {
             record.detail = if sifs.len() > 1 { format!("{sif}: {}", r.detail) } else { r.detail.clone() };
         }
