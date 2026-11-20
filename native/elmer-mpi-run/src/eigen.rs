@@ -77,6 +77,17 @@ impl ParEigenBackend for ParEigen {
                 }
             }
         }
+        if let Ok(dir) = std::env::var("ELMER_RS_EIGDUMP") {
+            use std::io::Write;
+            let g = layout.gids();
+            let tag = if symmetric { "sym" } else { "nsym" };
+            let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{dir}/rs_{tag}_a.dat.{}", ex.rank())).unwrap());
+            for i in 0..k.nrows {
+                for j in k.row_ptr[i]..k.row_ptr[i + 1] {
+                    writeln!(f, "{} {} {:e} {:e}", g[i] + 1, g[k.col_idx[j] as usize] + 1, k.values[j], mass.values[j]).unwrap();
+                }
+            }
+        }
         // ScaleLinearSystem(Solver, A): K and MassValues by the diagonal
         // summed over the holders.
         let d = scaling_of(params).then(|| summed_diagonal_scaling(ex, &layout, k));
