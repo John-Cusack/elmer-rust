@@ -489,6 +489,41 @@ impl<'a> SolverCtx<'a> {
         if let Some(m) = sys.mass.as_mut() {
             m.values.iter_mut().for_each(|v| *v = 0.0);
         }
+        self.setup_normal_tangential()
+    }
+
+    /// DefaultInitialize (DefUtils.F90:3910-3943): a vector variable with a
+    /// `Normal-Tangential <var>` boundary gets its n-t system, the boundary
+    /// normals averaged again at each call.
+    fn setup_normal_tangential(&mut self) -> Result<(), SolverError> {
+        let Some(id) = self.sim.slots[self.slot].variable else { return Ok(()) };
+        let v = self.sim.vars.by_id(id);
+        if v.dofs <= 1 {
+            return Ok(());
+        }
+        let name = crate::nt::nt_name(&v.name);
+        if !self.sim.model.boundary_conditions.iter().any(|bc| bc.logical(&name) == Some(true)) {
+            self.sim.slots[self.slot].nt = None;
+            return Ok(());
+        }
+        if self.params().logical("displace mesh at init") == Some(true) {
+            return Err(SolverError::Unsupported("Displace Mesh At Init with normal-tangential boundaries".into()));
+        }
+        let projectors = self
+            .sim
+            .backends
+            .assembly
+            .as_ref()
+            .map(|b| b.nodal_periodic_projectors())
+            .unwrap_or_default();
+        let bc_of = |e: ElemId| self.bc_id(e);
+        let nt = crate::nt::NtSystem::build(self.mesh, &self.sim.model, &bc_of, &name, self.mesh.dim(), &projectors)?;
+        let m = nt.as_ref().map_or(0, |n| n.normals.len());
+        let slot = &mut self.sim.slots[self.slot];
+        if slot.nt_zero_done.len() != m {
+            slot.nt_zero_done = vec![[false; 3]; m];
+        }
+        slot.nt = nt;
         Ok(())
     }
 
@@ -624,6 +659,10 @@ impl<'a> SolverCtx<'a> {
         }
         let mut idx = Vec::new();
         self.element_slots(e, &mut idx);
+        // UpdateGlobalEquations (SolverBasics.F90:700-727): the local system
+        // in the n-t coordinates of the element's n-t nodes.
+        let rotated = self.rotate_nt(local, e, idx.len())?;
+        let local = rotated.as_ref().unwrap_or(local);
         let sim = &mut *self.sim;
         let backend = sim
             .backends
@@ -649,6 +688,36 @@ impl<'a> SolverCtx<'a> {
             sim.slots[self.slot].asm.boundary_touched = true;
         }
         Ok(())
+    }
+
+    /// `RotateMatrix` of a local system of element `e` (`nslots` element
+    /// dofs) when the solver has an n-t system and as many dofs as the
+    /// coordinate dimension; `None` when nothing rotates.
+    fn rotate_nt(&self, local: &LocalSystem, e: ElemId, nslots: usize) -> Result<Option<LocalSystem>, SolverError> {
+        let slot = &self.sim.slots[self.slot];
+        let Some(nt) = slot.nt.as_ref() else { return Ok(None) };
+        let Some(id) = slot.variable else { return Ok(None) };
+        let dofs = self.sim.vars.by_id(id).dofs;
+        let dim = self.mesh.dim();
+        if dofs < dim || nslots == 0 || local.n != nslots * dofs {
+            return Ok(None);
+        }
+        // mGetElementDOFs: the element's nodes first (a p element's in its
+        // dof order), then indexes beyond the mesh nodes, which do not rotate.
+        let nodes: Vec<u32> = match &slot.dofs {
+            Some(d) => d.element_nodes(e),
+            None => self.mesh.element(e).nodes.to_vec(),
+        };
+        let mut normal = vec![0u32; nslots];
+        for (i, &n) in nodes.iter().take(nslots).enumerate() {
+            normal[i] = nt.reorder.get(n as usize).copied().unwrap_or(0);
+        }
+        if normal.iter().all(|&k| k == 0) {
+            return Ok(None);
+        }
+        let mut out = local.clone();
+        crate::nt::rotate_local(&mut out, &normal, nt, dim, dofs);
+        Ok(Some(out))
     }
 
     /// `DefaultFinishBulkAssembly`: keeps the bulk system for `Calculate
@@ -706,6 +775,41 @@ impl<'a> SolverCtx<'a> {
     /// with `offset` added to every row (`DefaultDirichletBCs(Ux=Var,
     /// UOffset=offset)`).
     pub fn dirichlet_values_of(&self, id: crate::VarId, offset: usize) -> Result<Vec<(u32, f64)>, SolverError> {
+        let slot = &self.sim.slots[self.slot];
+        if slot.nt.is_some() && slot.variable == Some(id) {
+            return Err(SolverError::Unsupported(
+                "normal-tangential boundaries in a solver that takes its Dirichlet values without their rows".into(),
+            ));
+        }
+        let mut none = Vec::new();
+        Ok(self.dirichlet_values_core(id, offset, &mut none)?.0)
+    }
+
+    /// [`dirichlet_values`](Self::dirichlet_values) with the rows that the
+    /// n-t system sets directly ([`apply_dirichlet_values_with_rows`](Self::apply_dirichlet_values_with_rows)).
+    pub fn dirichlet_values_with_rows(&mut self) -> Result<(Vec<(u32, f64)>, Vec<crate::backend::DirectRow>), SolverError> {
+        let Some(id) = self.sim.slots[self.slot].variable else {
+            return Ok((Vec::new(), Vec::new()));
+        };
+        let mut done = std::mem::take(&mut self.sim.slots[self.slot].nt_zero_done);
+        let out = self.dirichlet_values_core(id, 0, &mut done);
+        self.sim.slots[self.slot].nt_zero_done = done;
+        out
+    }
+
+    /// DefaultDirichletBCs over the components (`DOF` outer, the boundary
+    /// elements inner, as SetDirichletBoundaries is called per component).
+    /// On the nodes of the solver's own n-t system, a boundary condition
+    /// that is not itself n-t sets the Cartesian component `DOF`: the row of
+    /// the n-t component closest to it becomes that component
+    /// (`RotateNTSystem` of the unit vector) and the value, once for the run
+    /// (`NTZeroing_done`, BoundaryConditionUtils.F90:1750-1803).
+    fn dirichlet_values_core(
+        &self,
+        id: crate::VarId,
+        offset: usize,
+        zero_done: &mut Vec<[bool; 3]>,
+    ) -> Result<(Vec<(u32, f64)>, Vec<crate::backend::DirectRow>), SolverError> {
         let v = self.sim.vars.by_id(id);
         // DefaultDirichletBCs: `ComponentName(name, DOF)`, the declared
         // component names or `"<name> k"`.
@@ -745,12 +849,16 @@ impl<'a> SolverCtx<'a> {
             }
         };
         let mut extra = Vec::new();
-        for e in self.dirichlet_element_order()? {
-            let bc = self.bc_params(e).expect("boundary_elements filters on BC");
-            if let Some(d) = layout {
-                d.boundary_extra_slots(e, &mut extra);
-            }
-            for (k, key) in &keys {
+        let order = self.dirichlet_element_order()?;
+        let nt = self.sim.slots[self.slot].nt.as_ref().filter(|_| own);
+        let dim = self.mesh.dim();
+        let mut rows: BTreeMap<u32, crate::backend::DirectRow> = BTreeMap::new();
+        for (k, key) in &keys {
+            for &e in &order {
+                let bc = self.bc_params(e).expect("boundary_elements filters on BC");
+                if let Some(d) = layout {
+                    d.boundary_extra_slots(e, &mut extra);
+                }
                 if bc.get(&format!("{key} condition")).is_some() {
                     return Err(SolverError::Unsupported(format!("Dirichlet mask > {key} Condition <")));
                 }
@@ -773,9 +881,39 @@ impl<'a> SolverCtx<'a> {
                     None => {}
                 }
                 let Some(vals) = self.real_at_nodes(bc, key, e)? else { continue };
-                for (&n, &x) in self.mesh.element(e).nodes.iter().zip(&vals) {
-                    if let Some(s) = v.slot(n) {
-                        fixed.insert((offset + s * v.dofs + k) as u32, x);
+                let nodes = self.mesh.element(e).nodes;
+                let check_nt = nt.is_some_and(|nt| {
+                    bc.logical(&nt.name) != Some(true)
+                        && nodes.iter().any(|&n| nt.reorder.get(n as usize).is_some_and(|&r| r > 0))
+                });
+                for (&n, &x) in nodes.iter().zip(&vals) {
+                    let Some(s) = v.slot(n) else { continue };
+                    let m = nt.map_or(0, |nt| nt.reorder.get(n as usize).copied().unwrap_or(0)) as usize;
+                    match nt {
+                        Some(nt) if m > 0 && check_nt => {
+                            let mut unit = [0.0; 3];
+                            if *k < 3 {
+                                unit[*k] = 1.0;
+                            }
+                            let rot = nt.rotate_vector(unit, n, dim);
+                            let mut kmax = 0;
+                            for c in 1..dim {
+                                if rot[c].abs() > rot[kmax].abs() {
+                                    kmax = c;
+                                }
+                            }
+                            let row = (offset + s * v.dofs + kmax) as u32;
+                            if !zero_done[m - 1][kmax] {
+                                let entries = (0..dim).map(|c| ((offset + s * v.dofs + c) as u32, rot[c])).collect();
+                                rows.insert(row, crate::backend::DirectRow { row, entries, rhs: x });
+                                // `A % ConstrainedDOF(lmax) = .FALSE.`
+                                fixed.remove(&row);
+                                zero_done[m - 1][kmax] = true;
+                            }
+                        }
+                        _ => {
+                            fixed.insert((offset + s * v.dofs + k) as u32, x);
+                        }
                     }
                 }
             }
@@ -810,7 +948,7 @@ impl<'a> SolverCtx<'a> {
                 }
             }
         }
-        Ok(fixed.into_iter().collect())
+        Ok((fixed.into_iter().collect(), rows.into_values().collect()))
     }
 
     /// `CheckPassiveElement` (ElementGeometry.F90:341): a bulk element whose
@@ -962,7 +1100,8 @@ impl<'a> SolverCtx<'a> {
     /// `DefaultDirichletBCs` + `EnforceDirichletConditions`.
     pub fn default_dirichlet(&mut self) -> Result<(), SolverError> {
         self.default_finish_boundary_assembly()?;
-        let mut fixed: BTreeMap<u32, f64> = self.dirichlet_values()?.into_iter().collect();
+        let (values, rows) = self.dirichlet_values_with_rows()?;
+        let mut fixed: BTreeMap<u32, f64> = values.into_iter().collect();
         self.passive_values(&mut fixed)?;
         crate::constraint_modes::set_boundaries(self, &mut fixed)?;
         let fixed: Vec<(u32, f64)> = fixed.into_iter().collect();
@@ -978,7 +1117,7 @@ impl<'a> SolverCtx<'a> {
             .system
             .as_mut()
             .ok_or_else(|| SolverError::fatal("DefaultDirichletBCs", "call default_initialize first"))?;
-        backend.try_apply_dirichlet(&mut sys.matrix, &mut sys.rhs, &fixed, &slot.params)?;
+        backend.try_apply_dirichlet_rows(&mut sys.matrix, &mut sys.rhs, &rows, &fixed, &slot.params)?;
         if let Some(m) = sys.mass.as_mut() {
             crate::eigen::dirichlet_mass(m, &fixed, &slot.params)?;
         }
@@ -991,6 +1130,30 @@ impl<'a> SolverCtx<'a> {
     /// applies `fixed` to the system and records them as the constrained
     /// dofs (`A % ConstrainedDOF`), as [`default_dirichlet`](Self::default_dirichlet)
     /// does, so that linear constraints, source control and loads see them.
+    /// [`apply_dirichlet_values`](Self::apply_dirichlet_values) with the
+    /// rows of [`dirichlet_values_with_rows`](Self::dirichlet_values_with_rows)
+    /// set first (after the backend's periodic dependencies).
+    pub fn apply_dirichlet_values_with_rows(
+        &mut self,
+        fixed: &[(u32, f64)],
+        rows: &[crate::backend::DirectRow],
+    ) -> Result<(), SolverError> {
+        let sim = &mut *self.sim;
+        let backend = sim
+            .backends
+            .assembly
+            .as_ref()
+            .ok_or_else(|| SolverError::NotWired("assembly backend (elmer-assembly)".into()))?;
+        let slot = &mut sim.slots[self.slot];
+        let sys = slot
+            .system
+            .as_mut()
+            .ok_or_else(|| SolverError::fatal("DefaultDirichletBCs", "call default_initialize first"))?;
+        backend.try_apply_dirichlet_rows(&mut sys.matrix, &mut sys.rhs, rows, fixed, &slot.params)?;
+        slot.asm.constrained = fixed.to_vec();
+        Ok(())
+    }
+
     pub fn apply_dirichlet_values(&mut self, fixed: &[(u32, f64)]) -> Result<(), SolverError> {
         let sim = &mut *self.sim;
         let backend = sim
@@ -1307,6 +1470,13 @@ impl<'a> SolverCtx<'a> {
         // the complex one's modulus; that changes their scaling, not x.
         let nullify = p.logical("linear system nullify guess") == Some(true)
             || (p.logical("linear system nullify first guess") == Some(true) && nonlin_iter.is_some_and(|i| i.round() <= 1.0));
+        let nt_sys = slot.nt.clone().filter(|_| p.logical("back rotate n-t solution").unwrap_or(true));
+        if slot.nt.is_some() && (ca.is_some() || eliminate || residual_mode || crate::loads::keeps_bulk(p)?) {
+            return Err(SolverError::Unsupported(
+                "normal-tangential systems with linear constraints, EliminateDirichlet, residual mode or Calculate Loads"
+                    .into(),
+            ));
+        }
         if eliminate && ca.is_some() {
             return Err(SolverError::Unsupported("Before Linsolve = EliminateDirichlet with linear constraints".into()));
         }
@@ -1388,6 +1558,11 @@ impl<'a> SolverCtx<'a> {
             } else {
                 sim.slots[slot_ix].lin_converged =
                     solve_linear(&sim.backends.linear, &env, p, &mut sys.matrix, b, x, bnorm, nullify, log, comm)?;
+                // SolveCore.F90:1744: the n-t solution back to Cartesian
+                // components (`Back Rotate N-T Solution`, default true).
+                if let (Some(nt), Some(perm)) = (nt_sys.as_ref(), var.perm.as_deref()) {
+                    nt.back_rotate(x, perm, var.dofs, mesh.dim());
+                }
                 var.values_changed = true;
                 // SolveCore.F90:1727-1741, then the change, then :1763-1771.
                 sim.calculate_loads(slot_ix, n, true, mesh, log)?;

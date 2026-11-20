@@ -189,19 +189,15 @@ fn check_body(eq: Option<&ParamMap>, mat: Option<&ParamMap>, bf: Option<&ParamMa
 }
 
 /// Boundary-condition options this crate does not port.
-fn check_bc(bc: &ParamMap, var_name: &str) -> Result<(), SolverError> {
+fn check_bc(bc: &ParamMap, _var_name: &str) -> Result<(), SolverError> {
     for (key, what) in [
         ("free surface", "free surface"),
-        ("normal-tangential velocity", "normal-tangential velocity"),
         ("wall law", "wall law"),
         ("vms wall", "VMS wall"),
     ] {
         if flag(Some(bc), key) {
             return Err(unsupported(what));
         }
-    }
-    if flag(Some(bc), &format!("normal-tangential {var_name}")) {
-        return Err(unsupported("normal-tangential velocity"));
     }
     if has_prefix(bc, "surface tension") {
         return Err(unsupported("surface tension"));
@@ -349,12 +345,6 @@ fn navier_stokes_init_value(ctx: &mut SolverCtx<'_>, comps: &[String]) -> Result
     Ok(())
 }
 
-/// `DefaultDirichletBCs` with the component names of the flow variable;
-/// the dofs are recorded as constrained (`A % ConstrainedDOF`), which the
-/// linear constraints of `Apply Integral BCs` move to the right-hand side.
-fn apply_dirichlet(ctx: &mut SolverCtx<'_>, fixed: &[(u32, f64)]) -> Result<(), SolverError> {
-    ctx.apply_dirichlet_values(fixed)
-}
 
 fn nodal(ctx: &SolverCtx<'_>, p: Option<&ParamMap>, key: &str, e: ElemId, n: usize) -> Result<Vec<f64>, SolverError> {
     Ok(match p {
@@ -599,6 +589,7 @@ impl Solver for FlowSolver {
                     continue;
                 }
                 let n = el.nodes.len();
+                let bc_nt = bc;
                 let bc = Some(bc);
                 let mut ext = nodal(ctx, bc, "external pressure", e, n)?;
                 if bc.is_some_and(|b| b.get("external pressure").is_none()) {
@@ -635,6 +626,7 @@ impl Solver for FlowSolver {
                     slip: &slip,
                     parent_center,
                     np: None,
+                    normal_tangential: normal_tangential(bc_nt, &var_name),
                 };
                 match ctx.solver_dofs() {
                     None => flow_boundary_local(basis, quad, &inp, &mut self.local)?,
@@ -657,8 +649,8 @@ impl Solver for FlowSolver {
             // DefaultDirichletBCs: element values (in BC order with `Set
             // Dirichlet BCs by BC Numbering`), zero on p edge dofs, then the
             // point values of `Target Nodes` / `Target Coordinates`.
-            let fixed = ctx.dirichlet_values()?;
-            apply_dirichlet(ctx, &fixed)?;
+            let (fixed, rows) = ctx.dirichlet_values_with_rows()?;
+            ctx.apply_dirichlet_values_with_rows(&fixed, &rows)?;
             let norm = ctx.default_solve()?;
 
             let change = nonlin_change(ctx);
@@ -823,6 +815,15 @@ fn angular_velocity(bf: Option<&ParamMap>) -> Result<Option<[f64; 3]>, SolverErr
     match v {
         Value::Real { data, .. } if data.len() >= 3 => Ok(Some([data[0], data[1], data[2]])),
         _ => Err(unsupported("Angular Velocity other than three constant reals")),
+    }
+}
+
+/// FlowSolve.F90:1322-1328: `Normal-Tangential Velocity`, else
+/// `Normal-Tangential <variable>`.
+fn normal_tangential(bc: &ParamMap, var_name: &str) -> bool {
+    match bc.logical("normal-tangential velocity") {
+        Some(v) => v,
+        None => flag(Some(bc), &format!("normal-tangential {var_name}")),
     }
 }
 
