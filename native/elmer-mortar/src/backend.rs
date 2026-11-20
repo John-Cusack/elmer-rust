@@ -52,6 +52,9 @@ pub struct PeriodicAssembly {
     /// `build_perm_for` for the Dirichlet step, which only sees the solver
     /// section.
     perms: Mutex<HashMap<String, Vec<u32>>>,
+    /// Variable name (lower case) -> `CalculateNodalWeights` of its
+    /// `Periodic BC Coefficient`, by permutation slot.
+    jump_weights: Mutex<HashMap<String, Vec<f64>>>,
 }
 
 impl PeriodicAssembly {
@@ -64,6 +67,7 @@ impl PeriodicAssembly {
             projectors,
             n_nodes,
             perms: Mutex::new(HashMap::new()),
+            jump_weights: Mutex::new(HashMap::new()),
         }
     }
 
@@ -217,12 +221,14 @@ impl AssemblyBackend for PeriodicAssembly {
                         names.len()
                     )));
                 }
+                let weights = self.jump_weights.lock().unwrap();
                 for (dof, name) in names.iter().enumerate() {
                     let t = PeriodicTarget {
                         name,
                         dof,
                         ndofs: names.len(),
                         perm,
+                        jump_weights: weights.get(&name.to_ascii_lowercase()).map(Vec::as_slice),
                     };
                     set_periodic_boundaries(
                         a,
@@ -238,6 +244,13 @@ impl AssemblyBackend for PeriodicAssembly {
         }
         elmer_solver::backend::set_direct_rows(a, rhs, rows)?;
         self.inner.try_apply_dirichlet(a, rhs, fixed, params)
+    }
+
+    fn set_periodic_jump_weights(&self, name: &str, weights: &[f64]) {
+        self.jump_weights
+            .lock()
+            .unwrap()
+            .insert(name.to_ascii_lowercase(), weights.to_vec());
     }
 
     fn nodal_periodic_projectors(&self) -> Vec<elmer_solver::backend::NodalProjectorView> {
