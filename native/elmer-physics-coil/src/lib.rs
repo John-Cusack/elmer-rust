@@ -7,14 +7,16 @@
 //! Fix` the conductivity is first fixed by the inverse of the gradient
 //! magnitude (`CoilFix`).
 //!
-//! Ported: open coils of one coil (the solver section, no coil components),
+//! Ported: one coil (the solver section), open (`Coil Start` / `Coil End`)
+//! or closed (`Coil Closed`: two potentials cut on either half of the coil,
+//! the coil centre and the inertia fit of its axis by `DSYEV`, and
+//! `PotSelect` choosing between them),
 //! `Desired Coil Current`, `Desired Current Density`, `Coil Cross Section`,
 //! `Normalize Coil Current`, `Coil Conductivity Fix`, `Coil Anisotropic`,
 //! `CFix Diffusion`, `Electric Conductivity Name`, `Use Unity
 //! Conductivity`, `Calculate Coil Current` and `Save Coil Set`.
 //!
-//! Refused: closed coils (`Coil Closed`, the coil cuts and their inertia
-//! fit), elemental
+//! Refused: `Single Coil Cut` / `Test Coil Cut`, elemental
 //! current fields (`Calculate Elemental Fields`, `Fix Input Current
 //! Density`), `Use Wall Distance`, `Coil Helicity`, `Save Coil Index` and
 //! more than one partition.
@@ -22,6 +24,7 @@
 // The ports index several parallel arrays with the Fortran loop variables.
 #![allow(clippy::needless_range_loop)]
 
+mod fit;
 mod solver;
 
 pub use solver::{factory, register, solver_defaults, CoilSolver, PROCEDURE};

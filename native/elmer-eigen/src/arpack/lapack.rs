@@ -476,6 +476,46 @@ pub fn dsteqr_i(n: usize, d: &mut [f64], e: &mut [f64], z: &mut [f64], ldz: usiz
     steqr_core(n, d, e, z, n, ldz, work)
 }
 
+/// `DSTEQR('V', n, d, e, z, ldz, work, info)`: as [`dsteqr_i`], with the
+/// rotations applied to the given orthogonal `z` (the `DORGTR` Q of
+/// `DSYEV`).
+pub fn dsteqr_v(n: usize, d: &mut [f64], e: &mut [f64], z: &mut [f64], ldz: usize, work: &mut [f64]) -> usize {
+    if n <= 1 {
+        return 0;
+    }
+    steqr_core(n, d, e, z, n, ldz, work)
+}
+
+/// `DORG2L(m, n, k, a, lda, tau, work, info)`: the `m x n` Q of the last
+/// `k` elementary reflectors `H(k) ... H(1)` of a QL factorisation (the
+/// unblocked path of `DORGQL`).
+#[allow(clippy::too_many_arguments)]
+pub fn dorg2l(m: usize, n: usize, k: usize, a: &mut [f64], lda: usize, tau: &[f64], work: &mut [f64]) {
+    if n == 0 {
+        return;
+    }
+    // Columns 1:n-k become columns of the unit matrix.
+    for j in 0..n - k {
+        for l in 0..m {
+            a[l + j * lda] = 0.0;
+        }
+        a[m - n + j + j * lda] = 1.0;
+    }
+    for i in 0..k {
+        // II = N-K+I; H(i) acts on A(1:M-N+II, 1:II).
+        let ii = n - k + i;
+        let rows = m - n + ii + 1;
+        a[rows - 1 + ii * lda] = 1.0;
+        let v: Vec<f64> = a[ii * lda..ii * lda + rows].to_vec();
+        dlarf(true, rows, ii, &v, tau[i], a, lda, work);
+        dscal(rows - 1, -tau[i], &mut a[ii * lda..]);
+        a[rows - 1 + ii * lda] = 1.0 - tau[i];
+        for l in rows..m {
+            a[l + ii * lda] = 0.0;
+        }
+    }
+}
+
 /// ARPACK's `DSTQRB(n, d, e, z, work, info)`: `DSTEQR` that keeps only the
 /// last row of the eigenvector matrix, `z` (length `n`, starting as `e_n`).
 pub fn dstqrb(n: usize, d: &mut [f64], e: &mut [f64], z: &mut [f64], work: &mut [f64]) -> usize {
