@@ -1103,6 +1103,13 @@ impl SolverCtx<'_> {
         Ok(lib)
     }
 
+    /// The variable's own permutation and size while the cut ones are in
+    /// place; `None` otherwise.
+    pub(crate) fn cutfem_original(&self) -> Option<(Option<Arc<[u32]>>, usize)> {
+        let saved = self.sim.slots[self.slot].cutfem.as_deref()?.saved.as_ref()?;
+        Some((saved.perm.clone(), saved.values.len()))
+    }
+
     /// The library solver's elements for the step ([`LibraryMesh`]).
     pub fn cutfem_library_mesh(&self) -> Result<LibraryMesh, SolverError> {
         self.cut()?.lib.clone().ok_or_else(|| cut_err("no CutFEM add mesh (a CutFEM Solver?)"))
