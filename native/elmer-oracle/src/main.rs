@@ -262,7 +262,7 @@ fn refnorm_one(
                 continue;
             }
             non_nodal |= elmer_oracle::refnorm::non_nodal(vars, *nodes, &var);
-            match elmer_oracle::refnorm::golden_norm(r, vars, &var) {
+            match elmer_oracle::refnorm::golden_norm(r, vars, &var, |d| s.norm_opts(d)) {
                 Ok(n) => found.push(n),
                 Err(e) => {
                     why = e;

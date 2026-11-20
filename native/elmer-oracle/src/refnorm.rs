@@ -29,6 +29,35 @@ pub struct RefSolver {
     pub variable: Result<String, String>,
     /// Lowercased `Equation` value, for a default variable.
     pub equation: Option<String>,
+    /// Lowercased basename of the `Procedure` file, or the legacy
+    /// solver's when the equation name selects one.
+    pub procedure: Option<String>,
+    /// `Coupled Solver = True`: the norm runs over the coupled unknowns.
+    pub coupled: bool,
+}
+
+/// Elmer's legacy equation names (`MainUtils.F90`, `AddEquationBasics`):
+/// (equation, default variable, procedure file).
+const LEGACY: [(&str, &str, &str); 5] = [
+    ("navier-stokes", "flow solution", "flowsolve"),
+    ("magnetic induction", "magnetic field", "magneticsolve"),
+    ("stress analysis", "displacement", "stresssolve"),
+    ("mesh update", "mesh update", "meshsolve"),
+    ("heat equation", "temperature", "heatsolve"),
+];
+
+/// Procedures that add `Nonlinear System Norm DOFs = DOFs - 1` (velocity
+/// only, pressure last) unless the sif sets it: `FlowSolve.F90`,
+/// `IncompressibleNS.F90`, `FilmFlowSolver.F90`.
+const VELOCITY_NORM: [&str; 3] = ["flowsolve", "incompressiblens", "filmflowsolver"];
+
+impl RefSolver {
+    /// The norm options the solver runs with: defaults, except the
+    /// velocity-only norm the flow solvers set internally.
+    pub fn norm_opts(&self, dofs: usize) -> NormOpts {
+        let velocity = self.procedure.as_deref().is_some_and(|p| VELOCITY_NORM.contains(&p));
+        NormOpts { norm_dofs: (velocity && dofs > 1).then(|| dofs - 1), ..NormOpts::default() }
+    }
 }
 
 /// Reason given for a solver without an explicit `Variable`.
@@ -122,7 +151,19 @@ pub fn reference_solvers(text: &str) -> Result<Vec<RefSolver>, String> {
     Ok(keys
         .into_iter()
         .filter(|(_, k)| k.iter().any(|(k, _)| k == "reference norm"))
-        .map(|(number, k)| RefSolver { number, variable: solver_variable(&k), equation: equation(&k) })
+        .map(|(number, k)| {
+            let equation = equation(&k);
+            RefSolver {
+                number,
+                variable: solver_variable(&k),
+                procedure: procedure(&k).or_else(|| {
+                    let eq = equation.as_deref()?;
+                    LEGACY.iter().find(|l| l.0 == eq).map(|l| l.2.to_string())
+                }),
+                coupled: k.iter().any(|(k, v)| k == "coupled solver" && v.to_lowercase().contains("true")),
+                equation,
+            }
+        })
         .collect())
 }
 
@@ -150,6 +191,14 @@ pub fn solver_equations(text: &str) -> Vec<(u32, String)> {
     out
 }
 
+/// Basename of the `Procedure` file, without directory or extension.
+fn procedure(keys: &[(String, String)]) -> Option<String> {
+    let (_, v) = keys.iter().rev().find(|(k, _)| k == "procedure")?;
+    let first = v.split('"').nth(1)?.trim().to_lowercase();
+    let base = first.rsplit('/').next()?.to_string();
+    Some(base.split('.').next().unwrap_or(&base).to_string())
+}
+
 fn equation(keys: &[(String, String)]) -> Option<String> {
     let (_, v) = keys.iter().rev().find(|(k, _)| k == "equation")?;
     let v = v.trim();
@@ -157,7 +206,8 @@ fn equation(keys: &[(String, String)]) -> Option<String> {
     Some(v.trim().trim_matches('"').trim().to_lowercase())
 }
 
-/// The default variable of a solver without `Variable`: the one preamble
+/// The default variable of a solver without `Variable`: the legacy
+/// solver's when the equation name selects one, else the one preamble
 /// root variable owned by its `Equation`, when exactly one exists and no
 /// other solver of the sif shares that equation name.
 pub fn default_variable(
@@ -165,7 +215,13 @@ pub fn default_variable(
     solver: &RefSolver,
     equations: &[(u32, String)],
 ) -> Result<String, String> {
+    if solver.coupled {
+        return Err(String::from("no explicit Variable; coupled solver"));
+    }
     let eq = solver.equation.as_deref().ok_or("no explicit Variable and no Equation")?;
+    if let Some(l) = LEGACY.iter().find(|l| l.0 == eq) {
+        return Ok(l.1.to_string());
+    }
     if equations.iter().any(|(n, e)| *n != solver.number && e == eq) {
         return Err(format!("no explicit Variable; equation {eq:?} shared by several solvers"));
     }
@@ -244,7 +300,12 @@ pub fn non_nodal(vars: &[PreambleVar], nodes: Option<usize>, variable: &str) -> 
 /// Only one-dof variables are saved, so a vector's `Values` are rebuilt
 /// from its components: component `j` at Perm index `k` is
 /// `Values(dofs*(k-1)+j)`.
-pub fn golden_norm(file: &ResultFile, vars: &[PreambleVar], variable: &str) -> Result<f64, String> {
+pub fn golden_norm(
+    file: &ResultFile,
+    vars: &[PreambleVar],
+    variable: &str,
+    opts: impl Fn(usize) -> NormOpts,
+) -> Result<f64, String> {
     let entry = preamble_entry(vars, variable)?;
     let comps = entry
         .components()
@@ -293,7 +354,7 @@ pub fn golden_norm(file: &ResultFile, vars: &[PreambleVar], variable: &str) -> R
         return Err(format!("{} values, {} saved (non-nodal unknowns)", entry.size, values.len()));
     }
     let perm = perm.unwrap_or_default();
-    compute_norm(&values, Some(&perm), dofs, perm.len(), &NormOpts::default()).map_err(|e| e.to_string())
+    compute_norm(&values, Some(&perm), dofs, perm.len(), &opts(dofs)).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -306,7 +367,13 @@ mod tests {
     }
 
     fn rs(number: u32, variable: &str, equation: Option<&str>) -> RefSolver {
-        RefSolver { number, variable: Ok(variable.into()), equation: equation.map(Into::into) }
+        RefSolver {
+            number,
+            variable: Ok(variable.into()),
+            equation: equation.map(Into::into),
+            procedure: None,
+            coupled: false,
+        }
     }
 
     #[test]
@@ -315,6 +382,7 @@ mod tests {
         let s = reference_solvers(sif).unwrap();
         assert_eq!(s.len(), 5);
         assert_eq!(s[0], rs(1, "temperature", Some("heat")));
+        assert_eq!(s[2].procedure.as_deref(), Some("heatsolve"));
         assert!(s[1].variable.as_ref().unwrap_err().contains("norm option"));
         assert_eq!(s[2].variable.as_ref().unwrap_err(), NO_VARIABLE);
         assert_eq!(s[2].equation.as_deref(), Some("heat equation"));
@@ -343,13 +411,21 @@ mod tests {
         ];
         let mut s = rs(1, "", Some("navier-stokes"));
         s.variable = Err(NO_VARIABLE.into());
-        let eqs = [(1, "navier-stokes".to_string()), (2, "heat equation".to_string())];
+        let eqs = [(1, "navier-stokes".to_string()), (2, "heat solver".to_string())];
         assert_eq!(default_variable(&vars, &s, &eqs).as_deref(), Ok("flow solution"));
-        // Two roots of one equation are ambiguous; so is a shared equation.
+        s.coupled = true;
+        assert!(default_variable(&vars, &s, &eqs).unwrap_err().contains("coupled"));
+        s.coupled = false;
+        // Non-legacy: two roots of one equation are ambiguous; so is a
+        // shared equation.
+        let vars = vars.map(|mut v| {
+            v.equation = v.equation.replace("heat equation", "heat solver");
+            v
+        });
         s.number = 2;
-        s.equation = Some("heat equation".into());
+        s.equation = Some("heat solver".into());
         assert!(default_variable(&vars, &s, &eqs).unwrap_err().contains("2 variables"));
-        let shared = [(2, "heat equation".to_string()), (3, "heat equation".to_string())];
+        let shared = [(2, "heat solver".to_string()), (3, "heat solver".to_string())];
         assert!(default_variable(&vars, &s, &shared).unwrap_err().contains("shared"));
     }
 
@@ -369,8 +445,8 @@ mod tests {
         // Nodes 1..3 stored with dofs 3,1,2: Values = [b, c, a].
         let file = step(vec![var("Temperature", &[(1, 3), (2, 1), (3, 2)], &[3.0, 1.0, 2.0])]);
         let pre = |size| [pv("temperature", size, 3, 1, "heat equation")];
-        let n = golden_norm(&file, &pre(3), "temperature").unwrap();
-        assert!(golden_norm(&file, &pre(4), "temperature").is_err());
+        let n = golden_norm(&file, &pre(3), "temperature", |_| NormOpts::default()).unwrap();
+        assert!(golden_norm(&file, &pre(4), "temperature", |_| NormOpts::default()).is_err());
         assert!(!non_nodal(&pre(3), Some(3), "temperature"));
         assert!(non_nodal(&pre(3), Some(2), "temperature"));
         let expect = compute_norm(&[1.0, 2.0, 3.0], Some(&[3, 1, 2]), 1, 3, &NormOpts::default()).unwrap();
@@ -388,14 +464,21 @@ mod tests {
             var("pressure", &perm, &[3.0, 6.0]),
         ]);
         let pre = [pv("flow solution[velocity:2 pressure:1]", 6, 2, 3, "navier-stokes")];
-        let n = golden_norm(&file, &pre, "flow solution").unwrap();
+        let n = golden_norm(&file, &pre, "flow solution", |_| NormOpts::default()).unwrap();
         let expect =
             compute_norm(&[4.0, 5.0, 6.0, 1.0, 2.0, 3.0], Some(&[2, 1]), 3, 2, &NormOpts::default()).unwrap();
         assert_eq!(n, expect);
+        // FlowSolve's velocity-only norm: Norm DOFs = 2 of 3.
+        let mut flow = rs(1, "flow solution", Some("navier-stokes"));
+        flow.procedure = Some("flowsolve".into());
+        let v = golden_norm(&file, &pre, "flow solution", |d| flow.norm_opts(d)).unwrap();
+        let opts = NormOpts { norm_dofs: Some(2), ..NormOpts::default() };
+        assert_eq!(v, compute_norm(&[4.0, 5.0, 6.0, 1.0, 2.0, 3.0], None, 3, 2, &opts).unwrap());
+        assert_ne!(v, n);
         let plain = [pv("displacement", 6, 2, 3, "stress analysis")];
         assert_eq!(plain[0].components().unwrap(), ["displacement 1", "displacement 2", "displacement 3"]);
         // A missing component is out of class, not a partial norm.
         let short = step(vec![var("velocity 1", &perm, &[1.0, 4.0])]);
-        assert!(golden_norm(&short, &pre, "flow solution").is_err());
+        assert!(golden_norm(&short, &pre, "flow solution", |_| NormOpts::default()).is_err());
     }
 }
