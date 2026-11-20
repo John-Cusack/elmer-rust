@@ -348,21 +348,21 @@ impl IntegrationPoints {
 
     /// The point count `GaussPoints(Element, RelOrder = rel)` gives a p
     /// element whose own rule has `n` points: `p1d = NINT(n ** (1/dim)) +
-    /// rel` points per direction. Only the tensor families (line,
-    /// quadrilateral, brick) without serendipity are ported; the others take
-    /// a different rule than `np` points would give them.
+    /// rel` points per direction, a serendipity quadrilateral's tensor count
+    /// then mapped to its economic one. Only the tensor families (line,
+    /// quadrilateral, brick) are ported, which take the same rule for that
+    /// count as for `np` points; the others do not.
     fn p_count(&self, etype: elmer_core::ElementType, n: usize, serendipity: bool) -> Result<Option<usize>, SolverError> {
         if self.rel == 0 || self.for_type(etype).is_some() {
             return Ok(None);
         }
         let dim = match etype.family() {
             2 => 1,
-            4 if !serendipity => 2,
+            4 => 2,
             8 => 3,
             _ => {
                 return Err(unsupported(format!(
-                    "Relative Integration Order on p elements of type {} (serendipity quadrilaterals, simplices, \
-                     pyramids, prisms)",
+                    "Relative Integration Order on p elements of type {} (simplices, pyramids, prisms)",
                     etype.0
                 )))
             }
@@ -371,7 +371,22 @@ impl IntegrationPoints {
         if p1d < 1 {
             return Err(SolverError::fatal("GaussPoints", "Number of integration points must remain positive!"));
         }
-        Ok(Some((p1d as usize).pow(dim)))
+        let n = (p1d as usize).pow(dim);
+        if serendipity && etype.family() == 4 {
+            // A tensor product rule mapped to the corresponding economic one.
+            let economic = match n {
+                9 => 8,
+                16 => 12,
+                25 => 20,
+                36 => 25,
+                49 => 36,
+                64 => 45,
+                81 => 60,
+                n => n,
+            };
+            return Ok(Some(economic));
+        }
+        Ok(Some(n))
     }
 }
 

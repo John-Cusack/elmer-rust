@@ -56,7 +56,8 @@ element integrals) with no mass flux.
 - `Relative Integration Order` / `Bulk Relative Integration Order` of the
   bulk rule (`GaussPointsAdapt`): `GaussPoints0` / `GaussPoints2` of nodal
   elements, `(NINT(n**(1/dim)) + order)**dim` points on p lines,
-  quadrilaterals (not serendipity) and bricks; a point count still wins.
+  quadrilaterals (serendipity ones mapped to the economic count) and bricks;
+  a point count still wins.
 - `Viscosity Model = power law` (`Critical Shear Rate`, `Nominal Shear Rate`), `carreau`, `cross`,
   `powell eyring`, `glen` (`Set Arrhenius Factor`, or the Arrhenius law of a
   `Relative Temperature` with `Glen Enhancement Factor`), as in
@@ -83,8 +84,8 @@ FSSA / normal-tangential boundaries, `Pressure 1..3` (the Fortran itself asks
 for `Surface Traction`), `Implicit Friction
 Coefficient`, Schur operators and `Create Schur Matrix Approximation`, `Nonlinear System
 Linesearch`, adaptive integration and `Element Relative Integration Order`,
-`Relative Integration Order` on p simplices, pyramids, prisms and serendipity
-quadrilaterals, density that varies
+`Relative Integration Order` on p simplices, pyramids and prisms, density
+that varies
 within an element, the `power law too` and turbulence viscosity models.
 
 ## Wiring (for the integrator)
