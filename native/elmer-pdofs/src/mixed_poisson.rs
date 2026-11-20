@@ -14,23 +14,19 @@
 //! element) is `elmer-pdofs`' `InitialPermutation`; the face basis is
 //! `elmer_fe_hp::face`. Refused: quadrilaterals, wedges and pyramids,
 //! transient runs, a vector `Material Tensor`, `Convection Velocity`, a `<Variable>
-//! Condition`, and `{f}` Dirichlet values other than zero.
+//! Condition`, and nonzero `{f}` Dirichlet values on bricks.
 
 // Index loops mirror the Fortran's.
 #![allow(clippy::needless_range_loop)]
 
 use elmer_core::{ElemId, LocalSystem, ParamMap, Params, Value, NO_DOF};
 use elmer_core::{BasisEval, ElementBasis};
-use elmer_fe_hp::face::{
-    brick_face_basis_ordering, brick_face_orientation, face_element_info_brick, face_element_info_tetra,
-    face_element_info_triangle, tetra_face_basis_ordering, tetra_face_orientation, triangle_face_orientation,
-    triangle_nodal_p_basis, FaceInfo, BRICK_FACE_MAP, TETRA_FACE_MAP, TRIANGLE_EDGE_MAP,
-};
+use elmer_fe_hp::face::{brick_face_basis_ordering, tetra_face_basis_ordering, triangle_nodal_p_basis, TRIANGLE_EDGE_MAP};
+
+use crate::face_element::{active_face, face_slots, nodal_dofs, FaceCell};
 use elmer_solver::{DgIndexes, Solver, SolverCtx, SolverError, SolverRegistry};
 
-use elmer_fe::quadrature::GaussRule;
-
-use crate::quadrature::{gauss_points_tetra_p, gauss_points_triangle_p};
+use crate::quadrature::gauss_points_triangle_p;
 
 /// `Procedure = "ModelMixedPoisson" "MixedPoisson"`.
 pub const PROCEDURE: (&str, &str) = ("ModelMixedPoisson", "MixedPoisson");
@@ -123,129 +119,6 @@ impl Elemental {
     }
 }
 
-/// A bulk element of the solver: a triangle (303), a tetrahedron (504)
-/// or a brick (808).
-struct Cell {
-    code: u16,
-    x: [f64; 8],
-    y: [f64; 8],
-    z: [f64; 8],
-    g: [u32; 8],
-}
-
-impl Cell {
-    fn of(ctx: &SolverCtx<'_>, e: ElemId) -> Result<Self, SolverError> {
-        let el = ctx.mesh.element(e);
-        let code = el.etype.0;
-        if !matches!(code, 303 | 504 | 808) {
-            return Err(SolverError::Unsupported(format!("ModelMixedPoisson on element type {code}")));
-        }
-        let mut c = Cell { code, x: [0.0; 8], y: [0.0; 8], z: [0.0; 8], g: [0; 8] };
-        for i in 0..c.n() {
-            let p = ctx.mesh.coord(el.nodes[i]);
-            (c.x[i], c.y[i], c.z[i]) = (p[0], p[1], p[2]);
-            c.g[i] = el.nodes[i];
-        }
-        Ok(c)
-    }
-
-    fn brick(&self) -> bool {
-        self.code == 808
-    }
-
-    fn n(&self) -> usize {
-        match self.code {
-            303 => 3,
-            504 => 4,
-            _ => 8,
-        }
-    }
-
-    fn faces(&self) -> usize {
-        match self.code {
-            303 => 3,
-            504 => 4,
-            _ => 6,
-        }
-    }
-
-    fn dim(&self) -> usize {
-        if self.code == 303 { 2 } else { 3 }
-    }
-
-    /// Dofs per face: RT(0) one; BDM(1) two on an edge, three on a face;
-    /// four on a brick's face.
-    fn per_face(&self, second: bool) -> usize {
-        match (self.code, second) {
-            (808, _) => 4,
-            (_, false) => 1,
-            (303, true) => 2,
-            _ => 3,
-        }
-    }
-
-    /// The flux basis functions: the face ones, and a brick's 24 interior
-    /// ones (elementwise bubbles before the potential's).
-    fn flux_dofs(&self, second: bool) -> usize {
-        self.faces() * self.per_face(second) + if self.brick() { 24 } else { 0 }
-    }
-
-    /// The Gauss rule `LocalMatrix` and `GetFlux` pick for the element.
-    fn rule(&self) -> Result<GaussRule, SolverError> {
-        let r = match self.code {
-            303 => gauss_points_triangle_p(3),
-            504 => gauss_points_tetra_p(4),
-            _ => elmer_fe::quadrature::gauss_points_brick(64).map_err(|e| crate::Error::Unsupported(e.to_string())),
-        };
-        r.map_err(|m| SolverError::fatal(CALLER, m.to_string()))
-    }
-
-    fn info(&self, rule: &GaussRule, t: usize, second: bool) -> FaceInfo {
-        match self.code {
-            303 => {
-                let (x, y, z, g) = ([self.x[0], self.x[1], self.x[2]], [self.y[0], self.y[1], self.y[2]], [self.z[0], self.z[1], self.z[2]], [self.g[0], self.g[1], self.g[2]]);
-                face_element_info_triangle(&x, &y, &z, &g, rule.u[t], rule.v[t], second, true)
-            }
-            504 => {
-                let (x, y, z, g) = (first4(&self.x), first4(&self.y), first4(&self.z), [self.g[0], self.g[1], self.g[2], self.g[3]]);
-                face_element_info_tetra(&x, &y, &z, &g, rule.u[t], rule.v[t], rule.w[t], second, true)
-            }
-            _ => face_element_info_brick(&self.x, &self.y, &self.z, &self.g, rule.u[t], rule.v[t], rule.w[t], true),
-        }
-    }
-
-    /// The parent face's nodes in the order of its local face map.
-    fn face_nodes(&self, face: usize) -> Vec<u32> {
-        match self.code {
-            303 => TRIANGLE_EDGE_MAP[face - 1].iter().map(|&k| self.g[k - 1]).collect(),
-            504 => TETRA_FACE_MAP[face - 1].iter().map(|&k| self.g[k - 1]).collect(),
-            _ => BRICK_FACE_MAP[face - 1].iter().map(|&k| self.g[k - 1]).collect(),
-        }
-    }
-
-    /// `PickActiveFace`: the 1-based local face (an edge of a triangle) the
-    /// boundary element with nodes `b` lies on.
-    fn face_of(&self, b: &[u32]) -> Option<usize> {
-        (1..=self.faces()).find(|&q| {
-            let f = self.face_nodes(q);
-            f.len() == b.len() && f.iter().all(|i| b.contains(i))
-        })
-    }
-
-    /// `FaceElementOrientation(Parent, ReverseSign, ActiveFaceId)`.
-    fn reverse(&self, face: usize) -> bool {
-        match self.code {
-            303 => triangle_face_orientation(&[self.g[0], self.g[1], self.g[2]])[face - 1],
-            504 => tetra_face_orientation(&[self.g[0], self.g[1], self.g[2], self.g[3]])[face - 1],
-            _ => brick_face_orientation(&self.g)[face - 1],
-        }
-    }
-}
-
-fn first4(a: &[f64; 8]) -> [f64; 4] {
-    [a[0], a[1], a[2], a[3]]
-}
-
 /// A constant rank-2 `Material Tensor` (`mu_tensor(i,j)`), `None` when the
 /// material has none; other shapes are refused.
 fn material_tensor(material: Option<&ParamMap>) -> Result<Option<[[f64; 3]; 3]>, SolverError> {
@@ -264,35 +137,6 @@ fn material_tensor(material: Option<&ParamMap>) -> Result<Option<[[f64; 3]; 3]>,
     }
 }
 
-/// The parent of a boundary element and the face it lies on.
-fn active_face(ctx: &SolverCtx<'_>, e: ElemId) -> Result<Option<(ElemId, Cell, usize)>, SolverError> {
-    let el = ctx.mesh.element(e);
-    let Some(parent) = el.parents[0].or(el.parents[1]) else { return Ok(None) };
-    let cell = Cell::of(ctx, parent)?;
-    Ok(cell.face_of(el.nodes).map(|q| (parent, cell, q)))
-}
-
-/// `np`: the nodal dofs of an element with `nd` dofs (`n` with an `n:1`
-/// element definition, else none), before its face dofs and its bubble.
-fn nodal_dofs(cell: &Cell, nd: usize, second: bool) -> Result<usize, SolverError> {
-    let flux = cell.flux_dofs(second);
-    match nd.checked_sub(flux + 1) {
-        Some(np) if np == 0 || np == cell.n() => Ok(np),
-        _ => Err(SolverError::fatal(CALLER, format!("an element with {nd} dofs ({flux} face dofs expected)"))),
-    }
-}
-
-/// The slots of the face dofs of local face `face` (1-based) of bulk
-/// element `parent`, `per_face` of them.
-fn face_slots(ctx: &SolverCtx<'_>, parent: ElemId, cell: &Cell, face: usize, second: bool) -> Result<Vec<u32>, SolverError> {
-    let mut s = Vec::new();
-    ctx.element_slots(parent, &mut s);
-    let np = nodal_dofs(cell, s.len(), second)?;
-    let per_face = cell.per_face(second);
-    let first = np + (face - 1) * per_face;
-    Ok(s[first..first + per_face].to_vec())
-}
-
 impl Solver for MixedPoisson {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, transient: bool) -> Result<(), SolverError> {
         if transient {
@@ -309,12 +153,12 @@ impl Solver for MixedPoisson {
         let active: Vec<ElemId> = ctx.active_elements().collect();
         let mut slots = Vec::new();
         for &e in &active {
-            let cell = Cell::of(ctx, e)?;
+            let cell = FaceCell::of(ctx, e)?;
             let dim = cell.dim();
             let rule = cell.rule()?;
             ctx.element_slots(e, &mut slots);
             let nd = slots.len();
-            let np = nodal_dofs(&cell, nd, second)?;
+            let np = nodal_dofs(&cell, nd, second, 1)?;
             if slots.contains(&NO_DOF) {
                 return Err(SolverError::fatal(CALLER, format!("element {} lacks dofs", e.0)));
             }
@@ -489,7 +333,7 @@ impl Solver for MixedPoisson {
             }
             // DefaultUpdateForce on the boundary element: its dofs are the
             // parent face's.
-            let fs = face_slots(ctx, parent, &cell, face, second)?;
+            let fs = face_slots(ctx, parent, &cell, face, second, 1)?;
             ctx.element_slots(e, &mut slots);
             let mut local = LocalSystem::zeros(slots.len());
             for (p, s) in fs.iter().enumerate() {
@@ -501,30 +345,8 @@ impl Solver for MixedPoisson {
             ctx.default_update(&local, e)?;
         }
 
-        // DefaultDirichletBCs for `<name> {f} j`: the face dofs of the
-        // boundary element's parent face (only zero values are ported).
-        let prefix = format!("{name} {{f}}");
-        let mut fixed: Vec<(u32, f64)> = Vec::new();
-        for &e in &boundary {
-            let Some(bc) = ctx.bc_params(e) else { continue };
-            let mut given = false;
-            for (k, v) in bc.0.iter() {
-                if k.starts_with(&prefix) {
-                    given = true;
-                    match v {
-                        Value::Real { data, .. } if data.iter().all(|&x| x == 0.0) => {}
-                        _ => return Err(SolverError::Unsupported(format!("a nonzero or non-constant \"{k}\" in ModelMixedPoisson"))),
-                    }
-                }
-            }
-            if !given {
-                continue;
-            }
-            let Some((parent, cell, face)) = active_face(ctx, e)? else { continue };
-            for s in face_slots(ctx, parent, &cell, face, second)? {
-                fixed.push((s, 0.0));
-            }
-        }
+        // DefaultDirichletBCs for `<name> {f} j`.
+        let fixed = crate::face_element::face_dirichlet(ctx, &name, second, 1)?;
         ctx.default_dirichlet_after(&fixed)?;
         ctx.default_solve()?;
         post(ctx, &active, second)
@@ -551,11 +373,11 @@ fn post(ctx: &mut SolverCtx<'_>, active: &[ElemId], second: bool) -> Result<(), 
     {
         let sol = ctx.primary().ok_or_else(|| SolverError::fatal(CALLER, "no primary variable"))?.values.to_vec();
         for &e in active {
-            let cell = Cell::of(ctx, e)?;
+            let cell = FaceCell::of(ctx, e)?;
             let rule = cell.rule()?;
             ctx.element_slots(e, &mut slots);
             let nd = slots.len();
-            let np = nodal_dofs(&cell, nd, second)?;
+            let np = nodal_dofs(&cell, nd, second, 1)?;
             let val = sol[slots[nd - 1] as usize];
             let vals: Vec<f64> = slots[np..nd - 1].iter().map(|&s| sol[s as usize]).collect();
             let n = cell.n();
