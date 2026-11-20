@@ -222,5 +222,6 @@ pub fn sif_model(path: &std::path::Path) -> Model {
         initial_conditions: numbered(&m.ics),
         boundary_conditions: numbered(&m.bcs),
         components: Vec::new(),
+        distributed: Vec::new(),
     }
 }
