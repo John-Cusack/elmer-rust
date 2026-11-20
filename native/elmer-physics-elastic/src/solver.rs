@@ -116,7 +116,6 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
         ("update reference displacement", "staged construction"),
         ("legacy assembly", "legacy assembly"),
         ("geometric stiffness", "geometric stiffness"),
-        ("quasi stationary", "quasi stationary"),
         ("calculate loads", "load postprocessing"),
     ] {
         if flag(Some(p), key) {
@@ -195,6 +194,10 @@ struct ElementData {
     pressure: Option<Vec<f64>>,
     temperature: Option<Vec<f64>>,
     heat_expansion: Option<Vec<[f64; 3]>>,
+    /// Body force `Stress Load` / `Strain Load` (Voigt, per node).
+    stress_load: Option<Vec<[f64; 6]>>,
+    strain_load: Option<Vec<[f64; 6]>>,
+    gpa: Option<Vec<f64>>,
     ip: Option<IpProps>,
 }
 
@@ -224,6 +227,9 @@ impl ElementData {
             pressure: self.pressure.map(|v| take(&map, &v)),
             temperature: self.temperature.map(|v| take(&map, &v)),
             heat_expansion: self.heat_expansion.map(|v| take(&map, &v)),
+            stress_load: self.stress_load.map(|v| take(&map, &v)),
+            strain_load: self.strain_load.map(|v| take(&map, &v)),
+            gpa: self.gpa.map(|v| take(&map, &v)),
             ..self
         }
     }
@@ -315,11 +321,8 @@ impl StressSolver {
         }
         if let Some(bf) = bp.body_force {
             for prefix in [
-                "stress load",
-                "strain load",
                 "inertial bodyforce",
                 "stress volume source",
-                "gravitational prestress",
             ] {
                 if present_prefix(bf, prefix) {
                     return Err(unsupported(&format!("body force '{prefix}'")));
@@ -447,6 +450,49 @@ impl StressSolver {
             || ip.beta.is_some()
             || ip.load.is_some())
         .then_some(ip);
+        // StressSolve.F90:1347-1368: `Stress Load` as an array or by
+        // component, `Strain Load` as an array.
+        let (mut stress_load, mut strain_load) = (None, None);
+        if let Some(bf) = bp.body_force {
+            let voigt = |a: props::NodeArray| -> Vec<[f64; 6]> {
+                let k = a.rows.min(6);
+                (0..n)
+                    .map(|node| {
+                        let blk = a.node(node);
+                        let mut v = [0.0; 6];
+                        for (i, vi) in v.iter_mut().enumerate().take(k) {
+                            *vi = blk[i * a.cols];
+                        }
+                        v
+                    })
+                    .collect()
+            };
+            if present_prefix(bf, "stress load") {
+                if let Some(a) = props::node_array(ctx, bf, "stress load", e)? {
+                    stress_load = Some(voigt(a));
+                } else {
+                    let mut out = vec![[0.0; 6]; n];
+                    for i in 0..6 {
+                        if let Some(v) = props::scalar_nodes(ctx, bf, &format!("stress load {}", i + 1), e)? {
+                            for (o, x) in out.iter_mut().zip(v) {
+                                o[i] = x;
+                            }
+                        }
+                    }
+                    stress_load = Some(out);
+                }
+            }
+            if let Some(a) = props::node_array(ctx, bf, "strain load", e)? {
+                strain_load = Some(voigt(a));
+            }
+        }
+        // "Gravitational Prestress Advection" with "GPA Coeff" (0 when absent).
+        let gpa = match bp.body_force {
+            Some(bf) if bf.logical("gravitational prestress advection") == Some(true) => {
+                Some(props::scalar_nodes(ctx, bf, "gpa coeff", e)?.unwrap_or_else(|| vec![0.0; n]))
+            }
+            _ => None,
+        };
         Ok(ElementData {
             law,
             density,
@@ -457,6 +503,9 @@ impl StressSolver {
             pressure,
             temperature,
             heat_expansion,
+            stress_load,
+            strain_load,
+            gpa,
             ip,
         })
     }
@@ -664,6 +713,7 @@ impl Solver for StressSolver {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
         check_solver_params(ctx.params())?;
         let second_order = ctx.params().integer("time derivative order") == Some(2);
+        let quasi = flag(Some(ctx.params()), "quasi stationary");
         let cdim = ctx.mesh.dim();
         let coord_name = elmer_core::normalize_key(ctx.simulation_params().string("coordinate system").unwrap_or("cartesian"));
         let axi = match coord_name.as_str() {
@@ -753,8 +803,9 @@ impl Solver for StressSolver {
                     damping: d.damping.as_deref(),
                     load: &d.load,
                     pressure_load: d.pressure.as_deref(),
-                    stress_load: None,
-                    strain_load: None,
+                    stress_load: d.stress_load.as_deref(),
+                    strain_load: d.strain_load.as_deref(),
+                    gpa: d.gpa.as_deref(),
                     temperature: d.temperature.as_deref(),
                     heat_expansion: d.heat_expansion.as_deref(),
                     want_mass: transient || eigen,
@@ -773,8 +824,17 @@ impl Solver for StressSolver {
                 .map_err(|x| SolverError::fatal(CALLER, x.to_string()))?;
                 if transient {
                     let nn = local.n * local.n;
-                    let mass = local.mass.take().unwrap_or_else(|| vec![0.0; nn]);
+                    let mut mass = local.mass.take().unwrap_or_else(|| vec![0.0; nn]);
                     let mut damp = local.damp.take().unwrap_or_else(|| vec![0.0; nn]);
+                    // "Quasi Stationary" (Stress.F90:252-254): no mass or damping
+                    // matrix unless the element carries a damping.
+                    let damped = d.damping.as_ref().is_some_and(|v| v.iter().any(|x| *x != 0.0))
+                        || d.rayleigh_alpha.is_some()
+                        || d.rayleigh_beta.is_some();
+                    if quasi && !damped {
+                        mass.iter_mut().for_each(|v| *v = 0.0);
+                        damp.iter_mut().for_each(|v| *v = 0.0);
+                    }
                     if let Some(a) = d.rayleigh_alpha {
                         damp.iter_mut().zip(&mass).for_each(|(c, m)| *c += a * m);
                     }

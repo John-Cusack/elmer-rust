@@ -61,6 +61,9 @@ pub struct StressBulkInput<'a> {
     pub pressure_load: Option<&'a [f64]>,
     /// `Stress Load` in Voigt form (xx yy zz xy yz xz), per node.
     pub stress_load: Option<&'a [Voigt6]>,
+    /// `GPA Coeff` at the nodes when the body force sets `Gravitational
+    /// Prestress Advection` (rho g of the advected prestress).
+    pub gpa: Option<&'a [f64]>,
     /// `Strain Load` in Voigt form with engineering shear, per node.
     pub strain_load: Option<&'a [Voigt6]>,
     /// Temperature minus `Reference Temperature`, per node.
@@ -276,6 +279,13 @@ fn bulk_impl(
             return Err(StressError::Input(format!("{} basis functions for {nd} dofs", be.basis.len())));
         }
         let bas = &be.basis;
+        let gpa_ip = inp.gpa.map(|g| {
+            let mut acc = 0.0;
+            for k in 0..n {
+                acc += g[k] * bas[k];
+            }
+            acc
+        });
         let db = &be.dbasis_dx;
         let mut s = be.det_j * qp.weight;
         let mut r = 0.0;
@@ -442,6 +452,11 @@ fn bulk_impl(
                             }
                         } else {
                             dot3(&db[q], &ds[j])
+                        };
+                        // Stress.F90:634: A(i,dim) += GPA_ip dBasisdx(q,i) Basis(p).
+                        let v = match gpa_ip {
+                            Some(g) if j == cdim - 1 => v + g * db[q][i] * bas[p],
+                            _ => v,
                         };
                         out.stiff[k * ndof + col] += v * s;
                     }
