@@ -950,6 +950,25 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
         sim.vars.set_scalar(name, *value);
     }
     elmer_fixtures::registry::install_live(&fixture_case, &mut sim, mesh);
+    // UMAT_StVenant_2D's `MyUMAT.F90` is UMATLib's `stvenant_kirchhoff`
+    // verbatim (only a `USE Messages` line differs).
+    if fixture_case == "UMAT_StVenant_2D" {
+        elmer_physics_elasticsolve::umat::register_umat(
+            "./MyUMAT",
+            "stvenant_kirchhoff",
+            elmer_physics_elasticsolve::umat::stvenant_kirchhoff,
+        );
+    }
+    // UMAT_StVenant_axials' `LocalUMAT.F90` `stvenant_kirchhoff_axials` is
+    // UMATLib's `stvenant_kirchhoff` written out for one shear component,
+    // the axisymmetric `NSHR = 1`.
+    if fixture_case == "UMAT_StVenant_axials" {
+        elmer_physics_elasticsolve::umat::register_umat(
+            "./LocalUMAT",
+            "stvenant_kirchhoff_axials",
+            elmer_physics_elasticsolve::umat::stvenant_kirchhoff,
+        );
+    }
     install_statelec_boundary(&mut sim, mesh);
     sim.setup(mesh, &registry, log, comm)?;
     if let Some(writer) = crate::result_file::writer(&sim.model, &result_dir, rank, size, log) {

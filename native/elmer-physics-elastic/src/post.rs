@@ -141,7 +141,9 @@ fn lu_decomp(a: &mut Tensor3, n: usize) -> Option<[usize; 3]> {
 
 /// `InvertMatrix( A, n )` (LinearAlgebra.F90): in place, through
 /// [`lu_decomp`], in its operation order.
-fn invert_matrix(a: &mut Tensor3, n: usize) -> Result<(), StressError> {
+/// `InvertMatrix(A, n)` (GeneralUtils.F90): `LUDecomp` and the column
+/// solves, in place on the leading `n x n`.
+pub fn invert_matrix(a: &mut Tensor3, n: usize) -> Result<(), StressError> {
     let pivot = lu_decomp(a, n)
         .ok_or_else(|| StressError::Input("InvertMatrix: inversion needs successful LU-decomposition".into()))?;
     for i in (0..n.saturating_sub(1)).rev() {
@@ -185,7 +187,7 @@ fn invert_matrix(a: &mut Tensor3, n: usize) -> Result<(), StressError> {
 
 /// Fortran's inlined `MATMUL` of two 3x3 matrices: each entry summed over
 /// `k` in order from zero.
-fn matmul3(a: &Tensor3, b: &Tensor3) -> Tensor3 {
+pub fn matmul3(a: &Tensor3, b: &Tensor3) -> Tensor3 {
     let mut c = ZERO3;
     for i in 0..3 {
         for j in 0..3 {
@@ -199,7 +201,7 @@ fn matmul3(a: &Tensor3, b: &Tensor3) -> Tensor3 {
     c
 }
 
-fn transpose3(a: &Tensor3) -> Tensor3 {
+pub fn transpose3(a: &Tensor3) -> Tensor3 {
     let mut t = ZERO3;
     for i in 0..3 {
         for j in 0..3 {
