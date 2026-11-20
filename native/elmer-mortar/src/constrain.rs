@@ -164,7 +164,9 @@ pub fn set_periodic_boundaries(
     // A Lagrange boundary is the solver's constraint, not eliminated here.
     let active: Vec<bool> = bcs
         .iter()
-        .map(|bc| periodic_active(*bc, t.name) && !flag(*bc, "periodic bc use lagrange coefficient"))
+        .map(|bc| {
+            periodic_active(*bc, t.name) && !flag(*bc, "periodic bc use lagrange coefficient")
+        })
         .collect();
     if !active.iter().any(|&x| x) {
         return Ok(0);

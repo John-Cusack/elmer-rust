@@ -274,7 +274,10 @@ pub fn weighted_projector_discont(
         10,
     );
     // List_ToCRSMatrix keeps the rows up to the last one touched.
-    let n_rows = list.iter().rposition(|r| !r.is_empty()).map_or(0, |i| i + 1);
+    let n_rows = list
+        .iter()
+        .rposition(|r| !r.is_empty())
+        .map_or(0, |i| i + 1);
     if n_rows == 0 {
         return Ok(None);
     }

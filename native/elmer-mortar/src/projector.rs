@@ -227,7 +227,8 @@ pub fn periodic_projector(
         .simulation
         .logical("mortar bcs split quadratic")
         .unwrap_or(false);
-    let Some((mut b1, mut b2)) = create_interface_meshes(env.mesh, env.bc_of, env.bcs.len(), this, target, split)?
+    let Some((mut b1, mut b2)) =
+        create_interface_meshes(env.mesh, env.bc_of, env.bcs.len(), this, target, split)?
     else {
         return Ok(None);
     };
@@ -536,8 +537,8 @@ mod tests {
             galerkin: false,
             slave_scale: 1.0,
             master_scale: 1.0,
-        mortar_perm: false,
-        rhs: None,
+            mortar_perm: false,
+            rhs: None,
         };
         p.set_rowsum();
         assert_eq!(p.values, vec![0.25, -0.75, 1.0]);

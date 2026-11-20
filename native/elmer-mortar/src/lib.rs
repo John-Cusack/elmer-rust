@@ -64,15 +64,16 @@ pub mod weighted;
 pub use backend::PeriodicAssembly;
 pub use conforming::generate_conforming_map;
 pub use constrain::{
-    add_projector_topology, periodic_active, periodic_scale, set_periodic_boundaries, PeriodicTarget,
+    add_projector_topology, periodic_active, periodic_scale, set_periodic_boundaries,
+    PeriodicTarget,
 };
 pub use constraint::{generate_constraint_matrix, ConstraintMatrix, ConstraintTarget};
 pub use interface::{create_interface_meshes, map_interface_coordinate, InterfaceMesh};
 pub use overlay::overlay_interface_meshes;
 pub use projector::{
-    generate_mortar_projectors, generate_periodic_projectors, nodal_projector, nodal_projector_discont,
-    periodic_projector,
-    save_request, GeneratedProjectors, Projector, ProjectorEnv, SaveRequest,
+    generate_mortar_projectors, generate_periodic_projectors, nodal_projector,
+    nodal_projector_discont, periodic_projector, save_request, GeneratedProjectors, Projector,
+    ProjectorEnv, SaveRequest,
 };
 pub use restriction::{collection_system, CollectionSystem, Restriction};
 pub use save::{save_constraint_matrix, save_projector};

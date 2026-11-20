@@ -184,7 +184,11 @@ pub fn generate_constraint_matrix(
 
         // MortarBC % Perm: the nodes of the projector's rows.
         let slave_nodes: std::collections::HashSet<u32> = if p.mortar_perm {
-            p.inv_perm.iter().copied().filter(|&k| k != NO_DOF).collect()
+            p.inv_perm
+                .iter()
+                .copied()
+                .filter(|&k| k != NO_DOF)
+                .collect()
         } else {
             Default::default()
         };
