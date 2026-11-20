@@ -38,6 +38,7 @@ use crate::compute_error;
 use crate::face_fe_interpolation;
 use crate::count_solver;
 use crate::sun_angle;
+use crate::mesh_colour;
 use crate::curved_bndry_pfem;
 use crate::single_edge_elements;
 use crate::single_elements;
@@ -210,6 +211,7 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("FaceElement2D_BCs", "FaceFEInterpolationTest", "BestApproximationSolver", Hook::Solver(face_fe_interpolation::factory)),
     // fem/src/modules/SunAngle.F90, built into the case as `./SunAngle`.
     ("SunAngle", "./SunAngle", "SunAngleSolver", Hook::Solver(sun_angle::factory)),
+    ("MeshColour", "MeshColour", "MeshColour", Hook::Solver(mesh_colour::factory)),
     ("FaceElement3D_BCs", "FaceFEInterpolationTest", "BestApproximationSolver", Hook::Solver(face_fe_interpolation::factory)),
     // `PoissonPFEM/Poisson.f90` on p-elements, ported in `elmer-pdofs`.
     ("PoissonPFEM", "Poisson", "PoissonSolver", Hook::Solver(elmer_pdofs::solver::poisson_pfem)),
@@ -231,6 +233,7 @@ type SectionInit = fn(&mut ParamMap);
 const SECTION_INITS: &[(&str, &str, &str, SectionInit)] = &[
     ("ElementUnitTest_h1", "SingleElements", "SingleElements", single_elements::init_section),
     ("SunAngle", "SunAngle", "SunAngleSolver", sun_angle::init_section),
+    ("MeshColour", "MeshColour", "MeshColour", mesh_colour::init_section),
     ("ElementUnitTest_p1", "SingleElements", "SingleElements", single_elements::init_section),
     ("SD_ElementUnitTest_p1", "SingleElements", "SingleElements", single_elements::init_section),
     ("ElementUnitTest_edge", "SingleEdgeElements", "SingleEdgeElements", single_edge_elements::init_section),
