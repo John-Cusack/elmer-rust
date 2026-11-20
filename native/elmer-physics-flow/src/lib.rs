@@ -33,6 +33,7 @@ pub mod bulk;
 pub mod cylindric;
 pub mod error;
 pub mod fix_tangent;
+pub mod free_surface;
 pub mod solver;
 pub mod stokes;
 

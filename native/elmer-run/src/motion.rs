@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use elmer_core::{ElemId, ElementRef, MeshView};
+use elmer_physics_flow::free_surface;
 use elmer_physics_meshtools::motion::{self, MeshMotion, SharedCoords};
 
 /// `mesh` with its node coordinates in a [`SharedCoords`].
@@ -27,16 +28,20 @@ impl<'a> MovableMesh<'a> {
     /// guard drops.
     pub(crate) fn install(&self) -> MotionGuard {
         let coords: Arc<dyn MeshMotion> = self.coords.clone();
-        MotionGuard(motion::install(Some(coords)))
+        // FlowSolve's free surfaces move the same coordinates.
+        let c = self.coords.clone();
+        let mover: free_surface::NodeMover = Arc::new(move |x: &[[f64; 3]]| c.set_coords(x));
+        MotionGuard(motion::install(Some(coords)), free_surface::install_node_mover(Some(mover)))
     }
 }
 
 /// Restores the previously installed mesh motion on drop.
-pub(crate) struct MotionGuard(Option<Arc<dyn MeshMotion>>);
+pub(crate) struct MotionGuard(Option<Arc<dyn MeshMotion>>, Option<free_surface::NodeMover>);
 
 impl Drop for MotionGuard {
     fn drop(&mut self) {
         motion::install(self.0.take());
+        free_surface::install_node_mover(self.1.take());
     }
 }
 

@@ -82,6 +82,9 @@ pub struct FlowSolver {
     /// every FlowSolve instance).
     newton: bool,
     recheck_newton: bool,
+    /// FlowSolve's SAVEd `ComputeFree`: free surfaces move from the first
+    /// iteration past `Free Surface After Iterations` / `Tolerance` on.
+    compute_free: bool,
 }
 
 impl Default for FlowSolver {
@@ -93,6 +96,7 @@ impl Default for FlowSolver {
             local: LocalSystem::zeros(0),
             newton: false,
             recheck_newton: false,
+            compute_free: false,
         }
     }
 }
@@ -199,7 +203,6 @@ fn check_body(eq: Option<&ParamMap>, mat: Option<&ParamMap>, bf: Option<&ParamMa
 /// Boundary-condition options this crate does not port.
 fn check_bc(bc: &ParamMap, _var_name: &str) -> Result<(), SolverError> {
     for (key, what) in [
-        ("free surface", "free surface"),
         ("wall law", "wall law"),
         ("vms wall", "VMS wall"),
     ] {
@@ -485,6 +488,9 @@ impl Solver for FlowSolver {
         // ListGetInteger without a default: an absent keyword is 0 iterations.
         let nonlinear_iter = p.integer("nonlinear system max iterations").unwrap_or(0);
         let max_norm = p.real("nonlinear system max norm return").unwrap_or(f64::MAX);
+        let free_tol = p.real("free surface after tolerance").unwrap_or(f64::MAX);
+        let free_iter = p.integer("free surface after iterations").unwrap_or(0);
+        let free_surface = crate::free_surface::any_free_surface(ctx);
 
         // "Enforcing relative pressure relaxation" when no material of the
         // model names a compressibility model other than incompressible.
@@ -771,6 +777,19 @@ impl Solver for FlowSolver {
             if norm > max_norm {
                 ctx.warn("FlowSolve", "Exiting as nonlinear norm is above allowed maximum!");
                 break;
+            }
+            // FlowSolve.F90:1517-1529: move the free surfaces.
+            if free_surface {
+                if change < free_tol || iter > free_iter {
+                    self.compute_free = true;
+                }
+                if self.compute_free && p.logical("internal move boundary").unwrap_or(true) {
+                    if cyl {
+                        return Err(unsupported("free surface in Cylindric Symmetric coordinates"));
+                    }
+                    let relax = ctx.creal(&p, "free surface relaxation factor")?.unwrap_or(1.0);
+                    crate::free_surface::move_boundary(ctx, relax, basis, quad)?;
+                }
             }
         }
         Ok(())
