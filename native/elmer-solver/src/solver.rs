@@ -368,8 +368,16 @@ impl<'a> SolverCtx<'a> {
     pub fn real_at_nodes(&self, section: &ParamMap, key: &str, e: ElemId) -> Result<Option<Vec<f64>>, SolverError> {
         let Some(v) = section.get(key) else { return Ok(None) };
         let nodes = self.mesh.element(e).nodes;
+        self.set_current_element(e);
         let b = &self.sim.backends;
         crate::expr::eval_at_nodes_with(v, nodes, &self.fields(), b.matc.as_deref(), &b.udfs).map(Some)
+    }
+
+    /// Makes `e` the `Model % CurrentElement` user functions see
+    /// ([`elmer_expr::current_element`]), as `GetActiveElement` /
+    /// `GetBoundaryElement` do in the Fortran loops.
+    pub fn set_current_element(&self, e: ElemId) {
+        elmer_expr::set_current_element(e.0, self.mesh.element(e).nodes);
     }
 
     /// `ListGetCReal(section, key)`: a scalar keyword at node 1, so it may

@@ -722,6 +722,7 @@ name = "elmer-physics-scalar"
 version = "0.1.0"
 dependencies = [
  "elmer-core",
+ "elmer-expr",
  "elmer-pdofs",
  "elmer-solver",
  "num-complex",

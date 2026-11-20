@@ -49,6 +49,7 @@ pub(crate) fn node_array(
     e: ElemId,
 ) -> Result<Option<NodeArray>, SolverError> {
     let nodes = ctx.mesh.element(e).nodes;
+    ctx.set_current_element(e);
     match section.get(key) {
         None => Ok(None),
         Some(Value::Real { rows, cols, data }) => Ok(Some(NodeArray {

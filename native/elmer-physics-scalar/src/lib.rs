@@ -49,6 +49,7 @@ mod statcurrent;
 mod statcurrent_solver;
 mod statelec;
 mod statelec_solver;
+pub mod statelec_boundary;
 
 pub use common::{install_fe, FeProvider};
 pub use error::ScalarError;
