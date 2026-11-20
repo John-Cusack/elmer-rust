@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use elmer_core::{ElemId, ElementRef, ElementType, MeshView, ParamMap, Params};
+use elmer_core::{ElemId, ElementRef, ElementType, MeshView, ParamMap, Params, Value};
 
 struct Elem {
     etype: ElementType,
@@ -108,14 +108,73 @@ impl MeshView for FileMesh {
     }
 }
 
+/// `MapCoordinates` (MeshUtils): `Coordinate Mapping(3) = i j k` makes
+/// the coordinate vectors `(x, y, z)` the mesh file's `i`th, `j`th and `k`th.
+fn map_coordinates(coords: &mut [[f64; 3]], simulation: &ParamMap) -> Result<(), String> {
+    let Some(v) = simulation.get("coordinate mapping") else { return Ok(()) };
+    let map = match v {
+        Value::Integer(m) if m.len() == 3 && [1, 2, 3].iter().all(|c| m.contains(c)) => [m[0], m[1], m[2]],
+        v => return Err(format!("inconsistent Coordinate Mapping: {v:?}")),
+    };
+    for c in coords {
+        let old = *c;
+        for k in 0..3 {
+            c[k] = old[(map[k] - 1) as usize];
+        }
+    }
+    Ok(())
+}
+
+/// The Simulation's `Coordinate Transformation` (ElmerSolver.F90:462,
+/// `CoordinateTransformation(..., Irreversible = .TRUE.)`, MeshTransform.F90:
+/// 1114): the nodes are mapped once, after loading, with `Coordinate
+/// Transformation Radius` `r0`: "cartesian to polar|cylindrical" gives
+/// `(r0 + sqrt(x^2 + y^2), c * atan2(y, x), z)`, "polar|cylindrical to
+/// cartesian" `(cos(y / c) (x + r0), sin(y / c) (x + r0), z)`, with `c =
+/// 180 / pi` under `Coordinate Transformation Use Degrees`. The callers
+/// refuse it together with `Mesh Levels` and extrusion, which Elmer applies
+/// before it.
+fn coordinate_transformation(coords: &mut [[f64; 3]], simulation: &ParamMap) -> Result<(), String> {
+    let Some(name) = simulation.string("coordinate transformation") else {
+        return match simulation.get("coordinate transformation") {
+            None => Ok(()),
+            Some(v) => Err(format!("Coordinate Transformation {v:?} is not a string")),
+        };
+    };
+    let mode = match elmer_core::normalize_key(name).as_str() {
+        "cartesian to polar" | "cartesian to cylindrical" => 1,
+        "polar to cartesian" | "cylindrical to cartesian" => -1,
+        t => return Err(format!("CoordinateTransformation: Unknown transformation: {t}")),
+    };
+    let coeff = if simulation.logical("coordinate transformation use degrees") == Some(true) {
+        180.0 / std::f64::consts::PI
+    } else {
+        1.0
+    };
+    let rad0 = simulation.real("coordinate transformation radius").unwrap_or(0.0);
+    for c in coords {
+        let r0 = *c;
+        *c = if mode == 1 {
+            [rad0 + (r0[0].powi(2) + r0[1].powi(2)).sqrt(), coeff * r0[1].atan2(r0[0]), r0[2]]
+        } else {
+            [(r0[1] / coeff).cos() * (r0[0] + rad0), (r0[1] / coeff).sin() * (r0[0] + rad0), r0[2]]
+        };
+    }
+    Ok(())
+}
+
 /// `elmer-run`'s `MeshLoader`: the mesh DB in `dir` with `Coordinate
-/// Scaling` applied, refusing element types `elmer-fe` does not define.
+/// Scaling`, `Coordinate Mapping` and the Simulation's `Coordinate
+/// Transformation` applied, refusing element types `elmer-fe` does not
+/// define.
 pub fn load(dir: &Path, simulation: &ParamMap) -> Result<Box<dyn MeshView>, String> {
     let scale = match simulation.get("coordinate scaling") {
         None => 1.0,
         Some(_) => simulation.real("coordinate scaling").ok_or("Coordinate Scaling is not a constant")?,
     };
     let mut mesh = FileMesh::read(dir, 3, scale)?;
+    map_coordinates(&mut mesh.coords, simulation)?;
+    coordinate_transformation(&mut mesh.coords, simulation)?;
     // The mesh dimension (Elmer's `Mesh % MaxDim`, inherited by a plain
     // "cartesian" coordinate system) from the bulk elements.
     mesh.dim = match mesh.elems[..mesh.n_bulk].iter().map(|e| e.etype.family()).max() {

@@ -110,6 +110,9 @@ fn load_with_transforms(
     sif: &elmer_sif::Model,
     model: &mut Model,
 ) -> Result<elmer_mesh::Mesh, String> {
+    if elmer_core::Params::get(&model.simulation, "coordinate transformation").is_some() {
+        return Err("Coordinate Transformation with intersection BCs".into());
+    }
     let path = dir.to_str().ok_or("non-UTF-8 mesh path")?;
     let mut mesh = elmer_mesh::load(path).map_err(|e| format!("mesh: {}", e.msg))?;
     elmer_mesh::transform(&mut mesh, sif).map_err(|e| format!("mesh load transforms: {}", e.msg))?;
