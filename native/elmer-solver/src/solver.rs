@@ -522,12 +522,7 @@ impl<'a> SolverCtx<'a> {
             .unwrap_or_default();
         let bc_of = |e: ElemId| self.bc_id(e);
         let nt = crate::nt::NtSystem::build(self.mesh, &self.sim.model, &bc_of, &name, self.mesh.dim(), &projectors)?;
-        let m = nt.as_ref().map_or(0, |n| n.normals.len());
-        let slot = &mut self.sim.slots[self.slot];
-        if slot.nt_zero_done.len() != m {
-            slot.nt_zero_done = vec![[false; 3]; m];
-        }
-        slot.nt = nt;
+        self.sim.slots[self.slot].nt = nt;
         Ok(())
     }
 
@@ -795,10 +790,12 @@ impl<'a> SolverCtx<'a> {
         let Some(id) = self.sim.slots[self.slot].variable else {
             return Ok((Vec::new(), Vec::new()));
         };
-        let mut done = std::mem::take(&mut self.sim.slots[self.slot].nt_zero_done);
-        let out = self.dirichlet_values_core(id, 0, &mut done);
-        self.sim.slots[self.slot].nt_zero_done = done;
-        out
+        // `NTZeroing_done`: SetDirichletBoundaries' `DOF = -1` call, made
+        // first for a vector variable, clears it at every n-t node, so it
+        // only keeps one call's components from setting a row twice.
+        let m = self.sim.slots[self.slot].nt.as_ref().map_or(0, |n| n.normals.len());
+        let mut done = vec![[false; 3]; m];
+        self.dirichlet_values_core(id, 0, &mut done)
     }
 
     /// DefaultDirichletBCs over the components (`DOF` outer, the boundary
@@ -806,8 +803,8 @@ impl<'a> SolverCtx<'a> {
     /// On the nodes of the solver's own n-t system, a boundary condition
     /// that is not itself n-t sets the Cartesian component `DOF`: the row of
     /// the n-t component closest to it becomes that component
-    /// (`RotateNTSystem` of the unit vector) and the value, once for the run
-    /// (`NTZeroing_done`, BoundaryConditionUtils.F90:1750-1803).
+    /// (`RotateNTSystem` of the unit vector) and the value, once per n-t
+    /// component (`NTZeroing_done`, BoundaryConditionUtils.F90:1750-1803).
     fn dirichlet_values_core(
         &self,
         id: crate::VarId,

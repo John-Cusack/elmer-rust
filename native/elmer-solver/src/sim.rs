@@ -177,9 +177,6 @@ pub struct SolverSlot {
     pub(crate) children: Vec<crate::child::ChildSystem>,
     /// `Solver % NormalTangential`, set up by `DefaultInitialize`.
     pub(crate) nt: Option<crate::nt::NtSystem>,
-    /// `NTZeroing_done` of SetDirichletBoundaries: SAVEd for the run and
-    /// reset only when the number of n-t nodes changes.
-    pub(crate) nt_zero_done: Vec<[bool; 3]>,
     /// `ASSOCIATED(Solver % BlockMatrix)`: a block solve of this solver ran
     /// ([`crate::block_alias`]).
     pub(crate) block_matrix: bool,
@@ -222,7 +219,6 @@ impl SolverSlot {
             cmodes: None,
             children: Vec::new(),
             nt: None,
-            nt_zero_done: Vec::new(),
             block_matrix: false,
             conforming_flip: false,
         })
