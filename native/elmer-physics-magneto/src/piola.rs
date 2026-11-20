@@ -261,7 +261,9 @@ fn edge_dirichlet(
             808 | 827 => BRICK_FACE_MAP.iter().map(|f| f.iter().map(|&k| k - 1).collect()).collect(),
             c => return Err(unsupported(format!("'{prefix}' on a parent of type {c}"))),
         };
-        let Some(q) = faces.iter().position(|f| f.len() == bnodes.len() && f.iter().all(|&i| bnodes.contains(&pnodes[i]))) else {
+        // The face map holds corners; a quadratic boundary element lists its
+        // corners first.
+        let Some(q) = faces.iter().position(|f| bnodes.len() >= f.len() && f.iter().all(|&i| bnodes[..f.len()].contains(&pnodes[i]))) else {
             continue;
         };
         let emap = edge_map(pel.etype.0 / 100);
