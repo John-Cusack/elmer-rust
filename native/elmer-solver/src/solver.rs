@@ -520,11 +520,12 @@ impl<'a> SolverCtx<'a> {
 
     /// `DefaultStart` (DefUtils.F90:3983), for a solver to call when its
     /// visit begins: `Nonlinear System Reset Newton`, `Nonlinear System
-    /// Nullify Guess`, then the `Pre Solvers`. `CutFEM` is refused, and
-    /// `Harmonic Mode` other than for an eigen analysis.
+    /// Nullify Guess`, then the `Pre Solvers`. `CutFEM` (of a `CutFEM
+    /// Solver`) first puts the cut system in place ([`crate::cutfem`]);
+    /// `Harmonic Mode` other than for an eigen analysis is refused.
     pub fn default_start(&mut self) -> Result<(), SolverError> {
         if self.params().logical("cutfem") == Some(true) {
-            return Err(SolverError::Unsupported("CutFEM".into()));
+            self.cutfem_start()?;
         }
         if self.params().logical("harmonic mode") == Some(true) && self.params().logical("eigen analysis") != Some(true) {
             return Err(SolverError::Unsupported("Harmonic Mode outside an eigen analysis".into()));
@@ -561,6 +562,10 @@ impl<'a> SolverCtx<'a> {
         self.sim.publish_live();
         if self.params().logical("apply explicit control") == Some(true) {
             crate::control::apply_explicit_control(self)?;
+        }
+        // DefUtils.F90:4290.
+        if self.params().logical("cutfem") == Some(true) {
+            self.cutfem_finish()?;
         }
         Ok(())
     }

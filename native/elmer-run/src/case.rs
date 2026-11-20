@@ -1075,6 +1075,9 @@ fn run_case_meshes(
     for p in model.solvers.iter_mut().filter(|p| elmer_physics_datatofield::is_section(p)) {
         elmer_physics_datatofield::init_section(p);
     }
+    for p in model.solvers.iter_mut().filter(|p| elmer_physics_advdiff::model_pde_cutfem::is_section(p)) {
+        elmer_physics_advdiff::model_pde_cutfem::init_section(p);
+    }
     for p in model.solvers.iter_mut().filter(|p| elmer_physics_isosurface::is_section(p)) {
         elmer_physics_isosurface::init_section(p);
     }

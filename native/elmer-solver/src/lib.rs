@@ -35,6 +35,7 @@ mod constraint_modes;
 mod constraints;
 mod eigen;
 mod control;
+pub mod cutfem;
 pub use control::lu_solve;
 pub mod coupled;
 pub mod error;

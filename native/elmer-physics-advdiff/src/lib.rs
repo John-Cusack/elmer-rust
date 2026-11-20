@@ -26,6 +26,7 @@ mod compose;
 mod error;
 mod fe;
 mod model_pde;
+pub mod model_pde_cutfem;
 mod model_pde_solver;
 mod preflight;
 
@@ -46,9 +47,10 @@ pub use preflight::{
 
 use elmer_solver::SolverRegistry;
 
-/// Registers both `("AdvectionDiffusion", "AdvectionDiffusionSolver")` and
-/// `("ModelPDE", "AdvDiffSolver")`.
+/// Registers `("AdvectionDiffusion", "AdvectionDiffusionSolver")`,
+/// `("ModelPDE", "AdvDiffSolver")` and `("ModelPDECutFEM", "AdvDiffSolver")`.
 pub fn register(registry: &mut SolverRegistry) {
     register_advdiff(registry);
     register_model_pde(registry);
+    model_pde_cutfem::register(registry);
 }

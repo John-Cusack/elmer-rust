@@ -115,6 +115,15 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
             scan("Solver", i + 1, &s2, SOLVER)?;
             continue;
         }
+        // A CutFEM solver's `Project Variable k` names the fields of its cut
+        // mesh (`CreateCutFEMMesh`), not an integration-point projection.
+        if s.logical("cutfem") == Some(true) && s.get("project variable 1").is_some() {
+            let mut s2 = s.clone();
+            s2.0.remove("project variable 1");
+            scan("Solver", i + 1, &s2, SOLVER)?;
+            check_solver_mesh(i + 1, s)?;
+            continue;
+        }
         scan("Solver", i + 1, s, SOLVER)?;
         check_solver_mesh(i + 1, s)?;
     }
