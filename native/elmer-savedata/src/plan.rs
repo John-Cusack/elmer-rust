@@ -244,11 +244,6 @@ impl ScalarPlan {
             ],
         )?;
         for key in p.0.keys() {
-            if key.starts_with("coefficient ") {
-                return Err(unsupported(format!(
-                    "{H}: material coefficients ({key}); integrals are unweighted"
-                )));
-            }
             if key.starts_with("expression ") {
                 return Err(unsupported(format!("{H}: free-form MATC expressions ({key})")));
             }

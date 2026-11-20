@@ -9,7 +9,7 @@
 
 use std::f64::consts::PI;
 
-use elmer_core::{normalize_key, ElemId, ElementBasis, BasisEval, ElementType, Params, Quadrature};
+use elmer_core::{normalize_key, BasisEval, ElemId, ElementBasis, ElementType, ParamMap, Params, Quadrature};
 use elmer_solver::{SolverCtx, SolverError};
 
 use crate::plan::MaskKind;
@@ -216,10 +216,72 @@ pub(crate) struct BulkRequest<'a> {
     pub mask: MaskKind,
     pub mask_name: &'a str,
     pub passive: Option<usize>,
+    /// `Coefficient n`: the material keyword weighting the integral.
+    pub coeff: Option<&'a str>,
 }
 
-/// `BulkIntegrals`. Without a material coefficient, so the `coeff` of the
-/// Fortran is 1 everywhere.
+/// `ListGetReal(Material, name, n, nodes)`: a scalar material keyword at
+/// `nodes`, zero where the material lacks it (as `ListGetReal` returns).
+fn material_scalar(ctx: &SolverCtx<'_>, material: Option<&ParamMap>, name: &str, e: ElemId) -> Result<Vec<f64>, SolverError> {
+    let n = ctx.mesh.element(e).nodes.len();
+    Ok(match material {
+        Some(m) => ctx.real_at_nodes(m, name, e)?.unwrap_or_else(|| vec![0.0; n]),
+        None => vec![0.0; n],
+    })
+}
+
+/// `ListGetRealArray(Material, name, Pwrk, n, nodes)` as `EnergyTensor`
+/// at each of `nodes` (SaveScalars.F90:2244, :2640): a 1-row value on the
+/// diagonal, a column on the diagonal, else the matrix, at most 3x3.
+fn energy_tensors(ctx: &SolverCtx<'_>, material: Option<&ParamMap>, name: &str, nodes: &[u32]) -> Result<Vec<[[f64; 3]; 3]>, SolverError> {
+    let v = material.and_then(|m| m.get(name)).ok_or_else(|| {
+        SolverError::Unsupported(format!("SaveScalars: Coefficient '{name}' missing from the material"))
+    })?;
+    let c = elmer_solver::expr::compile_value(v, &ctx.sim.backends.udfs);
+    let (rows, cols) = (c.rows(), c.cols());
+    let mut out = vec![0.0; nodes.len() * rows * cols];
+    let matc: &dyn elmer_expr::MatcEngine = match ctx.sim.backends.matc.as_deref() {
+        Some(m) => m,
+        None => &elmer_solver::expr::NoMatc,
+    };
+    c.eval_nodes(nodes, &ctx.fields(), matc, &mut out)?;
+    Ok(out
+        .chunks_exact(rows * cols)
+        .map(|p| {
+            let mut t = [[0.0; 3]; 3];
+            if rows == 1 {
+                for (d, row) in t.iter_mut().enumerate() {
+                    row[d] = p[0];
+                }
+            } else if cols == 1 {
+                for d in 0..rows.min(3) {
+                    t[d][d] = p[d];
+                }
+            } else {
+                for i in 0..rows.min(3) {
+                    for j in 0..cols.min(3) {
+                        t[i][j] = p[i * cols + j];
+                    }
+                }
+            }
+            t
+        })
+        .collect())
+}
+
+/// `SUM(EnergyTensor(j,k,1:n) * Basis(1:n)) * Grad(k)` summed over `k`.
+fn tensor_times(tensors: &[[[f64; 3]; 3]], basis: &[f64], grad: &[f64; 3], dim: usize) -> [f64; 3] {
+    let mut out = [0.0; 3];
+    for (j, o) in out.iter_mut().enumerate().take(dim) {
+        for k in 0..dim {
+            *o += tensors.iter().zip(basis).map(|(t, b)| t[j][k] * b).sum::<f64>() * grad[k];
+        }
+    }
+    out
+}
+
+/// `BulkIntegrals`, weighted by `Coefficient n` of the element's material
+/// when given (a tensor for `diffusive energy`).
 pub(crate) fn bulk_integral(
     ctx: &SolverCtx<'_>,
     fe: &Fe,
@@ -254,8 +316,23 @@ pub(crate) fn bulk_integral(
         if req.mask != MaskKind::None && !mask_holds(ctx, e, req.mask, req.mask_name) {
             continue;
         }
+        let diff_energy = req.oper == "diffusive energy";
+        let (mut energy_coeff, mut tensors) = (None, None);
+        if let Some(name) = req.coeff {
+            if t >= nb {
+                return Err(SolverError::Unsupported("SaveScalars: Coefficient on boundary elements".into()));
+            }
+            let material = ctx.body_params(e).and_then(|b| b.material);
+            if diff_energy {
+                tensors = Some(energy_tensors(ctx, material, name, el.nodes)?);
+            } else {
+                energy_coeff = Some(material_scalar(ctx, material, name, e)?);
+            }
+        }
         for ip in element_points(ctx, fe, e, req.passive, axisym)? {
-            vol += ip.s;
+            // `coeff = SUM(EnergyCoeff * Basis)`, then `vol = coeff * vol + S`.
+            let coeff = energy_coeff.as_ref().map_or(1.0, |c| c.iter().zip(&ip.basis).map(|(c, b)| c * b).sum());
+            vol = coeff * vol + ip.s;
             let n = el.nodes.len();
             let comp = |k: usize| -> f64 {
                 (0..n)
@@ -268,13 +345,13 @@ pub(crate) fn bulk_integral(
                 comp(0)
             };
             match req.oper {
-                "volume" => integral1 += ip.s,
-                "int" | "int mean" | "potential energy" => integral1 += ip.s * func,
-                "int square" | "int square mean" | "int rms" => integral1 += ip.s * func * func,
-                "int abs" | "int abs mean" => integral1 += ip.s * func.abs(),
+                "volume" => integral1 += coeff * ip.s,
+                "int" | "int mean" | "potential energy" => integral1 += ip.s * coeff * func,
+                "int square" | "int square mean" | "int rms" => integral1 += ip.s * coeff * func * func,
+                "int abs" | "int abs mean" => integral1 += ip.s * coeff * func.abs(),
                 "int variance" => {
-                    integral1 += ip.s * func;
-                    integral2 += ip.s * func * func;
+                    integral1 += ip.s * coeff * func;
+                    integral2 += ip.s * coeff * func * func;
                 }
                 "diffusive energy" => {
                     let mut grad = [0.0; 3];
@@ -284,7 +361,14 @@ pub(crate) fn bulk_integral(
                             *g += v * d;
                         }
                     }
-                    integral1 += ip.s * grad[..dim].iter().map(|g| g * g).sum::<f64>();
+                    integral1 += ip.s
+                        * match &tensors {
+                            None => grad[..dim].iter().map(|g| g * g).sum::<f64>(),
+                            Some(t) => {
+                                let cg = tensor_times(t, &ip.basis, &grad, dim);
+                                (0..dim).map(|j| grad[j] * cg[j]).sum::<f64>()
+                            }
+                        };
                 }
                 _ => unreachable!("bulk operator {} is checked when the plan is built", req.oper),
             }
@@ -366,7 +450,19 @@ fn outward_normal(xyz: &[[f64; 3]], etype: ElementType, parent_xyz: &[[f64; 3]],
 /// (`EvaluateVariableAtGivenPoint(..., DoGrad, Parent)`, SaveScalars.F90
 /// :2754): the normal component of the field's gradient taken in `parent`
 /// at the point. Without `Coefficient` the energy tensor is the identity.
-fn diffusive_flux(ctx: &SolverCtx<'_>, fe: &Fe, e: ElemId, parent: ElemId, v: &VarView<'_>, basis: &[f64]) -> Result<f64, SolverError> {
+/// `diffusive flux` at one integration point of boundary element `e`: the
+/// normal component of `EnergyTensor . grad u`, the gradient taken in
+/// `parent`; the tensor (`Coefficient n`, at the boundary nodes) is the
+/// identity without one.
+fn diffusive_flux(
+    ctx: &SolverCtx<'_>,
+    fe: &Fe,
+    e: ElemId,
+    parent: ElemId,
+    v: &VarView<'_>,
+    basis: &[f64],
+    tensors: Option<&[[[f64; 3]; 3]]>,
+) -> Result<f64, SolverError> {
     let el = ctx.mesh.element(e);
     let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
     let mut x = [0.0; 3];
@@ -393,7 +489,11 @@ fn diffusive_flux(ctx: &SolverCtx<'_>, fe: &Fe, e: ElemId, parent: ElemId, v: &V
         }
     }
     let nrm = outward_normal(&xyz, el.etype, &pxyz, x)?;
-    Ok((0..dim).map(|d| nrm[d] * grad[d]).sum())
+    let flow = match tensors {
+        Some(t) => tensor_times(t, basis, &grad, dim),
+        None => grad,
+    };
+    Ok((0..dim).map(|d| nrm[d] * flow[d]).sum())
 }
 
 /// `convective flux` at one integration point of boundary element `e`
@@ -458,7 +558,11 @@ pub(crate) fn boundary_integrals(
     oper: &str,
     mask_name: &str,
     passive: Option<usize>,
+    coeff: Option<&str>,
 ) -> Result<BoundaryTotals, SolverError> {
+    if coeff.is_some() && oper != "diffusive flux" {
+        return Err(SolverError::Unsupported(format!("SaveScalars: Coefficient with {oper}")));
+    }
     let axisym = axisymmetric(ctx)?;
     let nbc = ctx.sim.model.boundary_conditions.len();
     let mut totals = BoundaryTotals {
@@ -512,6 +616,14 @@ pub(crate) fn boundary_integrals(
             ("convective flux", Some(v)) => Some(flux_parent(ctx, e, bc, v)?),
             _ => None,
         };
+        // The parent's material, at the boundary element's nodes.
+        let tensors = match (coeff, parent) {
+            (Some(name), Some(p)) => {
+                let material = ctx.body_params(p).and_then(|b| b.material);
+                Some(energy_tensors(ctx, material, name, el.nodes)?)
+            }
+            _ => None,
+        };
         for ip in element_points(ctx, fe, e, passive, axisym)? {
             let flux = match field {
                 None => ip.s,
@@ -519,7 +631,7 @@ pub(crate) fn boundary_integrals(
                     let flux = if oper == "convective flux" {
                         convective_flux(ctx, e, parent.unwrap(), v, velo.as_ref(), &ip.basis)?
                     } else {
-                        diffusive_flux(ctx, fe, e, parent.unwrap(), v, &ip.basis)?
+                        diffusive_flux(ctx, fe, e, parent.unwrap(), v, &ip.basis, tensors.as_deref())?
                     };
                     totals.range = (totals.range.0.min(flux), totals.range.1.max(flux));
                     ip.s * flux
