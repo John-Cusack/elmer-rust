@@ -825,7 +825,7 @@ impl SaveScalars {
     }
 }
 
-fn set_variable_norm(ctx: &mut SolverCtx<'_>, id: VarId, norm: f64) {
+pub(crate) fn set_variable_norm(ctx: &mut SolverCtx<'_>, id: VarId, norm: f64) {
     let v = ctx.sim.vars.by_id_mut(id);
     v.values.iter_mut().for_each(|x| *x = norm);
     v.conv.norm = norm.abs();

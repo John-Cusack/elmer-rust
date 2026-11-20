@@ -95,8 +95,6 @@ fn saveline_modes_other_than_existing_boundaries_are_refused() {
         ("Break Line Loop", yes()),
         ("Calculate Weights", yes()),
         ("Filename Numbering", yes()),
-        ("Show Norm Index", ints(&[1])),
-        ("Parallel Reduce", yes()),
     ] {
         let mut s = sec(&[("Variable 1", st("temperature"))]);
         s.insert(key, value);
@@ -190,4 +188,47 @@ fn parallel_reduce_takes_the_extrema_over_the_ranks() {
     let s = &c.sim.model.simulation;
     assert_eq!(s.real("max: temperature : mpi_max"), Some(5.0));
     assert_eq!(s.real("min: temperature : mpi_min"), Some(-5.0));
+}
+
+/// Polylines are kept only with `Polyline Divisions`; with them the points
+/// along the line are located and interpolated, and `Show Norm Index` sums
+/// a column into the solver's norm.
+#[test]
+fn polyline_points_interpolate_and_feed_the_norm() {
+    let mut s = sec(&[("Variable 1", st("temperature"))]);
+    s.insert("Polyline Coordinates", Value::Real { rows: 2, cols: 2, data: vec![0.0, 0.0, 1.0, 1.0] });
+    assert!(refused("SaveLine", s.clone()).contains("Polyline Divisions"));
+
+    let mut c = Case::bare(mesh(), mesh_model());
+    // Bilinear, so the quads interpolate it exactly.
+    c.field("Temperature", 1, |x| vec![x[0] + 2.0 * x[1]]);
+    // SaveLine writes below the working directory.
+    let out = PathBuf::from(format!("polyline-test-{}.dat", std::process::id()));
+    let ix = c
+        .hook(
+            "SaveLine",
+            sec(&[
+                ("Equation", st("line")),
+                ("Filename", st(out.to_str().unwrap())),
+                ("Variable 1", st("temperature")),
+                ("Polyline Coordinates", Value::Real { rows: 2, cols: 2, data: vec![0.0, 0.5, 3.0, 0.5] }),
+                ("Polyline Divisions", ints(&[6])),
+                // Columns: call count, line, point, x, y, z, temperature.
+                ("Show Norm Index", ints(&[7])),
+            ]),
+        )
+        .unwrap();
+    c.visit(ix, false).unwrap();
+    let text = std::fs::read_to_string(&out).unwrap();
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(format!("{}.names", out.display()));
+    // The model's `Save Line` boundary (y = 0, x = 3, 1, 0) comes first;
+    // then the seven points x = 0, 0.5, .., 3 at y = 0.5, in order. The norm
+    // sums the temperature column of every row: 4 + sum of (x + 1) = 21.5.
+    let rows: Vec<&str> = text.lines().collect();
+    assert_eq!(rows.len(), 10, "{text}");
+    assert!(rows[3].starts_with("1 1 0 "), "{}", rows[3]);
+    assert!(rows[9].starts_with("1 1 6 "), "{}", rows[9]);
+    let norm = c.sim.vars.get("line_var").unwrap().conv.norm;
+    assert!((norm - 21.5).abs() < 1e-12, "{norm}");
 }

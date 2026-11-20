@@ -28,7 +28,7 @@ pub mod change;
 pub mod conforming;
 mod child;
 mod nt;
-pub use nt::boundary_normal;
+pub use nt::{boundary_normal, tangent_directions};
 mod amg;
 mod constraint_modes;
 mod constraints;
