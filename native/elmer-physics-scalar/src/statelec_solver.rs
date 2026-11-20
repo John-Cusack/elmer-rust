@@ -17,8 +17,8 @@ use crate::common::{
 use crate::post::{self, Derived, PostField, PostSpec};
 use crate::potential::{Coefficient, PostConfig, PotentialPostLocal};
 use crate::statelec::{
-    stat_elec_boundary_local, stat_elec_boundary_local_with, stat_elec_bulk_local,
-    stat_elec_bulk_local_with, StatElecAtNodes, StatElecBcAtNodes, StatElecConfig, PHYSICAL_EPS0,
+    stat_elec_boundary_local, stat_elec_boundary_local_with, stat_elec_bulk_local, stat_elec_bulk_local_piezo,
+    stat_elec_bulk_local_with, PiezoAtNodes, StatElecAtNodes, StatElecBcAtNodes, StatElecConfig, PHYSICAL_EPS0,
 };
 use crate::{STAT_ELEC_PROCEDURE, STAT_ELEC_VEC_PROCEDURE};
 
@@ -164,14 +164,6 @@ fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
             return Err(unsupported(
                 "Material keyword \"Relative Permittivity Im\"",
                 "the complex assembly needs Linear System Complex in DefaultSolve",
-            ));
-        }
-    }
-    for bf in &model.body_forces {
-        if flag(bf, "piezo material") {
-            return Err(unsupported(
-                "Body Force keyword \"Piezo Material\"",
-                "piezoelectric coupling is not ported",
             ));
         }
     }
@@ -321,7 +313,14 @@ impl Solver for StatElecSolver {
                 let el = ctx.mesh.element(e);
                 let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
                 let mat = bulk_inputs(ctx, e, xyz.len())?;
+                let piezo = piezo_inputs(ctx, e, dim)?;
                 match ctx.solver_dofs() {
+                    Some(_) if piezo.is_some() => {
+                        return Err(unsupported(
+                            "Body Force keyword \"Piezo Material\" on p elements",
+                            "AddPiezoForce is ported for the nodal basis only",
+                        ));
+                    }
                     Some(d) => {
                         // LocalMatrix(Element, n, nd+nb, nb), then CondensateP(nd, nb).
                         // The basis takes the nodes in the order of the dofs (p
@@ -342,15 +341,27 @@ impl Solver for StatElecSolver {
                         )?;
                         condense(&mut self.local, p.nd, p.nb)?;
                     }
-                    None => stat_elec_bulk_local(
-                        &*self.basis,
-                        &*self.quad,
-                        el.etype,
-                        &xyz,
-                        &mat,
-                        &cfg,
-                        &mut self.local,
-                    )?,
+                    None => match &piezo {
+                        Some(pz) => stat_elec_bulk_local_piezo(
+                            &*self.basis,
+                            &*self.quad,
+                            el.etype,
+                            &xyz,
+                            &mat,
+                            pz,
+                            &cfg,
+                            &mut self.local,
+                        )?,
+                        None => stat_elec_bulk_local(
+                            &*self.basis,
+                            &*self.quad,
+                            el.etype,
+                            &xyz,
+                            &mat,
+                            &cfg,
+                            &mut self.local,
+                        )?,
+                    },
                 }
                 ctx.default_update(&self.local, e)?;
             }
@@ -543,6 +554,40 @@ fn bulk_inputs(ctx: &SolverCtx<'_>, e: ElemId, n: usize) -> Result<StatElecAtNod
             .unwrap_or_else(|| vec![0.0; n]),
         charge_density: real_at_nodes(ctx, bp.body_force, "Charge Density", e)?,
     })
+}
+
+/// `GetPiezoElementData`: when the element's body force sets `Piezo
+/// Material`, the material's `Piezo Material Coefficients` (a constant
+/// `dim x 2*dim` array) and the element's nodal `Displacement`.
+fn piezo_inputs(ctx: &SolverCtx<'_>, e: ElemId, dim: usize) -> Result<Option<PiezoAtNodes>, SolverError> {
+    let Some(bp) = ctx.body_params(e) else { return Ok(None) };
+    if !bp.body_force.is_some_and(|bf| flag(bf, "piezo material")) {
+        return Ok(None);
+    }
+    let coeff = match bp.material.and_then(|m| m.get("piezo material coefficients")) {
+        Some(Value::Real { rows, cols, data }) if *rows == dim && *cols == 2 * dim => data.clone(),
+        Some(_) => {
+            return Err(unsupported(
+                "Material keyword \"Piezo Material Coefficients\" other than a constant dim x 2*dim array",
+                "GetRealArray of dependent values is not ported here",
+            ))
+        }
+        None => return Err(SolverError::fatal(CALLER, "No > Piezo Material Coefficients < defined!")),
+    };
+    let v = ctx.sim.vars.get("displacement").ok_or_else(|| {
+        SolverError::fatal(CALLER, "\"Piezo Material\" requires a \"Displacement\" field from a coupled elasticity solver")
+    })?;
+    let nodes = ctx.mesh.element(e).nodes;
+    let mut displ = vec![[0.0f64; 3]; nodes.len()];
+    for (k, &n) in nodes.iter().enumerate() {
+        let s = v
+            .slot(n)
+            .ok_or_else(|| unsupported("\"Piezo Material\" where the Displacement is not defined", "the Fortran reads outside its permutation"))?;
+        for i in 0..v.dofs.min(3) {
+            displ[k][i] = v.values[s * v.dofs + i];
+        }
+    }
+    Ok(Some(PiezoAtNodes { coeff, displ }))
 }
 
 /// The boundary inputs of element `e`, or `None` when its condition sets
