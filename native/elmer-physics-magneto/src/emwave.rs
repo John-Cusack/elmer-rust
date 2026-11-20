@@ -308,7 +308,7 @@ impl Solver for EmWave {
                     force: vec![0.0; nd],
                 };
                 for t in 0..rule.len() {
-                    let (ev, basis, _) = crate::piola::edge_info(etype, &xyz, &gindex, [rule.u[t], rule.v[t], rule.w[t]], degree)?;
+                    let (ev, basis, _) = crate::piola::edge_info_cdim(etype, &xyz, &gindex, [rule.u[t], rule.v[t], rule.w[t]], degree, ctx.mesh.dim())?;
                     if ev.dofs != nd {
                         return Err(SolverError::fatal(CALLER, format!("{} edge basis functions for {nd} DOFs", ev.dofs)));
                     }
@@ -471,7 +471,7 @@ impl Solver for EmWaveCalc {
             let mut mass = vec![0.0; n * n];
             let mut force = vec![[0.0f64; 3]; n];
             for t in 0..rule.len() {
-                let (ev, basis, _) = crate::piola::edge_info(etype, &xyz, &gindex, [rule.u[t], rule.v[t], rule.w[t]], degree)?;
+                let (ev, basis, _) = crate::piola::edge_info_cdim(etype, &xyz, &gindex, [rule.u[t], rule.v[t], rule.w[t]], degree, ctx.mesh.dim())?;
                 let nd = ev.dofs.min(sol.len());
                 let mut ef = [0.0f64; 3];
                 for (c, efc) in ef.iter_mut().enumerate() {

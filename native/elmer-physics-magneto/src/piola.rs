@@ -205,6 +205,20 @@ pub(crate) fn edge_info(
     uvw: [f64; 3],
     degree: u8,
 ) -> Result<EdgeInfo, SolverError> {
+    edge_info_cdim(etype, xyz, gindex, uvw, degree, 3)
+}
+
+/// [`edge_info`] in a `cdim`-dimensional coordinate system
+/// (`CoordinateSystemDimension()`): a 2D mesh's elements take
+/// `EdgeElementInfo`'s `cdim == dim` branch.
+pub(crate) fn edge_info_cdim(
+    etype: ElementType,
+    xyz: &[[f64; 3]],
+    gindex: &[i64],
+    uvw: [f64; 3],
+    degree: u8,
+    cdim: usize,
+) -> Result<EdgeInfo, SolverError> {
     let fatal = |m: String| SolverError::fatal(CALLER, m);
     match etype.0 {
         827 => {
@@ -213,9 +227,9 @@ pub(crate) fn edge_info(
             let mut d = vec![[0.0; 3]; 27];
             elmer_fe::basis::nodal_basis(def, uvw[0], uvw[1], uvw[2], &mut b);
             elmer_fe::basis::nodal_first_derivatives(def, uvw[0], uvw[1], uvw[2], &mut d);
-            edge_element_info_geometry(ElementType(808), xyz, &gindex[..8], uvw, degree, 3, b, d).map_err(fatal)
+            edge_element_info_geometry(ElementType(808), xyz, &gindex[..8], uvw, degree, cdim, b, d).map_err(fatal)
         }
-        _ => edge_element_info_nodal(etype, xyz, gindex, uvw, degree, 3).map_err(fatal),
+        _ => edge_element_info_nodal(etype, xyz, gindex, uvw, degree, cdim).map_err(fatal),
     }
 }
 
