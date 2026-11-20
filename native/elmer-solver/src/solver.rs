@@ -2178,6 +2178,23 @@ impl<'a> SolverCtx<'a> {
     /// selects, then the nonlinear `ComputeChange`. Returns the variable norm.
     pub(crate) fn solve_system(&mut self) -> Result<f64, SolverError> {
         let (mesh, log, comm, slot_ix) = (self.mesh, self.log, self.comm, self.slot);
+        if let Ok(dir) = std::env::var("ELMER_RS_DUMP") {
+            use std::io::Write;
+            if let Some(sys) = self.sim.slots[slot_ix].system.as_ref() {
+                let r = comm.rank();
+                let a = &sys.matrix;
+                let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{dir}/rs_a.dat.{r}")).unwrap());
+                for i in 0..a.nrows {
+                    for k in a.row_ptr[i]..a.row_ptr[i + 1] {
+                        writeln!(f, "{} {} {:e}", i + 1, a.col_idx[k] + 1, a.values[k]).unwrap();
+                    }
+                }
+                let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{dir}/rs_b.dat.{r}")).unwrap());
+                for (i, v) in sys.rhs.iter().enumerate() {
+                    writeln!(f, "{} {:e}", i + 1, v).unwrap();
+                }
+            }
+        }
         let sim = &mut *self.sim;
         let nonlin_iter = sim.vars.scalar("nonlin iter");
         let schur = schur_matrix(sim, slot_ix, &sim.slots[slot_ix].params);
