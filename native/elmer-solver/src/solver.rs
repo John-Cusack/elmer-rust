@@ -1080,6 +1080,8 @@ impl<'a> SolverCtx<'a> {
         let schur = schur_matrix(sim, slot_ix, &sim.slots[slot_ix].params);
         let mg = crate::multigrid::transfers(sim, slot_ix, mesh)?;
         let eliminate = before_linsolve(&sim.slots[slot_ix].params)?;
+        // BlockSolve.F90's shared block matrix ([`crate::block_alias`]).
+        let mut block_plan = crate::block_alias::plan(sim, slot_ix, !eliminate, comm.size() > 1);
         // SolveCore.F90:3150-3163 (ListGetCReal).
         let relaxation = crate::expr::eval_creal(
             &sim.slots[slot_ix].params,
@@ -1248,6 +1250,10 @@ impl<'a> SolverCtx<'a> {
             return Err(SolverError::Unsupported("Before Linsolve = EliminateDirichlet with linear constraints".into()));
         }
         if let (Some(a), Some(x)) = (&mut ca, &mut cx) {
+            // A constraint block changes the split; no aliasing.
+            if let Some(b) = block_plan.as_mut() {
+                b.demote();
+            }
             log.info("SolveWithLinearRestriction", "Now solving the linear system with constraints!", 10);
             let env = BlockEnv {
                 dofs: var.dofs,
@@ -1256,6 +1262,7 @@ impl<'a> SolverCtx<'a> {
                 simulation: &sim.model.simulation,
                 schur: schur.as_ref(),
                 multigrid: mg.as_deref(),
+                alias: None,
             };
             sim.slots[slot_ix].lin_converged = solve_linear(&sim.backends.linear, &env, p, a, b, x, bnorm, nullify, log, comm)?;
             // ComputeChange over the collection solution, multipliers
@@ -1308,6 +1315,7 @@ impl<'a> SolverCtx<'a> {
                 simulation: &sim.model.simulation,
                 schur: schur.as_ref(),
                 multigrid: mg.as_deref(),
+                alias: if eliminate { None } else { block_plan.as_ref().and_then(|b| b.alias()) },
             };
             if eliminate {
                 // SolveCore.F90:3188-3192: the procedure solves and computes
@@ -1325,6 +1333,9 @@ impl<'a> SolverCtx<'a> {
                 sim.compute_change(slot_ix, false, Some(n), true, mesh, log, comm)?;
                 sim.calculate_loads(slot_ix, n, false, mesh, log)?;
             }
+        }
+        if let Some(b) = block_plan {
+            sim.finish_block_solve(b);
         }
         sim.update_2nd_order(slot_ix, n)?;
         sim.publish_live();
@@ -1374,6 +1385,10 @@ pub(crate) struct BlockEnv<'a> {
     pub schur: Option<&'a elmer_core::CsrMatrix<f64>>,
     /// The interpolation operators of geometric multigrid, level 2 up.
     pub multigrid: Option<&'a [elmer_core::CsrMatrix<f64>]>,
+    /// For a block solve through another solver's block matrix: that
+    /// solver's variable values, the start and the destination of the
+    /// solution ([`crate::block_alias`]).
+    pub alias: Option<&'a std::cell::RefCell<Vec<f64>>>,
 }
 
 /// The matrix of the solver whose variable `Block Matrix Schur Variable`
@@ -1508,7 +1523,7 @@ pub(crate) fn eliminate_dirichlet(
         true
     } else {
         // Bmatrix comes from AllocateMatrix: ndeg -1.
-        let block = BlockEnv { ndeg: 0, ..*block };
+        let block = BlockEnv { ndeg: 0, alias: None, ..*block };
         solve_linear(linear, &block, p, &mut bm, &mut f, &mut u, fnorm, nullify, log, comm)?
     };
     for i in 0..n {
@@ -1604,9 +1619,23 @@ pub(crate) fn solve_linear(
                 global_abort: block.simulation.logical("global abort not converged").unwrap_or(true),
                 schur: block.schur,
             };
-            elmer_block::block_solve(p, block.dofs, matrix, b, x, &opts, log, comm)
+            // Through another solver's block matrix (crate::block_alias):
+            // BlockKrylovIter starts from that solver's variable and leaves
+            // its solution there (BlockSolve.F90:4527, :4640-4643); this
+            // solver's (scaled) values stay as they were.
+            let own = block.alias.map(|al| {
+                let own = x.to_vec();
+                x.copy_from_slice(&al.borrow()[..x.len()]);
+                own
+            });
+            let r = elmer_block::block_solve(p, block.dofs, matrix, b, x, &opts, log, comm)
                 .map(|_| true)
-                .map_err(block_error)
+                .map_err(block_error);
+            if let (Some(al), Some(own)) = (block.alias, own) {
+                al.borrow_mut()[..x.len()].copy_from_slice(x);
+                x.copy_from_slice(&own);
+            }
+            r
         } else {
             // `Linear System Preconditioning = multigrid` with `MG Method =
             // algebraic`: the Krylov method with the AMG cycle as its
@@ -1703,7 +1732,7 @@ mod eliminate_tests {
         p.insert("Linear System Direct Method", Value::Str("umfpack".into()));
         let linear = crate::linsys::elmer_registry();
         let sim = ParamMap::new();
-        let env = BlockEnv { dofs: 1, ndeg: 1, simulation: &sim, schur: None, multigrid: None };
+        let env = BlockEnv { dofs: 1, ndeg: 1, simulation: &sim, schur: None, multigrid: None, alias: None };
         let mut x = vec![0.0; n];
         eliminate_dirichlet(&linear, &env, &p, &a, &b, &mut x, false, &NullLogger, &SerialComm).unwrap();
         assert_eq!((x[0], x[n - 1]), (0.5, -0.25));

@@ -299,6 +299,7 @@ pub(crate) fn solve_controlled(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverErr
             let env = crate::solver::BlockEnv {
                 dofs: sim.vars.by_id(id).dofs,
                 ndeg: sim.vars.by_id(id).dofs,
+                alias: None,
                 simulation: &sim.model.simulation,
                 schur: schur.as_ref(),
                 multigrid: None,

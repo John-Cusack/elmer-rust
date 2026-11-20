@@ -169,6 +169,9 @@ pub struct SolverSlot {
     pub(crate) cmodes: Option<crate::constraint_modes::Modes>,
     /// The child solvers' systems (`CreateChildSolver`).
     pub(crate) children: Vec<crate::child::ChildSystem>,
+    /// `ASSOCIATED(Solver % BlockMatrix)`: a block solve of this solver ran
+    /// ([`crate::block_alias`]).
+    pub(crate) block_matrix: bool,
 }
 
 impl SolverSlot {
@@ -203,6 +206,7 @@ impl SolverSlot {
             mg_meshes: None,
             cmodes: None,
             children: Vec::new(),
+            block_matrix: false,
         })
     }
 
@@ -321,6 +325,9 @@ pub struct Simulation {
     save_current: Option<Box<dyn SaveCurrent>>,
     /// Whether this rank owns each mesh node ([`Simulation::set_node_owned`]).
     node_owned: Option<Arc<[bool]>>,
+    /// The solver BlockSolve.F90's `TotMatrix` points at
+    /// ([`crate::block_alias`]).
+    pub(crate) block_tot: Option<crate::block_alias::BlockOwner>,
 }
 
 /// `SaveCurrent` (ElmerSolver.F90:3700): the `Output File` writer, called
@@ -379,6 +386,7 @@ impl Simulation {
             live: None,
             flux_shared_warned: false,
             keywords_normalized: false,
+            block_tot: None,
             save_current: None,
             node_owned: None,
         }
