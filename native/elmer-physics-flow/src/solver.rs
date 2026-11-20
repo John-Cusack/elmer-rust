@@ -136,7 +136,6 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
     for (key, what) in [
         ("out of plane flow", "out of plane flow"),
         ("adaptive mesh refinement", "adaptive mesh refinement"),
-        ("calculate loads", "load computation"),
         ("nonlinear system linesearch", "nonlinear line search"),
     ] {
         if flag(Some(p), key) {
@@ -204,7 +203,6 @@ fn check_bc(bc: &ParamMap, var_name: &str) -> Result<(), SolverError> {
     }
     for (prefix, what) in [
         ("surface tension", "surface tension"),
-        ("implicit friction", "implicit friction"),
         ("periodic bc", "periodic boundary conditions"),
         ("target coordinates", "point boundary conditions (Target Coordinates)"),
         ("target nodes", "point boundary conditions (Target Nodes)"),
@@ -587,6 +585,7 @@ impl Solver for FlowSolver {
                 }
                 ctx.default_update(&self.local, e)?;
             }
+            ctx.default_finish_bulk_assembly()?;
 
             for &e in &bnd {
                 ctx.element_dofs(e, &mut dofs);
@@ -644,6 +643,10 @@ impl Solver for FlowSolver {
                 ctx.default_update(&self.local, e)?;
             }
 
+            ctx.default_finish_boundary_assembly()?;
+            // Implicit friction boundaries, on the matrix level.
+            set_implicit_friction(ctx, dim)?;
+
             let fixed = dirichlet_rows(ctx, &comps, dim, true)?;
             apply_dirichlet(ctx, &fixed)?;
             let norm = ctx.default_solve()?;
@@ -675,6 +678,131 @@ impl Solver for FlowSolver {
         }
         Ok(())
     }
+}
+
+/// `SetImplicitFriction(Model, Solver, 'Implicit Friction Coefficient')`
+/// (SolverBasics.F90:10074): at each node of a boundary with an `Implicit
+/// Friction Coefficient` c (once per node, in boundary-element order), the
+/// row of the velocity component normal to the boundary (the component the
+/// element normal points along most) is added, times c times the unit
+/// direction of the current tangential velocity, to the tangential rows:
+/// the tangential traction becomes c times the normal one. `Implicit
+/// Friction Exclude Pressure` leaves the pressure columns out. Not ported:
+/// `Implicit Friction Direction Vector` (refused) and normal-tangential
+/// systems (FlowSolve refuses them).
+fn set_implicit_friction(ctx: &mut SolverCtx<'_>, dim: usize) -> Result<(), SolverError> {
+    const KEY: &str = "implicit friction coefficient";
+    if !ctx.sim.model.boundary_conditions.iter().any(|bc| bc.get(KEY).is_some()) {
+        return Ok(());
+    }
+    ctx.info("SetImplicitFriction", "Setting fluid friction for boundaries on matrix level!", 7);
+    let exclude_pressure = flag(Some(ctx.params()), "implicit friction exclude pressure");
+    let (dofs, perm, values) = {
+        let f = ctx.primary().ok_or_else(|| SolverError::fatal(CALLER, "solver has no variable"))?;
+        (f.dofs, f.perm.map(|p| p.to_vec()), f.values.to_vec())
+    };
+    let perm = perm.ok_or_else(|| SolverError::fatal("SetImplicitFriction", "flow variable has no permutation"))?;
+    let mut done = vec![false; perm.len()];
+    let bnd: Vec<ElemId> = ctx.boundary_elements().collect();
+    for e in bnd {
+        let Some(bc) = ctx.bc_params(e) else { continue };
+        if bc.get(KEY).is_none() {
+            continue;
+        }
+        let bc = bc.clone();
+        let el = ctx.mesh.element(e);
+        let nodes = el.nodes.to_vec();
+        let normal = element_normal(ctx.mesh, el.etype, &nodes)?;
+        let coeff = ctx
+            .real_at_nodes(&bc, KEY, e)?
+            .ok_or_else(|| SolverError::fatal("SetImplicitFriction", "Implicit Friction Coefficient not found"))?;
+        for (i, &j) in nodes.iter().enumerate() {
+            let j = j as usize;
+            if done[j] || perm[j] == NO_DOF {
+                continue;
+            }
+            done[j] = true;
+            let c = coeff[i];
+            if c.abs() < 1.0e-10 {
+                continue;
+            }
+            // The Cartesian component the normal is associated to.
+            let mut dof_n = 0;
+            for k in 1..dim {
+                if normal[k].abs() > normal[dof_n].abs() {
+                    dof_n = k;
+                }
+            }
+            if normal[dof_n].abs() < 0.99 {
+                ctx.warn("SetImplicitFriction", "No normal-tangential system for implicit friction!");
+            }
+            let dof_t1 = if dof_n == 0 { 1 } else { 0 };
+            let dof_t2 = 3 - dof_t1 - dof_n;
+            let slot = perm[j] as usize;
+            let mut velo = [0.0f64; 3];
+            velo[dof_t1] = values[dofs * slot + dof_t1];
+            if dim == 3 {
+                velo[dof_t2] = values[dofs * slot + dof_t2];
+            }
+            let abs = velo.iter().map(|v| v * v).sum::<f64>().sqrt();
+            if abs <= f64::MIN_POSITIVE {
+                continue;
+            }
+            for v in velo.iter_mut() {
+                *v /= abs;
+            }
+            for v in velo.iter_mut() {
+                *v *= c;
+            }
+            let sys = ctx.system_mut().ok_or_else(|| SolverError::fatal("SetImplicitFriction", "no linear system"))?;
+            let a = &mut sys.matrix;
+            let k = dofs * slot + dof_n;
+            let k2 = dofs * slot + dof_t1;
+            let k3 = dofs * slot + dof_t2;
+            sys.rhs[k2] += velo[dof_t1] * sys.rhs[k];
+            if dim == 3 {
+                sys.rhs[k3] += velo[dof_t2] * sys.rhs[k];
+            }
+            for l in a.row_ptr[k]..a.row_ptr[k + 1] {
+                let col = a.col_idx[l] as usize;
+                if dofs > dim && exclude_pressure && col % dofs == dofs - 1 {
+                    continue;
+                }
+                let find = |row: usize| (a.row_ptr[row]..a.row_ptr[row + 1]).find(|&m| a.col_idx[m] as usize == col);
+                let v = a.values[l];
+                let l2 = find(k2).ok_or_else(|| SolverError::fatal("SetImplicitFriction", "matrix pattern"))?;
+                a.values[l2] += velo[dof_t1] * v;
+                if dim == 3 {
+                    let l3 = find(k3).ok_or_else(|| SolverError::fatal("SetImplicitFriction", "matrix pattern"))?;
+                    a.values[l3] += velo[dof_t2] * v;
+                }
+            }
+        }
+    }
+    let n = done.iter().filter(|&&d| d).count();
+    ctx.info("SetImplicitFriction", &format!("Number of friction nodes set: {n}"), 10);
+    Ok(())
+}
+
+/// `NormalVector(Element, Nodes)` at the element centre without the
+/// orientation check, for the direction it is associated to only: a line's
+/// `(dy, -dx)`, a face's `dx/du x dx/dv` of its first three nodes.
+fn element_normal(mesh: &dyn MeshView, etype: elmer_core::ElementType, nodes: &[u32]) -> Result<[f64; 3], SolverError> {
+    let x: Vec<[f64; 3]> = nodes.iter().map(|&n| mesh.coord(n)).collect();
+    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let n = match etype.family() {
+        2 => {
+            let t = sub(x[1], x[0]);
+            [t[1], -t[0], 0.0]
+        }
+        3 | 4 => {
+            let (u, v) = (sub(x[1], x[0]), sub(x[2], x[0]));
+            [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+        }
+        f => return Err(unsupported(format!("Implicit Friction on boundary elements of family {f}"))),
+    };
+    let s = n.iter().map(|v| v * v).sum::<f64>().sqrt();
+    Ok(n.map(|v| v / s))
 }
 
 /// `Solver % Variable % NonlinChange` after the last solve.

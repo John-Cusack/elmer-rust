@@ -128,13 +128,14 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if ns {
             elmer_physics_incompressible::solver_defaults_with(params, cdim, transient, serendipity);
         }
-        if params.get("procedure").is_some() {
-            continue;
-        }
+        // AddEquationBasics (MainUtils.F90:1231): a legacy `Equation` name
+        // gives the `Variable` when there is none, with or without a
+        // `Procedure`, and the `Procedure` when there is none.
+        let has_procedure = params.get("procedure").is_some();
         let name = params.string("equation").map(|s| s.trim().to_ascii_lowercase());
         let (var, dofs, procedure) = match name.as_deref() {
             Some("heat equation") => {
-                if params.get("radiation solver").is_none() {
+                if !has_procedure && params.get("radiation solver").is_none() {
                     params.insert("Radiation Solver", Value::Logical(true));
                 }
                 ("Temperature", 1, "HeatSolve HeatSolver")
@@ -158,7 +159,9 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
                 params.insert("Variable Dofs", Value::Integer(vec![dofs as i32]));
             }
         }
-        params.insert("Procedure", Value::Str(procedure.into()));
+        if !has_procedure {
+            params.insert("Procedure", Value::Str(procedure.into()));
+        }
     }
 }
 
