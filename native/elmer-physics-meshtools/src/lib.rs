@@ -9,6 +9,7 @@
 #![allow(clippy::needless_range_loop)]
 
 mod checksum;
+pub mod mesh_solve;
 pub mod motion;
 mod project;
 mod rigid;
@@ -27,6 +28,7 @@ use elmer_solver::SolverRegistry;
 /// Registers every solver of this crate.
 pub fn register(registry: &mut SolverRegistry) {
     registry.register("MeshChecksum", "MeshChecksum", checksum::factory);
+    registry.register("MeshSolve", "MeshSolver", mesh_solve::factory);
     registry.register("RigidMeshMapper", "RigidMeshMapper", rigid::factory);
     registry.register(
         "StructuredProjectToPlane",

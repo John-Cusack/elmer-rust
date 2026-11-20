@@ -229,9 +229,15 @@ impl<'a> SolverCtx<'a> {
 
     /// Body, equation, material, body force and initial condition of a
     /// bulk element. `None` if the element's tag maps to no body.
+    /// The sections of element `e`'s body; a boundary element has one only
+    /// through its BC's `Body Id` ([`Model::boundary_body`]).
     pub fn body_params(&self, e: ElemId) -> Option<BodyParams<'_>> {
         let tag = self.mesh.element(e).tag;
-        let b = self.sim.model.body_of_tag(tag)?;
+        let b = if (e.0 as usize) < self.mesh.n_bulk() {
+            self.sim.model.body_of_tag(tag)?
+        } else {
+            self.sim.model.boundary_body(tag)?
+        };
         self.sim.model.body_params(b)
     }
 
