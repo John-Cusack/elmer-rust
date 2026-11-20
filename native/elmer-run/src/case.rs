@@ -1165,6 +1165,7 @@ fn run_case_meshes(
     let _motion = mesh.install();
     let mesh: &dyn MeshView = &mesh;
     let mut outputs = prepare_vtu_output(&mut model, &case_dir, &mesh_dir, size > 1)?;
+    let stl_outputs = crate::stl::prepare_stl_output(&model, &case_dir, size > 1)?;
     // The Output File directory: `Mesh % Name` under the case (the mesh
     // directory itself when the Mesh DB is "." "<name>").
     let result_dir = match model.header.string("mesh name") {
@@ -1331,6 +1332,15 @@ fn run_case_meshes(
             .find(|s| s.id == id)
             .ok_or_else(|| SolverError::fatal("ResultOutputSolver", format!("no slot for Solver {id}")))?;
         slot.set_instance(Box::new(out.into_solver(Arc::clone(&written)).in_job(rank, size)));
+    }
+    for out in stl_outputs {
+        let id = out.index + 1;
+        let slot = sim
+            .slots
+            .iter_mut()
+            .find(|s| s.id == id)
+            .ok_or_else(|| SolverError::fatal("ResultOutputSolver", format!("no slot for Solver {id}")))?;
+        slot.set_instance(Box::new(out.into_solver()));
     }
     // `Apply Mortar BCs`, or a `Periodic BC Use Lagrange Coefficient` of its
     // variable: the slot's solver behind the mortar constraints.

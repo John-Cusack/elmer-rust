@@ -76,6 +76,16 @@ pub fn prepare_vtu_output(
         }
         let vtu = params.logical("vtu format") == Some(true)
             || params.string("output format").is_some_and(|f| f.eq_ignore_ascii_case("vtu"));
+        let others = ["gid format", "gmsh format", "vtk format", "elmerpost format", "dx format"]
+            .iter()
+            .any(|k| params.logical(k) == Some(true));
+        if crate::stl::is_stl(params) && !others {
+            if vtu {
+                return Err(SolverError::Unsupported(format!("Solver {id}: ResultOutputSolver with VTU and STL")));
+            }
+            // `crate::stl::prepare_stl_output`.
+            continue;
+        }
         if !vtu {
             return Err(SolverError::Unsupported(format!("Solver {id}: ResultOutputSolver other than VTU")));
         }
@@ -538,7 +548,7 @@ impl Solver for VtuSolver {
 
 /// The first column of `Reference Values` (`RefResults(:,1)`); `None` with
 /// fewer than the six entries `AscBinCompareNorm` reads.
-fn reference_values(v: &elmer_core::Value) -> Option<[f64; 6]> {
+pub(crate) fn reference_values(v: &elmer_core::Value) -> Option<[f64; 6]> {
     let col: Vec<f64> = match v {
         elmer_core::Value::Real { cols, data, .. } => data.iter().step_by((*cols).max(1)).copied().collect(),
         elmer_core::Value::Integer(v) => v.iter().map(|&i| f64::from(i)).collect(),

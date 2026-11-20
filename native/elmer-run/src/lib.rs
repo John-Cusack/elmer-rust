@@ -44,6 +44,7 @@ mod motion;
 mod elec_force;
 mod saveprojection;
 mod energy_release;
+mod stl;
 pub mod result_file;
 pub mod output;
 pub mod sif;
