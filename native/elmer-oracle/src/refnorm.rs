@@ -127,7 +127,7 @@ pub fn saved_scalar(run: &std::path::Path, filename: &str, show: &ShowNorm) -> R
 /// instead of leaving it to `ComputeNorm` (pristine `fem/src/modules`,
 /// grep `Variable % Norm =`, keyed by the enclosing solver subroutine).
 /// A mismatch in one of these is a grader gap, not a capture failure.
-const SELF_NORM: [&str; 34] = [
+const SELF_NORM: [&str; 35] = [
     "acousticssolver",
     "compressibilityscale",
     "solidphasecons",
@@ -162,6 +162,12 @@ const SELF_NORM: [&str; 34] = [
     "transientcost",
     "vectorhelmholtznodal",
     "vorticitysolver",
+    // Not a direct assignment: with `Surface Smoothing Factor = 0` the
+    // norm is SolveSystem's on the `-nooutput` `<var> Velo` array, and the
+    // saved surface is then updated from it without a new norm
+    // (`TransientPhaseChange.F90` 435, 465–467). The smoothed path solves
+    // for the surface itself and validates bitwise (PhaseChange4).
+    "transientphasechange",
 ];
 
 /// Solver entries that write into another solver's variable after that
