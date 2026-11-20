@@ -9,6 +9,16 @@
 //! checked against the polynomial (`CheckValue`, relative tolerances), and
 //! the projected derivatives against `ddBasisddx` (1e-8). A failed check
 //! stops the run, as the Fortran's `STOP`.
+//!
+//! NOT REGISTERED ON MAIN (Firstmate decision 040, kept for reference): the
+//! p:8 tetrahedron (165 dofs, 810 points) fails the test's own check
+//! `|ddxFromNodaldx - ddBasisddx| < 1e-8` at 1.0e-8..4e-8, while the second
+//! derivatives here are ~1e-15 from exact. The error is the test's L2
+//! projection through `InvertMatrix` of a badly conditioned 165x165 mass
+//! matrix, which is rounding-chaotic: pristine's margin there is 5e-10, the
+//! basis values agree with pristine to ~1e-11 relative, and the Fortran
+//! layout, Jacobi scaling and refinement only move the error around. The
+//! test-local solver stays a faithful port; it is not made more accurate.
 
 use elmer_core::{BasisEval, ElemId, ParamMap, Params};
 use elmer_pdofs::PDofsBackend;
