@@ -45,22 +45,36 @@ fn factory(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     if FE.get().is_none() {
         return Err(SolverError::NotWired("element basis and quadrature (elmer-fe)".into()));
     }
-    Ok(Box::new(StressSolver { fe: None }))
+    Ok(Box::new(StressSolver { fe: None, ve_prev: None }))
 }
 
 /// The linear elasticity solver.
 pub struct StressSolver {
     fe: Option<FeServices>,
+    /// `ve_stress % PrevValues(:,1)`: a Maxwell material's lag stress of the
+    /// previous step.
+    ve_prev: Option<Vec<f64>>,
 }
 
 impl StressSolver {
     /// A solver that owns its basis and quadrature.
     pub fn new(fe: FeServices) -> Self {
-        Self { fe: Some(fe) }
+        Self { fe: Some(fe), ve_prev: None }
     }
 
     fn fe(&self) -> &FeServices {
         self.fe.as_ref().or_else(|| FE.get()).expect("checked by factory")
+    }
+}
+
+/// A material's `Maxwell material`, or the solver section's when no material
+/// sets one (StressSolver_Init copies it onto every material).
+fn maxwell_here(ctx: &SolverCtx<'_>, mat: &ParamMap) -> bool {
+    let key = "maxwell material";
+    if ctx.sim.model.materials.iter().any(|m| flag(Some(m), key)) {
+        flag(Some(mat), key)
+    } else {
+        flag(Some(ctx.params()), key)
     }
 }
 
@@ -197,6 +211,8 @@ struct ElementData {
     strain_load: Option<Vec<[f64; 6]>>,
     gpa: Option<Vec<f64>>,
     ip: Option<IpProps>,
+    /// `Maxwell material`: the material's `Viscosity` at the nodes.
+    maxwell: Option<Vec<f64>>,
 }
 
 impl ElementData {
@@ -228,6 +244,7 @@ impl ElementData {
             stress_load: self.stress_load.map(|v| take(&map, &v)),
             strain_load: self.strain_load.map(|v| take(&map, &v)),
             gpa: self.gpa.map(|v| take(&map, &v)),
+            maxwell: self.maxwell.map(|v| take(&map, &v)),
             ..self
         }
     }
@@ -312,11 +329,18 @@ impl StressSolver {
         let mat = bp
             .material
             .ok_or_else(|| SolverError::fatal(CALLER, format!("body {} has no material", bp.body_id)))?;
-        for (key, what) in [("maxwell material", "Maxwell material"), ("umat subroutine", "UMAT")] {
-            if mat.get(key).is_some() && (flag(Some(mat), key) || !matches!(mat.get(key), Some(Value::Logical(_)))) {
-                return Err(unsupported(what));
-            }
+        let key = "umat subroutine";
+        if mat.get(key).is_some() && (flag(Some(mat), key) || !matches!(mat.get(key), Some(Value::Logical(_)))) {
+            return Err(unsupported("UMAT"));
         }
+        let maxwell = if maxwell_here(ctx, mat) {
+            if mat.get("viscosity model").is_some() {
+                return Err(unsupported("a Maxwell material with a \"Viscosity Model\""));
+            }
+            Some(props::scalar_nodes(ctx, mat, "viscosity", e)?.unwrap_or_else(|| vec![0.0; n]))
+        } else {
+            None
+        };
         if let Some(bf) = bp.body_force {
             for prefix in [
                 "inertial bodyforce",
@@ -509,6 +533,7 @@ impl StressSolver {
             strain_load,
             gpa,
             ip,
+            maxwell,
         })
     }
 
@@ -843,8 +868,42 @@ impl Solver for StressSolver {
             }
         }
         let orig_eigen = ctx.params().logical("eigen analysis") == Some(true);
-        let iters = if lumping { 6 } else if geometric { 2 } else { 1 };
+        // Stress.F90:289-327: a Maxwell material (StressSolver_Init has set at
+        // least two nonlinear iterates, BDF1 and the `ve_stress` variable).
+        let any_maxwell = ctx.sim.model.materials.iter().any(|m| maxwell_here(ctx, m));
+        let nve = crate::bulk::sym_tensor_components(cdim, axi);
+        let mut min_iter = 0;
+        if any_maxwell {
+            if flag(Some(ctx.params()), "incompressible") {
+                return Err(unsupported("a Maxwell material with \"Incompressible\""));
+            }
+            if lumping || cs || cbs || cbm || geometric || ctx.solver_dofs().is_some() || !transient {
+                return Err(unsupported(
+                    "a Maxwell material in a steady run or with Model Lumping, the Constant keywords, geometric stiffness or p elements",
+                ));
+            }
+            let v = ctx.sim.vars.get("ve_stress").ok_or_else(|| {
+                SolverError::fatal(CALLER, "\"Maxwell material\" set, but no storage space for stresses present?")
+            })?;
+            if v.dofs != nve {
+                return Err(SolverError::fatal(
+                    CALLER,
+                    format!("Variable \"ve_stress\" has {} components per point, expected {nve}", v.dofs),
+                ));
+            }
+            let len = v.values.len();
+            self.ve_prev.get_or_insert_with(|| vec![0.0; len]);
+            min_iter = ctx.params().integer("nonlinear system min iterations").unwrap_or(0).max(0) as usize;
+        }
+        let max_iter = ctx.params().integer("nonlinear system max iterations").unwrap_or(1).max(1) as usize;
+        let iters = if lumping { 6 } else if geometric { 2 } else if any_maxwell { max_iter } else { 1 };
         for iter in 1..=iters {
+            // `ve_stress % PrevValues = ve_stress % Values` at the first
+            // nonlinear and coupled iterate (Stress.F90:320).
+            if any_maxwell && iter == 1 && ctx.sim.vars.scalar("coupled iter").unwrap_or(1.0) == 1.0 {
+                let v = ctx.sim.vars.get("ve_stress").expect("checked above");
+                self.ve_prev.as_mut().expect("allocated").copy_from_slice(&v.values);
+            }
             let geometric_active = geometric && iter > 1;
             if geometric {
                 ctx.params_mut().insert("Eigen Analysis", elmer_core::Value::Logical(geometric_active && orig_eigen));
@@ -899,6 +958,41 @@ impl Solver for StressSolver {
                         })
                         .collect()
                 });
+                // `ve_stress % Perm(ElementIndex)`: the element's points; `SOL`.
+                if d.maxwell.is_some() && (!matches!(d.law, ElasticLaw::Isotropic { .. }) || d.temperature.is_some()) {
+                    return Err(unsupported("a Maxwell material with an anisotropic law or a temperature"));
+                }
+                let maxwell_lag = match d.maxwell {
+                    Some(_) => {
+                        let v = ctx.sim.vars.get("ve_stress").ok_or_else(|| {
+                            SolverError::fatal(CALLER, "\"Maxwell material\" set, but no storage space for stresses present?")
+                        })?;
+                        let p = v.perm.as_deref().ok_or_else(|| SolverError::fatal(CALLER, "ve_stress has no permutation"))?;
+                        Some((p[e.0 as usize] as usize, p[e.0 as usize + 1] as usize))
+                    }
+                    None => None,
+                };
+                let new_lag = std::cell::RefCell::new(Vec::new());
+                let cur_u: Vec<[f64; 3]> = if maxwell_lag.is_some() {
+                    let f = ctx.primary().ok_or_else(|| SolverError::fatal(CALLER, "solver has no displacement variable"))?;
+                    nodes
+                        .iter()
+                        .map(|&nn| {
+                            let mut u = [0.0; 3];
+                            let slot = f.perm.map_or(Some(nn as usize), |p| {
+                                p.get(nn as usize).copied().filter(|&s| s != elmer_core::NO_DOF).map(|s| s as usize)
+                            });
+                            if let Some(s) = slot {
+                                for (i, ui) in u.iter_mut().enumerate().take(cdim) {
+                                    *ui = f.values[f.dofs * s + i];
+                                }
+                            }
+                            u
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
                 let inp = StressBulkInput {
                     etype: el.etype,
                     xyz: &xyz,
@@ -920,6 +1014,13 @@ impl Solver for StressSolver {
                     ip: d.ip.as_ref(),
                     geometric: nodal_u.as_deref().map(|u| crate::bulk::Geometric { displacement: u, stability }),
                     incompressible: flag(Some(ctx.params()), "incompressible"),
+                    maxwell: maxwell_lag.as_ref().map(|&(lo, hi)| crate::bulk::Maxwell {
+                        viscosity: d.maxwell.as_deref().expect("Maxwell element"),
+                        dt,
+                        lag: &self.ve_prev.as_deref().expect("allocated")[nve * lo..nve * hi],
+                        new_lag: &new_lag,
+                        disp: &cur_u,
+                    }),
                 };
                 let mut local = LocalSystem::zeros(0);
                 let fe = self.fe();
@@ -931,6 +1032,10 @@ impl Solver for StressSolver {
                     None => stress_bulk_local(&*fe.basis, &*fe.quad, &inp, &mut local),
                 }
                 .map_err(|x| SolverError::fatal(CALLER, x.to_string()))?;
+                if let Some((lo, hi)) = maxwell_lag {
+                    let v = ctx.sim.vars.get_mut("ve_stress").expect("checked above");
+                    v.values[nve * lo..nve * hi].copy_from_slice(&new_lag.borrow());
+                }
                 if transient {
                     let nn = local.n * local.n;
                     let mut mass = local.mass.take().unwrap_or_else(|| vec![0.0; nn]);
@@ -1124,6 +1229,10 @@ impl Solver for StressSolver {
             if let Some(l) = lump.as_mut() {
                 let fe = self.fe();
                 l.springs(ctx, &*fe.basis, &*fe.quad, iter)?;
+            }
+            // StressSolve.F90:1000.
+            if any_maxwell && iter > min_iter && ctx.default_converged() {
+                break;
             }
         }
 

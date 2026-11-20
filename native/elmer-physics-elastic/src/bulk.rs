@@ -82,6 +82,8 @@ pub struct StressBulkInput<'a> {
     /// StressSolve's `Incompressible`: a pressure unknown after the `cdim`
     /// displacement components of each dof (`ndim = dim + 1`).
     pub incompressible: bool,
+    /// `Maxwell material` at this element.
+    pub maxwell: Option<Maxwell<'a>>,
 }
 
 /// The geometric stiffness term of ElasticSolve's `LocalMatrix`
@@ -95,6 +97,64 @@ pub struct Geometric<'a> {
     /// The displacement at the element nodes.
     pub displacement: &'a [[f64; 3]],
     pub stability: bool,
+}
+
+/// The Maxwell viscoelastic law of StressSolve's `StressCompose`
+/// (Stress.F90:289-327, :527-549, `ViscoElasticLoad` :747) and ElasticSolve's
+/// `LocalMatrix` (ElasticSolve.F90:3964-4468): the response is relaxed by
+/// `xPhi = 1 / (1 + mu/eta dt)` and the lag stress of the previous step
+/// enters as `-xPhi sigma_lag` in the stress offset.
+#[derive(Clone, Copy, Debug)]
+pub struct Maxwell<'a> {
+    /// `Viscosity` at the nodes (a Newtonian one: no `Viscosity Model`).
+    pub viscosity: &'a [f64],
+    /// `GetTimestepSize()`.
+    pub dt: f64,
+    /// `ve_stress % PrevValues` of the element's points, `nve` per point in
+    /// the `Vector62Tensor` packing.
+    pub lag: &'a [f64],
+    /// Receives `ve_stress % Values` of the element's points.
+    pub new_lag: &'a std::cell::RefCell<Vec<f64>>,
+    /// StressSolve's `SOL`: the current displacement at the nodes, whose
+    /// elastic stress advances the lag stress (ElasticSolve uses its own).
+    pub disp: &'a [[f64; 3]],
+}
+
+/// `SymTensorComponents(dim, AxialSymmetry)`.
+pub fn sym_tensor_components(cdim: usize, axi: bool) -> usize {
+    match (cdim, axi) {
+        (2, true) => 4,
+        (2, false) => 3,
+        (3, _) => 6,
+        _ => 1,
+    }
+}
+
+/// `Tensor26Vector` (Stress.F90:1951), the packing of `voigt_to_tensor`.
+pub fn tensor_to_packed(x: &[[f64; 3]; 3], cdim: usize, axi: bool, out: &mut [f64]) {
+    let (i1, i2): (&[usize], &[usize]) = match (cdim, axi) {
+        (2, true) => (&[0, 1, 2, 0], &[0, 1, 2, 1]),
+        (2, false) => (&[0, 1, 0], &[0, 1, 1]),
+        _ => (&[0, 1, 2, 0, 1, 0], &[0, 1, 2, 1, 2, 2]),
+    };
+    for (k, o) in out.iter_mut().enumerate().take(i1.len()) {
+        *o = (x[i1[k]][i2[k]] + x[i2[k]][i1[k]]) / 2.0;
+    }
+}
+
+/// `Vector62Tensor` (Stress.F90:1908): the packing of [`tensor_to_packed`].
+pub fn packed_to_tensor(v: &[f64], cdim: usize, axi: bool) -> Tensor3 {
+    let (i1, i2): (&[usize], &[usize]) = match (cdim, axi) {
+        (2, true) => (&[0, 1, 2, 0], &[0, 1, 2, 1]),
+        (2, false) => (&[0, 1, 0], &[0, 1, 1]),
+        _ => (&[0, 1, 2, 0, 1, 0], &[0, 1, 2, 1, 2, 2]),
+    };
+    let mut x = ZERO3;
+    for k in 0..i1.len() {
+        x[i1[k]][i2[k]] = v[k];
+        x[i2[k]][i1[k]] = v[k];
+    }
+    x
 }
 
 /// Shape function values at each Gauss point of the element's rule, `n_ip` rows
@@ -287,7 +347,22 @@ fn bulk_impl(
         || inp
             .strain_load
             .is_some_and(|s| s.iter().any(|v| v.iter().any(|x| *x != 0.0)));
-    let got_offset = has_voigt || has_heat;
+    let maxwell = inp.maxwell;
+    let got_offset = has_voigt || has_heat || maxwell.is_some();
+    let nve = sym_tensor_components(cdim, axi);
+    if let Some(m) = maxwell {
+        if m.lag.len() != nve * points.len() {
+            return Err(StressError::Input(format!(
+                "Inconsistent number of gauss points: {} and \"ve_stress\" {}",
+                points.len(),
+                m.lag.len() / nve
+            )));
+        }
+        if !matches!(inp.law, ElasticLaw::Isotropic { .. }) || has_heat || m.disp.len() < n {
+            return Err(StressError::Input("a Maxwell material needs an isotropic law without heat expansion".into()));
+        }
+        m.new_lag.borrow_mut().resize(nve * points.len(), 0.0);
+    }
 
     if let Some(p) = ip {
         let np = points.len();
@@ -404,6 +479,33 @@ fn bulk_impl(
             }
         };
 
+        // Stress.F90:527-549, `ViscoElasticLoad`: `xPhi` with the shear modulus
+        // and (Newtonian) viscosity at the point; the lag stress advanced with
+        // the elastic stress of the current displacement (`LocalStress`).
+        let mut x_phi = 1.0;
+        let mut lag = ZERO3;
+        if let (Some(m), PointLaw::Iso { lame2, .. }) = (maxwell, &law) {
+            let visc: f64 = (0..n).map(|k| m.viscosity[k] * bas[k]).sum();
+            x_phi = 1.0 / (1.0 + *lame2 / visc * m.dt);
+            lag = packed_to_tensor(&m.lag[nve * ipt..nve * (ipt + 1)], cdim, axi);
+            let mut grad = ZERO3;
+            for a in 0..cdim {
+                for b in 0..cdim {
+                    grad[a][b] = (0..n).map(|k| m.disp[k][a] * db[k][b]).sum();
+                }
+            }
+            if axi {
+                grad[2][2] = (0..n).map(|k| m.disp[k][0] * bas[k]).sum::<f64>() / r;
+            }
+            let elastic = law.stress(dim, false, &symmetrize(&grad));
+            let mut new = ZERO3;
+            for i in 0..3 {
+                for j in 0..3 {
+                    new[i][j] = (1.0 - x_phi) * elastic[i][j] + x_phi * lag[i][j];
+                }
+            }
+            tensor_to_packed(&new, cdim, axi, &mut m.new_lag.borrow_mut()[nve * ipt..nve * (ipt + 1)]);
+        }
         // Stress offset: sigma = C(eps - eps0) + sigma0 at zero displacement.
         let mut stress_offset = ZERO3;
         if got_offset {
@@ -435,7 +537,8 @@ fn bulk_impl(
             let resp = law.stress(dim, false, &eigen);
             for i in 0..3 {
                 for j in 0..3 {
-                    stress_offset[i][j] -= resp[i][j];
+                    // `+ VeLoad`: the lag stress relaxed by xPhi.
+                    stress_offset[i][j] -= resp[i][j] + x_phi * lag[i][j];
                 }
             }
         }
@@ -462,6 +565,14 @@ fn bulk_impl(
                 }
                 ddefg[k] = d;
                 dstress[k] = law.stress(dim, true, &symmetrize(&d));
+                // `A = MATMUL(G, B) * xPhi`.
+                if maxwell.is_some() {
+                    for row in dstress[k].iter_mut() {
+                        for v in row.iter_mut() {
+                            *v *= x_phi;
+                        }
+                    }
+                }
             }
         }
 

@@ -148,6 +148,34 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
                 params.insert(&format!("Exported Variable {k}"), Value::Str(def));
             }
         }
+        // ElasticSolver_Init / StressSolver_Init (ElasticSolve.F90:145-168,
+        // StressSolve.F90:294-336): a Maxwell material, in any material or
+        // the solver section, integrates first order (BDF1) and keeps its lag
+        // stress in `ve_stress` at the integration points; at least two
+        // nonlinear iterates.
+        let maxwell = materials.iter().any(|m| m.logical("maxwell material") == Some(true))
+            || params.logical("maxwell material") == Some(true);
+        if elastic && maxwell {
+            let axi = matches!(
+                coords.kind,
+                CoordinateKind::AxisSymmetric | CoordinateKind::CylindricSymmetric
+            );
+            let nve = match (cdim, axi) {
+                (2, true) => 4,
+                (2, false) => 3,
+                (3, _) => 6,
+                _ => 1,
+            };
+            params.insert("Timestepping Method", Value::Str("BDF".into()));
+            params.insert("BDF Order", Value::Integer(vec![1]));
+            params.insert("Time derivative Order", Value::Integer(vec![1]));
+            let k = (1..).find(|k| params.get(&format!("exported variable {k}")).is_none()).unwrap_or(1);
+            params.insert(&format!("Exported Variable {k}"), Value::Str(format!("-dofs {nve} -ip ve_stress")));
+            for key in ["Nonlinear System Min Iterations", "Nonlinear System Max Iterations"] {
+                let i = params.integer(key).unwrap_or(0);
+                params.insert(key, Value::Integer(vec![i.max(2)]));
+            }
+        }
         // `HeatSolver_init` (HeatSolve.F90:167): `Variable = Temperature`.
         let heat = procedure_of(params).is_some_and(|(lib, entry)| {
             lib.eq_ignore_ascii_case("heatsolve") && entry.eq_ignore_ascii_case("heatsolver")
