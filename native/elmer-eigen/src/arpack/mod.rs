@@ -11,6 +11,7 @@
 pub mod blas;
 pub mod zblas;
 pub mod zlapack;
+pub mod znaupd;
 pub mod lapack;
 pub mod lapack_ns;
 pub mod naupd;
