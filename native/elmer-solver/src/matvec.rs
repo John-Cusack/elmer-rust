@@ -98,7 +98,7 @@ impl LinearOperator<f64> for ElmerMatvec<'_> {
 /// IterSolver takes over the block view of such a matrix: four accumulators
 /// over each row's entries taken four at a time, the rest into the first,
 /// `r1 + r2 + r3 + r4` at the end.
-pub(crate) fn crs_complex_matrix_vector_multiply(a: &CsrMatrix<Complex64>, u: &[Complex64], v: &mut [Complex64]) {
+pub fn crs_complex_matrix_vector_multiply(a: &CsrMatrix<Complex64>, u: &[Complex64], v: &mut [Complex64]) {
     for i in 0..a.nrows {
         let (s, e) = (a.row_ptr[i], a.row_ptr[i + 1]);
         let term = |j: usize| a.values[j] * u[a.col_idx[j] as usize];
@@ -120,7 +120,7 @@ pub(crate) fn crs_complex_matrix_vector_multiply(a: &CsrMatrix<Complex64>, u: &[
 
 /// A complex matrix as Elmer's complex Krylov methods apply it
 /// ([`crs_complex_matrix_vector_multiply`]).
-pub(crate) struct ElmerComplexMatvec<'a>(pub &'a CsrMatrix<Complex64>);
+pub struct ElmerComplexMatvec<'a>(pub &'a CsrMatrix<Complex64>);
 
 impl LinearOperator<Complex64> for ElmerComplexMatvec<'_> {
     fn nrows(&self) -> usize {
