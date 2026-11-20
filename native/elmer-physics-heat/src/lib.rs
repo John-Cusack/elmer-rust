@@ -37,6 +37,7 @@
 //! a solver with `Exec Solver = Never` passes setup as it does in Elmer.
 #![forbid(unsafe_code)]
 
+mod adaptive;
 mod boundary;
 mod bulk;
 mod bulk_vec;
