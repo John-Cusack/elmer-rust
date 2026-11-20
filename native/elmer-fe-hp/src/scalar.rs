@@ -14,9 +14,13 @@
 //! that one path leaves nonzero and the other cancels to zero changes
 //! ILU(0)'s sparsity pattern (StokesPFEM).
 //!
-//! Ported so far, for degrees up to 5 (the `varPhi` / `dVarPhi` / `dPhi`
-//! cases whose powers are `x**2` and `x**4`, which every gfortran
-//! expansion of `**` evaluates the same way):
+//! Ported so far, for degrees up to 9 (`varPhi` / `dVarPhi` / `dPhi`
+//! cases 2-9). Their integer powers `x**n` are evaluated the way the
+//! release build (gfortran `-O3`) does: GCC's `powi_table` addition chain
+//! ([`pow`]). The debug build calls libgcc's square-and-multiply
+//! `__powidf2` instead, which rounds differently from n = 5 on. Up to
+//! degree 5 the two agree, which is what the debug-captured per-function
+//! fixtures check.
 //! * triangles (303): nodal and edge functions;
 //! * quadrilaterals (404): nodal, edge and interior bubble functions, full
 //!   scheme (`QuadEdgePBasis`, `QuadBubblePBasis` without `localNumbers`,
@@ -24,7 +28,7 @@
 //!   (`SD_QuadEdgePBasis`, `SD_QuadBubblePBasis`, :495, :657, :738, :786).
 //!
 //! Triangle bubbles, face-directed quad bubbles (a 2D element on a 3D
-//! face) and higher degrees keep the H1Basis values.
+//! face) and degrees above 9 keep the H1Basis values.
 
 // Index loops mirror the Fortran's.
 #![allow(clippy::needless_range_loop)]
@@ -40,24 +44,47 @@ fn l(node: usize, u: f64, v: f64) -> f64 {
     }
 }
 
-/// `varPhi(i, x)` (PElementBase.F90:8600), cases 2-5.
+/// `x**n` as gfortran `-O3` expands it: GCC's `powi_table` chain,
+/// `x^n = x^(n - t[n]) * x^t[n]` (tree-ssa-math-opts.cc), for n up to 10.
+fn pow(x: f64, n: usize) -> f64 {
+    const T: [usize; 11] = [0, 0, 1, 2, 2, 3, 3, 4, 4, 6, 5];
+    match n {
+        0 => 1.0,
+        1 => x,
+        2 => x * x,
+        _ => pow(x, n - T[n]) * pow(x, T[n]),
+    }
+}
+
+/// `varPhi(i, x)` (PElementBase.F90:8600), cases 2-9.
 fn var_phi(i: usize, x: f64) -> Option<f64> {
+    let (x2, x4, x6) = (pow(x, 2), pow(x, 4), pow(x, 6));
     Some(match i {
         2 => -(6f64.sqrt()),
         3 => -(x * 10f64.sqrt()),
-        4 => -((5.0 * (x * x) - 1.0) * 14f64.sqrt() / 4.0),
-        5 => -(0.75 * (7.0 * (x * x) - 3.0) * x * 2f64.sqrt()),
+        4 => -((5.0 * x2 - 1.0) * 14f64.sqrt() / 4.0),
+        5 => -(0.75 * (7.0 * x2 - 3.0) * x * 2f64.sqrt()),
+        6 => -((21.0 * x4 - 14.0 * x2 + 1.0) * 22f64.sqrt() / 8.0),
+        7 => -((33.0 * x4 - 30.0 * x2 + 5.0) * x * 26f64.sqrt() / 8.0),
+        8 => -((429.0 * x6 - 495.0 * x4 + 135.0 * x2 - 5.0) * 30f64.sqrt() / 64.0),
+        9 => -((715.0 * x6 - 1001.0 * x4 + 385.0 * x2 - 35.0) * x * 34f64.sqrt() / 64.0),
         _ => return None,
     })
 }
 
-/// `dVarPhi(i, x)` (PElementBase.F90:8709), cases 2-5.
+/// `dVarPhi(i, x)` (PElementBase.F90:8709), cases 2-9.
 fn d_var_phi(i: usize, x: f64) -> Option<f64> {
+    let (x2, x4, x6) = (pow(x, 2), pow(x, 4), pow(x, 6));
+    let (s26, s34) = (26f64.sqrt(), 34f64.sqrt());
     Some(match i {
         2 => 0.0,
         3 => -(10f64.sqrt()),
         4 => -(2.5 * x * 14f64.sqrt()),
-        5 => -(15.75 * (x * x) * 2f64.sqrt()) + 2.25 * 2f64.sqrt(),
+        5 => -(15.75 * x2 * 2f64.sqrt()) + 2.25 * 2f64.sqrt(),
+        6 => -(3.5 * x * (3.0 * x2 - 1.0) * 22f64.sqrt()),
+        7 => -(20.625 * x4 * s26) + 11.25 * x2 * s26 - 0.625 * s26,
+        8 => -(0.28125 * x * (143.0 * x4 - 110.0 * x2 + 15.0) * 30f64.sqrt()),
+        9 => -(78.203125 * x6 * s34) + 78.203125 * x4 * s34 - 18.046875 * x2 * s34 + 0.546875 * s34,
         _ => return None,
     })
 }
@@ -212,18 +239,22 @@ pub(crate) fn quad_edge(
 }
 
 /// `Phi(i, x) = varPhi(i, x) (1 - x**2) / 4` (PElementBase.F90:8329) and
-/// `dPhi` (:8380), cases 2-5.
+/// `dPhi` (:8380), cases 2-9.
 fn phi(i: usize, x: f64) -> Option<f64> {
     Some(var_phi(i, x)? * (1.0 - x * x) / 4.0)
 }
 
 fn d_phi(i: usize, x: f64) -> Option<f64> {
-    let x2 = x * x;
+    let (x2, x4, x6, x8) = (pow(x, 2), pow(x, 4), pow(x, 6), pow(x, 8));
     Some(match i {
         2 => 6f64.sqrt() * x / 2.0,
         3 => 10f64.sqrt() * (3.0 * x2 - 1.0) / 4.0,
         4 => 14f64.sqrt() * x * (5.0 * x2 - 3.0) / 4.0,
-        5 => 3.0 / 16.0 * 2f64.sqrt() * (35.0 * (x2 * x2) - 30.0 * x2 + 3.0),
+        5 => 3.0 / 16.0 * 2f64.sqrt() * (35.0 * x4 - 30.0 * x2 + 3.0),
+        6 => 22f64.sqrt() * x * (63.0 * x4 - 70.0 * x2 + 15.0) / 16.0,
+        7 => 26f64.sqrt() * (231.0 * x6 - 315.0 * x4 + 105.0 * x2 - 5.0) / 32.0,
+        8 => 30f64.sqrt() * x * (429.0 * x6 - 693.0 * x4 + 315.0 * x2 - 35.0) / 32.0,
+        9 => 34f64.sqrt() * (6435.0 * x8 - 12012.0 * x6 + 6930.0 * x4 - 1260.0 * x2 + 35.0) / 256.0,
         _ => return None,
     })
 }
@@ -365,7 +396,7 @@ mod tests {
     fn edge_gradients_differentiate_the_values() {
         let (u, v, h) = (0.13, 0.41, 1e-6);
         for edge in 1..=3 {
-            for i in 2..=5 {
+            for i in 2..=9 {
                 for invert in [false, true] {
                     let (_, g) = triangle_edge(edge, i, u, v, invert).unwrap();
                     let f = |u: f64, v: f64| triangle_edge(edge, i, u, v, invert).unwrap().0;
@@ -378,7 +409,7 @@ mod tests {
                 }
             }
         }
-        assert!(triangle_edge(1, 6, u, v, false).is_none());
+        assert!(triangle_edge(1, 10, u, v, false).is_none());
     }
 
     #[test]
@@ -394,7 +425,7 @@ mod tests {
             );
         };
         for edge in 1..=4 {
-            for i in 2..=5 {
+            for i in 2..=9 {
                 for invert in [false, true] {
                     check(
                         &|u, v| quad_edge(edge, i, u, v, invert).unwrap(),
@@ -411,9 +442,9 @@ mod tests {
                 );
             }
         }
-        assert!(quad_bubble(4, 0, u, v).is_none());
+        assert!(quad_bubble(8, 0, u, v).is_none());
         for edge in 1..=4 {
-            for i in 2..=5 {
+            for i in 2..=9 {
                 for invert in [false, true] {
                     check(
                         &|u, v| sd_quad_edge(edge, i, u, v, invert).unwrap(),
