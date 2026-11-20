@@ -10,7 +10,7 @@ use elmer_solver::sim::parse_variable_spec;
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
 use crate::boundary::{element_center, flow_boundary_local, FlowBoundaryInput};
-use crate::bulk::{flow_bulk_local, Discretization, FlowBulkInput};
+use crate::bulk::{flow_bulk_local, Discretization, FlowBulkInput, PowerLaw};
 use crate::error::FlowError;
 use crate::bulk::StabParams;
 use crate::cylindric::{cylindric_bulk_local, ns_condensate, CylindricBulkInput};
@@ -171,8 +171,10 @@ fn check_body(eq: Option<&ParamMap>, mat: Option<&ParamMap>, bf: Option<&ParamMa
                 return Err(unsupported(format!("Compressibility Model = {c}")));
             }
         }
-        if m.get("viscosity model").is_some() {
-            return Err(unsupported("Viscosity Model (non-newtonian or anisotropic viscosity)"));
+        if m.get("viscosity model").is_some()
+            && m.string("viscosity model").map(elmer_core::normalize_key).as_deref() != Some("power law")
+        {
+            return Err(unsupported("Viscosity Model other than power law (non-newtonian or anisotropic viscosity)"));
         }
         if flag(Some(m), "porous media") {
             return Err(unsupported("porous media"));
@@ -509,6 +511,9 @@ impl Solver for FlowSolver {
         };
 
         for iter in 1..=nonlinear_iter {
+            // NavierStokesCompose: a positive `Newtonian Viscosity Condition`
+            // turns a non-newtonian viscosity model off for this assembly.
+            let newtonian = ctx.creal(&p, "newtonian viscosity condition")?.is_some_and(|c| c > 0.0);
             ctx.info("FlowSolve", "-------------------------------------", 4);
             ctx.info("FlowSolve", &format!(" NAVIER-STOKES ITERATION {iter:>11}"), 4);
             ctx.info("FlowSolve", "-------------------------------------", 4);
@@ -543,6 +548,20 @@ impl Solver for FlowSolver {
 
                 let density = nodal(ctx, mat, "density", e, n)?;
                 let viscosity = nodal(ctx, mat, "viscosity", e, n)?;
+                let power_law = mat.is_some_and(|m| m.get("viscosity model").is_some()) && !newtonian;
+                let (exponent, critical, nominal) = if power_law {
+                    if cyl {
+                        return Err(unsupported("Viscosity Model = power law in Cylindric Symmetric coordinates"));
+                    }
+                    if pe.is_some() {
+                        return Err(unsupported("Viscosity Model = power law on p elements"));
+                    }
+                    let m = mat.expect("checked above");
+                    let opt = |key: &str| ctx.real_at_nodes(m, key, e);
+                    (opt("viscosity exponent")?.unwrap_or_else(|| vec![0.0; n]), opt("critical shear rate")?, opt("nominal shear rate")?)
+                } else {
+                    (Vec::new(), None, None)
+                };
                 let mut load = vec![[0.0; 4]; n];
                 if let Some(b) = bf {
                     let hydrostatic = b
@@ -624,6 +643,11 @@ impl Solver for FlowSolver {
                     want_mass: transient,
                     np: None,
                     omega: angular_velocity(bf)?,
+                    power_law: power_law.then_some(PowerLaw {
+                        exponent: &exponent,
+                        critical: critical.as_deref(),
+                        nominal: nominal.as_deref(),
+                    }),
                 };
                 match &pe {
                     None => flow_bulk_local(basis, quad, &inp, &mut self.local)?,

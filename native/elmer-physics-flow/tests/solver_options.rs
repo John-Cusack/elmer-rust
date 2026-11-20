@@ -44,7 +44,7 @@ fn refuses_unported_options() {
         "surface tension",
     );
     let mut nn = water();
-    nn.insert("Viscosity Model", st("power law"));
+    nn.insert("Viscosity Model", st("carreau"));
     assert_unsupported(stokes(&[it], nn, vec![]), "viscosity model");
 }
 
