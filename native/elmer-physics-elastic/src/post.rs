@@ -210,6 +210,21 @@ pub fn stress_strain_local(
     quad: &dyn Quadrature,
     inp: &StressPostInput<'_>,
 ) -> Result<StressPostLocal, StressError> {
+    let points = quad.gauss_points(inp.etype, inp.np);
+    stress_strain_local_p(basis, &points, inp.etype.n_nodes(), inp)
+}
+
+/// [`stress_strain_local`] on a p element (`ComputeStress` with `n` nodes
+/// and `nd` dofs): `inp.disp` has one entry per dof and the displacement
+/// gradient, the mass matrix and the right-hand sides run over the `nd`
+/// basis functions; the material and the temperature are interpolated with
+/// the nodal ones. `points` is the element's rule.
+pub fn stress_strain_local_p(
+    basis: &dyn ElementBasis,
+    points: &[elmer_core::QuadPoint],
+    nd: usize,
+    inp: &StressPostInput<'_>,
+) -> Result<StressPostLocal, StressError> {
     let n = inp.etype.n_nodes();
     let cdim = inp.cdim;
     let axi = inp.coord == CoordSystem::AxiSymmetric;
@@ -219,8 +234,8 @@ pub fn stress_strain_local(
     if axi && cdim != 2 {
         return Err(StressError::Unsupported("axisymmetric elasticity needs a 2D mesh".into()));
     }
-    if inp.xyz.len() != n || inp.disp.len() != n {
-        return Err(StressError::Input(format!("element {} needs {n} nodal values", inp.etype.0)));
+    if inp.xyz.len() != n || inp.disp.len() != nd || nd < n {
+        return Err(StressError::Input(format!("element {} needs {n} nodes and {nd} displacements", inp.etype.0)));
     }
     let dim = if axi { 3 } else { cdim };
     let plane_stress = inp.plane_stress && !axi && cdim == 2;
@@ -263,7 +278,6 @@ pub fn stress_strain_local(
         && inp.temperature.is_some_and(|t| t.iter().any(|x| *x != 0.0))
         && (inp.heat_expansion.is_some() || inp.ip.is_some_and(|p| p.beta.is_some()));
 
-    let points = quad.gauss_points(inp.etype, inp.np);
     if let Some(p) = inp.ip {
         let np = points.len();
         let lens = [p.young.as_ref().map(Vec::len), p.poisson.as_ref().map(Vec::len), p.beta.as_ref().map(Vec::len)];
@@ -273,15 +287,16 @@ pub fn stress_strain_local(
     }
 
     let mut out = StressPostLocal {
-        mass: vec![0.0; n * n],
-        strain: if inp.want_strain { vec![0.0; n * ncomp] } else { Vec::new() },
-        stress: if inp.want_stress { vec![0.0; n * ncomp] } else { Vec::new() },
+        mass: vec![0.0; nd * nd],
+        strain: if inp.want_strain { vec![0.0; nd * ncomp] } else { Vec::new() },
+        stress: if inp.want_stress { vec![0.0; nd * ncomp] } else { Vec::new() },
     };
     let mut be = BasisEval::default();
 
     for (ipt, qp) in points.iter().enumerate() {
         basis.eval(inp.etype, inp.xyz, qp.uvw, &mut be).map_err(StressError::Basis)?;
         let bas = &be.basis[..n];
+        let full = &be.basis[..nd];
         let db = &be.dbasis_dx;
         let mut w = be.det_j * qp.weight;
         let mut r = 0.0;
@@ -335,11 +350,11 @@ pub fn stress_strain_local(
         let mut grad = ZERO3;
         for a in 0..cdim {
             for b in 0..cdim {
-                grad[a][b] = (0..n).map(|k| inp.disp[k][a] * db[k][b]).sum();
+                grad[a][b] = (0..nd).map(|k| inp.disp[k][a] * db[k][b]).sum();
             }
         }
         if axi {
-            grad[2][2] = (0..n).map(|k| inp.disp[k][0] * bas[k]).sum::<f64>() / r;
+            grad[2][2] = (0..nd).map(|k| inp.disp[k][0] * full[k]).sum::<f64>() / r;
         }
         let mut strain = ZERO3;
         for i in 0..3 {
@@ -456,16 +471,16 @@ pub fn stress_strain_local(
             stress[2][2] += g[3][0] * strain[0][0] + g[3][1] * strain[1][1] + g[3][2] * 2.0 * strain[0][1];
         }
 
-        for p in 0..n {
-            for q in 0..n {
-                out.mass[p * n + q] += w * bas[q] * bas[p];
+        for p in 0..nd {
+            for q in 0..nd {
+                out.mass[p * nd + q] += w * full[q] * full[p];
             }
         }
         if inp.want_strain {
-            add_tensor(&mut out.strain, bas, ncomp, w, &strain);
+            add_tensor(&mut out.strain, full, ncomp, w, &strain);
         }
         if inp.want_stress {
-            add_tensor(&mut out.stress, bas, ncomp, w, &stress);
+            add_tensor(&mut out.stress, full, ncomp, w, &stress);
         }
     }
     Ok(out)
@@ -502,6 +517,26 @@ impl MassSystem {
                 *self.rows[*sp].entry(*sq as u32).or_insert(0.0) += local[p * n + q];
             }
         }
+    }
+
+    /// The matrix in CSR form (columns sorted, with the diagonal positions).
+    pub fn to_csr(&self) -> elmer_core::CsrMatrix<f64> {
+        let n = self.rows.len();
+        let (mut row_ptr, mut col_idx, mut values, mut diag) = (vec![0], Vec::new(), Vec::new(), Vec::with_capacity(n));
+        for (i, row) in self.rows.iter().enumerate() {
+            let mut d = None;
+            for (&j, &v) in row {
+                if j as usize == i {
+                    d = Some(col_idx.len());
+                }
+                col_idx.push(j);
+                values.push(v);
+            }
+            diag.push(d.unwrap_or(usize::MAX));
+            row_ptr.push(col_idx.len());
+        }
+        let diag = diag.iter().all(|&d| d != usize::MAX).then_some(diag);
+        elmer_core::CsrMatrix { nrows: n, ncols: n, row_ptr, col_idx, values, diag }
     }
 
     fn mul(&self, x: &[f64], y: &mut [f64]) {

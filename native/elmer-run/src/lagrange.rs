@@ -412,7 +412,17 @@ pub(crate) fn build<'a>(
             Some(VarHandle::Primary(id)) | Some(VarHandle::Component { parent: id, .. }) => id,
             None => return Err(unsupported(&format!("the field {} without a variable", f.name))),
         };
-        let owner = owners.iter().find(|(v, _)| *v == parent).map(|(_, d)| d.as_ref());
+        // `FromVar % Solver`: the solver of the primary variable, or for an
+        // exported variable the solver whose permutation it shares.
+        let shares = |v: elmer_solver::VarId| {
+            let (a, b) = (store.by_id(v).perm.as_ref(), store.by_id(parent).perm.as_ref());
+            matches!((a, b), (Some(a), Some(b)) if Arc::ptr_eq(a, b))
+        };
+        let owner = owners
+            .iter()
+            .find(|(v, _)| *v == parent)
+            .or_else(|| owners.iter().find(|(v, _)| shares(*v)))
+            .map(|(_, d)| d.as_ref());
         let src = match owner {
             Some(Some(d)) => Source::P { dofs_of: d.as_ref(), values: f.values, perm: f.perm.is_some() },
             Some(None) => Source::NotP { perm: f.perm },

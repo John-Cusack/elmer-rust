@@ -31,17 +31,29 @@ impl<'a> MovableMesh<'a> {
         // FlowSolve's free surfaces move the same coordinates.
         let c = self.coords.clone();
         let mover: free_surface::NodeMover = Arc::new(move |x: &[[f64; 3]]| c.set_coords(x));
-        MotionGuard(motion::install(Some(coords)), free_surface::install_node_mover(Some(mover)))
+        // StressSolve's `DisplaceMesh` too.
+        let c = self.coords.clone();
+        let elastic: elmer_physics_elastic::motion::NodeMover = Arc::new(move |x: &[[f64; 3]]| c.set_coords(x));
+        MotionGuard(
+            motion::install(Some(coords)),
+            free_surface::install_node_mover(Some(mover)),
+            elmer_physics_elastic::motion::install_node_mover(Some(elastic)),
+        )
     }
 }
 
 /// Restores the previously installed mesh motion on drop.
-pub(crate) struct MotionGuard(Option<Arc<dyn MeshMotion>>, Option<free_surface::NodeMover>);
+pub(crate) struct MotionGuard(
+    Option<Arc<dyn MeshMotion>>,
+    Option<free_surface::NodeMover>,
+    Option<elmer_physics_elastic::motion::NodeMover>,
+);
 
 impl Drop for MotionGuard {
     fn drop(&mut self) {
         motion::install(self.0.take());
         free_surface::install_node_mover(self.1.take());
+        elmer_physics_elastic::motion::install_node_mover(self.2.take());
     }
 }
 

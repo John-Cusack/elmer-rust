@@ -26,6 +26,7 @@ pub mod bulk;
 pub mod error;
 pub mod lumping;
 pub mod material;
+pub mod motion;
 pub mod nodes;
 pub mod post;
 mod props;
