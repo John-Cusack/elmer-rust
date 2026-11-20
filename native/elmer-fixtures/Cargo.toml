@@ -13,6 +13,7 @@ elmer-fe = { path = "../elmer-fe" }
 elmer-fe-hp = { path = "../elmer-fe-hp" }
 elmer-solver = { path = "../elmer-solver" }
 elmer-pdofs = { path = "../elmer-pdofs" }
+elmer-physics-meshtools = { path = "../elmer-physics-meshtools" }
 thiserror.workspace = true
 
 [dev-dependencies]
@@ -20,6 +21,5 @@ approx.workspace = true
 elmer-cli = { path = "../elmer-cli" }
 elmer-mesh = { path = "../elmer-mesh" }
 elmer-mesh-levels = { path = "../elmer-mesh-levels" }
-elmer-physics-meshtools = { path = "../elmer-physics-meshtools" }
 elmer-run = { path = "../elmer-run" }
 elmer-sif = { path = "../elmer-sif" }

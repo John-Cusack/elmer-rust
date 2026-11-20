@@ -590,7 +590,12 @@ impl PElementBasis {
         } else {
             3
         };
-        let (det_j, l2g) = crate::scalar::element_metric(2, cdim, &nodal_xyz[..nn], &grad[..nb])?;
+        // ElementMetric(q, ...) sums over all q functions with `Nodes % x(1:q)`:
+        // the coordinates beyond the nodes are zero unless the caller gives
+        // them (a p mesh whose `Mesh % Nodes` hold every dof, as one whose
+        // geometry a solver has curved).
+        let ng = nodal_xyz.len().clamp(nn, nb);
+        let (det_j, l2g) = crate::scalar::element_metric(2, cdim, &nodal_xyz[..ng], &grad[..nb])?;
         out.det_j = det_j;
         out.basis.clear();
         out.basis.extend_from_slice(&val[..nb]);
