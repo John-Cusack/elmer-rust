@@ -122,7 +122,12 @@ fn switch_to_local(x: &[V3], t: &[V3; 3]) -> Vec<V3> {
 
 /// `CovariantInterpolation` of FacetShellSolve: the MITC shear strain
 /// `(2, 6n)` on the rotation dofs 4 and 5 of each node.
-fn covariant_interpolation(x: &[f64], y: &[f64], u: f64, v: f64) -> Result<Vec<Vec<f64>>, SolverError> {
+fn covariant_interpolation(
+    x: &[f64],
+    y: &[f64],
+    u: f64,
+    v: f64,
+) -> Result<Vec<Vec<f64>>, SolverError> {
     let n = x.len();
     let nc = DOFS * n;
     let mut sr = vec![vec![0.0f64; nc]; 2];
@@ -176,11 +181,18 @@ fn covariant_interpolation(x: &[f64], y: &[f64], u: f64, v: f64) -> Result<Vec<V
             jacobi4(u, v, x, y).1
         }
         _ => {
-            return Err(SolverError::fatal(CALLER, "Illegal number of nodes for Smitc elements."));
+            return Err(SolverError::fatal(
+                CALLER,
+                "Illegal number of nodes for Smitc elements.",
+            ));
         }
     };
     Ok((0..2)
-        .map(|i| (0..nc).map(|j| -(0.0 + inv[i][0] * sr[0][j] + inv[i][1] * sr[1][j])).collect())
+        .map(|i| {
+            (0..nc)
+                .map(|j| -(0.0 + inv[i][0] * sr[0][j] + inv[i][1] * sr[1][j]))
+                .collect()
+        })
         .collect())
 }
 
@@ -248,10 +260,22 @@ impl Solver for FacetShellSolver {
             return Err(unsupported("Load Scale Factor"));
         }
         let force = (1..=6).map(|i| format!("force {i}")).collect::<Vec<_>>();
-        if ctx.sim.model.boundary_conditions.iter().any(|b| force.iter().any(|k| b.get(k).is_some())) {
+        if ctx
+            .sim
+            .model
+            .boundary_conditions
+            .iter()
+            .any(|b| force.iter().any(|k| b.get(k).is_some()))
+        {
             return Err(unsupported("Force 1..6 boundary loads (StressBoundary)"));
         }
-        if ctx.sim.model.body_forces.iter().any(|b| b.get("point load").is_some()) {
+        if ctx
+            .sim
+            .model
+            .body_forces
+            .iter()
+            .any(|b| b.get("point load").is_some())
+        {
             return Err(unsupported("Point Load"));
         }
         if ctx.comm.size() > 1 {
@@ -260,7 +284,12 @@ impl Solver for FacetShellSolver {
         Ok(())
     }
 
-    fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, transient: bool) -> Result<(), SolverError> {
+    fn solve(
+        &mut self,
+        ctx: &mut SolverCtx<'_>,
+        _dt: f64,
+        transient: bool,
+    ) -> Result<(), SolverError> {
         if transient {
             return Err(unsupported("transient shells (Default2ndOrderTime)"));
         }
@@ -489,4 +518,28 @@ fn local_matrix(
         damp: None,
         force,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A square in the plane z = 1 gets the global axes as its frame and
+    /// centred local coordinates in its plane.
+    #[test]
+    fn frame_of_a_square_in_a_coordinate_plane() {
+        let x = [[0.0, 0.0, 1.0], [2.0, 0.0, 1.0], [2.0, 2.0, 1.0], [0.0, 2.0, 1.0]];
+        let t = transformation(&x);
+        assert_eq!(t, [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
+        let l = switch_to_local(&x, &t);
+        assert_eq!(l, vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0], [-1.0, 1.0, 0.0]]);
+    }
+
+    /// Tb^T K Tb with a permutation-with-sign Tb permutes K exactly.
+    #[test]
+    fn rotation_by_a_signed_permutation_is_exact() {
+        let k = [1.0, 2.0, 3.0, 4.0];
+        let tb = [0.0, -1.0, 1.0, 0.0];
+        assert_eq!(rotate(&k, &tb, 2), vec![4.0, -3.0, -2.0, 1.0]);
+    }
 }

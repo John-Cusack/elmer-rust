@@ -49,7 +49,14 @@ pub(crate) fn sum(a: &[f64], b: &[f64]) -> f64 {
 }
 
 /// `StrainEnergyDensity( A, B, C, m, n, s )`: `A += s C^T (B C)`.
-pub(crate) fn strain_energy(a: &mut [f64], b: &[Vec<f64>], c: &[Vec<f64>], m: usize, n: usize, s: f64) {
+pub(crate) fn strain_energy(
+    a: &mut [f64],
+    b: &[Vec<f64>],
+    c: &[Vec<f64>],
+    m: usize,
+    n: usize,
+    s: f64,
+) {
     let mut t = vec![vec![0.0f64; n]; m];
     for i in 0..m {
         for j in 0..n {
@@ -73,7 +80,12 @@ pub(crate) fn strain_energy(a: &mut [f64], b: &[Vec<f64>], c: &[Vec<f64>], m: us
 
 /// `ShearCorrectionFactor( Kappa, h, x, y, n, alpha )` (its triangle edge
 /// `x13 = x(1) - x(1)` included).
-pub(crate) fn shear_correction(h: f64, x: &[f64], y: &[f64], stab: f64) -> Result<f64, SolverError> {
+pub(crate) fn shear_correction(
+    h: f64,
+    x: &[f64],
+    y: &[f64],
+    stab: f64,
+) -> Result<f64, SolverError> {
     let l = |dx: f64, dy: f64| (dx.powi(2) + dy.powi(2)).sqrt();
     let (alpha, hh) = match x.len() {
         3 => {
