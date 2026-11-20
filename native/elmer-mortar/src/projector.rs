@@ -207,7 +207,7 @@ pub fn periodic_projector(
         .simulation
         .logical("mortar bcs split quadratic")
         .unwrap_or(false);
-    let Some((mut b1, mut b2)) = create_interface_meshes(env.mesh, env.bc_of, this, target, split)?
+    let Some((mut b1, mut b2)) = create_interface_meshes(env.mesh, env.bc_of, env.bcs.len(), this, target, split)?
     else {
         return Ok(None);
     };

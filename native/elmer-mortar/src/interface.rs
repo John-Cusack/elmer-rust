@@ -96,9 +96,14 @@ fn split_map(code: u16) -> Option<&'static [&'static [usize]]> {
 /// `Mortar BCs Split Quadratic`, already cleared by the caller when the mesh
 /// has edges or faces. Returns `None` when either side is empty (`Success =
 /// .FALSE.`).
+///
+/// A `target` beyond the `n_bcs` boundary conditions was created on the fly
+/// by `CreateDiscontMesh` (`OnTheFlyBC`): its elements carry `target` as
+/// their tag.
 pub fn create_interface_meshes(
     mesh: &dyn MeshView,
     bc_of: &dyn Fn(i32) -> Option<usize>,
+    n_bcs: usize,
     this: usize,
     target: usize,
     split_quadratic: bool,
@@ -114,7 +119,12 @@ pub fn create_interface_meshes(
     let mut perms = [vec![0u32; n_nodes], vec![0u32; n_nodes]];
     for i in 0..mesh.n_boundary() {
         let el = mesh.element(ElemId((nb + i) as u32));
-        let constraint = bc_of(el.tag).unwrap_or(0);
+        let on_the_fly = target > n_bcs && el.tag >= 0 && el.tag as usize == target;
+        let constraint = if on_the_fly {
+            target
+        } else {
+            bc_of(el.tag).unwrap_or(0)
+        };
         let side = if constraint == this {
             0
         } else if constraint == target {
