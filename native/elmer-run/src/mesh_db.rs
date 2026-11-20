@@ -187,3 +187,46 @@ pub fn load(dir: &Path, simulation: &ParamMap) -> Result<Box<dyn MeshView>, Stri
     }
     Ok(Box::new(mesh))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sim(entries: &[(&str, Value)]) -> ParamMap {
+        let mut p = ParamMap::new();
+        for (k, v) in entries {
+            p.insert(k, v.clone());
+        }
+        p
+    }
+
+    #[test]
+    fn mapping_permutes_the_coordinate_vectors() {
+        let mut c = [[1.0, 2.0, 3.0]];
+        map_coordinates(&mut c, &sim(&[("Coordinate Mapping", Value::Integer(vec![1, 3, 2]))])).unwrap();
+        assert_eq!(c, [[1.0, 3.0, 2.0]]);
+        assert!(map_coordinates(&mut c, &sim(&[("Coordinate Mapping", Value::Integer(vec![1, 1, 2]))])).is_err());
+    }
+
+    #[test]
+    fn cylindrical_and_cartesian_transformations() {
+        let half_pi = std::f64::consts::FRAC_PI_2;
+        let r = |v: f64| Value::Real { rows: 1, cols: 1, data: vec![v] };
+        let mut c = [[1.0, half_pi, 5.0]];
+        let to_cart = sim(&[
+            ("Coordinate Transformation", Value::Str("Cylindrical to Cartesian".into())),
+            ("Coordinate Transformation Radius", r(1.0)),
+        ]);
+        coordinate_transformation(&mut c, &to_cart).unwrap();
+        assert!((c[0][0] - 0.0).abs() < 1e-15 && c[0][1] == 2.0 && c[0][2] == 5.0);
+        let mut c = [[0.0, 2.0, 5.0]];
+        let to_cyl = sim(&[
+            ("Coordinate Transformation", Value::Str("cartesian to cylindrical".into())),
+            ("Coordinate Transformation Use Degrees", Value::Logical(true)),
+        ]);
+        coordinate_transformation(&mut c, &to_cyl).unwrap();
+        assert_eq!(c, [[2.0, 90.0, 5.0]]);
+        let bad = sim(&[("Coordinate Transformation", Value::Str("spherical".into()))]);
+        assert!(coordinate_transformation(&mut c, &bad).is_err());
+    }
+}

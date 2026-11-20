@@ -174,13 +174,6 @@ mod tests {
         p
     }
 
-    fn refusal(model: &Model) -> String {
-        match check(model) {
-            Err(SolverError::Unsupported(m)) => m,
-            other => panic!("{other:?}"),
-        }
-    }
-
     fn equals(var: &str) -> Value {
         Value::Dependent(Dependent {
             variables: vec![var.into()],
