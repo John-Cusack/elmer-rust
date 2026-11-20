@@ -3,12 +3,11 @@
 //! the way `HelmholtzSolver` (HelmholtzSolve.F90:99) does.
 //!
 //! The pressure is a two-dof variable (`Pressure 1` real, `Pressure 2`
-//! imaginary). The Fortran marks the system `Linear System Complex` and lets
-//! the complex Krylov methods and the complex UMFPACK work on the interleaved
-//! storage; `elmer-solver`'s `default_solve` does not take that flag yet, so
-//! the interleaved real system is solved instead. It is the same linear
-//! system, so the solution is the same; only the iterative methods'
-//! convergence path and the matrix scaling differ.
+//! imaginary). As the Fortran's `_Init`, the system is marked `Linear
+//! System Complex` (unless the case says otherwise), so `default_solve`
+//! solves the interleaved storage as the complex system: the Krylov methods
+//! in complex arithmetic (CG with the unconjugated product, which a complex
+//! symmetric Helmholtz matrix needs) and UMFPACK on the interleaved form.
 
 use elmer_core::{ElemId, ElementBasis, LocalSystem, ParamMap, Params, Quadrature, Value, NO_DOF};
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
@@ -113,6 +112,12 @@ fn angular_frequency(ctx: &SolverCtx<'_>) -> Option<f64> {
 
 impl Solver for HelmholtzSolver {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        // HelmholtzSolver_Init (HelmholtzSolve.F90:51): the interleaved
+        // system is solved as the complex one, so the Krylov methods run in
+        // complex arithmetic (complex CG with the unconjugated product).
+        if ctx.params().get("linear system complex").is_none() {
+            ctx.params_mut().insert("Linear System Complex", Value::Logical(true));
+        }
         check_supported(ctx)?;
         axisymmetric(ctx)?;
         let dofs = ctx.primary().map(|v| v.dofs);
