@@ -50,7 +50,7 @@ pub(crate) fn nt_name(var: &str) -> String {
 }
 
 /// `TangentDirections(Normal, Tangent1, Tangent2)`.
-pub(crate) fn tangent_directions(n: [f64; 3]) -> ([f64; 3], [f64; 3]) {
+pub fn tangent_directions(n: [f64; 3]) -> ([f64; 3], [f64; 3]) {
     let (n1, n2, n3) = (n[0].abs(), n[1].abs(), n[2].abs());
     let mut t1 = if n1 <= n3 && n2 <= n3 { [0.0, -n[2], n[1]] } else { [-n[1], n[0], 0.0] };
     let s = (t1[0] * t1[0] + t1[1] * t1[1] + t1[2] * t1[2]).sqrt();

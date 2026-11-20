@@ -360,6 +360,17 @@ pub struct LinePlan {
     pub(crate) optimize_order: bool,
     /// `Variable 1`, `Variable 2`, .. in order.
     pub(crate) variables: Vec<String>,
+    /// `Polyline Coordinates`: start and end of each line, `x, y, z` (`z`
+    /// from a third column when there is one).
+    pub(crate) polylines: Vec<([f64; 3], [f64; 3])>,
+    /// Columns of `Polyline Coordinates`.
+    pub(crate) polyline_cols: usize,
+    /// `Polyline Divisions` (or `Polyline Intervals`), one per line.
+    pub(crate) divisions: Vec<i32>,
+    /// `Show Norm Index`, 0 when absent.
+    pub(crate) norm_index: i32,
+    /// `Equation`, for the norm variable `<Equation>_var`.
+    pub(crate) equation: Option<String>,
 }
 
 impl LinePlan {
@@ -370,7 +381,6 @@ impl LinePlan {
             p,
             H,
             &[
-                ("polyline coordinates", "polylines"),
                 ("circle coordinates", "circles"),
                 ("save isocurves", "isocurves"),
                 ("save axis", "axis lines"),
@@ -385,8 +395,6 @@ impl LinePlan {
                 ("calculate weights", "nodal weights"),
                 ("filename numbering", "numbered file names"),
                 ("save solver mesh index", "another solver's mesh"),
-                ("show norm index", "the line pseudo norm"),
-                ("parallel reduce", "MPI reductions"),
                 ("enforce parallel mode", "MPI reductions"),
                 ("output partitioning directory", "per-partition output directory"),
             ],
@@ -398,7 +406,41 @@ impl LinePlan {
                 None => break,
             }
         }
+        // SavePolyLines with divisions: points along each line. Without them
+        // the lines are intersected with the mesh edges or faces instead.
+        let (polylines, polyline_cols) = match parse_rows(p, "polyline coordinates")? {
+            Some((rows, cols, data)) => {
+                if cols == 0 || cols > 3 || rows % 2 != 0 {
+                    return Err(unsupported(format!("{H}: Polyline Coordinates as a {rows}x{cols} array")));
+                }
+                let row = |r: usize| {
+                    let mut c = [0.0; 3];
+                    c[..cols].copy_from_slice(&data[r * cols..(r + 1) * cols]);
+                    c
+                };
+                ((0..rows / 2).map(|l| (row(2 * l), row(2 * l + 1))).collect(), cols)
+            }
+            None => (Vec::new(), 0),
+        };
+        let divisions = match p.get("polyline divisions").or_else(|| p.get("polyline intervals")) {
+            Some(Value::Integer(v)) => v.clone(),
+            Some(_) => return Err(unsupported(format!("{H}: Polyline Divisions must be integers"))),
+            None => Vec::new(),
+        };
+        if !polylines.is_empty() {
+            if divisions.is_empty() {
+                return Err(unsupported(format!("{H}: polylines without Polyline Divisions (edge intersections)")));
+            }
+            if divisions.len() < polylines.len() {
+                return Err(SolverError::fatal(H, "Polyline divisions size too small!"));
+            }
+        }
         Ok(LinePlan {
+            polylines,
+            polyline_cols,
+            divisions,
+            norm_index: p.integer("show norm index").unwrap_or(0),
+            equation: p.string("equation").map(clean_name),
             section: p.clone(),
             filename: p.string("filename").map_or_else(|| "sides.dat".into(), |s| s.trim().to_string()),
             file_append: logical_true(p, "file append"),
