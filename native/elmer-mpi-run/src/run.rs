@@ -319,6 +319,10 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     if let Some(h) = mesh.halo_elements() {
         sim.set_halo_elements(h.into());
     }
+    // `Apply Conforming BCs`: each rank's ConformingNodePerm /
+    // ConformingEdgePerm of its own partition, as PeriodicPermutation
+    // makes them.
+    sim.backends.conforming = elmer_run::conforming_map(&sim.model, &mesh, coords.dim, log)?.map(Arc::new);
     sim.setup(&mesh, &registry, log, comm)?;
     // `InitialPermutation` numbers the nodes of halo elements as well; only
     // the DG numbering follows it here, so a solver numbered by nodes is
