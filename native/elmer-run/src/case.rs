@@ -474,7 +474,8 @@ fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
 /// bubbles in the global system and its norm as Elmer does (#228); and
 /// any definition for the solvers that read their DOFs from `elmer-pdofs`
 /// (`ctx.solver_dofs()`) and refuse what they do not port: StressSolve
-/// (#206), StatElecSolve (#208), IncompressibleNS (Taylor-Hood), ModelPDE's
+/// (#206), StatElecSolve (#208), IncompressibleNS (Taylor-Hood), HeatSolve
+/// (its residual-free bubble; nothing beyond `p:1`), ModelPDE's
 /// AdvDiffSolver and the test-local `Poisson` / `PoissonML`
 /// `PoissonSolver`, `ModelPDEsplitted`, `SingleElements`, `BenchmarkShell`
 /// and `Stokes1` ports.
@@ -485,8 +486,9 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 12] = [
+    const P_DOFS: [(&str, &str); 13] = [
         ("benchmarkshell", "shellsolver"),
+        ("heatsolve", "heatsolver"),
         ("incompressiblens", "incompressiblenssolver"),
         ("incompressiblensvec", "incompressiblenssolver"),
         ("statelecsolve", "statelecsolver"),

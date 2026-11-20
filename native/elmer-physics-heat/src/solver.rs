@@ -535,6 +535,11 @@ fn p_element(ctx: &SolverCtx<'_>, e: ElemId) -> Result<Option<PElement>, SolverE
     }
     let mut slots = Vec::new();
     d.element_slots(e, &mut slots);
+    if slots.len() != ctx.mesh.element(e).nodes.len() {
+        return Err(SolverError::Unsupported(
+            "HeatSolver: p elements beyond p:1 (edge and face dofs)".into(),
+        ));
+    }
     Ok(Some(PElement {
         basis: d
             .element_basis(e)
@@ -628,6 +633,11 @@ impl Solver for HeatSolver {
             .iter()
             .any(|e| e.get("Convection").is_some() || e.get("Draw Velocity").is_some())
             || ctx.params().logical("Bubbles") == Some(true);
+        if legacy && ctx.solver_dofs().is_some() {
+            return Err(SolverError::Unsupported(
+                "HeatSolver: Legacy Assembly with a p element (Element)".into(),
+            ));
+        }
         if !legacy
             && convection
             && ctx.params().get("Element").is_none()
