@@ -57,6 +57,14 @@ fn oper_to_par_oper(oper: &str) -> &'static str {
     }
 }
 
+/// `OperToParOperMap` for the bulk integrals: they sum over the ranks.
+fn bulk_par_oper(oper: &str) -> &'static str {
+    match oper {
+        "int" | "int square" | "int abs" | "volume" | "potential energy" | "convective energy" | "diffusive energy" => "sum",
+        _ => "none",
+    }
+}
+
 impl SaveList {
     fn add(&mut self, plan: &ScalarPlan, ctx: &mut SolverCtx<'_>, name: &str, val: f64, integer: bool) -> Result<(), SolverError> {
         self.names.push(name.to_lowercase());
@@ -390,7 +398,7 @@ impl SaveScalars {
                 }
             }
 
-            if list.reduce && !matches!(op.kind, OperKind::Statistic | OperKind::Deviation) {
+            if list.reduce && !matches!(op.kind, OperKind::Statistic | OperKind::Deviation | OperKind::Bulk) {
                 return Err(SolverError::Unsupported(format!("SaveScalars: operator {} in parallel", op.oper)));
             }
             match op.kind {
@@ -438,6 +446,18 @@ impl SaveScalars {
                     list.par_oper = None;
                 }
                 OperKind::Bulk => {
+                    // Reduced in parallel by `OperToParOperMap` (the
+                    // integrals sum): each rank integrates its own elements.
+                    if list.reduce {
+                        let par = p
+                            .string(&format!("parallel operator {n}"))
+                            .map(normalize_key)
+                            .unwrap_or_else(|| bulk_par_oper(&op.oper).to_string());
+                        if par != "sum" || ctx.sim.halo_elements().is_some() {
+                            return Err(SolverError::Unsupported(format!("SaveScalars: operator {} in parallel", op.oper)));
+                        }
+                        list.par_oper = Some(par);
+                    }
                     let val = {
                         let view = match resolve_bulk(&ctx.sim.vars, &variable)? {
                             Some(Resolved::Field(v)) => v,
@@ -457,6 +477,7 @@ impl SaveScalars {
                         save_name = format!("{save_name} with {c}");
                     }
                     list.add(&plan, ctx, &save_name, val, false)?;
+                    list.par_oper = None;
                 }
                 OperKind::BoundaryStatistic => {
                     if !ctx.sim.model.boundary_conditions.iter().any(|bc| bc_is_active(bc, &mask_name)) {

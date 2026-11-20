@@ -34,6 +34,18 @@ struct Edgen {
 /// The global number of each edge of `edges` (`dg_edges`' list, in
 /// `FindMeshEdges2D` order). Collective.
 pub fn edge_numbers(ex: &dyn Exchange, mesh: &ParMesh, edges: &[(ElemId, Option<ElemId>, Vec<u32>)]) -> Result<Vec<u64>, String> {
+    edge_numbers_with_holders(ex, mesh, edges).map(|(n, _)| n)
+}
+
+/// [`edge_numbers`] with each edge's holder ranks, the owner first
+/// (`Mesh % ParallelInfo % EdgeNeighbourList`); a private edge lists this
+/// rank alone. Collective.
+#[allow(clippy::type_complexity)]
+pub fn edge_numbers_with_holders(
+    ex: &dyn Exchange,
+    mesh: &ParMesh,
+    edges: &[(ElemId, Option<ElemId>, Vec<u32>)],
+) -> Result<(Vec<u64>, Vec<Vec<usize>>), String> {
     let me = ex.rank() as i64;
     let np = ex.size();
     let gid = mesh.node_gids();
@@ -173,7 +185,11 @@ pub fn edge_numbers(ex: &dyn Exchange, mesh: &ParMesh, edges: &[(ElemId, Option<
         }
         ex.sum_f64(&mut unnumbered);
         if unnumbered[0] == 0.0 {
-            return Ok(e.iter().map(|x| x.n).collect());
+            let holders = e
+                .iter()
+                .map(|x| if x.interface { x.neighbours.iter().filter(|&&r| r >= 0).map(|&r| r as usize).collect() } else { vec![me as usize] })
+                .collect();
+            return Ok((e.iter().map(|x| x.n).collect(), holders));
         }
     }
     Err("SParEdgeNumbering: edges left unnumbered after 64 rounds".into())
