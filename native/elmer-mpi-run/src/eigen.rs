@@ -17,11 +17,11 @@
 //! `Eigen System Sorting`, and each vector is spread back over the local
 //! dofs (`ParallelUpdateResult`).
 
-use elmer_core::{CsrMatrix, LinalgError, Logger, ParamMap, SolveStatus};
+use elmer_core::{CsrMatrix, LinalgError, Logger, ParamMap, Params, SolveStatus};
 use elmer_dist::{dist_solve, DistCsr, DofLayout, Exchange};
 use elmer_itermethods::IterMethodsConfig;
 use elmer_solver::elmer_eigen::arpack::{naupd, neupd, saupd, seupd};
-use elmer_solver::elmer_eigen::{self, ArpackWhich, Complex64, EigenConfig, EigenResult};
+use elmer_solver::elmer_eigen::{ArpackWhich, Complex64, EigenConfig, EigenResult};
 use elmer_solver::{ParEigenBackend, SolverError};
 
 use crate::backend::{
