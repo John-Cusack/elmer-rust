@@ -54,17 +54,14 @@ fn unsupported(model: &Model) -> Option<String> {
         if p.get("output file").is_some() {
             return Some("solver-specific output files".into());
         }
-        if p.logical("harmonic analysis") == Some(true) {
-            return Some("harmonic analysis".into());
-        }
         // A complex eigen system's modes are refused unless its variable
         // is not saved (`Variable Output = False`): the other fields are
         // then written once per mode, as the real ones are.
         let complex_saved = p.logical("linear system complex") == Some(true) && p.logical("variable output") != Some(false);
-        if p.logical("eigen analysis") == Some(true)
+        if (p.logical("eigen analysis") == Some(true) || p.logical("harmonic analysis") == Some(true))
             && (complex_saved || sim.string("simulation type").is_some_and(|t| !normalize_key(t).starts_with("steady")))
         {
-            return Some("eigen analysis of a complex system or over time steps".into());
+            return Some("eigen or harmonic analysis of a complex system or over time steps".into());
         }
     }
     None
@@ -294,7 +291,7 @@ impl ResultWriter {
 
 impl SaveCurrent for ResultWriter {
     /// `SaveCurrent` (ElmerSolver.F90:3701) for this mesh: each solver with
-    /// an eigen analysis saves its modes, mode `j` as step `j`, and then
+    /// an eigen or harmonic analysis saves its modes, mode `j` as step `j`, and then
     /// its variable holds zeros (`Var % Values = 0`); the usual save
     /// follows unless the last solver is an eigen one (the Fortran's
     /// `EigAnal` is whatever the last solver left).
@@ -302,7 +299,8 @@ impl SaveCurrent for ResultWriter {
         let mut eig_anal = false;
         let mut zeroed: Option<(VarId, Vec<f64>)> = None;
         for slot in &sim.slots {
-            eig_anal = slot.params.logical("eigen analysis") == Some(true);
+            eig_anal = slot.params.logical("eigen analysis") == Some(true)
+                || slot.params.logical("harmonic analysis") == Some(true);
             if !eig_anal {
                 continue;
             }

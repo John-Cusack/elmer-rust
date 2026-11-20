@@ -844,9 +844,30 @@ impl Solver for StressSolver {
         }
         // StressSolve.F90:1505: an eigen analysis adds the element mass to
         // `MassValues` (DefaultUpdateMass) instead of a time scheme.
-        let eigen = ctx.nof_eigen() > 0 && ctx.params().logical("eigen analysis") == Some(true);
+        // A harmonic analysis (SolveHarmonicSystem) assembles the same mass.
+        let harmonic = ctx.nof_eigen() > 0
+            && ctx.params().logical("harmonic analysis") == Some(true)
+            && ctx.params().logical("eigen analysis") != Some(true);
+        let eigen = ctx.nof_eigen() > 0 && ctx.params().logical("eigen analysis") == Some(true) || harmonic;
         if eigen && (flags.any() || transient) {
-            return Err(unsupported("eigen analysis with stress postprocessing or in a transient run"));
+            return Err(unsupported("eigen or harmonic analysis with stress postprocessing or in a transient run"));
+        }
+        if harmonic {
+            // StressSolve.F90:1339: `LOAD_im` from `Stress Bodyforce i im` and
+            // `Stress Pressure im`; only zero imaginary loads are ported
+            // (`NeedHarmonic` false, so `FORCE_im` and `RHS_im` stay zero).
+            let model = &ctx.sim.model;
+            let im_keys = ["stress bodyforce 1 im", "stress bodyforce 2 im", "stress bodyforce 3 im", "stress pressure im"];
+            let nonzero = |s: &elmer_core::ParamMap, k: &str| match s.get(k) {
+                Some(elmer_core::Value::Real { data, .. }) => data.iter().any(|&v| v != 0.0),
+                Some(_) => true,
+                None => false,
+            };
+            if model.body_forces.iter().any(|bf| im_keys.iter().any(|k| nonzero(bf, k)))
+                || model.boundary_conditions.iter().any(|bc| bc.0.keys().any(|k| k.ends_with(" im") && nonzero(bc, k)))
+            {
+                return Err(unsupported("harmonic analysis with nonzero imaginary loads (FORCE_im)"));
+            }
         }
         // StressSolve.F90:866-890: "Constant System", "Constant Bulk
         // System", "Constant Bulk Matrix", and "Model Lumping" (six load
@@ -937,7 +958,7 @@ impl Solver for StressSolver {
             if geometric {
                 ctx.params_mut().insert("Eigen Analysis", elmer_core::Value::Logical(geometric_active && orig_eigen));
             }
-            let eigen = ctx.nof_eigen() > 0 && ctx.params().logical("eigen analysis") == Some(true);
+            let eigen = ctx.nof_eigen() > 0 && ctx.params().logical("eigen analysis") == Some(true) || harmonic;
             // The displacement of the previous pass, for the geometric term.
             // (values, perm) of the previous pass's displacement.
             type Field = (Vec<f64>, Option<Vec<u32>>);

@@ -2222,6 +2222,10 @@ impl<'a> SolverCtx<'a> {
         if crate::eigen::active(self) {
             return crate::eigen::solve(self);
         }
+        // SolveSystem's harmonic branch (SolveCore.F90:1408).
+        if crate::harmonic::active(self) {
+            return crate::harmonic::solve(self);
+        }
         self.solve_system()
     }
 

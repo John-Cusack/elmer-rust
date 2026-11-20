@@ -34,6 +34,7 @@ mod amg;
 mod constraint_modes;
 mod constraints;
 mod eigen;
+mod harmonic;
 mod control;
 pub mod cutfem;
 mod limiter;
