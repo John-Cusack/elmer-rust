@@ -43,6 +43,24 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
   that names its own `Output File`, or sets `Output Intervals = 0`, stays
   out of class: in the second case each saved field is not the solution
   of its RUN (RotatingFlow's holds FlowSolve's 1e-6 initial value).
+- **MPI (`_npN`).** Each rank writes `<file>.<rank>`, and the norm is the
+  parallel branch of `ComputeNorm`. By default every rank sums all its
+  local values, interface nodes included, and the sums and counts are
+  `MPI_ALLREDUCE`d. With `Nonlinear System Consistent Norm` a rank sums
+  only the rows it owns. A node's owner is the first partition its line
+  in ElmerGrid's `part.<rank+1>.shared` lists (Elmer's `Neighbours(1)`,
+  `ReadSharedFile`); any other node belongs to the rank itself. Rows map
+  to nodes through the Perm. The rank sums combine in Open MPI's
+  recursive-doubling grouping (coll/tuned for one double): the first
+  `2·(p − 2^k)` ranks pair up, then a doubling tree. Every bitwise MPI
+  test passed with that grouping, the first one tried; the left-to-right
+  fallback was never needed. Without a `partitioning.<np>` directory
+  (Parallel Slices) each rank solves a copy of the whole mesh, and Elmer's
+  norm is rank 0's serial one. Out of class: a local mesh whose node count
+  differs from the partition files (extruded, refined, or with
+  view-factor nodes added at load), and a Perm beyond the mesh nodes
+  (edge, p or DG unknowns), because the partition files give the owners
+  of mesh nodes only.
 - **Includes.** A top-level `include <file>` that only defines MATC
   variables (`$` lines: `params.sif`, the `mesh.names` ElmerGrid writes)
   is expanded as Elmer reads it. The file is looked up in the golden run
@@ -58,11 +76,11 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
 
 | Verdict | Tests |
 |---|---:|
-| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **350** (457 solvers) |
+| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **357** (464 solver checks) |
 | grader gap: the solver sets its own norm (FluxSolver, VectorHelmholtzNodal, WhitneyAVSolver) | 7 |
 | grader gap: DG field (PoissonDG) | 1 |
 | unexplained mismatch (PhaseChange3, solver 3 `PhaseSurface`) | 1 |
-| out of the validated class | 123 |
+| out of the validated class | 116 |
 
 Before this widening the class held 223 tests (238 solvers). All 223 are
 still bitwise, each with at least as many solvers as before.
@@ -88,23 +106,24 @@ Each test is listed under the first reason in its row.
 
 | Reason | Tests |
 |---|---:|
-| MPI | 28 |
-| `Show Norm` / `Show Norm Index` (a SaveScalars value is the norm) | 26 |
+| `Show Norm` / `Show Norm Index` (a SaveScalars value is the norm) | 28 |
 | custom `runtest.cmake` (replay) | 13 |
 | variable in several result files (several meshes) | 12 |
+| no `Variable`: several saved variables of its equation | 10 |
 | no `Variable`: no saved variable of its equation | 10 |
 | variable not in any result file (global, or not output) | 9 |
+| MPI: non-nodal unknowns (no owners in the partition files) | 8 |
 | duplicate `Solver N` sections (merged by Elmer) | 7 |
-| no `Variable`: several saved variables of its equation | 6 |
+| MPI: local mesh changed after load (extruded, refined, view factors) | 6 |
 | no `Variable`: coupled solver | 5 |
 | several `RUN` blocks with `Output Intervals = 0` | 3 |
-| other (`-nooutput`, several solver runs, a multi-RUN sif with no field solver) | 3 |
+| other (`-nooutput`, several solver runs, a multi-RUN sif with no field solver, an MPI variable in two per-rank result sets) | 4 |
 | non-nodal unknowns | 1 |
 
 So item 4 is **not** done for every captured test. The validated class
-covers 350 of the 482 quick tests. Widening it further means the
-SaveScalars-style norms, per-mesh result files, and MPI norms (owned
-nodes only).
+covers 357 of the 482 quick tests. Widening it further means the
+SaveScalars-style norms, per-mesh result files, and parallel ownership of
+non-nodal unknowns and of meshes Elmer changes after loading.
 
 ## Reproduce
 

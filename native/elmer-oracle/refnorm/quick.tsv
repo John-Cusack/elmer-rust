@@ -7,17 +7,17 @@ AdvDiffMigrationAbsMass	bitwise	2
 AdvDiffSoret	bitwise	2	
 AdvDiffSoretAbsMass	bitwise	2	
 AdvReactDB	bitwise	1	
-AdvReactDB_np6	out-of-class	0	MPI
+AdvReactDB_np6	out-of-class	0	solver 1: potential (square/case.result.N): non-nodal unknowns in parallel (ownership unknown)
 AdvReactDBmap	bitwise	1	
-AdvReactDBmap_np6	out-of-class	0	MPI
+AdvReactDBmap_np6	out-of-class	0	solver 1: potential (square/case.result.N): non-nodal unknowns in parallel (ownership unknown)
 AdvReactDG	bitwise	1	
 AdvReactDG_P	bitwise	1	
-AdvReactDG_np6	out-of-class	0	MPI
+AdvReactDG_np6	out-of-class	0	solver 1: tracer (square/case.result.N): non-nodal unknowns in parallel (ownership unknown)
 AnalyticalTest	out-of-class	0	two Solver 1 sections (merged by Elmer)
 AngleMetisLayer	bitwise	1	
-AngleMetisLayer_np2	out-of-class	0	MPI
-AngleMetisLayer_np3	out-of-class	0	MPI
-AngleMetisLayer_np4	out-of-class	0	MPI
+AngleMetisLayer_np2	out-of-class	0	solver 1: temperature (angle/case.result.N): local mesh has Some(9173) nodes, partition files 2350 (mesh changed after load)
+AngleMetisLayer_np3	out-of-class	0	solver 1: temperature (angle/case.result.N): local mesh has Some(4645) nodes, partition files 1203 (mesh changed after load)
+AngleMetisLayer_np4	out-of-class	0	solver 1: temperature (angle/case.result.N): local mesh has Some(3099) nodes, partition files 805 (mesh changed after load)
 BDM2D	bitwise	1	
 BlockLinElast1	out-of-class	0	solver 1: no explicit Variable; 2 variables of equation "lin.elast"
 BlockLinElast2	bitwise	1	
@@ -29,24 +29,24 @@ BoundaryFluxes	out-of-class	0	solver 2: norm option show norm index
 BoundaryFluxes2	out-of-class	0	solver 2: norm option show norm index
 CapacitanceMatrix	bitwise	1	
 CapacitanceMatrix3	bitwise	1	solver 3: norm option show norm
-CapacitanceMatrix3_np3	out-of-class	0	MPI
+CapacitanceMatrix3_np3	out-of-class	0	solver 1: potential (plates/case.result.N): non-nodal unknowns in parallel (ownership unknown); solver 3: norm option show norm
 CapacitanceMatrix4	bitwise	1	solver 3: norm option show norm
-CapacitanceMatrix4_np3	out-of-class	0	MPI
+CapacitanceMatrix4_np3	out-of-class	0	solver 1: potential (plates/case.result.N): non-nodal unknowns in parallel (ownership unknown); solver 3: norm option show norm
 CavityLid	bitwise	1	solver 1: flow solution (default)
 ChannelFlowCoulomb	out-of-class	0	custom runtest (replay)
 CoilSolver1	bitwise	1	solver 1: no explicit Variable; 2 variables of equation "coilsolver"; solver 2: coilpot grad (default); solver 3: div coilcurrent (default); WARNING:: CompareToReferenceSolution: Solver 2 FAILED:  Norm = 8.80415922E-01  RefNorm = 6.97063017E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!; solver 2: sets its own norm, not validated
-CoilSolver1_np2	out-of-class	0	MPI
-CoilSolver1_np4	out-of-class	0	MPI
+CoilSolver1_np2	out-of-class	0	solver 1: no explicit Variable; 2 variables of equation "coilsolver"; solver 2: coilpot grad (Curve/case.result.N): local mesh has Some(3034) nodes, partition files 785 (mesh changed after load); solver 3: div coilcurrent (Curve/case.result.N): local mesh has Some(3034) nodes, partition files 785 (mesh changed after load)
+CoilSolver1_np4	out-of-class	0	solver 1: no explicit Variable; 2 variables of equation "coilsolver"; solver 2: coilpot grad (Curve/case.result.N): local mesh has Some(1590) nodes, partition files 419 (mesh changed after load); solver 3: div coilcurrent (Curve/case.result.N): local mesh has Some(1590) nodes, partition files 419 (mesh changed after load)
 CoilSolver2	out-of-class	0	two Solver 1 sections (merged by Elmer)
 CoilSolver3	out-of-class	0	two Solver 1 sections (merged by Elmer)
 CoilSolver4	out-of-class	0	two Solver 1 sections (merged by Elmer)
 CoilSolver5	out-of-class	0	two Solver 1 sections (merged by Elmer)
 CoilSolver6	out-of-class	0	two Solver 1 sections (merged by Elmer)
 CoilSolverLoop	bitwise	1	solver 1: no explicit Variable; 4 variables of equation "coilsolver"; solver 2: div coilcurrent (default)
-CoilSolverLoop_np2	out-of-class	0	MPI
-CoilSolverLoop_np4	out-of-class	0	MPI
+CoilSolverLoop_np2	out-of-class	0	solver 1: no explicit Variable; 4 variables of equation "coilsolver"; solver 2: div coilcurrent (Loop/case.result.N): local mesh has Some(2457) nodes, partition files 633 (mesh changed after load)
+CoilSolverLoop_np4	out-of-class	0	solver 1: no explicit Variable; 4 variables of equation "coilsolver"; solver 2: div coilcurrent (Loop/case.result.N): local mesh has Some(1266) nodes, partition files 336 (mesh changed after load)
 ComponentResistance	bitwise	1	solver 2: norm option show norm index
-ComponentResistance_np4	out-of-class	0	MPI
+ComponentResistance_np4	bitwise	1	solver 2: norm option show norm index
 ConstantBCTemperature	bitwise	1	solver 2: norm option show norm index
 ConstantUnknownPotStatCurrent	bitwise	1	solver 2: norm option show norm index
 ConstantUnknownPotStatCurrent2	bitwise	1	solver 2: norm option show norm index
@@ -174,7 +174,7 @@ HeatAndDiffusion	bitwise	2
 HeatControl	bitwise	1	
 HeatControl2	bitwise	1	
 HeatControlExplicit	bitwise	1	solver 2: norm option show norm index
-HeatControlExplicit_np3	out-of-class	0	MPI
+HeatControlExplicit_np3	bitwise	1	solver 2: norm option show norm index
 HeatEqExitCondition	bitwise	1	solver 2: norm option show norm index
 HeatGap	bitwise	1	
 HeatSolveVecCondMatrix	out-of-class	0	solver 1: temperature not in any result file; solver 2: no explicit Variable (legacy or default name)
@@ -251,10 +251,10 @@ NormalizeMaterial	bitwise	1
 OdeSolver1stOrder	out-of-class	0	solver 1: ode not in any result file
 OdeSolver2ndOrder	out-of-class	0	solver 1: ode not in any result file
 OtherMeshResults	out-of-class	0	solver 1: temperature in several result files; solver 3: norm option show norm
-OtherMeshResults_np4	out-of-class	0	MPI
+OtherMeshResults_np4	out-of-class	0	solver 1: temperature in 2 per-rank result sets; solver 3: norm option show norm
 Outlet2InletBCv2	bitwise	1	
 ParStokes_NormalTangentialBC	bitwise	1	
-ParallelSlices_np2	out-of-class	0	MPI
+ParallelSlices_np2	bitwise	1	solver 2: no partitioning.2: rank 0's serial norm
 ParticleElstat	bitwise	2	solver 2: no explicit Variable; 7 variables of equation "particledynamics"
 ParticleElstatMag	bitwise	2	solver 2: no explicit Variable; 7 variables of equation "particledynamics"
 ParticleFalling	bitwise	1	
@@ -267,8 +267,8 @@ PhaseChange4	bitwise	3	solver 1: mesh update (default); solver 2: temperature (d
 PlatesEigenComplex	out-of-class	0	solver 2: norm option show norm
 PoissonBEM	bitwise	1	
 PoissonDG	grader-gap-non-nodal	1	WARNING:: CompareToReferenceSolution: Solver 1 FAILED:  Norm = 4.12584942E-02  RefNorm = 4.12584854E-02; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 1!
-PoissonDG_np3	out-of-class	0	MPI
-PoissonDG_np8	out-of-class	0	MPI
+PoissonDG_np3	out-of-class	0	solver 1: potential (square/case.result.N): non-nodal unknowns in parallel (ownership unknown)
+PoissonDG_np8	out-of-class	0	solver 1: potential (square/case.result.N): non-nodal unknowns in parallel (ownership unknown)
 PoissonML	bitwise	1	
 PoissonPFEM	bitwise	1	
 PorousPipe	bitwise	1	solver 1: flow solution (default)
@@ -287,7 +287,7 @@ RotatingBCPoisson3DGenericTets	bitwise	1
 RotatingFlow	out-of-class	0	2 RUN blocks with Output Intervals = 0 (no RUN's solution is saved)
 SD_BlockLinElast1	out-of-class	0	solver 1: no explicit Variable; 2 variables of equation "lin.elast"
 SD_CapacitanceMatrix3	bitwise	1	solver 3: norm option show norm
-SD_CapacitanceMatrix3_np3	out-of-class	0	MPI
+SD_CapacitanceMatrix3_np3	out-of-class	0	solver 1: potential (plates/case.result.N): non-nodal unknowns in parallel (ownership unknown); solver 3: norm option show norm
 SD_Classical2DShell	bitwise	1	
 SD_CurvedBndryPFEM	bitwise	1	
 SD_CurvedBndryPFEM2	bitwise	1	
@@ -349,12 +349,12 @@ StressConstraintModes	bitwise	1
 StressConstraintModes2	bitwise	1	
 StressEigen	out-of-class	0	solver 3: norm option show norm index
 StressEigen2	out-of-class	0	solver 4: norm option show norm index
-StressEigen2_np4	out-of-class	0	MPI
-StressEigen2_np8	out-of-class	0	MPI
+StressEigen2_np4	out-of-class	0	solver 4: norm option show norm index
+StressEigen2_np8	out-of-class	0	solver 4: norm option show norm index
 StressMaxwellStressLoad	bitwise	1	solver 2: norm option show norm index
 StressStressLoad	out-of-class	0	solver 2: norm option show norm index
 SunAngle	bitwise	1	
-SunAngle_np3	out-of-class	0	MPI
+SunAngle_np3	out-of-class	0	solver 1: sunangle (square/case.result.N): local mesh has Some(781) nodes, partition files 211 (mesh changed after load)
 TankAst	bitwise	1	
 ThermalBiMetal	bitwise	1	
 ThermalBiMetal2	bitwise	1	
@@ -428,8 +428,8 @@ normals	out-of-class	0	solver 2: variable option -nooutput
 p-FEM_two_solvers	bitwise	2	
 p-FEM_with_varying_p	bitwise	1	
 passive	bitwise	1	
-passive_np3	out-of-class	0	MPI
-passive_np8	out-of-class	0	MPI
+passive_np3	bitwise	1	
+passive_np8	bitwise	1	
 periodic1	bitwise	1	
 periodic2	bitwise	1	
 periodic3	bitwise	1	
@@ -446,15 +446,15 @@ pointdir	bitwise	1
 poisson_steady_conforming	bitwise	1	
 poisson_steady_conforming_anti	bitwise	1	
 poisson_transient_conforming_anti	bitwise	1	
-poisson_transient_conforming_anti_np4	out-of-class	0	MPI
-poisson_transient_conforming_anti_np8	out-of-class	0	MPI
+poisson_transient_conforming_anti_np4	bitwise	1	
+poisson_transient_conforming_anti_np8	bitwise	1	
 quadratic_prisms	bitwise	1	
 radiation	bitwise	1	
 radiation2	bitwise	1	
 radiation_bin	bitwise	1	
 radiation_dg	bitwise	1	
-radiation_np2	out-of-class	0	MPI
-radiation_np4	out-of-class	0	MPI
+radiation_np2	out-of-class	0	solver 1: temperature (radiation/case.result.N): local mesh has Some(91) nodes, partition files 76 (mesh changed after load)
+radiation_np4	out-of-class	0	solver 1: temperature (radiation/case.result.N): local mesh has Some(70) nodes, partition files 40 (mesh changed after load)
 radiation_vec	bitwise	1	
 radiator3d	bitwise	1	
 radiator3d_box	bitwise	1	solver 2: no explicit Variable; no saved variable of equation "savescalars"
