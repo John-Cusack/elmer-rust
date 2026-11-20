@@ -188,6 +188,8 @@ pub struct SolverSlot {
     /// predictor.
     pub adams: std::collections::HashMap<u32, Vec<f64>>,
     pub times_visited: usize,
+    /// Linear solves of the solver's matrix so far (`Matrix % SolveCount`).
+    pub(crate) linear_solves: usize,
     /// `Solver % dt`: the step size of the current visit (`Timestep Scale`
     /// applied).
     pub dt: f64,
@@ -256,6 +258,7 @@ impl SolverSlot {
             done_time: 0,
             adams: Default::default(),
             times_visited: 0,
+            linear_solves: 0,
             dt: 0.0,
             state: SolverState::default(),
             system: None,

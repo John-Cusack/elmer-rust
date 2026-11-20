@@ -125,7 +125,6 @@ fn reorder(values: Vec<f64>, mesh_nodes: &[u32], nodes: &[u32]) -> Vec<f64> {
 fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
     for (key, what) in [
         ("large deflection", "large deflection"),
-        ("calculate pangle", "principal angle postprocessing"),
         ("update reference displacement", "staged construction"),
         ("legacy assembly", "legacy assembly"),
         ("calculate loads", "load postprocessing"),
@@ -143,6 +142,9 @@ struct PostFlags {
     stress: bool,
     strain: bool,
     principal: bool,
+    /// `Calculate PAngle`: the direction cosines' angles of the principal
+    /// stresses.
+    angle: bool,
     /// Some equation names `Calculate Stresses`, so only those bodies project.
     masked: bool,
 }
@@ -156,10 +158,15 @@ impl PostFlags {
 fn post_flags(ctx: &SolverCtx<'_>) -> PostFlags {
     let p = ctx.params();
     let masked = ctx.sim.model.equations.iter().any(|e| flag(Some(e), "calculate stresses"));
+    // StressSolver_Init (StressSolve.F90:352-357): the angle needs the
+    // principal stresses, and those the stress components.
+    let angle = flag(Some(p), "calculate pangle");
+    let principal = flag(Some(p), "calculate principal") || angle;
     PostFlags {
-        stress: flag(Some(p), "calculate stresses") || masked,
+        stress: flag(Some(p), "calculate stresses") || masked || principal,
         strain: flag(Some(p), "calculate strains"),
-        principal: flag(Some(p), "calculate principal"),
+        principal,
+        angle,
         masked,
     }
 }
@@ -185,6 +192,10 @@ fn field_specs(cdim: usize, f: PostFlags) -> Vec<VarSpec> {
         if f.principal {
             out.push(triple("principal stress"));
             out.push(spec("tresca", Vec::new()));
+            // `-dofs 9 Principal Angle`.
+            if f.angle {
+                out.push(spec("principal angle", (1..=9).map(|k| format!("principal angle {k}")).collect()));
+            }
         }
     }
     if f.strain {
@@ -664,7 +675,7 @@ impl StressSolver {
         }
 
         let mut projector = post::Projector::new(ctx, &mass)?;
-        let comm = ctx.comm;
+        let (comm, log) = (ctx.comm, ctx.log);
         let mut project = |f: &[f64]| -> Result<Vec<f64>, SolverError> {
             let mut out = vec![0.0; nslots * ncomp];
             let mut b = vec![0.0; nslots];
@@ -673,7 +684,7 @@ impl StressSolver {
                 for s in 0..nslots {
                     b[s] = f[ncomp * s + k];
                 }
-                projector.solve(comm, &b, &mut x)?;
+                projector.solve(log, comm, &b, &mut x)?;
                 for s in 0..nslots {
                     out[ncomp * s + k] = x[s];
                 }
@@ -694,18 +705,28 @@ impl StressSolver {
             Ok(())
         };
 
+        // ComputeStressAndStrain (ElasticSolve.F90:6283-6292) projects the
+        // strains first: every solve scales and back-scales the shared
+        // projection matrix, so the order is part of the result.
+        let strain_nodal = if flags.strain { Some(project(&fstrain)?) } else { None };
         if flags.stress {
             ctx.info(CALLER, "Calculating stress components", 7);
             let stress = project(&fstress)?;
             let mut vm = vec![0.0; nslots];
             let (mut pri, mut tre) = (vec![0.0; nslots * 3], vec![0.0; nslots]);
+            let mut ang = vec![0.0; if flags.angle { nslots * 9 } else { 0 }];
             for s in 0..nslots {
                 let t = post::vector_to_tensor(&stress[ncomp * s..ncomp * (s + 1)], ncomp);
                 vm[s] = post::von_mises(&t);
+                // StressSolve delegates to ElasticSolve, whose principal
+                // stresses come from DSYEV('V') with the eigenvectors.
                 if flags.principal {
-                    let w = post::principal_values(&t);
+                    let (w, a) = post::principal_dsyev(&t, true)?;
                     pri[3 * s..3 * s + 3].copy_from_slice(&w);
                     tre[s] = post::tresca(&w);
+                    if flags.angle {
+                        ang[9 * s..9 * s + 9].copy_from_slice(&a);
+                    }
                 }
             }
             set(ctx, "stress", stress)?;
@@ -713,16 +734,20 @@ impl StressSolver {
             if flags.principal {
                 set(ctx, "principal stress", pri)?;
                 set(ctx, "tresca", tre)?;
+                if flags.angle {
+                    set(ctx, "principal angle", ang)?;
+                }
             }
         }
         if flags.strain {
             ctx.info(CALLER, "Calculating strain components", 7);
-            let strain = project(&fstrain)?;
+            let strain = strain_nodal.expect("projected above");
             if flags.principal {
                 let mut pri = vec![0.0; nslots * 3];
                 for s in 0..nslots {
                     let t = post::vector_to_tensor(&strain[ncomp * s..ncomp * (s + 1)], ncomp);
-                    pri[3 * s..3 * s + 3].copy_from_slice(&post::principal_values(&t));
+                    // DSYEV('N') (ElasticSolve.F90:6356).
+                    pri[3 * s..3 * s + 3].copy_from_slice(&post::principal_dsyev(&t, false)?.0);
                 }
                 set(ctx, "principal strain", pri)?;
             }

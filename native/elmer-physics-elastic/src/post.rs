@@ -659,6 +659,34 @@ pub fn principal_values(t: &Tensor3) -> [f64; 3] {
     w
 }
 
+/// `DSYEV( jobz, 'U', 3, PriCache, ... )` of a nodal tensor, as ElasticSolve's
+/// `ComputeStressAndStrain` (ElasticSolve.F90:6315-6370) calls it: the
+/// principal values descending (`PriW(4-l)`) and, with `angles`, `Principal
+/// Angle` (`ACOS(PriCache(i, 4-k))` of the eigenvectors, in radians).
+pub fn principal_dsyev(t: &Tensor3, angles: bool) -> Result<([f64; 3], [f64; 9]), elmer_solver::SolverError> {
+    use elmer_solver::elmer_eigen::{dsyev, DsyevError, Jobz};
+    let mut a = [0.0; 9];
+    for i in 0..3 {
+        for j in 0..3 {
+            a[i + 3 * j] = t[i][j];
+        }
+    }
+    let jobz = if angles { Jobz::Vectors } else { Jobz::Values };
+    let w = dsyev(jobz, &mut a, 3).map_err(|e| match e {
+        DsyevError::Scaling => elmer_solver::SolverError::Unsupported("DSYEV scaling of a nodal tensor".into()),
+        DsyevError::NoConvergence => elmer_solver::SolverError::fatal("ElasticSolver", "DSYEV cannot generate eigen basis"),
+    })?;
+    let mut ang = [0.0; 9];
+    if angles {
+        for k in 0..3 {
+            for i in 0..3 {
+                ang[3 * k + i] = a[i + 3 * (2 - k)].acos();
+            }
+        }
+    }
+    Ok(([w[2], w[1], w[0]], ang))
+}
+
 /// `Tresca`: half the largest difference of principal stresses.
 pub fn tresca(w: &[f64; 3]) -> f64 {
     let m = (w[0] - w[1]) / 2.0;
@@ -670,44 +698,60 @@ pub fn tresca(w: &[f64; 3]) -> f64 {
 /// with the section's own linear system (its `StressTemp` solver).
 pub enum Projector {
     Direct(Box<dyn elmer_core::DirectSolver<f64> + Send>),
-    Iterative(
-        Box<dyn elmer_core::IterativeSolver<f64> + Send>,
-        Box<dyn elmer_core::Preconditioner<f64> + Send>,
-        elmer_core::CsrMatrix<f64>,
-    ),
+    /// An iterative solve goes through SolveSystem, as `DefaultSolve` of the
+    /// projector's `PSolver` does: scaled, from zero.
+    Iterative {
+        linear: elmer_solver::LinearSolverRegistry,
+        simulation: elmer_core::ParamMap,
+        params: elmer_core::ParamMap,
+        matrix: elmer_core::CsrMatrix<f64>,
+    },
 }
 
 impl Projector {
     /// The projector of `mass` for the running solver.
     pub fn new(ctx: &elmer_solver::SolverCtx<'_>, mass: &MassSystem) -> Result<Self, elmer_solver::SolverError> {
         let a = mass.to_csr();
-        let params = ctx.params().clone();
+        // `NodalProjectorSolve` keeps the projection matrix and its
+        // preconditioner over the solver's visits: its first visit computes it
+        // (the solves of the components share the matrix), later ones would
+        // reuse it.
+        let params = if elmer_solver::linsys::precond_reuse(ctx.params()) && ctx.times_visited() <= 1 {
+            elmer_solver::linsys::without_precond_reuse(ctx.params())
+        } else {
+            ctx.params().clone()
+        };
         Ok(match ctx.sim.backends.linear.select_for(&params, &a, ctx.log)? {
             elmer_solver::backend::LinearSolverChoice::Direct(mut d) => {
                 d.factor(&a).map_err(|e| elmer_solver::SolverError::fatal("NodalProjectorSolve", e.to_string()))?;
                 Projector::Direct(d)
             }
-            elmer_solver::backend::LinearSolverChoice::Iterative { solver, precond } => {
-                let m: Box<dyn elmer_core::Preconditioner<f64> + Send> = match precond {
-                    Some(f) => f(&params, &a)?,
-                    None => Box::new(elmer_core::IdentityPrecond),
-                };
-                Projector::Iterative(solver, m, a)
-            }
+            elmer_solver::backend::LinearSolverChoice::Iterative { .. } => Projector::Iterative {
+                linear: ctx.sim.backends.linear.clone(),
+                simulation: ctx.simulation_params().clone(),
+                params,
+                matrix: a,
+            },
         })
     }
 
-/// `x = M^-1 b`.
-    pub fn solve(&mut self, comm: &dyn elmer_core::Communicator, b: &[f64], x: &mut [f64]) -> Result<(), elmer_solver::SolverError> {
+    /// `x = M^-1 b`.
+    pub fn solve(
+        &mut self,
+        log: &dyn elmer_core::Logger,
+        comm: &dyn elmer_core::Communicator,
+        b: &[f64],
+        x: &mut [f64],
+    ) -> Result<(), elmer_solver::SolverError> {
         let fatal = |e: String| elmer_solver::SolverError::fatal("NodalProjectorSolve", e);
         match self {
             Projector::Direct(d) => {
                 x.copy_from_slice(b);
                 d.solve_in_place(x).map_err(|e| fatal(e.to_string()))
             }
-            Projector::Iterative(s, m, a) => {
-                x.iter_mut().for_each(|v| *v = 0.0);
-                s.solve(&*a, &**m, b, x, comm).map(|_| ()).map_err(elmer_solver::SolverError::from)
+            Projector::Iterative { linear, simulation, params, matrix } => {
+                let mut rhs = b.to_vec();
+                elmer_solver::solve_other_matrix(linear, simulation, params, matrix, &mut rhs, x, log, comm).map(|_| ())
             }
         }
     }
