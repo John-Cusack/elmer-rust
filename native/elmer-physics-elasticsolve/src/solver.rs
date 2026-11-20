@@ -700,7 +700,7 @@ impl ElasticSolver {
             }
         }
 
-        let mut projector = post::Projector::new(ctx, &mass, ctx.solver_dofs().is_some())?;
+        let mut projector = post::Projector::new(ctx, &mass)?;
         let comm = ctx.comm;
         let mut project = |f: &[f64]| -> Result<Vec<f64>, SolverError> {
             let mut out = vec![0.0; nslots * ncomp];

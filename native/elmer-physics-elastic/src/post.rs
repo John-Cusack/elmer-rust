@@ -663,11 +663,9 @@ pub fn tresca(w: &[f64; 3]) -> f64 {
     m.max((w[0] - w[2]) / 2.0)
 }
 
-/// The solve of the stress projection. On p elements it is
-/// `NodalProjectorSolve`'s, with the section's own linear system (its
-/// `StressTemp` solver); the nodal projection keeps [`MassSystem::solve`].
-pub enum Projector<'m> {
-    Cg(&'m MassSystem),
+/// The solve of the stress projection, as `NodalProjectorSolve` does it:
+/// with the section's own linear system (its `StressTemp` solver).
+pub enum Projector {
     Direct(Box<dyn elmer_core::DirectSolver<f64> + Send>),
     Iterative(
         Box<dyn elmer_core::IterativeSolver<f64> + Send>,
@@ -676,17 +674,9 @@ pub enum Projector<'m> {
     ),
 }
 
-impl<'m> Projector<'m> {
-    /// The projector of `mass` for the running solver; `p_elements` selects
-    /// the section's linear system.
-    pub fn new(
-        ctx: &elmer_solver::SolverCtx<'_>,
-        mass: &'m MassSystem,
-        p_elements: bool,
-    ) -> Result<Self, elmer_solver::SolverError> {
-        if !p_elements {
-            return Ok(Projector::Cg(mass));
-        }
+impl Projector {
+    /// The projector of `mass` for the running solver.
+    pub fn new(ctx: &elmer_solver::SolverCtx<'_>, mass: &MassSystem) -> Result<Self, elmer_solver::SolverError> {
         let a = mass.to_csr();
         let params = ctx.params().clone();
         Ok(match ctx.sim.backends.linear.select_for(&params, &a, ctx.log)? {
@@ -704,11 +694,10 @@ impl<'m> Projector<'m> {
         })
     }
 
-    /// `x = M^-1 b`.
+/// `x = M^-1 b`.
     pub fn solve(&mut self, comm: &dyn elmer_core::Communicator, b: &[f64], x: &mut [f64]) -> Result<(), elmer_solver::SolverError> {
         let fatal = |e: String| elmer_solver::SolverError::fatal("NodalProjectorSolve", e);
         match self {
-            Projector::Cg(m) => m.solve(b, x).map(|_| ()).map_err(|e| fatal(e.to_string())),
             Projector::Direct(d) => {
                 x.copy_from_slice(b);
                 d.solve_in_place(x).map_err(|e| fatal(e.to_string()))

@@ -80,8 +80,15 @@ pub struct Dense {
 
 impl DirectSolver<f64> for Dense {
     fn factor(&mut self, a: &CsrMatrix<f64>) -> Result<(), LinalgError> {
-        self.n = a.nrows;
-        self.a = a.values.clone();
+        // Any CSR pattern (the stress projection's is sparse).
+        let n = a.nrows;
+        self.n = n;
+        self.a = vec![0.0; n * n];
+        for r in 0..n {
+            for k in a.row_ptr[r]..a.row_ptr[r + 1] {
+                self.a[r * n + a.col_idx[k] as usize] += a.values[k];
+            }
+        }
         Ok(())
     }
 
