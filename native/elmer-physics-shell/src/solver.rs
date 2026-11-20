@@ -313,7 +313,11 @@ fn element_geometry(
             let m = (0..3)
                 .map(|k| (dirs[0][k] - dir[k]).abs())
                 .fold(0.0f64, f64::max);
-            plate = !(m > eps);
+            // `.NOT. MAXVAL(...) > EPSILON(1.0)`, NaN included.
+            #[allow(clippy::neg_cmp_op_on_partial_ord)]
+            {
+                plate = !(m > eps);
+            }
             if !plate {
                 break;
             }
