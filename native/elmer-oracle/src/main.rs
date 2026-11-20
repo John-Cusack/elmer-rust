@@ -127,6 +127,7 @@ fn execute(args: &[String]) -> Executed {
         inject: inj.is_active().then_some(inj),
         mkdirs: Vec::new(),
         refnorms: Vec::new(),
+        run_refnorms: Vec::new(),
         exit_verdict,
     };
     let outcome = loop {
@@ -172,6 +173,87 @@ fn execute(args: &[String]) -> Executed {
         passed: outcome.passed,
         arm: arm.name,
     }
+}
+
+/// A parsed golden result file: (path relative to the run dir, file,
+/// preamble, mesh nodes).
+type Parsed = (String, elmer_oracle::result::ResultFile, Vec<elmer_oracle::result::PreambleVar>, Option<usize>);
+
+/// `(solver, golden norm)` for every solver of `solvers` the grader can
+/// rebuild from `files`, with notes for the rest.
+fn resolve_solvers(
+    solvers: &[elmer_oracle::refnorm::RefSolver],
+    files: &[&Parsed],
+    equations: &[(u32, String)],
+    notes: &mut Vec<String>,
+    non_nodal: &mut bool,
+) -> Vec<(u32, f64)> {
+    let mut refnorms = Vec::new();
+    let parsed = files;
+    for s in solvers {
+        // The variable must live in exactly one result file: several
+        // meshes carrying one name leave the solver's own copy ambiguous.
+        // A solver without `Variable` takes the preamble's single variable
+        // of its equation, which must agree across the files it appears in.
+        let mut found = Vec::new();
+        let mut why = String::from("not in any result file");
+        let mut inferred = std::collections::BTreeSet::new();
+        for (_, r, vars, nodes) in parsed.iter().copied() {
+            let var = match &s.variable {
+                Ok(v) => v.clone(),
+                Err(e) if e == elmer_oracle::refnorm::NO_VARIABLE => {
+                    match elmer_oracle::refnorm::default_variable(vars, s, equations) {
+                        Ok(v) => {
+                            inferred.insert(v.clone());
+                            v
+                        }
+                        Err(e) => {
+                            why = e;
+                            continue;
+                        }
+                    }
+                }
+                Err(_) => break,
+            };
+            if !vars.iter().any(|v| v.base_name() == var) {
+                continue;
+            }
+            *non_nodal |= elmer_oracle::refnorm::non_nodal(vars, *nodes, &var);
+            match elmer_oracle::refnorm::golden_norm(r, vars, &var, |d| s.norm_opts(d)) {
+                Ok(n) => found.push(n),
+                Err(e) => {
+                    why = e;
+                    found.push(f64::NAN);
+                }
+            }
+        }
+        if inferred.len() > 1 {
+            notes.push(format!("solver {}: default variable differs between result files", s.number));
+            continue;
+        }
+        let var = match (&s.variable, inferred.first()) {
+            (Ok(v), _) => v.clone(),
+            (Err(_), Some(v)) => format!("{v} (default)"),
+            (Err(e), None) if e == elmer_oracle::refnorm::NO_VARIABLE && !parsed.is_empty() => {
+                notes.push(format!("solver {}: {why}", s.number));
+                continue;
+            }
+            (Err(e), None) => {
+                notes.push(format!("solver {}: {e}", s.number));
+                continue;
+            }
+        };
+        match found.as_slice() {
+            [n] if !n.is_nan() => refnorms.push((s.number, *n)),
+            [_] => notes.push(format!("solver {}: {var}: {why}", s.number)),
+            [] => notes.push(format!("solver {}: {var} {why}", s.number)),
+            _ => notes.push(format!("solver {}: {var} in several result files", s.number)),
+        }
+        if !inferred.is_empty() && matches!(found.as_slice(), [n] if !n.is_nan()) {
+            notes.push(format!("solver {}: {var}", s.number));
+        }
+    }
+    refnorms
 }
 
 /// One test of `refnorm-validate`: (verdict, solvers validated, detail).
@@ -220,18 +302,13 @@ fn refnorm_one(
         Ok(t) => t,
         Err(why) => return skip(&why),
     };
-    let solvers = match elmer_oracle::refnorm::reference_solvers(&text) {
-        Ok(s) if s.is_empty() => return skip("no Reference Norm in a Solver section"),
-        Ok(s) => s,
-        Err(why) => return skip(&why),
-    };
+    let runs = elmer_oracle::runner::run_count(&text);
     let files = elmer_oracle::sigma::result_files(&golden_run, &src).unwrap_or_default();
-    let mut refnorms = Vec::new();
     let mut notes = Vec::new();
     let mut non_nodal = false;
     let equations = elmer_oracle::refnorm::solver_equations(&text);
-    // Each result file once: (name, parsed, preamble, nodes).
-    let parsed: Vec<_> = files
+    // Each result file once: (relative name, parsed, preamble, nodes).
+    let parsed: Vec<Parsed> = files
         .iter()
         .filter_map(|f| {
             let path = golden_run.join(f);
@@ -239,73 +316,62 @@ fn refnorm_one(
             let r = elmer_oracle::result::parse_result_bytes(&buf, &path.display().to_string()).ok()?;
             let vars = elmer_oracle::result::preamble_vars(&buf);
             let nodes = elmer_oracle::result::number_of_nodes(&buf);
-            Some((r, vars, nodes))
+            Some((f.clone(), r, vars, nodes))
         })
         .collect();
-    for s in &solvers {
-        // The variable must live in exactly one result file: several
-        // meshes carrying one name leave the solver's own copy ambiguous.
-        // A solver without `Variable` takes the preamble's single variable
-        // of its equation, which must agree across the files it appears in.
-        let mut found = Vec::new();
-        let mut why = String::from("not in any result file");
-        let mut inferred = std::collections::BTreeSet::new();
-        for (r, vars, nodes) in &parsed {
-            let var = match &s.variable {
-                Ok(v) => v.clone(),
-                Err(e) if e == elmer_oracle::refnorm::NO_VARIABLE => {
-                    match elmer_oracle::refnorm::default_variable(vars, s, &equations) {
-                        Ok(v) => {
-                            inferred.insert(v.clone());
-                            v
-                        }
-                        Err(e) => {
-                            why = e;
-                            continue;
-                        }
-                    }
-                }
-                Err(_) => break,
-            };
-            if !vars.iter().any(|v| v.base_name() == var) {
-                continue;
-            }
-            non_nodal |= elmer_oracle::refnorm::non_nodal(vars, *nodes, &var);
-            match elmer_oracle::refnorm::golden_norm(r, vars, &var, |d| s.norm_opts(d)) {
-                Ok(n) => found.push(n),
-                Err(e) => {
-                    why = e;
-                    found.push(f64::NAN);
-                }
-            }
-        }
-        if inferred.len() > 1 {
-            notes.push(format!("solver {}: default variable differs between result files", s.number));
-            continue;
-        }
-        let var = match (&s.variable, inferred.first()) {
-            (Ok(v), _) => v.clone(),
-            (Err(_), Some(v)) => format!("{v} (default)"),
-            (Err(e), None) if e == elmer_oracle::refnorm::NO_VARIABLE && !parsed.is_empty() => {
-                notes.push(format!("solver {}: {why}", s.number));
-                continue;
-            }
-            (Err(e), None) => {
-                notes.push(format!("solver {}: {e}", s.number));
-                continue;
-            }
+    // A multi-RUN sif is checked after every RUN (CompareToReferenceSolution
+    // in ElmerSolver's RUN loop): run j's solvers are those with a Reference
+    // Norm in the sif up to that RUN, and its golden is the per-RUN file
+    // `--per-run` writes (`case.run<j>.result`, the last RUN `case.result`).
+    let mut refnorms = Vec::new();
+    let mut run_refnorms: Vec<(usize, u32, f64)> = Vec::new();
+    let mut solvers: Vec<elmer_oracle::refnorm::RefSolver> = Vec::new();
+    if runs <= 1 {
+        solvers = match elmer_oracle::refnorm::reference_solvers(&text) {
+            Ok(s) if s.is_empty() => return skip("no Reference Norm in a Solver section"),
+            Ok(s) => s,
+            Err(why) => return skip(&why),
         };
-        match found.as_slice() {
-            [n] if !n.is_nan() => refnorms.push((s.number, *n)),
-            [_] => notes.push(format!("solver {}: {var}: {why}", s.number)),
-            [] => notes.push(format!("solver {}: {var} {why}", s.number)),
-            _ => notes.push(format!("solver {}: {var} in several result files", s.number)),
+        let all: Vec<&Parsed> = parsed.iter().collect();
+        refnorms = resolve_solvers(&solvers, &all, &equations, &mut notes, &mut non_nodal);
+    } else {
+        // Per-RUN files exist only where the injection names the output.
+        if text.lines().any(|l| {
+            let c = elmer_oracle::runner::strip_sif_comment(l);
+            elmer_oracle::runner::keyword_of(c.split("::").last().unwrap_or("")).as_deref() == Some("output file")
+        }) {
+            return skip(&format!("{runs} RUN blocks; the sif names its own Output File"));
         }
-        if !inferred.is_empty() && matches!(found.as_slice(), [n] if !n.is_nan()) {
-            notes.push(format!("solver {}: {var}", s.number));
+        for (j, prefix) in elmer_oracle::refnorm::run_prefixes(&text).iter().enumerate() {
+            let j = j + 1;
+            let run_solvers = match elmer_oracle::refnorm::reference_solvers(prefix) {
+                Ok(s) => s,
+                Err(why) => return skip(&format!("RUN {j}: {why}")),
+            };
+            let name = elmer_oracle::runner::per_run_result_name("case.result", j, runs);
+            let mine: Vec<&Parsed> = parsed
+                .iter()
+                .filter(|p| std::path::Path::new(&p.0).file_name().is_some_and(|n| n.to_string_lossy() == name))
+                .collect();
+            if mine.is_empty() && !run_solvers.is_empty() {
+                return skip(&format!("{runs} RUN blocks; no golden {name} (use the --per-run golden)"));
+            }
+            let mut run_notes = Vec::new();
+            for (n, v) in resolve_solvers(&run_solvers, &mine, &equations, &mut run_notes, &mut non_nodal) {
+                run_refnorms.push((j, n, v));
+            }
+            notes.extend(run_notes.into_iter().map(|m| format!("RUN {j}: {m}")));
+            for s in run_solvers {
+                if !solvers.iter().any(|t| t.number == s.number) {
+                    solvers.push(s);
+                }
+            }
+        }
+        if solvers.is_empty() {
+            return skip("no Reference Norm in a Solver section");
         }
     }
-    if refnorms.is_empty() {
+    if refnorms.is_empty() && run_refnorms.is_empty() {
         return skip(&notes.join("; "));
     }
     if text.to_lowercase().lines().any(|l| {
@@ -318,11 +384,12 @@ fn refnorm_one(
     if run_dir.exists() {
         return skip("run dir exists; use a fresh out-root");
     }
-    let run = |run_dir: &Path, refnorms: &[(u32, f64)]| {
+    let run = |run_dir: &Path, refnorms: &[(u32, f64)], run_refnorms: &[(usize, u32, f64)]| {
         let mut staging = Staging {
-            inject: Some(SifInject { o2: true, ..SifInject::default() }),
+            inject: Some(SifInject { o2: true, per_run: runs > 1, ..SifInject::default() }),
             mkdirs: Vec::new(),
             refnorms: refnorms.to_vec(),
+            run_refnorms: run_refnorms.to_vec(),
             exit_verdict: false,
         };
         // Same in-memory-mesh retry as `capture`.
@@ -336,8 +403,8 @@ fn refnorm_one(
         }
         result
     };
-    let solvers_n = refnorms.len();
-    match run(&run_dir, &refnorms) {
+    let solvers_n = refnorms.len() + run_refnorms.len();
+    match run(&run_dir, &refnorms, &run_refnorms) {
         Ok(o) if o.passed => (String::from("bitwise"), solvers_n, notes.join("; ")),
         Ok(o) => {
             let failed: Vec<&String> = o.compare_lines.iter().filter(|l| l.contains("FAILED")).collect();
@@ -358,14 +425,16 @@ fn refnorm_one(
                 // self-norming ones left at their own sif Reference Norm.
                 let rest: Vec<(u32, f64)> =
                     refnorms.iter().copied().filter(|(n, _)| !failed_solvers.contains(n)).collect();
+                let run_rest: Vec<(usize, u32, f64)> =
+                    run_refnorms.iter().copied().filter(|(_, n, _)| !failed_solvers.contains(n)).collect();
                 for n in &failed_solvers {
                     notes.push(format!("solver {n}: sets its own norm, not validated"));
                 }
-                if !rest.is_empty() {
+                if !rest.is_empty() || !run_rest.is_empty() {
                     let retry = out_root.join(format!("{test}.without-self-norm"));
-                    if let Ok(o) = run(&retry, &rest) {
+                    if let Ok(o) = run(&retry, &rest, &run_rest) {
                         if o.passed {
-                            return (String::from("bitwise"), rest.len(), notes.join("; "));
+                            return (String::from("bitwise"), rest.len() + run_rest.len(), notes.join("; "));
                         }
                     }
                 }
