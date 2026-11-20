@@ -75,13 +75,29 @@ impl MeshView for OwnedMesh {
     }
 }
 
-/// One edge of `FindMeshEdges2D`: nodes in the order of the first element
-/// with it, and its bulk parents (`BoundaryInfo % Left`, `Right`).
+/// One edge of `FindMeshEdges2D`: end nodes in the order of the first
+/// element with it, the middle node of a quadratic edge (`NodeIndexes(3)`,
+/// type 203), and its bulk parents (`BoundaryInfo % Left`, `Right`).
 #[derive(Clone, Debug)]
 pub struct Edge {
     pub nodes: [u32; 2],
+    pub mid: Option<u32>,
     pub left: Option<usize>,
     pub right: Option<usize>,
+}
+
+impl Edge {
+    /// `Edge % TYPE`: 202, or 203 with a middle node.
+    pub fn etype(&self) -> ElementType {
+        ElementType(if self.mid.is_some() { 203 } else { 202 })
+    }
+
+    /// `Edge % NodeIndexes`.
+    pub fn element_nodes(&self) -> Vec<u32> {
+        let mut v = self.nodes.to_vec();
+        v.extend(self.mid);
+        v
+    }
 }
 
 /// `Mesh % Edges` and every bulk element's `EdgeIndexes`.
@@ -91,9 +107,9 @@ pub struct Edges {
 }
 
 impl Edges {
-    /// `FindMeshEdges2D` over the bulk elements (triangles and
-    /// quadrilaterals) and then the boundary elements, which only meet
-    /// edges the bulk already made.
+    /// `FindMeshEdges2D` over the bulk elements (linear or quadratic
+    /// triangles and quadrilaterals) and then the boundary elements, which
+    /// only meet edges the bulk already made.
     pub fn find(mesh: &dyn MeshView) -> Edges {
         let nb = mesh.n_bulk();
         let mut edges: Vec<Edge> = Vec::new();
@@ -116,9 +132,13 @@ impl Edges {
                     el.nodes[(k + 1) % n]
                 };
                 let key = (a.min(b), a.max(b));
+                // `NodeIndexes(k+n+j-2)` for `j = 2..Degree`: the middle node of
+                // a quadratic element's edge.
+                let mid = (n > 1 && matches!(el.etype.0, 306 | 408 | 409)).then(|| el.nodes[k + n]);
                 let e = *hash.entry(key).or_insert_with(|| {
                     edges.push(Edge {
                         nodes: [a, b],
+                        mid,
                         left: None,
                         right: None,
                     });
