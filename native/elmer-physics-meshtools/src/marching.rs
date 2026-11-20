@@ -76,15 +76,34 @@ impl Solver for MarchingOde {
         if p.integer("timestep divisions").unwrap_or(1) > 1 {
             return Err(unsupported("Timestep Divisions"));
         }
-        if ctx.sim.model.solvers.iter().any(|s| flag(s, "discontinuous galerkin")) {
+        if ctx
+            .sim
+            .model
+            .solvers
+            .iter()
+            .any(|s| flag(s, "discontinuous galerkin"))
+        {
             return Err(unsupported("discontinuous Galerkin solvers"));
         }
         Ok(())
     }
 
-    fn solve(&mut self, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
-        ctx.info(CALLER, "-----------------------------------------------------", 6);
-        ctx.info(CALLER, "Solving ODE on moving coordinates in structured mesh", 4);
+    fn solve(
+        &mut self,
+        ctx: &mut SolverCtx<'_>,
+        dt: f64,
+        transient: bool,
+    ) -> Result<(), SolverError> {
+        ctx.info(
+            CALLER,
+            "-----------------------------------------------------",
+            6,
+        );
+        ctx.info(
+            CALLER,
+            "Solving ODE on moving coordinates in structured mesh",
+            4,
+        );
         let p = ctx.params().clone();
         let (var_name, dofs, perm) = {
             let v = ctx
@@ -107,7 +126,11 @@ impl Solver for MarchingOde {
 
         let beta = match ctx.creal(&p, "newmark beta")? {
             Some(b) => b,
-            None => match p.string("timestepping method").map(normalize_key).as_deref() {
+            None => match p
+                .string("timestepping method")
+                .map(normalize_key)
+                .as_deref()
+            {
                 Some("explicit euler") => 0.0,
                 Some("crank-nicolson") => 0.5,
                 Some("newmark") => {
@@ -119,28 +142,40 @@ impl Solver for MarchingOde {
         let parabolic = flag(&p, "parabolic model");
         let velo = match ctx.creal(ctx.simulation_params(), "draw velocity")? {
             Some(v) => v,
-            None => ctx
-                .creal(&p, "draw velocity")?
-                .ok_or_else(|| SolverError::fatal(CALLER, ">Draw Velocity< is needed for marching solver!"))?,
+            None => ctx.creal(&p, "draw velocity")?.ok_or_else(|| {
+                SolverError::fatal(CALLER, ">Draw Velocity< is needed for marching solver!")
+            })?,
         };
-        let max_iter = p.integer("nonlinear system max iterations").unwrap_or(1).max(0) as usize;
-        let tol = ctx.creal(&p, "nonlinear system convergence tolerance")?.unwrap_or(0.0);
+        let max_iter = p
+            .integer("nonlinear system max iterations")
+            .unwrap_or(1)
+            .max(0) as usize;
+        let tol = ctx
+            .creal(&p, "nonlinear system convergence tolerance")?
+            .unwrap_or(0.0);
         let min_cons = ctx.creal(&p, "minimum cons")?;
 
         // FirstExtrudedMaterial: the material of the first active element.
-        let first = ctx
-            .active_elements()
-            .next()
-            .ok_or_else(|| SolverError::fatal(CALLER, "Could not set material for extruded domain!"))?;
+        let first = ctx.active_elements().next().ok_or_else(|| {
+            SolverError::fatal(CALLER, "Could not set material for extruded domain!")
+        })?;
         let material = ctx
             .body_params(first)
             .and_then(|b| b.material)
             .cloned()
-            .ok_or_else(|| SolverError::fatal(CALLER, "Could not set material for extruded domain!"))?;
+            .ok_or_else(|| {
+                SolverError::fatal(CALLER, "Could not set material for extruded domain!")
+            })?;
         let f_key = format!("{var_name}: source");
         let c_key = format!("{var_name}: time derivative coefficient");
-        if material.get(&format!("{var_name}: reaction coefficient")).is_some() {
-            return Err(SolverError::fatal(CALLER, "Code some more to account for reaction term!"));
+        if material
+            .get(&format!("{var_name}: reaction coefficient"))
+            .is_some()
+        {
+            return Err(SolverError::fatal(
+                CALLER,
+                "Code some more to account for reaction term!",
+            ));
         }
         let have_f = material.get(&f_key).is_some();
         let have_c = material.get(&c_key).is_some();
@@ -155,7 +190,11 @@ impl Solver for MarchingOde {
                 return Err(SolverError::fatal(CALLER, "Timesteps are not matching"));
             } else {
                 dtn = steps as usize;
-                ctx.info(CALLER, &format!("Number of marching steps for each timestep: {dtn}"), 5);
+                ctx.info(
+                    CALLER,
+                    &format!("Number of marching steps for each timestep: {dtn}"),
+                    5,
+                );
             }
         }
         let do_transient = dtn > 0;
@@ -182,24 +221,33 @@ impl Solver for MarchingOde {
             }
         };
         // GetCoefficients: the source (and coefficient) at the layer.
-        let coefficients = |ctx: &SolverCtx<'_>, nodes: &[usize]| -> Result<(Vec<f64>, Vec<f64>), SolverError> {
-            let ids: Vec<u32> = nodes.iter().map(|&k| k as u32).collect();
-            let eval = |key: &str| -> Result<Vec<f64>, SolverError> {
-                match material.get(key) {
-                    Some(v) => elmer_solver::expr::eval_at_nodes_with(
-                        v,
-                        &ids,
-                        &ctx.fields(),
-                        ctx.sim.backends.matc.as_deref(),
-                        &ctx.sim.backends.udfs,
-                    ),
-                    None => Ok(vec![0.0; ids.len()]),
-                }
+        let coefficients =
+            |ctx: &SolverCtx<'_>, nodes: &[usize]| -> Result<(Vec<f64>, Vec<f64>), SolverError> {
+                let ids: Vec<u32> = nodes.iter().map(|&k| k as u32).collect();
+                let eval = |key: &str| -> Result<Vec<f64>, SolverError> {
+                    match material.get(key) {
+                        Some(v) => elmer_solver::expr::eval_at_nodes_with(
+                            v,
+                            &ids,
+                            &ctx.fields(),
+                            ctx.sim.backends.matc.as_deref(),
+                            &ctx.sim.backends.udfs,
+                        ),
+                        None => Ok(vec![0.0; ids.len()]),
+                    }
+                };
+                let f = if have_f {
+                    eval(&f_key)?
+                } else {
+                    vec![0.0; ids.len()]
+                };
+                let c = if have_c {
+                    eval(&c_key)?
+                } else {
+                    vec![0.0; ids.len()]
+                };
+                Ok((f, c))
             };
-            let f = if have_f { eval(&f_key)? } else { vec![0.0; ids.len()] };
-            let c = if have_c { eval(&c_key)? } else { vec![0.0; ids.len()] };
-            Ok((f, c))
-        };
 
         for _dti in 0..dtn.max(1) {
             let mut inv: Vec<usize> = cols.bottom.clone();
@@ -215,10 +263,17 @@ impl Solver for MarchingOde {
                         format!("InvPerm is the same on different layers: {}", inv[0] + 1),
                     ));
                 }
-                let dz = if n > 0 { cols.coord[inv[0]] - cols.coord[prev[0]] } else { 0.0 };
+                let dz = if n > 0 {
+                    cols.coord[inv[0]] - cols.coord[prev[0]]
+                } else {
+                    0.0
+                };
                 let dtime = dz / velo;
                 if dtime < f64::EPSILON {
-                    return Err(SolverError::fatal(CALLER, "Cannot march if timestep is ~zero"));
+                    return Err(SolverError::fatal(
+                        CALLER,
+                        "Cannot march if timestep is ~zero",
+                    ));
                 }
                 let mut xivec = get(ctx, &inv);
                 for _iter in 0..max_iter {
@@ -286,28 +341,56 @@ impl MarchingOde {
     /// mask (its `Extruded Coordinate`), the constant mesh parameter, and
     /// the bottom nodes of the columns that stay in the variable (and on
     /// the boundary with `Apply BCs Only`).
-    fn initialize(&self, ctx: &mut SolverCtx<'_>, p: &ParamMap, perm: &[u32]) -> Result<Columns, SolverError> {
+    fn initialize(
+        &self,
+        ctx: &mut SolverCtx<'_>,
+        p: &ParamMap,
+        perm: &[u32],
+    ) -> Result<Columns, SolverError> {
         ctx.info(CALLER, "Initializing structured mesh and ODE structures", 6);
         let dir = p.integer("active coordinate").unwrap_or(0);
         if !(1..=3).contains(&dir) {
-            return Err(SolverError::fatal("StructuredMeshMapper", "Invalid value for Active Coordinate"));
+            return Err(SolverError::fatal(
+                "StructuredMeshMapper",
+                "Invalid value for Active Coordinate",
+            ));
         }
         let dir = dir as usize - 1;
-        if flag(p, "mapping original coordinates") || p.get("mapping coordinate transformation").is_some() {
-            return Err(unsupported("Mapping Original Coordinates / Coordinate Transformation"));
+        if flag(p, "mapping original coordinates")
+            || p.get("mapping coordinate transformation").is_some()
+        {
+            return Err(unsupported(
+                "Mapping Original Coordinates / Coordinate Transformation",
+            ));
         }
         let mut unit = [0.0; 3];
-        unit[dir] = if flag(p, "project to bottom") { -1.0 } else { 1.0 };
+        unit[dir] = if flag(p, "project to bottom") {
+            -1.0
+        } else {
+            1.0
+        };
         let eps = ctx.creal(p, "dot product tolerance")?.unwrap_or(1.0e-4);
-        let size = perm.iter().filter(|&&s| s != NO_DOF).map(|&s| s as usize + 1).max().unwrap_or(0);
+        let size = perm
+            .iter()
+            .filter(|&&s| s != NO_DOF)
+            .map(|&s| s as usize + 1)
+            .max()
+            .unwrap_or(0);
         let mask = Mask {
             perm: perm.to_vec(),
             size,
         };
         extruded_coordinate(ctx, &mask, dir)?;
-        let want = Want { layers: true, mid: false };
+        let want = Want {
+            layers: true,
+            mid: false,
+        };
         let s = detect_extruded_structure(ctx.mesh, &ctx.sim.model, unit, eps, want, Some(&mask))?;
-        ctx.info(CALLER, &format!("Number of element layers: {}", s.layers), 7);
+        ctx.info(
+            CALLER,
+            &format!("Number of element layers: {}", s.layers),
+            7,
+        );
         let ext = ctx.variable("extruded coordinate").expect("added above");
         let ep = ext.perm.expect("on the mask");
         let nn = ctx.mesh.n_nodes();
@@ -322,8 +405,12 @@ impl MarchingOde {
             cmin = cmin.min(v);
             cmax = cmax.max(v);
         }
-        if cmax - cmin < f64::EPSILON {
-            return Err(SolverError::fatal(CALLER, "We cannot march when dz is ~zero!"));
+        let dz = cmax - cmin;
+        if dz < f64::EPSILON {
+            return Err(SolverError::fatal(
+                CALLER,
+                "We cannot march when dz is ~zero!",
+            ));
         }
         let hparam = (cmax - cmin) / s.layers as f64;
         let mut bc_node: Option<Vec<bool>> = None;
@@ -354,7 +441,11 @@ impl MarchingOde {
             }
             bottom.push(i);
         }
-        ctx.info(CALLER, &format!("Number of bottom nodes: {}", bottom.len()), 7);
+        ctx.info(
+            CALLER,
+            &format!("Number of bottom nodes: {}", bottom.len()),
+            7,
+        );
         Ok(Columns {
             up: s.up,
             bottom,
