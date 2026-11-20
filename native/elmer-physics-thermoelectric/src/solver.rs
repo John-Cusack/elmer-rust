@@ -238,7 +238,8 @@ fn p_element(d: &dyn elmer_solver::SolverDofs, e: ElemId) -> Result<PElement, So
         return Err(unsupported("Bubbles in Global System = False (the bubbles are always condensed here)"));
     }
     Ok(PElement {
-        basis: d.element_basis(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
+        // ThermoElectricSolver.F90 calls the scalar ElementInfo.
+        basis: d.element_basis_scalar(e).map_err(|m| SolverError::fatal("ElementInfo", m))?,
         rule: FixedRule(d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?),
         nodes: d.element_nodes(e),
     })
