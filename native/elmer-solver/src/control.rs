@@ -120,14 +120,19 @@ fn nodal_sources(ctx: &SolverCtx<'_>, name: &str) -> Result<Vec<f64>, SolverErro
 /// `GetControlNode`: `Control Node Index [i]` (1-based), else the node
 /// with a dof nearest to `Control Node Coordinates` (row `i` of a
 /// multi-row array, or `Control Node Coordinates i`), remembered as
-/// `Control Node Index i`. `None` when neither is given.
+/// `Control Node Index i`. `None` when neither is given (or the index is
+/// negative); `Some(0)` when this rank has no such node.
+///
+/// In parallel this is `FindClosestNode` with `Parallel` (SolverBasics.F90):
+/// a node this rank holds but does not own does not count, and only the
+/// ranks at the global minimum distance keep their node (collective).
 pub(crate) fn control_node(ctx: &mut SolverCtx<'_>, i: usize) -> Option<usize> {
     let p = ctx.params();
     let idx = p
         .integer(&format!("control node index {i}"))
         .or_else(|| (i == 1).then(|| p.integer("control node index")).flatten());
     if let Some(k) = idx {
-        return usize::try_from(k).ok().filter(|&k| k > 0);
+        return usize::try_from(k).ok();
     }
     let (arr, row) = match p.get("control node coordinates") {
         Some(Value::Real { rows, cols, data }) => ((*rows, *cols, data.clone()), i),
@@ -160,15 +165,23 @@ pub(crate) fn control_node(ctx: &mut SolverCtx<'_>, i: usize) -> Option<usize> {
             best = (d, node as usize + 1);
         }
     }
-    if best.1 > 0 {
-        ctx.info("GetControlNode", &format!("Control Node located to index: {}", best.1), 6);
-        ctx.sim.slots[ctx.slot]
-            .params
-            .insert(&format!("Control Node Index {i}"), Value::Integer(vec![best.1 as i32]));
-        Some(best.1)
-    } else {
-        None
+    let (mut dist, mut node) = (best.0.sqrt(), best.1);
+    if ctx.comm.size() > 1 {
+        if node > 0 && ctx.sim.node_owned().is_some_and(|o| !o[node - 1]) {
+            dist = f64::MAX;
+        }
+        // ParallelReduction(Dist, 1): the minimum, as the max of -Dist.
+        let mut m = [-dist];
+        ctx.comm.max_f64(&mut m);
+        if (-m[0] - dist).abs() > f64::EPSILON {
+            node = 0;
+        }
     }
+    ctx.info("GetControlNode", &format!("Control Node located to index: {node}"), 6);
+    ctx.sim.slots[ctx.slot]
+        .params
+        .insert(&format!("Control Node Index {i}"), Value::Integer(vec![node as i32]));
+    Some(node)
 }
 
 /// `LuSolve(n, A, x)`: Gaussian elimination with partial pivoting; `a` is
@@ -400,10 +413,21 @@ pub(crate) fn apply_explicit_control(ctx: &mut SolverCtx<'_>) -> Result<(), Solv
         } else {
             1
         };
-        let s = v
-            .slot(node as u32 - 1)
-            .ok_or_else(|| SolverError::fatal("GetControlValue", "Could not find control node!"))?;
-        let val = v.values[v.dofs * s + dof - 1];
+        // GetControlValue: -HUGE where this rank has no control node, then
+        // ParallelReduction(val, 2), the maximum over the ranks.
+        let mut val = if node == 0 {
+            -f64::MAX
+        } else {
+            let s = v
+                .slot(node as u32 - 1)
+                .ok_or_else(|| SolverError::fatal("GetControlValue", "Could not find control node!"))?;
+            v.values[v.dofs * s + dof - 1]
+        };
+        if ctx.comm.size() > 1 {
+            let mut m = [val];
+            ctx.comm.max_f64(&mut m);
+            val = m[0];
+        }
         let p = ctx.params().clone();
         let target = match ctx.creal(&p, "control target value")? {
             Some(t) => t,

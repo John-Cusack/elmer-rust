@@ -723,7 +723,7 @@ fn conforming_map(
 
 /// The `fem/tests` case name `elmer-fixtures` keys its ports by: the case
 /// directory's name (the `.sif`'s directory; empty means the working one).
-fn fixture_case(case_dir: &Path) -> String {
+pub fn fixture_case(case_dir: &Path) -> String {
     let dir = if case_dir.as_os_str().is_empty() { std::env::current_dir().ok() } else { case_dir.canonicalize().ok() };
     dir.and_then(|d| d.file_name().and_then(|n| n.to_str()).map(str::to_string)).unwrap_or_default()
 }

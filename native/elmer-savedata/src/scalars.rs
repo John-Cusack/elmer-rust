@@ -39,6 +39,22 @@ struct SaveList {
     values: Vec<f64>,
     integer: Vec<bool>,
     variable_name: String,
+    /// `Parallel Reduce` in a parallel run: each value is reduced over the
+    /// ranks as it is added.
+    reduce: bool,
+    /// The `ParallelOperator` argument of `AddToSaveList`, given by the
+    /// operator branches; `None` reads `Parallel Operator <value index>`.
+    par_oper: Option<String>,
+}
+
+/// `OperToParOperMap` (SaveScalars.F90:1581) for the operators reduced in
+/// parallel here.
+fn oper_to_par_oper(oper: &str) -> &'static str {
+    match oper {
+        "max" | "max abs" => "max",
+        "min" | "min abs" => "min",
+        _ => "none",
+    }
 }
 
 impl SaveList {
@@ -47,6 +63,47 @@ impl SaveList {
         self.values.push(val);
         self.integer.push(integer);
         let n = self.values.len();
+        // AddToSaveList's `ParallelReduction( Val, MPIOper )`.
+        if self.reduce {
+            let op = match &self.par_oper {
+                Some(o) => Some(o.clone()),
+                None => plan.section.string(&format!("parallel operator {n}")).map(normalize_key),
+            };
+            if let Some(op) = op {
+                let mut b = [self.values[n - 1]];
+                let reduced = match op.as_str() {
+                    "sum" => {
+                        ctx.comm.sum_f64(&mut b);
+                        true
+                    }
+                    "min" => {
+                        b[0] = -b[0];
+                        ctx.comm.max_f64(&mut b);
+                        b[0] = -b[0];
+                        true
+                    }
+                    "max" => {
+                        ctx.comm.max_f64(&mut b);
+                        true
+                    }
+                    "mean" => {
+                        ctx.comm.sum_f64(&mut b);
+                        b[0] /= ctx.comm.size() as f64;
+                        true
+                    }
+                    "none" => false,
+                    other => {
+                        ctx.warn(CALLER, &format!("Unknown parallel operator: {other}"));
+                        false
+                    }
+                };
+                if reduced {
+                    self.values[n - 1] = b[0];
+                    self.names[n - 1] = format!("{} : mpi_{op}", self.names[n - 1]);
+                }
+            }
+        }
+        let val = self.values[n - 1];
         let target = plan.section.string(&format!("target variable {n}"));
         self.variable_name = target.unwrap_or("").to_string();
         if let Some(target) = target {
@@ -140,13 +197,28 @@ impl Solver for SaveScalars {
     }
 
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
-        if ctx.comm.size() > 1 {
-            return Err(SolverError::Unsupported("SaveScalars: MPI reductions".into()));
+        // SaveScalars.F90:283-325. In parallel only `Parallel Reduce` over
+        // all ranks: the values are reduced and rank 0 writes and echoes.
+        let parallel = ctx.comm.size() > 1;
+        if parallel {
+            let p = &self.plan.section;
+            if p.logical("slices reduce") == Some(true) || p.logical("times reduce") == Some(true) {
+                return Err(SolverError::Unsupported("SaveScalars: Slices Reduce / Times Reduce".into()));
+            }
+            if p.logical("parallel reduce") != Some(true) {
+                return Err(SolverError::Unsupported(
+                    "SaveScalars: per-partition files in parallel (without Parallel Reduce)".into(),
+                ));
+            }
+            if !self.plan.save_points.is_empty() || !self.plan.save_coordinates.is_empty() {
+                return Err(SolverError::Unsupported("SaveScalars: Save Points / Save Coordinates in parallel".into()));
+            }
         }
+        let write_core = ctx.comm.rank() == 0;
         ctx.info(CALLER, "-----------------------------------------", 4);
         ctx.info(CALLER, "Saving scalar values of various kinds", 4);
 
-        let mut list = SaveList::default();
+        let mut list = SaveList { reduce: parallel, ..SaveList::default() };
         self.collect(ctx, &mut list)?;
         if list.values.is_empty() {
             ctx.warn(CALLER, "Found no values to save");
@@ -154,10 +226,10 @@ impl Solver for SaveScalars {
         }
         ctx.info(CALLER, &format!("Found {} values to save in total", list.values.len()), 6);
 
-        if self.plan.filename.is_some() {
+        if self.plan.filename.is_some() && write_core {
             self.write_files(ctx, &list)?;
         }
-        if self.plan.echo_values {
+        if self.plan.echo_values && write_core {
             ctx.info(CALLER, "Showing computed results:", 3);
             for (i, (n, v)) in list.names.iter().zip(&list.values).enumerate() {
                 ctx.info(
@@ -314,6 +386,9 @@ impl SaveScalars {
                 }
             }
 
+            if list.reduce && !matches!(op.kind, OperKind::Statistic | OperKind::Deviation) {
+                return Err(SolverError::Unsupported(format!("SaveScalars: operator {} in parallel", op.oper)));
+            }
             match op.kind {
                 OperKind::Mesh => self.mesh_operator(ctx, list, &plan, &op.oper, &variable)?,
                 OperKind::Meta => {
@@ -321,6 +396,18 @@ impl SaveScalars {
                     list.add(&plan, ctx, &save_name, val, int)?;
                 }
                 OperKind::Statistic | OperKind::Deviation => {
+                    // Reduced in parallel: the extrema, which every rank can
+                    // take over all its nodes, ghosts included.
+                    if list.reduce {
+                        if op.kind != OperKind::Statistic || oper_to_par_oper(&op.oper) == "none" {
+                            return Err(SolverError::Unsupported(format!("SaveScalars: operator {} in parallel", op.oper)));
+                        }
+                        list.par_oper = Some(
+                            p.string(&format!("parallel operator {n}"))
+                                .map(normalize_key)
+                                .unwrap_or_else(|| oper_to_par_oper(&op.oper).to_string()),
+                        );
+                    }
                     let val = {
                         let view = match resolve_values(&ctx.sim.vars, &variable)? {
                             Some(Resolved::Field(v)) => v,
@@ -336,6 +423,7 @@ impl SaveScalars {
                         }
                     };
                     list.add(&plan, ctx, &save_name, val, false)?;
+                    list.par_oper = None;
                 }
                 OperKind::Bulk => {
                     let val = {
@@ -502,6 +590,9 @@ impl SaveScalars {
         let save_freq = either("save eigenfrequencies", "save eigen frequencies");
         if !(save_value || save_freq) {
             return Ok(());
+        }
+        if list.reduce {
+            return Err(SolverError::Unsupported("SaveScalars: eigenvalues in parallel".into()));
         }
         let complex = either("complex eigen values", "complex eigenvalues");
         let mut found = 0usize;
