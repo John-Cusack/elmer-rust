@@ -31,6 +31,7 @@
 #![forbid(unsafe_code)]
 
 pub mod calcfields;
+pub mod calcfields2d;
 pub mod case;
 pub mod error;
 pub mod harmonic;

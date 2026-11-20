@@ -210,6 +210,12 @@ fn upsert(
 
 impl Solver for CalcFields {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, transient: bool) -> Result<(), SolverError> {
+        // A nodal 2D target (MagnetoDynamics2D, MagnetoDynamics2DHarmonic).
+        if let Ok(t) = crate::calcfields2d::target(&ctx.sim.model.solvers, ctx.params()) {
+            if !t.hcurl {
+                return crate::calcfields2d::solve(ctx, t, transient);
+            }
+        }
         if transient {
             return Err(SolverError::Unsupported("transient MagnetoDynamicsCalcFields".into()));
         }
