@@ -161,9 +161,8 @@ pub fn nodal_projector(
 
 /// Projector families of `PeriodicProjector` that are not ported (the
 /// radial, flat and plane ones are, see [`crate::level`]).
-const REFUSED: [&str; 7] = [
+const REFUSED: [&str; 6] = [
     "normal projector",
-    "cylindrical projector",
     "axial projector",
     "anti axial projector",
     "sliding projector",
@@ -252,7 +251,8 @@ pub fn periodic_projector(
     let flat = flag(bc, "flat projector");
     let anti_plane = flag(bc, "anti plane projector");
     let plane = anti_plane || flag(bc, "plane projector");
-    let family = rotational || radial || flat || plane;
+    let cylindrical = flag(bc, "cylindrical projector");
+    let family = rotational || cylindrical || radial || flat || plane;
     // `Mortar BC Scaling`, -1 by default for the anti projectors.
     let node_scale = bc
         .real("mortar bc scaling")
@@ -280,9 +280,9 @@ pub fn periodic_projector(
         }
     }
     let (mut radius, mut full_circle, mut periods) = (1.0, false, None);
-    if rotational {
+    if rotational || cylindrical {
         (radius, full_circle, periods) =
-            crate::level::rotational_interface_meshes(&mut b1, &mut b2, bc, env.simulation, env.log)?;
+            crate::level::rotational_interface_meshes(&mut b1, &mut b2, bc, env.simulation, cylindrical, env.log)?;
     } else if radial {
         crate::level::radial_interface_meshes(&mut b1, &mut b2, env.log);
     } else if flat {

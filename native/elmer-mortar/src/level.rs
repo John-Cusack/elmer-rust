@@ -244,18 +244,23 @@ pub fn radial_interface_meshes(b1: &mut InterfaceMesh, b2: &mut InterfaceMesh, l
 /// `360 / dfii` of the master when that is an integer). The Fortran also
 /// stores `Rotor Radius` and `Rotor Periods` in the Simulation section; they
 /// are not kept here.
+///
+/// `Cylindrical` (the cylindrical projector): whether the slave is a full
+/// circle, and the move of its angles past 180 degrees, decide for the
+/// master too, and there is no number of periods. `CylinderFit`, which the
+/// Fortran calls for it and for `Rotational Projector Center Fit`, stores
+/// `Cylinder Center` and `Cylinder Normal` as arrays, which the `Cylinder
+/// Center X` ... read here never finds: it changes nothing and is skipped.
 pub fn rotational_interface_meshes(
     b1: &mut InterfaceMesh,
     b2: &mut InterfaceMesh,
     bc: &dyn Params,
     simulation: &dyn Params,
+    cylindrical: bool,
     log: &dyn Logger,
 ) -> Result<(f64, bool, Option<i32>), MortarError> {
     const CALLER: &str = "RotationalInterfaceMeshes";
     let rad2deg = 180.0 / std::f64::consts::PI;
-    if flag(bc, "rotational projector center fit") && bc.get("cylinder center x").is_none() {
-        return Err(MortarError::Unsupported("Rotational Projector Center Fit (CylinderFit)".into()));
-    }
     let comp = |k: &str| bc.real(k);
     let cx = [comp("cylinder center x"), comp("cylinder center y"), comp("cylinder center z")];
     let got_center = cx.iter().any(Option::is_some);
@@ -267,6 +272,7 @@ pub fn rotational_interface_meshes(
     let dot = |a: &[f64; 3], b: &[f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     let es = |v: f64| elmer_solver::fortran_fmt::es(v, 12, 3);
     let mut full_circle = false;
+    let (mut move_angle, mut fii0) = (false, 0.0f64);
     let mut ext = [[[0.0f64; 3]; 2]; 2];
     for (k, m) in [&mut *b1, &mut *b2].into_iter().enumerate() {
         let mut offset = None;
@@ -304,6 +310,15 @@ pub fn rotational_interface_meshes(
             }
             *c = [alpha, x[2], rad];
         }
+        if cylindrical && k == 1 {
+            if move_angle {
+                for c in m.coords.iter_mut() {
+                    if c[0] < fii0 {
+                        c[0] += 360.0;
+                    }
+                }
+            }
+        } else {
         let (mut hit0, mut hit90, mut hit180, mut hit270) = (false, false, false, false);
         for e in 0..m.n_bulk() {
             let el = m.element(ElemId(e as u32));
@@ -335,6 +350,9 @@ pub fn rotational_interface_meshes(
                     c[0] += 360.0;
                 }
             }
+            move_angle = true;
+            fii0 = fii;
+        }
         }
         log.info(CALLER, &format!("Transformed extrema for {which} boundary (phi,z,r)"), 8);
         for i in 0..3 {
@@ -371,8 +389,8 @@ pub fn rotational_interface_meshes(
     } else {
         log.info(CALLER, "The effective interface meshes are 2D", 8);
     }
-    if full_circle {
-        return Ok((radius, true, None));
+    if cylindrical || full_circle {
+        return Ok((radius, full_circle, None));
     }
     let dfii1 = ext[0][1][0] - ext[0][0][0];
     let dfii2 = ext[1][1][0] - ext[1][0][0];
@@ -462,10 +480,11 @@ pub fn level_projector(
         mesh_dim = 2;
     }
     let rotational = flag(bc, "rotational projector") || flag(bc, "anti rotational projector");
+    let cylindrical = flag(bc, "cylindrical projector");
     if mesh_dim != 2 && mesh_dim != 3 {
         return Err(MortarError::Unsupported(format!("the level projector of a {mesh_dim}D mesh")));
     }
-    if mesh_dim == 2 && (o.repeating || o.full_circle || rotational) {
+    if mesh_dim == 2 && (o.repeating || o.full_circle || rotational || cylindrical) {
         return Err(MortarError::Unsupported("a repeating or rotational level projector of a 2D mesh".into()));
     }
     if mesh_dim == 3 {
@@ -524,7 +543,8 @@ pub fn level_projector(
         let rel_tol_y = 1.0e-4;
         let rel_tol_x = if o.full_circle || o.repeating { 1.0e-6 } else { rel_tol_y };
         let (ytol, xtol) = (rel_tol_y * yrange, rel_tol_x * xrange);
-        let arc_coeff = if rotational { (2.0 * std::f64::consts::PI * o.radius) / 360.0 } else { 1.0 };
+        let arc_coeff =
+            if rotational || cylindrical { (2.0 * std::f64::consts::PI * o.radius) / 360.0 } else { 1.0 };
         if rotational {
             xrange = if o.full_circle {
                 360.0
