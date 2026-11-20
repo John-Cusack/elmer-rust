@@ -878,6 +878,7 @@ dependencies = [
  "elmer-eigen",
  "elmer-expr",
  "elmer-fixtures",
+ "elmer-interp",
  "elmer-itermethods",
  "elmer-krylov",
  "elmer-mesh-levels",

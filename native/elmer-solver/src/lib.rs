@@ -54,6 +54,7 @@ pub mod model;
 pub mod norm;
 mod normalize;
 pub mod reference;
+pub mod remesh;
 pub mod restart;
 pub mod sim;
 pub mod solver;

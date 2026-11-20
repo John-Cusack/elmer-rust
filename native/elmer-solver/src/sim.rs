@@ -412,6 +412,9 @@ pub struct Simulation {
     /// reordered in `Mesh % Elements` itself), when it differs from the
     /// mesh's: the order a nodal solver's first-touch numbering sees.
     pub(crate) p_element_nodes: Option<Arc<Vec<Vec<u32>>>>,
+    /// Adaptive mesh refinement: the pending mesh change and the current
+    /// mesh's state ([`crate::remesh`]).
+    pub(crate) adaptive: crate::remesh::AdaptiveMeshes,
 }
 
 /// `mesh` with its elements' nodes in a p layout's order.
@@ -507,6 +510,7 @@ impl Simulation {
             arpack: Default::default(),
             p_ndeg_parts: None,
             p_element_nodes: None,
+            adaptive: Default::default(),
         }
     }
 
@@ -563,6 +567,10 @@ impl Simulation {
     }
 
     /// Installs the `Output File` writer for this and later runs.
+    pub(crate) fn clear_node_owned(&mut self) {
+        self.node_owned = None;
+    }
+
     pub fn set_save_current(&mut self, writer: Box<dyn SaveCurrent>) {
         self.save_current = Some(writer);
     }
@@ -681,7 +689,7 @@ impl Simulation {
             log.info(MAP, &format!("\"Default External BC\" count: {}", crate::fortran_fmt::i2s(n_ext as i64)), 6);
         }
         for i in 0..self.model.solvers.len() {
-            if let Some(slot) = self.build_slot(i, mesh, registry, true)? {
+            if let Some(slot) = self.build_slot(i, mesh, Some(registry), true)? {
                 self.slots.push(slot);
             }
         }
@@ -701,11 +709,11 @@ impl Simulation {
     /// registry or the solver mode, active elements, time order and primary
     /// variable, with initial conditions when `apply_ics`. `None` for an
     /// empty section.
-    fn build_slot(
+    pub(crate) fn build_slot(
         &mut self,
         i: usize,
         mesh: &dyn MeshView,
-        registry: &SolverRegistry,
+        registry: Option<&SolverRegistry>,
         apply_ics: bool,
     ) -> Result<Option<SolverSlot>, SolverError> {
         let params = self.model.solvers[i].clone();
@@ -719,13 +727,16 @@ impl Simulation {
         if slot.params.logical("eigen analysis") == Some(true) {
             slot.nof_eigen = slot.params.integer("eigen system values").filter(|&n| n > 0).map_or(0, |n| n as usize);
         }
-        if let Some((lib, entry)) = procedure_of(&slot.params) {
-            if let Some(f) = registry.get(&lib, &entry) {
-                slot.instance = Some(f(&slot.params)?);
+        // Without a registry (a mesh change) the caller moves the instance.
+        if let Some(registry) = registry {
+            if let Some((lib, entry)) = procedure_of(&slot.params) {
+                if let Some(f) = registry.get(&lib, &entry) {
+                    slot.instance = Some(f(&slot.params)?);
+                }
             }
-        }
-        if let Some(s) = crate::coupled::solver_for_mode(&slot.params, registry)? {
-            slot.instance = Some(s);
+            if let Some(s) = crate::coupled::solver_for_mode(&slot.params, registry)? {
+                slot.instance = Some(s);
+            }
         }
         // SetActiveElementsTable: bulk and boundary elements whose body runs
         // the solver; a boundary element has a body only through its BC's
@@ -946,7 +957,7 @@ impl Simulation {
                     slot.exec_when = ExecWhen::from_params(&slot.params)?;
                 }
                 None => {
-                    if let Some(slot) = self.build_slot(i, mesh, registry, false)? {
+                    if let Some(slot) = self.build_slot(i, mesh, Some(registry), false)? {
                         let at = self.slots.partition_point(|s| s.id < slot.id);
                         self.slots.insert(at, slot);
                         added.push(i + 1);
@@ -2106,6 +2117,10 @@ impl Simulation {
                         .variable
                         .is_some_and(|id| self.vars.by_id(id).conv.steady_converged != 0);
                 }
+                if self.adaptive.finished && !done[k] {
+                    log.info("SolveEquations", "Overriding convergence due to Adaptive Meshing Finished!", 4);
+                    done[k] = true;
+                }
                 if done.iter().all(|&d| d) {
                     break;
                 }
@@ -2155,7 +2170,10 @@ impl Simulation {
     /// A scanning run steps like a transient one (`Timestep Intervals`,
     /// unit sizes by default, `time` advancing, no steady-state exit) but
     /// its solvers run steady. Periodic time is refused.
-    pub fn run(&mut self, mesh: &dyn MeshView, log: &dyn Logger, comm: &dyn Communicator) -> Result<RunReport, SolverError> {
+    pub fn run(&mut self, first_mesh: &dyn MeshView, log: &dyn Logger, comm: &dyn Communicator) -> Result<RunReport, SolverError> {
+        // The mesh a solver moved the run to (adaptive mesh refinement).
+        let mut current: Option<Arc<dyn MeshView + Send + Sync>> = None;
+        let mesh = first_mesh;
         let simp = self.model.simulation.clone();
         let transient = self.is_transient();
         let scanning = self.is_scanning();
@@ -2226,6 +2244,11 @@ impl Simulation {
         'outer: for (interval, &nsteps) in intervals.iter().enumerate() {
             let mut real_timestep = 1usize;
             for timestep in 1..=nsteps {
+                let held = current.clone();
+                let mesh: &dyn MeshView = match &held {
+                    Some(m) => &**m,
+                    None => first_mesh,
+                };
                 cum += 1;
                 self.vars.set_scalar("timestep", cum as f64);
                 dt = self.step_size(&simp, timed, cum, interval, timestep, &sizes, ratios.as_deref(), dt, mesh, log)?;
@@ -2291,6 +2314,21 @@ impl Simulation {
                 if last_saved {
                     self.save_step(dt, transient, mesh, log, comm)?;
                 }
+                // RefineMesh's new mesh: the results above were the old
+                // mesh's; the run goes on with the new one.
+                if let Some(change) = self.adaptive.pending.take() {
+                    self.swap_mesh(mesh, &*change.mesh, log, comm)?;
+                    self.adaptive.depth += 1;
+                    self.adaptive.finished = false;
+                    self.adaptive.name = change.name.clone();
+                    self.mesh_writer(&change.name)?;
+                    current = Some(change.mesh);
+                }
+                let held2 = current.clone();
+                let mesh: &dyn MeshView = match &held2 {
+                    Some(m) => &**m,
+                    None => first_mesh,
+                };
                 if self.creal(&simp, "exit condition", mesh)?.is_some_and(|c| c > 0.0) {
                     log.info("MAIN", "Found a positive exit condition, exiting...", 3);
                     break 'outer;
@@ -2301,6 +2339,11 @@ impl Simulation {
             }
         }
 
+        let held = current.clone();
+        let mesh: &dyn MeshView = match &held {
+            Some(m) => &**m,
+            None => first_mesh,
+        };
         self.exec_slots(ExecWhen::AfterAll, dt, transient, mesh, log, comm)?;
         // "Always save the last step to output" (ElmerSolver.F90:3557).
         if !last_saved {
