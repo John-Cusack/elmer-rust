@@ -305,7 +305,7 @@ pub fn run_test(cfg: &Config, test: &QuickTest) -> Record {
     blockers.retain(|b| !(has_solver && b.contains("(no Procedure)")));
     sort_blockers(&mut blockers);
     record.blockers = blockers;
-    if cfg.clean {
+    if cfg.clean && stage::owns_scratch(&cfg.scratch) && dir.parent() == Some(cfg.scratch.as_path()) {
         let _ = fs::remove_dir_all(&dir);
     }
     record
