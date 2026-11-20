@@ -327,9 +327,13 @@ fn solid_coupling(
     const CALLER_C: &str = "SetSolidCouplingBCs";
     let mut out = Vec::new();
     // SolidShellCoupling: a `Displacement` with nodes in common.
-    let Some(did) = ctx.sim.vars.id("displacement") else { return Ok(out) };
+    let Some(did) = ctx.sim.vars.id("displacement") else {
+        return Ok(out);
+    };
     let disp = ctx.sim.vars.by_id(did);
-    let Some(dperm) = disp.perm.as_deref() else { return Ok(out) };
+    let Some(dperm) = disp.perm.as_deref() else {
+        return Ok(out);
+    };
     let common = dperm
         .iter()
         .zip(perm)
@@ -338,7 +342,10 @@ fn solid_coupling(
         return Ok(out);
     }
     let bcs = &ctx.sim.model.boundary_conditions;
-    if !bcs.iter().any(|b| b.logical("structure interface") == Some(true)) {
+    if !bcs
+        .iter()
+        .any(|b| b.logical("structure interface") == Some(true))
+    {
         return Ok(out);
     }
     if disp.dofs != 3 {
@@ -403,7 +410,10 @@ fn solid_coupling(
             for &n in el.nodes {
                 if pnodes.contains(&n) {
                     let d = *dirs.get(&n).ok_or_else(|| {
-                        SolverError::fatal(CALLER_C, "Director cannot be found from parent elements")
+                        SolverError::fatal(
+                            CALLER_C,
+                            "Director cannot be found from parent elements",
+                        )
                     })?;
                     targets.push((n, d));
                 }
@@ -449,7 +459,10 @@ fn solid_coupling(
             let jz = jz.unwrap_or(node);
             let lz = lz.unwrap_or(node);
             if jz == lz {
-                return Err(SolverError::fatal(CALLER_C, "No solid nodes to span the director"));
+                return Err(SolverError::fatal(
+                    CALLER_C,
+                    "No solid nodes to span the director",
+                ));
             }
             let u = |n: u32| -> V3 {
                 let k = dperm[n as usize] as usize * DOFS;
@@ -463,7 +476,10 @@ fn solid_coupling(
             let hv = dot(&v, &v).sqrt();
             let dh = [v[0] / hv, v[1] / hv, v[2] / hv];
             if dot(&dh, &e3).abs() < 0.98 {
-                ctx.warn(CALLER_C, "A BC omitted: Solid-model nodes does not span the director");
+                ctx.warn(
+                    CALLER_C,
+                    "A BC omitted: Solid-model nodes does not span the director",
+                );
                 continue;
             }
             let k = perm[node as usize];

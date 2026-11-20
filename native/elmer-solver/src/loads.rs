@@ -102,7 +102,12 @@ impl Simulation {
     /// `SetNodalLoads` for slot `ix`'s variable into its right-hand side:
     /// each node gets the first boundary condition's `<name> Load` that
     /// reaches it, then (separately) the first body force's.
-    pub(crate) fn set_nodal_loads(&mut self, ix: usize, mesh: &dyn MeshView, log: &dyn Logger) -> Result<(), SolverError> {
+    pub(crate) fn set_nodal_loads(
+        &mut self,
+        ix: usize,
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+    ) -> Result<(), SolverError> {
         let Some(id) = self.slots[ix].variable else { return Ok(()) };
         let (name, dofs) = {
             let v = self.vars.by_id(id);
@@ -276,7 +281,8 @@ impl Simulation {
                 // The last component's row; every dofs-th entry from its last.
                 let row = ti * dofs + dofs - 1;
                 let (lo, hi) = (a.row_ptr[row], a.row_ptr[row + 1]);
-                let near: Vec<u32> = (lo + dofs - 1..hi).step_by(dofs).map(|i| inv[a.col_idx[i] as usize / dofs]).collect();
+                let near: Vec<u32> =
+                    (lo + dofs - 1..hi).step_by(dofs).map(|i| inv[a.col_idx[i] as usize / dofs]).collect();
                 let x0 = mesh.coord(target);
                 let rel = |n: u32| -> [f64; 3] {
                     let x = mesh.coord(n);
@@ -339,11 +345,11 @@ impl Simulation {
                 let f = [dot(&force, &e[0]), dot(&force, &e[1]), dot(&force, &e[2])];
                 let nc = if dofs > 2 { 3 } else { 2 };
                 if let (Some(kj), Some(kl)) = (v.slot(jz), v.slot(lz)) {
-                    for c in 0..nc {
-                        add.push((kj * dofs + c, f[c]));
+                    for (c, &fc) in f.iter().enumerate().take(nc) {
+                        add.push((kj * dofs + c, fc));
                     }
-                    for c in 0..nc {
-                        add.push((kl * dofs + c, -f[c]));
+                    for (c, &fc) in f.iter().enumerate().take(nc) {
+                        add.push((kl * dofs + c, -fc));
                     }
                 }
             }
