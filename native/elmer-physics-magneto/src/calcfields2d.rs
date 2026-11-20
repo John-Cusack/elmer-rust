@@ -115,6 +115,11 @@ pub fn init_section(model: &mut Model, i: usize, dim: usize) {
         .iter()
         .any(|c| logical(c, "calculate magnetic force") == Some(true) || logical(c, "calculate magnetic torque") == Some(true));
     let target_eigen = logical(&model.solvers[t.index - 1], "eigen analysis") == Some(true);
+    // `_Init`: the integral results start at zero in the Simulation section.
+    model.simulation.insert("res: Eddy current power", Value::real(0.0));
+    if logical(&model.solvers[i], "separate magnetic energy") != Some(true) {
+        model.simulation.insert("res: ElectroMagnetic Field Energy", Value::real(0.0));
+    }
     let sp = &mut model.solvers[i];
     let add_new = |sp: &mut ParamMap, k: &str, v: Value| {
         if sp.get(k).is_none() {
@@ -416,6 +421,7 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         "loss estimation",
         "calculate flux linkage",
         "separate magnetic energy",
+        "show angular frequency",
     ] {
         if logical(&sp, k) == Some(true) {
             return Err(unsupported(format!("'{k}'")));
@@ -585,6 +591,9 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
     let elems: Vec<ElemId> = ctx.active_elements().filter(|e| (e.0 as usize) < ctx.mesh.n_bulk()).collect();
     let mut slots = Vec::new();
     let mut power = 0.0;
+    let mut energy = [0.0f64; 2];
+    let mut energy_known = true;
+    let eps0 = ctx.constants().real("permittivity of vacuum").unwrap_or(8.854187817e-12);
     let mut omega = 0.0;
     let mut status = MetricStatus::default();
     for &e in &elems {
@@ -624,11 +633,26 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         let mut force = vec![vec![0.0; eq_n]; ncol.max(1)];
         // GetReluctivity: a constant scalar (`Nu = diag(R_ip)`).
         let nu = match (&material, mfs.any()) {
-            (Some(mt), true) => crate::material::reluctivity(mt, ctx.constants())?,
+            (Some(mt), true) => Some(crate::material::reluctivity(mt, ctx.constants())?),
             (None, true) => return Err(SolverError::fatal(CALLER, format!("element {} has no material", e.0))),
-            _ => 0.0,
+            // Only the field energy needs it: without one the energy is
+            // not known (and a SaveScalars of it is refused below).
+            (Some(mt), false) => crate::material::reluctivity(mt, ctx.constants()).ok(),
+            (None, false) => None,
         };
-        let nu_nodes = vec![nu; n];
+        if nu.is_none() {
+            energy_known = false;
+        }
+        let nu_nodes = vec![nu.unwrap_or(0.0); n];
+        // GetPermittivity: `Relative Permittivity` times that of vacuum, else
+        // `Permittivity`, else vacuum.
+        let pr_nodes = match &material {
+            Some(mt) => match ctx.real_at_nodes(mt, "relative permittivity", e)? {
+                Some(r) => r.iter().map(|x| eps0 * x).collect(),
+                None => ctx.real_at_nodes(mt, "permittivity", e)?.unwrap_or_else(|| vec![eps0; n]),
+            },
+            None => vec![eps0; n],
+        };
         let (ips, np) = match &edge {
             None => (nodal_points(ctx, pvar, vdofs, &nodes, &xyz, etype, axi, omega, &mut status)?, n),
             Some((case, lay)) => edge_points(ctx, pvar, vdofs, case, lay, e, omega, &mut status)?,
@@ -655,6 +679,43 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
                 }
             }
             let joule_from_current = np == 0;
+            // Energy(1:2): 0.5 |eps| E.E and w_dens = 0.5 B.(Nu B).
+            {
+                let pr_ip = dot(basis, &pr_nodes);
+                // SUM(E**2), E(2,3) in column-major order.
+                let mut e2 = 0.0;
+                for c in 0..3 {
+                    for el in &ev {
+                        e2 += el[c] * el[c];
+                    }
+                }
+                energy[0] += s * 0.5 * pr_ip.abs() * e2;
+                let r_ip = dot(basis, &nu_nodes);
+                let nub = |x: &[f64; 3], k: usize| {
+                    let mut v = 0.0;
+                    for (l, xl) in x.iter().enumerate() {
+                        v += if l == k { r_ip } else { 0.0 } * xl;
+                    }
+                    v
+                };
+                let w_dens = if real {
+                    let mut t = 0.0;
+                    for k in 0..3 {
+                        t += b[0][k] * nub(&b[0], k);
+                    }
+                    0.5 * t
+                } else {
+                    let (mut t1, mut t2) = (0.0, 0.0);
+                    for k in 0..3 {
+                        t1 += nub(&b[0], k) * b[0][k];
+                    }
+                    for k in 0..3 {
+                        t2 += nub(&b[1], k) * b[1][k];
+                    }
+                    0.5 * (t1 + t2)
+                };
+                energy[1] += s * w_dens;
+            }
             for p in 0..eq_n {
                 for q in 0..eq_n {
                     mass[q * eq_n + p] += s * basis[p] * basis[q];
@@ -804,6 +865,25 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
     }
     let _ = omega;
     ctx.info(CALLER, &format!("Eddy current power: {}", elmer_solver::fortran_fmt::es(power, 15, 6)), 4);
+    ctx.sim.model.simulation.insert("res: Eddy current power", Value::real(power));
+    let em_energy = energy[0] + energy[1];
+    if energy_known {
+        ctx.info(
+            CALLER,
+            &format!("ElectroMagnetic Field Energy: {}", elmer_solver::fortran_fmt::es(em_energy, 15, 6)),
+            4,
+        );
+        ctx.sim.model.simulation.insert("res: ElectroMagnetic Field Energy", Value::real(em_energy));
+    } else {
+        // A SaveScalars without `Variable 1` saves the `res:` values.
+        let saves = ctx.sim.model.solvers.iter().any(|p| {
+            elmer_solver::solver::procedure_of(p).is_some_and(|(_, e)| e.eq_ignore_ascii_case("savescalars"))
+                && p.get("variable 1").is_none()
+        });
+        if saves {
+            return Err(unsupported("the field energy for SaveScalars without a constant scalar reluctivity"));
+        }
+    }
 
     // GlobalSol, field by field.
     let mut save_norm = 0.0;
