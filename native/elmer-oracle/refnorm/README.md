@@ -61,6 +61,11 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
   view-factor nodes added at load), and a Perm beyond the mesh nodes
   (edge, p or DG unknowns), because the partition files give the owners
   of mesh nodes only.
+- **Replayed tests (custom `runtest.cmake`).** These run through
+  `cmake -P` with the arm's recorded registration, as `capture` does, with
+  the overrides in the startinfo sif. A script that runs further sifs
+  writes their fields to `<stem>.result`, so the grader reads the startinfo
+  sif's `case.result` (all files when there is none).
 - **Includes.** A top-level `include <file>` that only defines MATC
   variables (`$` lines: `params.sif`, the `mesh.names` ElmerGrid writes)
   is expanded as Elmer reads it. The file is looked up in the golden run
@@ -76,11 +81,11 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
 
 | Verdict | Tests |
 |---|---:|
-| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **357** (464 solver checks) |
+| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **367** (474 solver checks) |
 | grader gap: the solver sets its own norm (FluxSolver, VectorHelmholtzNodal, WhitneyAVSolver) | 7 |
 | grader gap: DG field (PoissonDG) | 1 |
 | unexplained mismatch (PhaseChange3, solver 3 `PhaseSurface`) | 1 |
-| out of the validated class | 116 |
+| out of the validated class | 106 |
 
 Before this widening the class held 223 tests (238 solvers). All 223 are
 still bitwise, each with at least as many solvers as before.
@@ -94,6 +99,11 @@ the solver's norm is not `ComputeNorm` of them:
   `src/refnorm.rs`). When only such solvers fail, the test is rerun
   without their overrides (`<test>.without-self-norm`), so its other
   solvers still count. CoilSolver1 and fluxsolver-multimesh pass that way.
+- FixTangentVelo writes into the flow solution after the flow solver
+  took its norm (`FixTangentVelo.F90:208`), so that solver's saved field
+  is not the one Elmer normed. As with the self-norming solvers, the test
+  is rerun without that override (`<test>.without-modified`), so its other
+  solvers still count (`MODIFIES_OTHER` in `src/refnorm.rs`).
 - PoissonDG's norm runs over DG unknowns that the nodal rebuild does not
   follow.
 
@@ -107,8 +117,7 @@ Each test is listed under the first reason in its row.
 | Reason | Tests |
 |---|---:|
 | `Show Norm` / `Show Norm Index` (a SaveScalars value is the norm) | 28 |
-| custom `runtest.cmake` (replay) | 13 |
-| variable in several result files (several meshes) | 12 |
+| variable in several result files (several meshes, adaptive refinement) | 15 |
 | no `Variable`: several saved variables of its equation | 10 |
 | no `Variable`: no saved variable of its equation | 10 |
 | variable not in any result file (global, or not output) | 9 |
@@ -121,7 +130,7 @@ Each test is listed under the first reason in its row.
 | non-nodal unknowns | 1 |
 
 So item 4 is **not** done for every captured test. The validated class
-covers 357 of the 482 quick tests. Widening it further means the
+covers 367 of the 482 quick tests. Widening it further means the
 SaveScalars-style norms, per-mesh result files, and parallel ownership of
 non-nodal unknowns and of meshes Elmer changes after loading.
 
