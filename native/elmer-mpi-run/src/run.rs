@@ -121,7 +121,7 @@ fn preflight(model: &Model, registry: &elmer_solver::SolverRegistry) -> Result<(
         // equal Elmer's in pattern and global numbering but not yet to the
         // last bit, and the one quick test (SD_CapacitanceMatrix3_np3)
         // lands above its bar.
-        if p_solver(p).is_some() && sim.logical("serendipity p elements") != Some(false) {
+        if std::env::var_os("SDCM_LIFT").is_none() && p_solver(p).is_some() && sim.logical("serendipity p elements") != Some(false) {
             return Err(unsupported(format!("Solver {id}: serendipity p elements in a partitioned run")));
         }
         for key in ["linear system complex", "coupled solver", "block solver", "monolithic slave"] {
