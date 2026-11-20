@@ -594,25 +594,6 @@ fn refnorm_one(
                     .iter()
                     .all(|n| solvers.iter().any(|s| s.number == *n && s.self_norm()));
             notes.extend(failed.into_iter().cloned());
-            if self_norm {
-                // The other solvers can still be validated: rerun with the
-                // self-norming ones left at their own sif Reference Norm.
-                let rest: Vec<(u32, f64)> =
-                    refnorms.iter().copied().filter(|(n, _)| !failed_solvers.contains(n)).collect();
-                let run_rest: Vec<(usize, u32, f64)> =
-                    run_refnorms.iter().copied().filter(|(_, n, _)| !failed_solvers.contains(n)).collect();
-                for n in &failed_solvers {
-                    notes.push(format!("solver {n}: sets its own norm, not validated"));
-                }
-                if !rest.is_empty() || !run_rest.is_empty() {
-                    let retry = out_root.join(format!("{test}.without-self-norm"));
-                    if let Ok(o) = run(&retry, &rest, &run_rest) {
-                        if o.passed {
-                            return (String::from("bitwise"), rest.len() + run_rest.len(), notes.join("; "));
-                        }
-                    }
-                }
-            }
             // A later solver rewrote the failed solvers' variables after
             // their norm was taken (FixTangentVelo).
             let modifier = text.lines().any(|l| {
@@ -622,9 +603,31 @@ fn refnorm_one(
                         elmer_oracle::refnorm::MODIFIES_OTHER.contains(&e.trim().to_lowercase().as_str())
                     })
             });
-            let modified = modifier
+            let modified = !self_norm
+                && modifier
                 && !failed_solvers.is_empty()
                 && failed_solvers.iter().all(|n| solvers.iter().any(|s| s.number == *n && !s.modifies_other()));
+            if self_norm || modified {
+                // The other solvers can still be validated: rerun with the
+                // failed ones left at their own sif Reference Norm.
+                let rest: Vec<(u32, f64)> =
+                    refnorms.iter().copied().filter(|(n, _)| !failed_solvers.contains(n)).collect();
+                let run_rest: Vec<(usize, u32, f64)> =
+                    run_refnorms.iter().copied().filter(|(_, n, _)| !failed_solvers.contains(n)).collect();
+                let why = if self_norm { "sets its own norm" } else { "its field is rewritten by a later solver" };
+                for n in &failed_solvers {
+                    notes.push(format!("solver {n}: {why}, not validated"));
+                }
+                if !rest.is_empty() || !run_rest.is_empty() {
+                    let tag = if self_norm { "without-self-norm" } else { "without-modified" };
+                    let retry = out_root.join(format!("{test}.{tag}"));
+                    if let Ok(o) = run(&retry, &rest, &run_rest) {
+                        if o.passed {
+                            return (String::from("bitwise"), rest.len() + run_rest.len(), notes.join("; "));
+                        }
+                    }
+                }
+            }
             let verdict = if self_norm {
                 "grader-gap-solver-norm"
             } else if modified {
