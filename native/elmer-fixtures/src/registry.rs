@@ -39,7 +39,7 @@ use crate::q1q0;
 use crate::stokes_pfem;
 use crate::stokes_proj;
 use crate::tresca;
-use crate::udf::{init_dist_fn, mixed_source_2d_fn, my_source_fn, stdout_sink, AlternatingSource, OneDSource, OneDTolerances};
+use crate::udf::{init_dist_fn, mixed_source_2d_fn, mixed_source_3d_fn, my_source_fn, stdout_sink, AlternatingSource, OneDSource, OneDTolerances};
 use crate::ModelView;
 
 type Build = fn(Arc<dyn ModelView>) -> Udf;
@@ -67,6 +67,11 @@ const FIXTURES: &[(&str, &str, &str, Build)] = &[
     ("NormalTangentialDisplacement", "TangentForce", "TangentForce", |m| {
         Udf::Node(crate::tangent_force::tangent_force_fn(m))
     }),
+    // The 3D ones: zero, and the source of `u = -64 (x^2 - 1/4)(y^2 -
+    // 1/4)(z^2 - 1/4)`.
+    ("MixedPoisson3D", "Source", "SourceFun", |_| Udf::Node(Arc::new(|_, _| 0.0))),
+    ("MixedPoisson3D_Brick", "Source", "SourceFun", |_| Udf::Node(Arc::new(|_, _| 0.0))),
+    ("RaviartThomas3D", "Source", "SourceFun", |m| Udf::Node(mixed_source_3d_fn(m))),
     ("1dtests", "Source", "Source", |m| {
         Udf::Node(OneDSource::new(m, OneDTolerances::ONE_D_TESTS).into_fn())
     }),
@@ -185,6 +190,7 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ),
     ("RaviartThomas2D", "ComputeError", "IntegrateError", Hook::Solver(compute_error::factory)),
     ("BDM2D", "ComputeError", "IntegrateError", Hook::Solver(compute_error::factory)),
+    ("RaviartThomas3D", "ComputeError", "IntegrateError", Hook::Solver(compute_error::factory_3d)),
     // `PoissonPFEM/Poisson.f90` on p-elements, ported in `elmer-pdofs`.
     ("PoissonPFEM", "Poisson", "PoissonSolver", Hook::Solver(elmer_pdofs::solver::poisson_pfem)),
     // The same source up to blank lines.

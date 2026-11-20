@@ -75,6 +75,23 @@ pub fn mixed_source_2d_fn(model: Arc<dyn ModelView>) -> NodeFn {
     })
 }
 
+/// `SourceFun` of `RaviartThomas3D/Source.F90` at node `n`: `f = 128 *
+/// ((yq**2 - 1/4)(zq**2 - 1/4) + (xq**2 - 1/4)(zq**2 - 1/4) + (xq**2 -
+/// 1/4)(yq**2 - 1/4))`.
+pub fn mixed_source_3d_fn(model: Arc<dyn ModelView>) -> NodeFn {
+    Arc::new(move |node, _t| {
+        if node == u32::MAX {
+            panic!("SourceFun: called at an integration point; the Fortran indexes Mesh % Nodes % x(n)");
+        }
+        let c = model.coord(node);
+        let (xq, yq, zq) = (c[0], c[1], c[2]);
+        128.0
+            * ((yq * yq - 1.0 / 4.0) * (zq * zq - 1.0 / 4.0)
+                + (xq * xq - 1.0 / 4.0) * (zq * zq - 1.0 / 4.0)
+                + (xq * xq - 1.0 / 4.0) * (yq * yq - 1.0 / 4.0))
+    })
+}
+
 /// Tolerances `1dtests/Source.f90` and `1dtests_MeshLevels/Source.f90`
 /// check the polynomial steps against; they are the only difference between
 /// the two sources.
