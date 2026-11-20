@@ -27,6 +27,7 @@
 pub mod boundary;
 pub mod bulk;
 pub mod error;
+pub mod fix_tangent;
 pub mod solver;
 
 pub use boundary::{flow_boundary_local, outward_normal, FlowBoundaryInput};
