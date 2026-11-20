@@ -707,6 +707,9 @@ pub enum Projector {
         simulation: elmer_core::ParamMap,
         params: elmer_core::ParamMap,
         matrix: elmer_core::CsrMatrix<f64>,
+        /// The first solve's preconditioner, kept for the other components
+        /// under `Linear System Precondition Recompute` (and friends).
+        kept: Option<elmer_solver::PrecondCache>,
     },
 }
 
@@ -718,11 +721,8 @@ impl Projector {
         // preconditioner over the solver's visits: its first visit computes it
         // (the solves of the components share the matrix), later ones would
         // reuse it.
-        let params = if elmer_solver::linsys::precond_reuse(ctx.params()) && ctx.times_visited() <= 1 {
-            elmer_solver::linsys::without_precond_reuse(ctx.params())
-        } else {
-            ctx.params().clone()
-        };
+        let reuse = elmer_solver::linsys::precond_reuse(ctx.params()) && ctx.times_visited() <= 1;
+        let params = if reuse { elmer_solver::linsys::without_precond_reuse(ctx.params()) } else { ctx.params().clone() };
         Ok(match ctx.sim.backends.linear.select_for(&params, &a, ctx.log)? {
             elmer_solver::backend::LinearSolverChoice::Direct(mut d) => {
                 d.factor(&a).map_err(|e| elmer_solver::SolverError::fatal("NodalProjectorSolve", e.to_string()))?;
@@ -733,6 +733,7 @@ impl Projector {
                 simulation: ctx.simulation_params().clone(),
                 params,
                 matrix: a,
+                kept: reuse.then(Default::default),
             },
         })
     }
@@ -751,9 +752,10 @@ impl Projector {
                 x.copy_from_slice(b);
                 d.solve_in_place(x).map_err(|e| fatal(e.to_string()))
             }
-            Projector::Iterative { linear, simulation, params, matrix } => {
+            Projector::Iterative { linear, simulation, params, matrix, kept } => {
                 let mut rhs = b.to_vec();
-                elmer_solver::solve_other_matrix(linear, simulation, params, matrix, &mut rhs, x, log, comm).map(|_| ())
+                elmer_solver::solve_other_matrix(linear, simulation, params, matrix, &mut rhs, x, kept.as_ref(), log, comm)
+                    .map(|_| ())
             }
         }
     }

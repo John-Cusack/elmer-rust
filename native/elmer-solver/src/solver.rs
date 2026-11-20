@@ -2042,6 +2042,7 @@ impl<'a> SolverCtx<'a> {
                 schur: schur.as_ref(),
                 multigrid: mg.as_deref(),
                 alias: None,
+                precond: None,
             };
             sim.slots[slot_ix].lin_converged = solve_linear(&sim.backends.linear, &env, p, a, b, x, bnorm, nullify, log, comm)?;
             // ComputeChange over the collection solution, multipliers
@@ -2100,6 +2101,7 @@ impl<'a> SolverCtx<'a> {
                 schur: schur.as_ref(),
                 multigrid: mg.as_deref(),
                 alias: if eliminate { None } else { block_plan.as_ref().and_then(|b| b.alias()) },
+                precond: None,
             };
             if eliminate {
                 // SolveCore.F90:3188-3192: the procedure solves and computes
@@ -2297,7 +2299,14 @@ pub(crate) struct BlockEnv<'a> {
     /// solver's variable values, the start and the destination of the
     /// solution ([`crate::block_alias`]).
     pub alias: Option<&'a std::cell::RefCell<Vec<f64>>>,
+    /// A matrix whose preconditioner is kept over its solves
+    /// (`Linear System Precondition Recompute`): built by the first solve
+    /// through it, reused by the later ones.
+    pub precond: Option<&'a PrecondCache>,
 }
+
+/// The kept preconditioner of [`BlockEnv::precond`].
+pub type PrecondCache = std::cell::RefCell<Option<Box<dyn elmer_core::Preconditioner<f64> + Send>>>;
 
 /// The matrix of the solver whose variable `Block Matrix Schur Variable`
 /// names (`BlockPrecMatrix`, BlockSolve.F90:2523), if any: a child solver
@@ -2452,6 +2461,7 @@ pub fn solve_other_matrix(
     matrix: &mut elmer_core::CsrMatrix<f64>,
     b: &mut [f64],
     x: &mut [f64],
+    precond: Option<&PrecondCache>,
     log: &dyn Logger,
     comm: &dyn Communicator,
 ) -> Result<bool, SolverError> {
@@ -2463,7 +2473,7 @@ pub fn solve_other_matrix(
         log.info("SolveLinearSystem", "Solution trivially zero!", 5);
         return Ok(true);
     }
-    let env = BlockEnv { dofs: 1, ndeg: 1, simulation, schur: None, multigrid: None, alias: None };
+    let env = BlockEnv { dofs: 1, ndeg: 1, simulation, schur: None, multigrid: None, alias: None, precond };
     solve_linear(linear, &env, p, matrix, b, x, bnorm, false, log, comm)
 }
 
@@ -2620,12 +2630,27 @@ pub(crate) fn solve_linear(
                 let m: Result<Box<dyn elmer_core::Preconditioner<f64> + Send>, SolverError> = match precond {
                     _ if amg_prec => crate::amg::preconditioner(p, matrix, block.dofs),
                     _ if bilu_prec => crate::linsys::bilu(matrix, block.dofs, bilu.unwrap_or(0)),
+                    // A kept preconditioner (`BlockEnv::precond`): the first
+                    // solve's, for every later one of the matrix.
+                    Some(_) if block.precond.is_some_and(|c| c.borrow().is_some()) => Ok(Box::new(elmer_core::IdentityPrecond)),
                     Some(f) => f(p, matrix),
                     None => Ok(Box::new(elmer_core::IdentityPrecond)),
                 };
                 m.and_then(|m| {
                     // `Variable % LinConverged` (IterSolve.F90:1646, 1664).
                     let a = crate::matvec::ElmerMatvec::new(matrix, block.ndeg);
+                    let kept = block.precond.filter(|_| precond.is_some() && !amg_prec && !bilu_prec);
+                    if let Some(c) = kept {
+                        if c.borrow().is_none() {
+                            *c.borrow_mut() = Some(m);
+                        }
+                        let guard = c.borrow();
+                        let m = guard.as_ref().expect("kept above");
+                        return solver
+                            .solve(&a, &**m, b, x, comm)
+                            .map(|s| matches!(s.status, elmer_core::SolveStatus::Converged))
+                            .map_err(SolverError::from);
+                    }
                     solver
                         .solve(&a, &*m, b, x, comm)
                         .map(|s| matches!(s.status, elmer_core::SolveStatus::Converged))
@@ -2703,7 +2728,7 @@ mod eliminate_tests {
         p.insert("Linear System Direct Method", Value::Str("umfpack".into()));
         let linear = crate::linsys::elmer_registry();
         let sim = ParamMap::new();
-        let env = BlockEnv { dofs: 1, ndeg: 1, simulation: &sim, schur: None, multigrid: None, alias: None };
+        let env = BlockEnv { dofs: 1, ndeg: 1, simulation: &sim, schur: None, multigrid: None, alias: None, precond: None };
         let mut x = vec![0.0; n];
         eliminate_dirichlet(&linear, &env, &p, &a, &b, &mut x, false, &NullLogger, &SerialComm).unwrap();
         assert_eq!((x[0], x[n - 1]), (0.5, -0.25));
