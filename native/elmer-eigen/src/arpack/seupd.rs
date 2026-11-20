@@ -6,9 +6,10 @@
 //! with `howmny = 'A'`, and the Ritz vectors written over `v` (Elmer passes
 //! `V` as both `v` and `z`).
 
-use super::blas::{dcopy, dger, dnrm2, dscal};
-use super::lapack::{dgeqr2, dorm2r, dsteqr_i, EPS};
-use super::saupd::{dsesrt, dsortr, Saupd, Which};
+use super::blas::{dcopy, dger, dscal};
+use super::lapack::{dgeqr2, dorm2r, dsteqr_i};
+use super::par::{eps23, pdnorm2, Par};
+use super::saupd::{dsesrt, dsgets, dsortr, Saupd, Which};
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum Kind {
@@ -38,6 +39,51 @@ pub fn dseupd(
     workd: &mut [f64],
     workl: &mut [f64],
 ) -> (Vec<f64>, i32) {
+    seupd(None, sigma, bmat_g, n, which, nev, tol, resid, ncv, v, ldv, au, workd, workl)
+}
+
+/// PARPACK's `PDSEUPD(comm, ...)` after [`super::saupd::pdsaupd`]: the B-norm
+/// of the residual reduced over `comm`, and the wanted Ritz values picked
+/// as PARPACK does, by sorting them with `_sgets` and taking the first
+/// `IPARAM(5)` whose estimates pass (`info = -17` if fewer do), in place of
+/// ARPACK 2.4's threshold test. Collective.
+#[allow(clippy::too_many_arguments)]
+pub fn pdseupd(
+    comm: &dyn elmer_core::Communicator,
+    sigma: f64,
+    bmat_g: bool,
+    n: usize,
+    which: Which,
+    nev: usize,
+    tol: f64,
+    resid: &[f64],
+    ncv: usize,
+    v: &mut [f64],
+    ldv: usize,
+    au: &Saupd,
+    workd: &mut [f64],
+    workl: &mut [f64],
+) -> (Vec<f64>, i32) {
+    seupd(Some(comm), sigma, bmat_g, n, which, nev, tol, resid, ncv, v, ldv, au, workd, workl)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn seupd(
+    par: Par<'_>,
+    sigma: f64,
+    bmat_g: bool,
+    n: usize,
+    which: Which,
+    nev: usize,
+    tol: f64,
+    resid: &[f64],
+    ncv: usize,
+    v: &mut [f64],
+    ldv: usize,
+    au: &Saupd,
+    workd: &mut [f64],
+    workl: &mut [f64],
+) -> (Vec<f64>, i32) {
     let mut d = vec![0.0; ncv];
     let mode = au.iparam[6];
     let nconv = au.iparam[4].max(0) as usize;
@@ -51,7 +97,7 @@ pub fn dseupd(
     if nev == 0 {
         ierr = -2;
     }
-    if ncv <= nev || ncv > n {
+    if ncv <= nev || (ncv > n && par.is_none()) {
         ierr = -3;
     }
     if workl.len() < ncv * ncv + 8 * ncv {
@@ -93,10 +139,39 @@ pub fn dseupd(
             workl[$i - 1]
         };
     }
-    let eps23 = EPS.powf(2.0 / 3.0);
+    let eps23 = eps23(par);
     let rnorm = w!(ih);
-    let bnorm2 = if bmat_g { dnrm2(n, workd) } else { rnorm };
+    let bnorm2 = if bmat_g { pdnorm2(par, n, workd) } else { rnorm };
 
+    let mut select = vec![false; ncv];
+    let mut reord = false;
+    if par.is_some() {
+        // pdseupd: sort the Ritz values (and their indices, in the bounds
+        // slot) with _sgets; take the first nconv converged from the wanted
+        // end.
+        for j in 0..ncv {
+            w!(bounds + j) = (j + 1) as f64;
+        }
+        {
+            let (lo, hi) = workl.split_at_mut(irz - 1);
+            dsgets(0, which, nev, ncv - nev, &mut hi[..ncv], &mut lo[bounds - 1..bounds - 1 + ncv], &mut []);
+        }
+        let mut numcnv = 0;
+        for j in 1..=ncv {
+            let temp1 = eps23.max(w!(irz + ncv - j).abs());
+            let jj = w!(bounds + ncv - j) as usize;
+            if numcnv < nconv && w!(ibd + jj - 1) <= tol * temp1 {
+                select[jj - 1] = true;
+                numcnv += 1;
+                if jj > nev {
+                    reord = true;
+                }
+            }
+        }
+        if numcnv != nconv {
+            return (d, -17);
+        }
+    }
     // Select the wanted Ritz values (rvec = .true.).
     let (thres1, thres2) = if which == Which::BE {
         let ism = nev.max(nconv) / 2;
@@ -104,9 +179,7 @@ pub fn dseupd(
     } else {
         (w!(ritz), 0.0)
     };
-    let mut select = vec![false; ncv];
-    let mut reord = false;
-    for j in 0..ncv {
+    for j in (0..ncv).filter(|_| par.is_none()) {
         let r = w!(irz + j);
         let inside = match which {
             Which::LM => r.abs() >= thres1.abs(),

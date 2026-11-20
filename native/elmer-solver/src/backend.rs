@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use elmer_core::{
-    normalize_key, CsrMatrix, DirectSolver, ElemId, ElementBasis, IterativeSolver, LocalSystem, MeshView, ParamMap,
+    normalize_key, CsrMatrix, DirectSolver, ElemId, ElementBasis, IterativeSolver, LocalSystem, Logger, MeshView, ParamMap,
     Preconditioner, QuadPoint, Quadrature,
 };
 
@@ -517,6 +517,28 @@ pub struct Backends {
     /// Sums over the mesh nodes shared between partitions; `None` in a
     /// serial run.
     pub nodes: Option<Box<dyn NodeInterface>>,
+    /// The eigen solve of a partitioned run (`ParallelArpackEigenSolve`);
+    /// `None` refuses parallel eigen systems.
+    pub eigen: Option<Arc<dyn ParEigenBackend>>,
+}
+
+/// `ScaleLinearSystem`, `ParallelArpackEigenSolve` (ParallelEigenSolve.F90:82)
+/// and `BackScaleLinearSystem(EigenScaling)` of a partitioned run, for the
+/// real consistent-mass eigen system `k x = lambda mass x` whose rank-local
+/// pieces are `k` and `mass` (both restored on return). The vectors come
+/// back over all local dofs. Collective.
+pub trait ParEigenBackend: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
+    fn solve(
+        &self,
+        params: &ParamMap,
+        k: &mut CsrMatrix<f64>,
+        mass: &mut CsrMatrix<f64>,
+        cfg: &elmer_eigen::EigenConfig,
+        symmetric: bool,
+        arpack: &mut elmer_eigen::arpack::saupd::Arpack,
+        log: &dyn Logger,
+    ) -> Result<elmer_eigen::EigenResult, SolverError>;
 }
 
 /// Nodal exchange between the partitions of a parallel run.
@@ -578,6 +600,7 @@ impl Default for Backends {
             conforming: None,
             contact: None,
             nodes: None,
+            eigen: None,
         }
     }
 }

@@ -19,8 +19,9 @@
 //! Debug output (`msglvl > 0`) and timing are left out; the counters of
 //! `stat.h` are kept in [`Stats`].
 
-use super::blas::{daxpy, dcopy, ddot, dgemv_n, dgemv_t, dnrm2, dscal, dswap, dswap_within};
+use super::blas::{daxpy, dcopy, dgemv_n, dgemv_t, dscal, dswap, dswap_within};
 use super::lapack::{dlartg, dlascl_g, dlaset, dlarnv, dstqrb, EPS, SAFMIN};
+use super::par::{eps23, pddot, pdnorm2, psum, Par};
 
 /// The callback of the reverse communication: `(ido, ipntr, workd)`.
 pub type Op<'a> = dyn FnMut(i32, [usize; 3], &mut [f64]) -> Result<(), String> + 'a;
@@ -180,6 +181,7 @@ pub fn dseigt(rnorm: f64, n: usize, h: &[f64], ldh: usize, eig: &mut [f64], boun
 /// B-orthogonal to the first `j - 1` columns of `v`. Returns `(rnorm, ierr)`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn dgetv0(
+    par: Par<'_>,
     op: &mut Op<'_>,
     st: &mut Stats,
     arp: &mut Arpack,
@@ -210,14 +212,20 @@ pub(crate) fn dgetv0(
         dcopy(n, resid, workd);
     }
     // 20
-    let mut rnorm0 = if bmat_g { ddot(n, resid, workd).abs().sqrt() } else { dnrm2(n, resid) };
+    let mut rnorm0 = if bmat_g { pddot(par, n, resid, workd).abs().sqrt() } else { pdnorm2(par, n, resid) };
     let mut rnorm = rnorm0;
     if j == 1 {
         return Ok((rnorm, ierr));
     }
     loop {
         // 30
-        {
+        if par.is_some() {
+            // PARPACK reduces V^T B r in its own workspace, not workd(n+1).
+            let mut t = vec![0.0; j - 1];
+            dgemv_t(n, j - 1, 1.0, v, ldv, &workd[..n], 0.0, &mut t);
+            psum(par, &mut t);
+            dgemv_n(n, j - 1, -1.0, v, ldv, &t, 1.0, resid);
+        } else {
             let (lo, hi) = workd.split_at_mut(n);
             dgemv_t(n, j - 1, 1.0, v, ldv, lo, 0.0, hi);
             dgemv_n(n, j - 1, -1.0, v, ldv, hi, 1.0, resid);
@@ -230,7 +238,7 @@ pub(crate) fn dgetv0(
             dcopy(n, resid, workd);
         }
         // 40
-        rnorm = if bmat_g { ddot(n, resid, workd).abs().sqrt() } else { dnrm2(n, resid) };
+        rnorm = if bmat_g { pddot(par, n, resid, workd).abs().sqrt() } else { pdnorm2(par, n, resid) };
         if rnorm > c0717() * rnorm0 {
             break;
         }
@@ -253,6 +261,7 @@ pub(crate) fn dgetv0(
 /// found).
 #[allow(clippy::too_many_arguments)]
 fn dsaitr(
+    par: Par<'_>,
     op: &mut Op<'_>,
     st: &mut Stats,
     arp: &mut Arpack,
@@ -281,7 +290,7 @@ fn dsaitr(
             loop {
                 // 20
                 rstart = true;
-                let (rn, ierr) = dgetv0(op, st, arp, bmat_g, false, n, j, v, ldv, resid, workd)?;
+                let (rn, ierr) = dgetv0(par, op, st, arp, bmat_g, false, n, j, v, ldv, resid, workd)?;
                 *rnorm = rn;
                 if ierr < 0 {
                     itry += 1;
@@ -319,23 +328,33 @@ fn dsaitr(
         }
         // 65
         let wnorm = if mode == 2 {
-            ddot(n, resid, &workd[ivj..]).abs().sqrt()
+            pddot(par, n, resid, &workd[ivj..]).abs().sqrt()
         } else if bmat_g {
-            ddot(n, resid, &workd[ipj..]).abs().sqrt()
+            pddot(par, n, resid, &workd[ipj..]).abs().sqrt()
         } else {
-            dnrm2(n, resid)
+            pdnorm2(par, n, resid)
         };
-        {
-            let (lo, hi) = workd.split_at_mut(ivj);
-            if mode != 2 {
-                let (p, r) = lo.split_at_mut(irj);
-                dgemv_t(n, j, 1.0, v, ldv, p, 0.0, r);
-            } else {
-                dgemv_t(n, j, 1.0, v, ldv, hi, 0.0, &mut lo[irj..]);
+        if par.is_some() {
+            // PARPACK: V^T B r reduced in its workspace; workd(irj) untouched.
+            let mut t = vec![0.0; j];
+            let x = if mode != 2 { &workd[ipj..] } else { &workd[ivj..] };
+            dgemv_t(n, j, 1.0, v, ldv, x, 0.0, &mut t);
+            psum(par, &mut t);
+            dgemv_n(n, j, -1.0, v, ldv, &t, 1.0, resid);
+            h[ldh + j - 1] = t[j - 1];
+        } else {
+            {
+                let (lo, hi) = workd.split_at_mut(ivj);
+                if mode != 2 {
+                    let (p, r) = lo.split_at_mut(irj);
+                    dgemv_t(n, j, 1.0, v, ldv, p, 0.0, r);
+                } else {
+                    dgemv_t(n, j, 1.0, v, ldv, hi, 0.0, &mut lo[irj..]);
+                }
             }
+            dgemv_n(n, j, -1.0, v, ldv, &workd[irj..], 1.0, resid);
+            h[ldh + j - 1] = workd[irj + j - 1];
         }
-        dgemv_n(n, j, -1.0, v, ldv, &workd[irj..], 1.0, resid);
-        h[ldh + j - 1] = workd[irj + j - 1];
         h[j - 1] = if j == 1 || rstart { 0.0 } else { *rnorm };
         let mut iter = 0;
         if bmat_g {
@@ -346,22 +365,33 @@ fn dsaitr(
             dcopy(n, resid, &mut workd[ipj..]);
         }
         // 70
-        *rnorm = if bmat_g { ddot(n, resid, &workd[ipj..]).abs().sqrt() } else { dnrm2(n, resid) };
+        *rnorm = if bmat_g { pddot(par, n, resid, &workd[ipj..]).abs().sqrt() } else { pdnorm2(par, n, resid) };
         // `IF (rnorm .GT. 0.717*wnorm) GO TO 100`: a NaN norm refines too.
         #[allow(clippy::neg_cmp_op_on_partial_ord)]
         if !(*rnorm > c0717() * wnorm) {
             st.nrorth += 1;
             loop {
                 // 80
-                {
-                    let (p, r) = workd.split_at_mut(irj);
-                    dgemv_t(n, j, 1.0, v, ldv, p, 0.0, r);
+                if par.is_some() {
+                    let mut t = vec![0.0; j];
+                    dgemv_t(n, j, 1.0, v, ldv, &workd[ipj..], 0.0, &mut t);
+                    psum(par, &mut t);
+                    dgemv_n(n, j, -1.0, v, ldv, &t, 1.0, resid);
+                    if j == 1 || rstart {
+                        h[j - 1] = 0.0;
+                    }
+                    h[ldh + j - 1] += t[j - 1];
+                } else {
+                    {
+                        let (p, r) = workd.split_at_mut(irj);
+                        dgemv_t(n, j, 1.0, v, ldv, p, 0.0, r);
+                    }
+                    dgemv_n(n, j, -1.0, v, ldv, &workd[irj..], 1.0, resid);
+                    if j == 1 || rstart {
+                        h[j - 1] = 0.0;
+                    }
+                    h[ldh + j - 1] += workd[irj + j - 1];
                 }
-                dgemv_n(n, j, -1.0, v, ldv, &workd[irj..], 1.0, resid);
-                if j == 1 || rstart {
-                    h[j - 1] = 0.0;
-                }
-                h[ldh + j - 1] += workd[irj + j - 1];
                 if bmat_g {
                     st.nbx += 1;
                     dcopy(n, resid, &mut workd[irj..]);
@@ -370,7 +400,7 @@ fn dsaitr(
                     dcopy(n, resid, &mut workd[ipj..]);
                 }
                 // 90
-                let rnorm1 = if bmat_g { ddot(n, resid, &workd[ipj..]).abs().sqrt() } else { dnrm2(n, resid) };
+                let rnorm1 = if bmat_g { pddot(par, n, resid, &workd[ipj..]).abs().sqrt() } else { pdnorm2(par, n, resid) };
                 if rnorm1 > c0717() * *rnorm {
                     *rnorm = rnorm1;
                     break;
@@ -407,6 +437,7 @@ fn dsaitr(
 /// `np` implicit shifts to the factorisation, keeping `kev` vectors.
 #[allow(clippy::too_many_arguments)]
 fn dsapps(
+    par: Par<'_>,
     n: usize,
     kev: usize,
     np: usize,
@@ -485,8 +516,9 @@ fn dsapps(
                     h2!(i) = c * a1 + s * a2;
                     h2!(i + 1) = c * a4 - s * a3;
                     h1!(i + 1) = c * a3 + s * a4;
-                    // DO 50 j = 1, min(j+jj, kplusp) with j from the loop before.
-                    let ub = (jlast + jj).min(kplusp);
+                    // DO 50 j = 1, min(j+jj, kplusp) with j from the loop
+                    // before; PARPACK's pdsapps bounds it by min(i+jj, kplusp).
+                    let ub = if par.is_some() { (i + jj).min(kplusp) } else { (jlast + jj).min(kplusp) };
                     for j in 1..=ub {
                         let a1 = c * qq!(j, i) + s * qq!(j, i + 1);
                         qq!(j, i + 1) = -s * qq!(j, i) + c * qq!(j, i + 1);
@@ -575,6 +607,52 @@ pub fn dsaupd(
     workl: &mut [f64],
     info_in: i32,
 ) -> Result<Saupd, String> {
+    saupd(None, op, arp, bmat_g, n, which, nev, tol, resid, ncv, v, ldv, iparam, workd, workl, info_in)
+}
+
+/// PARPACK's `PDSAUPD(comm, ...)`: [`dsaupd`] on this rank's `n` rows of
+/// the vectors, the reductions over `comm` (see [`super::par`]). Collective.
+#[allow(clippy::too_many_arguments)]
+pub fn pdsaupd(
+    comm: &dyn elmer_core::Communicator,
+    op: &mut Op<'_>,
+    arp: &mut Arpack,
+    bmat_g: bool,
+    n: usize,
+    which: Which,
+    nev: usize,
+    tol: &mut f64,
+    resid: &mut [f64],
+    ncv: usize,
+    v: &mut [f64],
+    ldv: usize,
+    iparam: [i32; 11],
+    workd: &mut [f64],
+    workl: &mut [f64],
+    info_in: i32,
+) -> Result<Saupd, String> {
+    saupd(Some(comm), op, arp, bmat_g, n, which, nev, tol, resid, ncv, v, ldv, iparam, workd, workl, info_in)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn saupd(
+    par: Par<'_>,
+    op: &mut Op<'_>,
+    arp: &mut Arpack,
+    bmat_g: bool,
+    n: usize,
+    which: Which,
+    nev: usize,
+    tol: &mut f64,
+    resid: &mut [f64],
+    ncv: usize,
+    v: &mut [f64],
+    ldv: usize,
+    iparam: [i32; 11],
+    workd: &mut [f64],
+    workl: &mut [f64],
+    info_in: i32,
+) -> Result<Saupd, String> {
     let mut out = Saupd { iparam, ..Default::default() };
     let ishift = iparam[0];
     let mut mxiter = iparam[2];
@@ -584,7 +662,7 @@ pub fn dsaupd(
         ierr = -1;
     } else if nev == 0 {
         ierr = -2;
-    } else if ncv <= nev || ncv > n {
+    } else if ncv <= nev || (ncv > n && par.is_none()) {
         ierr = -3;
     }
     if mxiter <= 0 {
@@ -638,7 +716,7 @@ pub fn dsaupd(
     let mut nev0 = nev;
     let mut np_ = np;
     let info = dsaup2(
-        op, &mut st, arp, bmat_g, n, which, &mut nev0, &mut np_, *tol, resid, mode, ishift, &mut mxiter, v, ldv, h, ldh,
+        par, op, &mut st, arp, bmat_g, n, which, &mut nev0, &mut np_, *tol, resid, mode, ishift, &mut mxiter, v, ldv, h, ldh,
         ritz_s, bounds_s, q, ldq, wl, workd, info_in,
     )?;
     out.iparam[2] = mxiter;
@@ -655,6 +733,7 @@ pub fn dsaupd(
 /// Returns `info`.
 #[allow(clippy::too_many_arguments)]
 fn dsaup2(
+    par: Par<'_>,
     op: &mut Op<'_>,
     st: &mut Stats,
     arp: &mut Arpack,
@@ -680,7 +759,7 @@ fn dsaup2(
     workd: &mut [f64],
     info_in: i32,
 ) -> Result<i32, String> {
-    let eps23 = EPS.powf(2.0 / 3.0);
+    let eps23 = eps23(par);
     let nev0 = *nev;
     let np0 = *np;
     let kplusp = nev0 + np0;
@@ -689,11 +768,11 @@ fn dsaup2(
     let initv = info_in != 0;
     let mut info = 0i32;
 
-    let (mut rnorm, _) = dgetv0(op, st, arp, bmat_g, initv, n, 1, v, ldv, resid, workd)?;
+    let (mut rnorm, _) = dgetv0(par, op, st, arp, bmat_g, initv, n, 1, v, ldv, resid, workd)?;
     if rnorm == 0.0 {
         return Ok(-9);
     }
-    let r = dsaitr(op, st, arp, bmat_g, n, 0, nev0, mode, resid, &mut rnorm, v, ldv, h, ldh, workd)?;
+    let r = dsaitr(par, op, st, arp, bmat_g, n, 0, nev0, mode, resid, &mut rnorm, v, ldv, h, ldh, workd)?;
     if r > 0 {
         *np = r;
         *mxiter = iter;
@@ -703,7 +782,7 @@ fn dsaup2(
         // 1000
         iter += 1;
         // 20
-        let r = dsaitr(op, st, arp, bmat_g, n, *nev, *np, mode, resid, &mut rnorm, v, ldv, h, ldh, workd)?;
+        let r = dsaitr(par, op, st, arp, bmat_g, n, *nev, *np, mode, resid, &mut rnorm, v, ldv, h, ldh, workd)?;
         if r > 0 {
             *np = r;
             *mxiter = iter;
@@ -734,14 +813,19 @@ fn dsaup2(
         if nconv >= nev0 || iter > *mxiter || *np == 0 {
             if which == Which::BE {
                 dsortr(Which::SA, true, kplusp, ritz, bounds);
-                let nevd2 = *nev / 2;
-                let nevm2 = *nev - nevd2;
+                // PARPACK halves nev0, ARPACK the current nev.
+                let nevd2 = if par.is_some() { nev0 / 2 } else { *nev / 2 };
+                let nevm2 = if par.is_some() { nev0 - nevd2 } else { *nev - nevd2 };
                 if *nev > 1 {
                     let m = nevd2.min(*np);
                     let a = nevm2;
                     let b = (kplusp - nevd2 + 1).max(kplusp - *np + 1) - 1;
                     dswap_within(m, ritz, a, b);
-                    let b2 = (kplusp - nevd2 + 1).max(kplusp - *np) ;
+                    let b2 = if par.is_some() {
+                        (kplusp - nevd2 + 1).max(kplusp - *np + 1) - 1
+                    } else {
+                        (kplusp - nevd2 + 1).max(kplusp - *np)
+                    };
                     dswap_within(m, bounds, a, b2);
                 }
             } else {
@@ -791,7 +875,7 @@ fn dsaup2(
         }
         // 50: the shifts are the first np Ritz values.
         let shifts: Vec<f64> = ritz[..*np].to_vec();
-        dsapps(n, *nev, *np, &shifts, v, ldv, h, ldh, resid, q, ldq, workd);
+        dsapps(par, n, *nev, *np, &shifts, v, ldv, h, ldh, resid, q, ldq, workd);
         if bmat_g {
             st.nbx += 1;
             dcopy(n, resid, &mut workd[n..]);
@@ -800,7 +884,7 @@ fn dsaup2(
             dcopy(n, resid, workd);
         }
         // 100
-        rnorm = if bmat_g { ddot(n, resid, workd).abs().sqrt() } else { dnrm2(n, resid) };
+        rnorm = if bmat_g { pddot(par, n, resid, workd).abs().sqrt() } else { pdnorm2(par, n, resid) };
     }
     // 1100
     *mxiter = iter;

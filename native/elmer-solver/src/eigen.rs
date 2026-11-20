@@ -616,9 +616,32 @@ fn harmonic_system(k: &CsrMatrix<f64>, damp: &CsrMatrix<f64>, mass: &CsrMatrix<f
 pub(crate) fn solve(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverError> {
     let (mesh, log, comm, ix) = (ctx.mesh, ctx.log, ctx.comm, ctx.slot);
     let p = ctx.params().clone();
-    if comm.size() > 1 {
-        return Err(unsupported("parallel eigen systems (ParallelArpackEigenSolve)"));
-    }
+    // A partitioned run solves through its backend (ParallelArpackEigenSolve)
+    // the real, consistent-mass system with an iterative inner solver.
+    let par_eigen = if comm.size() > 1 {
+        let Some(b) = ctx.sim.backends.eigen.clone() else {
+            return Err(unsupported("parallel eigen systems (ParallelArpackEigenSolve)"));
+        };
+        let refused = [
+            ("linear system complex", "a complex system"),
+            ("harmonic mode", "Harmonic Mode"),
+            ("stability analysis", "Stability Analysis"),
+            ("eigen system compute residuals", "Eigen System Compute Residuals"),
+            ("eigen system normalize to unity", "eigenvector normalization"),
+            ("eigen system mass normalize", "eigenvector normalization"),
+            ("eigen system damped", "Eigen System Damped"),
+        ];
+        if let Some((_, what)) = refused.iter().find(|(k, _)| p.logical(k) == Some(true)) {
+            return Err(unsupported(format!("{what} in parallel")));
+        }
+        let kind = p.string("linear system solver").map(elmer_core::normalize_key).unwrap_or_default();
+        if kind != "iterative" {
+            return Err(unsupported(format!("Linear System Solver = {kind} in parallel")));
+        }
+        Some(b)
+    } else {
+        None
+    };
     // The inner direct solves use the section's method, UMFPACK by default.
     let p = crate::linsys::serial_direct_default(&p, comm).unwrap_or(p);
     let complex_system = p.logical("linear system complex") == Some(true) && p.logical("linear system skip complex") != Some(true);
@@ -797,7 +820,11 @@ pub(crate) fn solve(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverError> {
                 }
             }
         };
-        if p.logical("stability analysis") == Some(true) {
+        if let Some(b) = &par_eigen {
+            // The partitioned run's slots have `Linear System Scaling`
+            // off here (the backend scales with the summed diagonal).
+            b.solve(&p, k, &mut mass, &cfg, symmetric, &mut sim.arpack, log)
+        } else if p.logical("stability analysis") == Some(true) {
             arpack_stab_eigen_solve(&mut sim.arpack, k, &mass, dofs, &cfg, &mut inner)
         } else {
             arpack_eigen_solve(&mut sim.arpack, k, &mass, dofs, &cfg, symmetric, &mut inner)

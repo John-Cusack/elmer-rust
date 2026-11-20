@@ -12,7 +12,8 @@
 use super::blas::{dcopy, dger, dgemv_t, dnrm2, dscal};
 use super::lapack::{dgeqr2, dlapy2, dlaset, dorm2r, EPS};
 use super::lapack_ns::{dlahqr, dtrevc_right, dtrmm_run, dtrsen_nv};
-use super::naupd::{NWhich, Naupd};
+use super::naupd::{dngets, NWhich, Naupd};
+use super::par::Par;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum Kind {
@@ -56,6 +57,53 @@ pub fn dneupd(
     workd: &mut [f64],
     workl: &mut [f64],
 ) -> Neupd {
+    neupd(None, sigmar, sigmai, bmat_g, n, which, nev, tol, resid, ncv, v, ldv, au, workd, workl)
+}
+
+/// PARPACK's `PDNEUPD(comm, ...)` after [`super::naupd::pdnaupd`]: the
+/// wanted Ritz values picked as PARPACK does, by sorting them with
+/// `_ngets` and taking the first `IPARAM(5)` whose estimates pass
+/// (`info = -15` if fewer do), in place of ARPACK 2.4's threshold test.
+/// The rest is rank-local (`n` rows of the vectors).
+#[allow(clippy::too_many_arguments)]
+pub fn pdneupd(
+    comm: &dyn elmer_core::Communicator,
+    sigmar: f64,
+    sigmai: f64,
+    bmat_g: bool,
+    n: usize,
+    which: NWhich,
+    nev: usize,
+    tol: f64,
+    resid: &[f64],
+    ncv: usize,
+    v: &mut [f64],
+    ldv: usize,
+    au: &Naupd,
+    workd: &mut [f64],
+    workl: &mut [f64],
+) -> Neupd {
+    neupd(Some(comm), sigmar, sigmai, bmat_g, n, which, nev, tol, resid, ncv, v, ldv, au, workd, workl)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn neupd(
+    par: Par<'_>,
+    sigmar: f64,
+    sigmai: f64,
+    bmat_g: bool,
+    n: usize,
+    which: NWhich,
+    nev: usize,
+    tol: f64,
+    resid: &[f64],
+    ncv: usize,
+    v: &mut [f64],
+    ldv: usize,
+    au: &Naupd,
+    workd: &mut [f64],
+    workl: &mut [f64],
+) -> Neupd {
     let mut out = Neupd { dr: vec![0.0; nev + 1], di: vec![0.0; nev + 1], ..Default::default() };
     let mode = au.iparam[6];
     let nconv_in = au.iparam[4];
@@ -67,7 +115,7 @@ pub fn dneupd(
         ierr = -1;
     } else if nev == 0 {
         ierr = -2;
-    } else if ncv <= nev + 1 || ncv > n {
+    } else if ncv <= nev + 1 || (ncv > n && par.is_none()) {
         ierr = -3;
     } else if workl.len() < 3 * ncv * ncv + 6 * ncv {
         ierr = -7;
@@ -141,7 +189,41 @@ pub fn dneupd(
     // value that does not appear at the top of the upper quasi-triangular
     // matrix computed by _neigh in _naup2. Reordering is needed.
     let mut reord = false;
-    for j in 0..ncv {
+    if par.is_some() {
+        // pdneupd: sort the Ritz values (and their indices, in the bounds
+        // slot) with _ngets; take the first nconv converged from the wanted
+        // end. _ngets may move a conjugate pair's split, nev with it.
+        for j in 0..ncv {
+            w!(bounds + j) = (j + 1) as f64;
+        }
+        let (mut kev, mut np) = (nev, ncv - nev);
+        {
+            let (lo, hi) = workl.split_at_mut(irr - 1);
+            let (rr, rest) = hi.split_at_mut(ncv);
+            if let Err(e) = dngets(0, which, &mut kev, &mut np, rr, &mut rest[..ncv], &mut lo[bounds - 1..bounds - 1 + ncv]) {
+                debug_assert!(false, "{e}");
+                out.info = -15;
+                return out;
+            }
+        }
+        let mut numcnv = 0;
+        for j in 1..=ncv {
+            let temp1 = eps23.max(dlapy2(w!(irr + ncv - j), w!(iri + ncv - j)));
+            let jj = w!(bounds + ncv - j) as usize;
+            if numcnv < nconv && w!(ibd + jj - 1) <= tol * temp1 {
+                select[jj - 1] = true;
+                numcnv += 1;
+                if jj > kev {
+                    reord = true;
+                }
+            }
+        }
+        if numcnv != nconv {
+            out.info = -15;
+            return out;
+        }
+    }
+    for j in (0..ncv).filter(|_| par.is_none()) {
         select[j] = false;
         let (xr, xi, bd) = (w!(irr + j), w!(iri + j), w!(ibd + j));
         let wanted = match which {
