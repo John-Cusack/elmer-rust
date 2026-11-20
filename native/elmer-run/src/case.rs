@@ -335,6 +335,10 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if is(params, elmer_physics_scalar::ode_solver::PROCEDURE) {
             elmer_physics_scalar::ode_solver::solver_defaults(params);
         }
+        // `NormalSolver_Init`: its variable and the normals' result field.
+        if is(params, elmer_physics_scalar::normal_solver::PROCEDURE) {
+            elmer_physics_scalar::normal_solver::solver_defaults(params, cdim);
+        }
         // `TopoOpt_init0` / `_init`: the elemental topology fields.
         if is(params, elmer_physics_topoopt::PROCEDURE) {
             elmer_physics_topoopt::solver_defaults(params);

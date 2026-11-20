@@ -49,6 +49,7 @@ mod statcurrent;
 mod statcurrent_solver;
 mod statelec;
 mod statelec_solver;
+pub mod normal_solver;
 pub mod ode_solver;
 pub mod wave_solver;
 pub mod statelec_boundary;
@@ -90,4 +91,5 @@ pub fn register(registry: &mut SolverRegistry) {
     helmholtz_solver::register(registry);
     ode_solver::register(registry);
     wave_solver::register(registry);
+    normal_solver::register(registry);
 }
