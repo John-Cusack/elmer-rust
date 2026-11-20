@@ -62,6 +62,11 @@ element integrals) with no mass flux.
   hidden `Viscosity Weight`) and `Shearrate` (the nodal integral of the
   squared shear rate, which the Fortran leaves unnormalized) of the last
   assembly.
+- `Block Preconditioner = True` (with `Linear System Solver = Block`): the
+  `-1/mu` weighted pressure mass matrix is assembled into the child solver
+  `schur` (`CreateChildSolver` through `SolverCtx::child_initialize`) and
+  named by `Block Matrix Schur Variable`, so the block solver
+  preconditions the pressure block with it.
 - `Save Slip`: the exported `Slip Coefficient` (the largest component's,
   averaged with the hidden `Slip Weight`) and `Slip Speed` (zero: friction
   is not ported) on the slip boundaries.
@@ -72,7 +77,7 @@ compressibility with `Pressure Stabilization` or in a transient Stokes run,
 cylindric coordinates, `Normal Slip Coefficient`, friction / `Wall Law` /
 FSSA / normal-tangential boundaries, `Pressure 1..3` (the Fortran itself asks
 for `Surface Traction`), `Implicit Friction
-Coefficient`, the block preconditioner and Schur operators, `Nonlinear System
+Coefficient`, Schur operators and `Create Schur Matrix Approximation`, `Nonlinear System
 Linesearch`, relative and adaptive integration orders, density that varies
 within an element, the `power law too` and turbulence viscosity models.
 
@@ -120,6 +125,4 @@ and `elmer-sif` (hand-built sections).
 ## Not done
 
 Turbulence models,
-friction and wall-law boundaries, normal-tangential conditions, and the block
-preconditioner (its Schur matrix needs a child solver `elmer-solver` cannot
-create yet).
+friction and wall-law boundaries, and normal-tangential conditions.
