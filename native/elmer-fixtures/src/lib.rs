@@ -41,6 +41,7 @@ pub mod benchmark_shell;
 pub mod bentonite;
 pub mod compute_error;
 pub mod count_solver;
+pub mod sun_angle;
 pub mod curved_bndry_pfem;
 pub mod edge_element_test;
 pub mod edge_fe_interpolation;
