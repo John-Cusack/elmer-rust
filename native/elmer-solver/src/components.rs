@@ -5,8 +5,12 @@
 //! `ComponentIntegralReduction`, and saved as `res: ...` keywords in the
 //! component section and in the Simulation. Refused: the `force`, `moment`
 //! and `torque` operators and elemental (DG) variables.
+//!
+//! In parallel the nodal reductions visit the nodes this rank owns and the
+//! sums, minima and maxima are then reduced over the ranks
+//! (`ParallelReduction`), as are the integrals.
 
-use elmer_core::{ElemId, FieldKind, Logger, MeshView, Params, Value};
+use elmer_core::{Communicator, ElemId, FieldKind, Logger, MeshView, Params, Value};
 
 use crate::error::SolverError;
 use crate::expr::SimFields;
@@ -48,7 +52,14 @@ impl Simulation {
     }
 
     /// `ComponentNodalReduction`.
-    fn component_nodal_reduction(&self, mesh: &dyn MeshView, comp: &elmer_core::ParamMap, var: &str, oper: &str) -> Result<f64, SolverError> {
+    fn component_nodal_reduction(
+        &self,
+        mesh: &dyn MeshView,
+        comp: &elmer_core::ParamMap,
+        var: &str,
+        oper: &str,
+        comm: &dyn Communicator,
+    ) -> Result<f64, SolverError> {
         let Some((ids, bc_mode)) = masters(comp) else { return Ok(0.0) };
         let v = self.vars.get(var).ok_or_else(|| SolverError::fatal(CALLER, format!("no variable {var}")))?;
         if v.kind != FieldKind::Nodal {
@@ -59,6 +70,7 @@ impl Simulation {
         let (mut sumi, mut sumx, mut sumxx, mut sumabsx) = (0usize, 0.0f64, 0.0f64, 0.0f64);
         let (mut maximum, mut minimum, mut absmax, mut absmin) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
         let mut initialized = false;
+        let owned = self.node_owned();
         for t in self.elements(mesh, bc_mode) {
             let e = ElemId(t);
             if !self.in_component(mesh, e, &ids, bc_mode) {
@@ -70,6 +82,10 @@ impl Simulation {
                     continue;
                 }
                 visited[j as usize] = true;
+                // Only the owner counts a shared node.
+                if owned.is_some_and(|o| !o[j as usize]) {
+                    continue;
+                }
                 let x = if dofs <= 1 {
                     v.values[k]
                 } else {
@@ -97,21 +113,50 @@ impl Simulation {
                 }
             }
         }
-        if sumi == 0 {
+        let sum = |x: f64| {
+            let mut b = [x];
+            comm.sum_f64(&mut b);
+            b[0]
+        };
+        let min = |x: f64| {
+            let mut b = [-x];
+            comm.max_f64(&mut b);
+            -b[0]
+        };
+        let max = |x: f64| {
+            let mut b = [x];
+            comm.max_f64(&mut b);
+            b[0]
+        };
+        let n = sum(sumi as f64);
+        if n == 0.0 {
             return Ok(0.0);
         }
-        let n = sumi as f64;
+        // `sum abs` and `mean abs` reduce into `sumx` and then read the
+        // rank's own `sumabsx`, as LumpingUtils.F90:486-488 and :514-516 do.
         Ok(match oper {
-            "sum" => sumx,
-            "sum abs" => sumabsx,
-            "min" => minimum,
-            "max" => maximum,
-            "min abs" => absmin,
-            "max abs" => absmax,
-            "range" => maximum - minimum,
-            "mean" => sumx / n,
-            "mean abs" => sumabsx / n,
-            "variance" => (sumxx / n - (sumx * sumx) / (n * n)).sqrt(),
+            "sum" => sum(sumx),
+            "sum abs" => {
+                sum(sumabsx);
+                sumabsx
+            }
+            "min" => min(minimum),
+            "max" => max(maximum),
+            "min abs" => min(absmin),
+            "max abs" => max(absmax),
+            "range" => {
+                let lo = min(minimum);
+                max(maximum) - lo
+            }
+            "mean" => sum(sumx) / n,
+            "mean abs" => {
+                sum(sumabsx);
+                sumabsx / n
+            }
+            "variance" => {
+                let (sx, sxx) = (sum(sumx), sum(sumxx));
+                (sxx / n - (sx * sx) / (n * n)).sqrt()
+            }
             _ => 0.0,
         })
     }
@@ -124,6 +169,7 @@ impl Simulation {
         var: &str,
         oper: &str,
         coeff: Option<&str>,
+        comm: &dyn Communicator,
     ) -> Result<f64, SolverError> {
         let Some((ids, bc_mode)) = masters(comp) else { return Ok(0.0) };
         let v = self.vars.get(var).ok_or_else(|| SolverError::fatal(CALLER, format!("no variable {var}")))?;
@@ -210,15 +256,27 @@ impl Simulation {
                 }
             }
         }
+        let sum = |x: f64| {
+            let mut b = [x];
+            comm.sum_f64(&mut b);
+            b[0]
+        };
+        let integral = sum(integral);
         Ok(match oper {
-            "int mean" | "int abs mean" => integral / vol,
+            "int mean" | "int abs mean" => integral / sum(vol),
             "diffusive energy" | "convective energy" => 0.5 * integral,
             _ => integral,
         })
     }
 
     /// `UpdateDependentComponents(ComponentList)`.
-    pub(crate) fn update_dependent_components(&mut self, list: &[i32], mesh: &dyn MeshView, log: &dyn Logger) -> Result<(), SolverError> {
+    pub(crate) fn update_dependent_components(
+        &mut self,
+        list: &[i32],
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+        comm: &dyn Communicator,
+    ) -> Result<(), SolverError> {
         log.info("UpdateDepedentComponents", "Updating Components to reflect new solution", 6);
         for j in 1..=self.model.components.len() {
             if !list.contains(&(j as i32)) {
@@ -242,19 +300,19 @@ impl Simulation {
                 let value = match oper.as_str() {
                     "electric resistance" => {
                         let coeff = coeff.get_or_insert_with(|| "electric conductivity".into()).clone();
-                        let power = self.component_integral_reduction(mesh, &comp, &var, "diffusive energy", Some(&coeff))?;
-                        let voltage = self.component_nodal_reduction(mesh, &comp, &var, "range")?;
+                        let power = self.component_integral_reduction(mesh, &comp, &var, "diffusive energy", Some(&coeff), comm)?;
+                        let voltage = self.component_nodal_reduction(mesh, &comp, &var, "range", comm)?;
                         let r = voltage * voltage / power;
                         self.model.components[j - 1].insert(&format!("res: {oper}"), Value::real(r));
                         r
                     }
                     "sum" | "sum abs" | "min" | "max" | "min abs" | "max abs" | "range" | "mean" | "mean abs" | "variance" => {
-                        let x = self.component_nodal_reduction(mesh, &comp, &var, &oper)?;
+                        let x = self.component_nodal_reduction(mesh, &comp, &var, &oper, comm)?;
                         self.model.components[j - 1].insert(&format!("res: {oper} {var}"), Value::real(x));
                         x
                     }
                     "volume" | "int" | "int abs" | "int mean" | "int abs mean" | "diffusive energy" | "convective energy" | "potential energy" => {
-                        let x = self.component_integral_reduction(mesh, &comp, &var, &oper, coeff.as_deref())?;
+                        let x = self.component_integral_reduction(mesh, &comp, &var, &oper, coeff.as_deref(), comm)?;
                         self.model.components[j - 1].insert(&format!("res: {oper} {var}"), Value::real(x));
                         x
                     }
