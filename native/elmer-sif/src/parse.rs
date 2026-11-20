@@ -219,18 +219,17 @@ impl Parser {
                 if simulation_seen {
                     return Err(self.err(&tok, "\"Run Control\" should precede \"Simulation\""));
                 }
-                let mut s = Section::default();
-                self.parse_entries("run control", &mut s, free)?;
-                model.control = Some(s);
+                // A repeated section (`Simulation :: Post File = ...` after
+                // the section) adds to the list, as SectionContents does.
+                let s = model.control.get_or_insert_with(Section::default);
+                self.parse_entries("run control", s, free)?;
             } else if text == "constants" {
-                let mut s = Section::default();
-                self.parse_entries("constants", &mut s, free)?;
-                model.constants = Some(s);
+                let s = model.constants.get_or_insert_with(Section::default);
+                self.parse_entries("constants", s, free)?;
             } else if text == "simulation" {
                 simulation_seen = true;
-                let mut s = Section::default();
-                self.parse_entries("simulation", &mut s, free)?;
-                model.simulation = Some(s);
+                let s = model.simulation.get_or_insert_with(Section::default);
+                self.parse_entries("simulation", s, free)?;
             } else if text.starts_with("boundary condition") {
                 let n = self.section_index(&text, "boundary condition", &tok, &mut bc_count)?;
                 let s = get_section(&mut model.bcs, n);
@@ -1245,6 +1244,26 @@ mod tests {
         let r = parse_text(&sif).unwrap().sif;
         assert_eq!(r.runs.len(), 2);
         assert_eq!(r.merged().solvers.len(), 1);
+    }
+
+    #[test]
+    fn a_repeated_simulation_section_adds_to_the_first() {
+        // CoilSolver1: `Simulation :: Post File` after the section keeps
+        // its `Mesh Levels` and overrides its `Post File`.
+        let sif = "Header\nMesh DB \".\" \"m\"\nEnd\n\
+            Simulation\nMesh Levels = 2\nPost File = \"a.vtu\"\nEnd\n\
+            Simulation :: Post File = \"b.vtu\"\n\
+            Constants\nGravity(4) = 0 -1 0 9.82\nEnd\n\
+            Constants :: Stefan Boltzmann = 5.67e-8\n";
+        let r = parse_text(sif).unwrap().sif;
+        let sim = r.runs[0].simulation.as_ref().unwrap();
+        assert!(sim.get("mesh levels").is_some());
+        assert!(matches!(
+            sim.get("post file").map(|e| &e.value),
+            Some(Value::Text { text, .. }) if text == "b.vtu"
+        ));
+        let c = r.runs[0].constants.as_ref().unwrap();
+        assert!(c.get("gravity").is_some() && c.get("stefan boltzmann").is_some());
     }
 
     #[test]
