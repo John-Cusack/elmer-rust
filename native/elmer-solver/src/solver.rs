@@ -516,13 +516,14 @@ impl<'a> SolverCtx<'a> {
 
     /// `DefaultStart` (DefUtils.F90:3983), for a solver to call when its
     /// visit begins: `Nonlinear System Reset Newton`, `Nonlinear System
-    /// Nullify Guess`, then the `Pre Solvers`. `CutFEM` and `Harmonic Mode`
-    /// are refused.
+    /// Nullify Guess`, then the `Pre Solvers`. `CutFEM` is refused, and
+    /// `Harmonic Mode` other than for an eigen analysis.
     pub fn default_start(&mut self) -> Result<(), SolverError> {
-        for (key, what) in [("cutfem", "CutFEM"), ("harmonic mode", "Harmonic Mode")] {
-            if self.params().logical(key) == Some(true) {
-                return Err(SolverError::Unsupported(what.into()));
-            }
+        if self.params().logical("cutfem") == Some(true) {
+            return Err(SolverError::Unsupported("CutFEM".into()));
+        }
+        if self.params().logical("harmonic mode") == Some(true) && self.params().logical("eigen analysis") != Some(true) {
+            return Err(SolverError::Unsupported("Harmonic Mode outside an eigen analysis".into()));
         }
         let eq = self.params().string("equation").unwrap_or_default().to_string();
         self.info("DefaultStart", &format!("Starting solver: {eq}"), 10);
@@ -628,11 +629,17 @@ impl<'a> SolverCtx<'a> {
             let mass = (slot.nof_eigen > 0 || global_mass).then(|| matrix.clone());
             slot.system = Some(LinearSystem { matrix, rhs: vec![0.0; n], mass, damp: None });
         }
+        // A harmonic eigen analysis's DampValues (DefaultUpdateDamp) start
+        // each assembly from zero.
+        let harmonic_eigen = slot.nof_eigen > 0 && slot.params.logical("harmonic mode") == Some(true);
         let sys = slot.system.as_mut().expect("system created above");
         sys.matrix.values.iter_mut().for_each(|v| *v = 0.0);
         sys.rhs.iter_mut().for_each(|v| *v = 0.0);
         if let Some(m) = sys.mass.as_mut() {
             m.values.iter_mut().for_each(|v| *v = 0.0);
+        }
+        if let (Some(d), true) = (sys.damp.as_mut(), harmonic_eigen) {
+            d.values.iter_mut().for_each(|v| *v = 0.0);
         }
         self.setup_normal_tangential()?;
         // DefUtils.F90:3973: solvers that contribute to this assembly.
@@ -676,6 +683,44 @@ impl<'a> SolverCtx<'a> {
     /// this is positive.
     pub fn nof_eigen(&self) -> usize {
         self.sim.slots[self.slot].nof_eigen
+    }
+
+    /// `DefaultUpdateDamp`: add an element damping matrix to `Matrix %
+    /// DampValues`, allocated (zero, on the matrix's pattern) by the first
+    /// call as DefaultUpdateDamp does. Only a harmonic eigen analysis reads
+    /// it; for any other solve this does nothing.
+    pub fn default_update_damp(&mut self, damp: &[f64], e: ElemId) -> Result<(), SolverError> {
+        if self.is_passive(e)? {
+            return Ok(());
+        }
+        let mut idx = Vec::new();
+        self.element_slots(e, &mut idx);
+        let sim = &mut *self.sim;
+        let backend = sim
+            .backends
+            .assembly
+            .as_ref()
+            .ok_or_else(|| SolverError::NotWired("assembly backend (elmer-assembly)".into()))?;
+        let n = (damp.len() as f64).sqrt().round() as usize;
+        if n * n != damp.len() {
+            return Err(SolverError::fatal("DefaultUpdateDamp", "element damping matrix is not square"));
+        }
+        let local = LocalSystem { n, stiff: damp.to_vec(), mass: None, damp: None, force: vec![0.0; n] };
+        let slot = &mut sim.slots[self.slot];
+        if slot.nof_eigen == 0 || slot.params.logical("harmonic mode") != Some(true) {
+            return Ok(());
+        }
+        let Some(sys) = slot.system.as_mut() else {
+            return Ok(());
+        };
+        let d = sys.damp.get_or_insert_with(|| {
+            let mut z = sys.matrix.clone();
+            z.values.iter_mut().for_each(|v| *v = 0.0);
+            z
+        });
+        let mut rhs = vec![0.0; d.nrows];
+        backend.add_local(d, &mut rhs, &idx, &local);
+        Ok(())
     }
 
     /// `DefaultUpdateMass`: add an element mass matrix (row-major, the

@@ -311,6 +311,7 @@ struct ElementData {
     young: Vec<f64>,
     tension: Vec<f64>,
     spring: Vec<f64>,
+    damping: Vec<f64>,
 }
 
 impl Solver for SmitcSolver {
@@ -324,9 +325,11 @@ impl Solver for SmitcSolver {
         if p.logical("hole correction") == Some(true) {
             return Err(unsupported("Hole Correction (perforated plates)"));
         }
-        if p.logical("harmonic mode") == Some(true) || p.logical("harmonic analysis") == Some(true)
-        {
+        if p.logical("harmonic analysis") == Some(true) {
             return Err(unsupported("harmonic analysis (damping matrix)"));
+        }
+        if p.logical("harmonic mode") == Some(true) && p.logical("eigen analysis") != Some(true) {
+            return Err(unsupported("Harmonic Mode outside an eigen analysis"));
         }
         if ctx.comm.size() > 1 {
             return Err(unsupported("more than one partition"));
@@ -395,10 +398,11 @@ impl Solver for SmitcSolver {
             for &e in &elems {
                 let n = ctx.mesh.element(e).nodes.len();
                 let d = self.element_data(ctx, e, n)?;
-                let (ls, mass) = local_matrix(ctx, e, &d, alpha, kernel, grav)?;
+                let (ls, mass, damp) = local_matrix(ctx, e, &d, alpha, kernel, grav)?;
                 ctx.default_update(&ls, e)?;
                 if eigen {
                     ctx.default_update_mass(&mass, e)?;
+                    ctx.default_update_damp(&damp, e)?;
                 }
             }
             ctx.default_finish_bulk_assembly()?;
@@ -444,8 +448,11 @@ impl SmitcSolver {
                 }
             }
         }
-        // `Damping` only enters DAMP, which a static or eigen run without
-        // harmonic mode does not use.
+        // `Damping` (body force, else material) only enters DAMP.
+        let damping = match get(bf, "damping")? {
+            Some(v) => v,
+            None => get(mat, "damping")?.unwrap_or_else(zero),
+        };
         let spring = match get(bf, "spring")? {
             Some(v) => v,
             None => get(mat, "spring")?.unwrap_or_else(zero),
@@ -458,11 +465,12 @@ impl SmitcSolver {
             young: get(mat, "youngs modulus")?.unwrap_or_else(zero),
             tension: get(mat, "tension")?.unwrap_or_else(zero),
             spring,
+            damping,
         })
     }
 }
 
-/// `LocalMatrix`: the element stiffness and force, and its mass.
+/// `LocalMatrix`: the element stiffness and force, its mass and damping.
 fn local_matrix(
     ctx: &SolverCtx<'_>,
     e: ElemId,
@@ -470,7 +478,7 @@ fn local_matrix(
     alpha: f64,
     kernel: bool,
     grav: f64,
-) -> Result<(LocalSystem, Vec<f64>), SolverError> {
+) -> Result<(LocalSystem, Vec<f64>, Vec<f64>), SolverError> {
     let el = ctx.mesh.element(e);
     let n = el.nodes.len();
     let nd = DOFS * n;
@@ -485,6 +493,7 @@ fn local_matrix(
         .ok_or_else(|| SolverError::NotWired("basis and quadrature (elmer-fe)".into()))?;
     let mut stiff = vec![0.0f64; nd * nd];
     let mut mass = vec![0.0f64; nd * nd];
+    let mut damp = vec![0.0f64; nd * nd];
     let mut force = vec![0.0f64; nd];
     let mut curv = vec![vec![0.0f64; nd]; 3];
     let mut ev = elmer_core::BasisEval::default();
@@ -497,6 +506,7 @@ fn local_matrix(
         let pressure = sum(&d.load, b);
         let h = sum(&d.thickness, b);
         let winkler = sum(&d.spring, b);
+        let damp_coef = sum(&d.damping, b);
         // IsotropicElasticity.
         let eu = sum(&d.young, b);
         let pu = sum(&d.poisson, b);
@@ -556,6 +566,11 @@ fn local_matrix(
                 mass[(DOFS * p) * nd + DOFS * q] += rho * h * b[p] * b[q] * s;
             }
         }
+        for p in 0..n {
+            for q in 0..n {
+                damp[(DOFS * p) * nd + DOFS * q] += damp_coef * b[p] * b[q] * s;
+            }
+        }
     }
     Ok((
         LocalSystem {
@@ -566,6 +581,7 @@ fn local_matrix(
             force,
         },
         mass,
+        damp,
     ))
 }
 
