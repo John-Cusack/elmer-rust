@@ -30,10 +30,11 @@ pub fn install_fe(provider: FeProvider) -> bool {
     FE.set(provider).is_ok()
 }
 
-/// Registers `("FlowSolve", "FlowSolver")`.
+/// Registers `("FlowSolve", "FlowSolver")` and `("FixTangentVelo", "FixTangentVelo")`.
 pub fn register(registry: &mut SolverRegistry) {
     let (lib, entry) = crate::REGISTRY_ENTRY;
     registry.register(lib, entry, factory);
+    registry.register("FixTangentVelo", "FixTangentVelo", crate::fix_tangent::factory);
 }
 
 /// [`SolverFactory`](elmer_solver::SolverFactory) for [`FlowSolver`]: the
