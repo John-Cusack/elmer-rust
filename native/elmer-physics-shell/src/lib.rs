@@ -12,10 +12,11 @@
 //! Pressure`, the dead edge loads of `ShellBoundaryMatrix` (`Resultant
 //! Force`, `Resultant Couple`, `Spring`), `Displace Mesh`, `Shear /
 //! Membrane / Stretch Relaxation Alpha`, `Benchmark Problem` and `Spherical
-//! Body`.
+//! Body`, and two-node beam sections (`BeamStiffnessMatrix` with the shell's
+//! rotations).
 //!
 //! Refused: triangles and other element types, p elements (`Cartesian
-//! Formulation`), a `Director` field, beams, live edge loads, the solid
+//! Formulation`), a `Director` field, beam axis offsets, live edge loads, the solid
 //! coupling, `Drilling
 //! DOFs`, `Rotate DOFs`, bubbles, explicit strain reduction operators,
 //! mass (transient, harmonic, eigen) and more than one partition.
@@ -30,6 +31,7 @@
     clippy::manual_memcpy
 )]
 
+mod beam;
 mod geom;
 mod kernel;
 pub mod motion;

@@ -208,6 +208,111 @@ fn boundary_matrix(
     )))
 }
 
+/// `BeamStiffnessMatrix( BGElement, 2, 3, 1, ..., CombineWithShell=.TRUE.,
+/// ApplyRotation=.TRUE. )` of a beam section.
+fn beam_matrix(
+    ctx: &SolverCtx<'_>,
+    e: ElemId,
+    ld: bool,
+    prev: &[f64],
+) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), SolverError> {
+    let el = ctx.mesh.element(e);
+    let bp = ctx.body_params(e);
+    let mat = bp
+        .and_then(|b| b.material)
+        .ok_or_else(|| SolverError::fatal("BeamStiffnessMatrix", "no material"))?;
+    for k in ["beam axis offset 2", "beam axis offset 3"] {
+        if mat.get(k).is_some() {
+            return Err(unsupported("Beam Axis Offset"));
+        }
+    }
+    let need = |key: &str, what: &str| -> Result<Vec<f64>, SolverError> {
+        ctx.real_at_nodes(mat, key, e)?
+            .ok_or_else(|| SolverError::fatal("BeamStiffnessMatrix", format!("{what} needed")))
+    };
+    let youngs = need("youngs modulus", "Youngs Modulus")?;
+    let shear = need("shear modulus", "Shear Modulus")?;
+    let form_factor = ctx
+        .real_at_nodes(mat, "shear correction factor", e)?
+        .unwrap_or_else(|| vec![1.0; 2]);
+    let area = need("cross section area", "Cross Section Area")?;
+    let torsion = need("torsional constant", "Torsional Constant")?;
+    let (moment2, moment3) = match ctx.real_at_nodes(mat, "second moment of area", e)? {
+        Some(m) => (m.clone(), m),
+        None => (
+            need("second moment of area 2", "Second Moment of Area 2")?,
+            need("second moment of area 3", "Second Moment of Area 3")?,
+        ),
+    };
+    let bf = bp.and_then(|b| b.body_force);
+    let mut load: [Vec<f64>; 3] = std::array::from_fn(|_| vec![0.0; 2]);
+    if let Some(bf) = bf {
+        for (i, l) in load.iter_mut().enumerate() {
+            if let Some(v) = ctx.real_at_nodes(bf, &format!("body force {}", i + 1), e)? {
+                *l = v;
+            }
+        }
+    }
+    let array3 = |key: &str| -> Option<V3> {
+        match mat.get(key)? {
+            Value::Real { data, .. } => {
+                let mut d = [0.0f64; 3];
+                for (i, x) in data.iter().take(3).enumerate() {
+                    d[i] = *x;
+                }
+                Some(d)
+            }
+            _ => None,
+        }
+    };
+    let inp = crate::beam::BeamInput {
+        youngs,
+        shear,
+        form_factor,
+        area,
+        torsion,
+        moment2,
+        moment3,
+        load,
+        director: array3("director"),
+        principal2: array3("principal direction 2"),
+        moment_free_axis: mat.integer("moment-free axis").unwrap_or(3).clamp(1, 3) as usize,
+    };
+    let xyz = [ctx.mesh.coord(el.nodes[0]), ctx.mesh.coord(el.nodes[1])];
+    let fe = ctx
+        .sim
+        .backends
+        .fe
+        .as_ref()
+        .ok_or_else(|| SolverError::NotWired("basis and quadrature (elmer-fe)".into()))?;
+    let points: Vec<(f64, f64)> = fe
+        .quadrature
+        .gauss_points(el.etype, Some(3))
+        .iter()
+        .map(|q| (q.uvw[0], q.weight))
+        .collect();
+    let etype = el.etype;
+    let basis = |u: f64, l: f64| -> Result<([f64; 2], [f64; 2], f64), ShellError> {
+        let mut ev = elmer_core::BasisEval::default();
+        fe.basis
+            .eval(
+                etype,
+                &[[0.0, 0.0, 0.0], [l, 0.0, 0.0]],
+                [u, 0.0, 0.0],
+                &mut ev,
+            )
+            .map_err(ShellError::Fatal)?;
+        Ok((
+            [ev.basis[0], ev.basis[1]],
+            [ev.dbasis_dx[0][0], ev.dbasis_dx[1][0]],
+            ev.det_j,
+        ))
+    };
+    Ok(crate::beam::beam_stiffness(
+        xyz, &inp, &points, &basis, ld, prev,
+    )?)
+}
+
 /// `DisplaceMesh` by the solver's six components, `sgn` times.
 fn displace(ctx: &SolverCtx<'_>, sgn: f64) {
     let Some(v) = ctx.primary() else { return };
@@ -574,10 +679,17 @@ impl Solver for ShellSolver {
             )
         };
         let elems: Vec<ElemId> = ctx.active_elements().collect();
-        for &e in &elems {
-            let fam = ctx.mesh.element(e).etype.0 / 100;
-            if fam == 2 {
-                return Err(unsupported("beam elements (BeamStiffnessMatrix)"));
+        let beams: Vec<ElemId> = elems
+            .iter()
+            .copied()
+            .filter(|&e| ctx.mesh.element(e).etype.0 / 100 == 2)
+            .collect();
+        for &e in &beams {
+            if ctx.mesh.element(e).nodes.len() != 2 {
+                return Err(SolverError::fatal(
+                    CALLER,
+                    "An unsupported 1-D element type or definition",
+                ));
             }
         }
         let shells: Vec<ElemId> = elems
@@ -675,6 +787,36 @@ impl Solver for ShellSolver {
                         }
                         for c in 0..M {
                             bulk_rhs[s as usize * M + c] += out.rhs_force[i * M + c];
+                        }
+                    }
+                }
+            }
+            // ASSEMBLE_BEAMS
+            for &e in &beams {
+                let nodes = ctx.mesh.element(e).nodes.to_vec();
+                let mut sol = vec![0.0f64; M * 2];
+                if ld {
+                    for (i, &k) in nodes.iter().enumerate() {
+                        let s = perm[k as usize] as usize;
+                        for c in 0..M {
+                            sol[i * M + c] = total[s * M + c];
+                        }
+                    }
+                }
+                let (k, f, rhs) = beam_matrix(ctx, e, ld, &sol)?;
+                let ls = LocalSystem {
+                    n: f.len(),
+                    stiff: k,
+                    mass: None,
+                    damp: None,
+                    force: f,
+                };
+                ctx.default_update(&ls, e)?;
+                if ld && iter == 1 {
+                    for (i, &k) in nodes.iter().enumerate() {
+                        let s = perm[k as usize] as usize;
+                        for c in 0..M {
+                            bulk_rhs[s * M + c] += rhs[i * M + c];
                         }
                     }
                 }

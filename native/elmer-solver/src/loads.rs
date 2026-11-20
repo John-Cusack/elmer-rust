@@ -109,8 +109,15 @@ impl Simulation {
             (v.name.clone(), v.dofs)
         };
         let mut rhs_add: Vec<(usize, f64)> = Vec::new();
+        // `ComponentName(name, DOF)`: the declared component names (`U 3` of
+        // `Deflection[U:3 DNU:3]`) or `"<name> k"`.
+        let names = self.vars.component_names(id);
         for dof in 0..dofs {
-            let comp = if dofs == 1 { name.clone() } else { format!("{name} {}", dof + 1) };
+            let comp = if dofs == 1 {
+                name.clone()
+            } else {
+                names.get(dof).cloned().unwrap_or_else(|| format!("{name} {}", dof + 1))
+            };
             let key = format!("{comp} load");
             let point = |p: &ParamMap| p.get("target nodes").is_some() || p.get("target coordinates").is_some();
             for p in self.model.boundary_conditions.iter().chain(&self.model.body_forces) {
