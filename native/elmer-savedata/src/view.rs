@@ -115,7 +115,49 @@ pub(crate) fn resolve<'a>(vars: &'a VariableStore, name: &str) -> Result<Option<
     }
 }
 
+/// [`resolve`] as `VectorStatistics` and `VectorMeanDeviation` read a
+/// field: an elemental or Gauss-point variable loses its Perm
+/// (SaveScalars.F90:1874, :2055), so the operator runs over every stored
+/// value. Other variables resolve as [`resolve`] does.
+pub(crate) fn resolve_values<'a>(vars: &'a VariableStore, name: &str) -> Result<Option<Resolved<'a>>, SolverError> {
+    let per_element = |v: &Variable| matches!(v.kind, FieldKind::Elemental | FieldKind::Ip);
+    let unpermuted = |v: &'a Variable, offset: usize, ncomp: usize| {
+        Ok(Some(Resolved::Field(VarView { perm: None, ..VarView::of(v, offset, ncomp) })))
+    };
+    match vars.resolve(name) {
+        Some(VarHandle::Primary(id)) if per_element(vars.by_id(id)) => {
+            let v = vars.by_id(id);
+            unpermuted(v, 0, v.dofs)
+        }
+        Some(VarHandle::Component { parent, component }) if per_element(vars.by_id(parent)) => {
+            unpermuted(vars.by_id(parent), component, 1)
+        }
+        _ => resolve(vars, name),
+    }
+}
+
 /// `ComponentName(base, i)` for a field with `dofs > 1`, 1-based.
 pub(crate) fn component_name(base: &str, i: usize) -> String {
     format!("{base} {i}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    /// An elemental field's statistics run over its stored values, not
+    /// through its Perm; a nodal field keeps its Perm.
+    #[test]
+    fn per_element_fields_lose_their_perm_for_statistics() {
+        let mut vars = VariableStore::new();
+        let perm: Arc<[u32]> = Arc::from(vec![1u32, 0, NO_DOF]);
+        vars.add(Variable::new("testvar a", FieldKind::Elemental, 1, Some(perm.clone()), vec![3.0, 5.0])).unwrap();
+        vars.add(Variable::new("temperature", FieldKind::Nodal, 1, Some(perm), vec![3.0, 5.0])).unwrap();
+        assert!(matches!(resolve(&vars, "testvar a"), Err(SolverError::Unsupported(_))));
+        let Ok(Some(Resolved::Field(v))) = resolve_values(&vars, "testvar a") else { panic!() };
+        assert_eq!((v.perm, v.n_perm(), v.slot(1)), (None, 2, Some(1)));
+        let Ok(Some(Resolved::Field(t))) = resolve_values(&vars, "temperature") else { panic!() };
+        assert_eq!((t.n_perm(), t.slot(2)), (3, None));
+    }
 }

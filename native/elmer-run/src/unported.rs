@@ -35,6 +35,10 @@ const SOLVER: &[Rule] = &[
     present("Mesh", "solver-specific meshes are not implemented"),
     flag("Apply Conforming BCs", "conforming BCs are not implemented"),
     flag("Adaptive Mesh Refinement", "mesh refinement is not implemented"),
+    // SolverBasics.F90:6859: integration-point fields projected to
+    // `<name>_nodal` / elemental / DG variables after the solve; nothing
+    // creates them, so the case would run without them (IpVariable2).
+    present("Project Variable 1", "projections of integration-point variables are not implemented"),
 ];
 
 const BODY_FORCE: &[Rule] = &[];
