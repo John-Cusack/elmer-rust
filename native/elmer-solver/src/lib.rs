@@ -52,6 +52,7 @@ pub mod model;
 pub mod norm;
 mod normalize;
 pub mod reference;
+pub mod restart;
 pub mod sim;
 pub mod solver;
 pub mod time;
@@ -60,6 +61,7 @@ pub mod variable;
 pub use assembly::ElmerAssembly;
 /// Elmer's file formats and Fortran edit descriptors, for the run's writers.
 pub use elmer_saveio;
+pub use restart::{load_restart, restart};
 pub use backend::{
     AssemblyBackend, Backends, DofsBackend, FeBackend, LinearSolverRegistry, Perm, SolverDofs, TimeBackend, TimeTerms,
 };

@@ -504,16 +504,11 @@ impl Solver for Reinit {
     }
 }
 
-/// Inputs no provider applies yet: restart files, mesh-load transforms
+/// Inputs no provider applies yet: mesh-load transforms
 /// beyond `Coordinate Scaling`, `Mesh Levels` and extrusion, and element
 /// definitions other than the Lagrange (`n:1`) basis `elmer-fe` evaluates.
 fn check_mesh_and_elements(model: &Model) -> Result<(), SolverError> {
     let sim = &model.simulation;
-    // `Restart File` sets initial fields from a .result file; nothing reads
-    // it yet, and running without it is a different case.
-    if sim.get("restart file").is_some() {
-        return Err(SolverError::Unsupported("Simulation: Restart File (restart from a .result file)".into()));
-    }
     if sim.get("coordinate transformation").is_some() {
         return Err(SolverError::Unsupported("Simulation: Coordinate Transformation".into()));
     }
@@ -952,6 +947,9 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     elmer_fixtures::registry::install_live(&fixture_case, &mut sim, mesh);
     install_statelec_boundary(&mut sim, mesh);
     sim.setup(mesh, &registry, log, comm)?;
+    // `SetInitialConditions`: the initial conditions (in `setup`), then the
+    // Simulation's `Restart File` under `Mesh % Name`.
+    elmer_solver::restart(&mut sim, &result_dir, log)?;
     if let Some(writer) = crate::result_file::writer(&sim.model, &result_dir, rank, size, log) {
         sim.set_save_current(Box::new(writer));
     }
