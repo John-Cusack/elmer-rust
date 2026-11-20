@@ -483,3 +483,17 @@ mod tests {
         assert_eq!(componentwise_backward_error(&z, &[1.0], &[1.0]), 1.0);
     }
 }
+
+/// CheckLinearSolverOptions (MainUtils.F90:164): a serial `Linear System
+/// Solver = Direct` without `Linear System Direct Method` is UMFPACK in
+/// Elmer (HAVE_UMFPACK), not `banded`. The section with the method added,
+/// or `None` when nothing changes.
+pub(crate) fn serial_direct_default(p: &ParamMap, comm: &dyn Communicator) -> Option<ParamMap> {
+    let direct = p.string("linear system solver").is_some_and(|s| normalize_key(s) == "direct");
+    if comm.size() > 1 || !direct || p.string("linear system direct method").is_some() {
+        return None;
+    }
+    let mut q = p.clone();
+    q.insert("Linear System Direct Method", elmer_core::Value::Str("umfpack".into()));
+    Some(q)
+}
