@@ -1,0 +1,12 @@
+[package]
+name = "elmer-adaptive"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Adaptive mesh refinement (Adaptive.F90: RefineMesh, SplitMesh, RGB refinement) for the Rust-native Elmer rewrite"
+
+[dependencies]
+elmer-core.workspace = true
+elmer-fe = { path = "../elmer-fe" }
+elmer-solver = { path = "../elmer-solver" }

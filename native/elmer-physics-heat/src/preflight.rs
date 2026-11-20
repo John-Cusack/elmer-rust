@@ -51,10 +51,6 @@ const SOLVER: &[Rule] = &[
     flag("Radiosity Model", "radiation is not implemented"),
     flag("Spectral Model", "radiation is not implemented"),
     flag(
-        "Adaptive Mesh Refinement",
-        "mesh refinement is not implemented",
-    ),
-    flag(
         "Nonlinear System Linesearch",
         "DefaultLinesearch is not implemented",
     ),

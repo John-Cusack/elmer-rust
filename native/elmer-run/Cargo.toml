@@ -13,6 +13,7 @@ elmer-sif = { path = "../elmer-sif" }
 elmer-physics-coil = { path = "../elmer-physics-coil" }
 elmer-physics-filmflow = { path = "../elmer-physics-filmflow" }
 elmer-physics-shell = { path = "../elmer-physics-shell" }
+elmer-adaptive = { path = "../elmer-adaptive" }
 elmer-physics-particle = { path = "../elmer-physics-particle" }
 elmer-physics-topoopt = { path = "../elmer-physics-topoopt" }
 elmer-physics-heat = { path = "../elmer-physics-heat" }

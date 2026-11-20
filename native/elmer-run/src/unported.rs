@@ -88,6 +88,17 @@ fn variables(model: &Model) -> Vec<String> {
 pub fn check(model: &Model) -> Result<(), SolverError> {
     scan("Simulation", 1, &model.simulation, SIMULATION)?;
     for (i, s) in model.solvers.iter().enumerate().filter(|(_, s)| runs(s)) {
+        // HeatSolve refines through elmer-adaptive (its own checks refuse
+        // the remeshing paths); the other solvers do not yet.
+        let heat = elmer_solver::solver::procedure_of(s).is_some_and(|(l, e)| {
+            l.eq_ignore_ascii_case("heatsolve") && e.eq_ignore_ascii_case("heatsolver")
+        });
+        if heat && s.logical("adaptive mesh refinement") == Some(true) {
+            let mut s2 = s.clone();
+            s2.insert("Adaptive Mesh Refinement", Value::Logical(false));
+            scan("Solver", i + 1, &s2, SOLVER)?;
+            continue;
+        }
         scan("Solver", i + 1, s, SOLVER)?;
     }
     for (i, b) in model.body_forces.iter().enumerate() {

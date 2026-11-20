@@ -945,6 +945,11 @@ fn job_globals(simulation: &mut ParamMap, rank: usize, size: usize) -> Result<Ve
 }
 
 /// [`run_case`] as one rank of `env.job`; see [`RunEnv`].
+/// Whether the run assembles through a periodic backend.
+fn periodic_in_use(sim: &Simulation) -> bool {
+    sim.model.boundary_conditions.iter().any(|b| b.get("periodic bc").is_some())
+}
+
 pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Result<Outcome, SolverError> {
     let (rank, size) = (env.job.rank(), env.job.size());
     let comm: &dyn Communicator = if size == 1 { env.job } else { &SerialComm };
@@ -968,6 +973,14 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
             params.insert(
                 elmer_physics_particle::MESH_DIRECTORY_KEY,
                 Value::Str(mesh_dir.to_string_lossy().into_owned()),
+            );
+        }
+    }
+    for params in &mut model.solvers {
+        if params.logical("adaptive mesh refinement") == Some(true) {
+            params.insert(
+                elmer_adaptive::OUTPUT_DIRECTORY_KEY,
+                Value::Str(case_dir.to_string_lossy().into_owned()),
             );
         }
     }
@@ -1080,6 +1093,24 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     elmer_solver::restart(&mut sim, &result_dir, log)?;
     if let Some(writer) = crate::result_file::writer(&sim.model, &result_dir, rank, size, log) {
         sim.set_save_current(Box::new(writer));
+    }
+    if sim.model.solvers.iter().any(|p| p.logical("adaptive mesh refinement") == Some(true)) {
+        // Adaptive mesh refinement: each refined mesh saves to its own
+        // directory (`Mesh % Name // '/' // Output File`).
+        if !outputs.is_empty() || periodic_in_use(&sim) || size > 1 {
+            return Err(SolverError::Unsupported(
+                "adaptive mesh refinement with VTU output, periodic assembly or more than one partition".into(),
+            ));
+        }
+        let case_dir2 = case_dir.clone();
+        let log_level = log;
+        let _ = log_level;
+        sim.set_mesh_writer_factory(Box::new(move |name: &str, sim: &elmer_solver::Simulation| {
+            let dir = case_dir2.join(name);
+            let _ = std::fs::create_dir_all(&dir);
+            Ok(crate::result_file::writer(&sim.model, &dir, 0, 1, &elmer_core::NullLogger)
+                .map(|w| Box::new(w) as Box<dyn elmer_solver::sim::SaveCurrent>))
+        }));
     }
     if let Some((id, coarse)) = mg_coarse {
         sim.set_multigrid_meshes(id, coarse)?;

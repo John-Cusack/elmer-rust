@@ -76,6 +76,8 @@ pub struct HeatSolver {
     bubbles_prev: BTreeMap<u32, Vec<f64>>,
     /// The timestep `bubbles_prev` was shifted at (`BubbleTimestep`).
     bubble_step: Option<i64>,
+    /// RefineMesh's SAVEd state (`Adaptive Mesh Refinement`).
+    refine: elmer_adaptive::RefineState,
 }
 
 impl HeatSolver {
@@ -89,6 +91,7 @@ impl HeatSolver {
             bubbles: BTreeMap::new(),
             bubbles_prev: BTreeMap::new(),
             bubble_step: None,
+            refine: Default::default(),
         }
     }
 }
@@ -1183,6 +1186,13 @@ impl Solver for HeatSolver {
             }
         }
         // `DefaultFinish` (HeatSolve.F90): `Apply Explicit Control`.
-        ctx.default_finish()
+        ctx.default_finish()?;
+        // HeatSolve.F90:789: RefineMesh with HeatSolve's residuals.
+        let p = ctx.params();
+        if p.logical("adaptive mesh refinement") == Some(true) && p.logical("library adaptivity") != Some(true) {
+            crate::adaptive::HeatEstimator::check(ctx)?;
+            elmer_adaptive::refine_mesh(ctx, &mut self.refine, &mut crate::adaptive::HeatEstimator)?;
+        }
+        Ok(())
     }
 }
