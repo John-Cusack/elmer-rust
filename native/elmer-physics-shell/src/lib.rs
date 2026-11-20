@@ -19,7 +19,14 @@
 //! mass (transient, harmonic, eigen) and more than one partition.
 #![forbid(unsafe_code)]
 // The ports index several parallel arrays with the Fortran loop variables.
-#![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
+// The expressions keep the Fortran's shape (and so its rounding order).
+#![allow(
+    clippy::needless_range_loop,
+    clippy::too_many_arguments,
+    clippy::assign_op_pattern,
+    clippy::type_complexity,
+    clippy::manual_memcpy
+)]
 
 mod geom;
 mod kernel;

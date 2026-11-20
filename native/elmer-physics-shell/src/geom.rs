@@ -60,7 +60,9 @@ pub(crate) fn scale(c: f64, v: V3) -> V3 {
 pub(crate) fn solve2x2(a: [[f64; 2]; 2], b: [f64; 2]) -> Result<[f64; 2], ShellError> {
     let det = a[0][0] * a[1][1] - a[0][1] * a[1][0];
     if det == 0.0 {
-        return Err(ShellError::Fatal("SolveLinSys2x2: Singular matrix, sorry!".into()));
+        return Err(ShellError::Fatal(
+            "SolveLinSys2x2: Singular matrix, sorry!".into(),
+        ));
     }
     let det = 1.0 / det;
     Ok([
@@ -147,7 +149,12 @@ pub(crate) struct SurfacePoint {
 /// `BlendingSurfaceInfo( Element, Nodes, u, v, ... )` of a four-node
 /// quadrilateral: the bilinear map corrected by the Hermite curves of its
 /// edges (`edge`, the six parameters of each of the four edges).
-pub(crate) fn blending_surface_info(nodes: &[V3; 4], edge: &[[f64; 6]; 4], u: f64, v: f64) -> SurfacePoint {
+pub(crate) fn blending_surface_info(
+    nodes: &[V3; 4],
+    edge: &[[f64; 6]; 4],
+    u: f64,
+    v: f64,
+) -> SurfacePoint {
     let (basis, dbasis) = quad_p_basis(u, v);
     let mut x = [0.0f64; 3];
     let mut a1 = [0.0f64; 3];
@@ -195,7 +202,8 @@ pub(crate) fn blending_surface_info(nodes: &[V3; 4], edge: &[[f64; 6]; 4], u: f6
         for k in 0..3 {
             c[k] = r1[k] * hb[0] + r2[k] * hb[1] + d[k] * 0.5 * hb[2] + d[3 + k] * 0.5 * hb[3];
             dc[k] = r1[k] * dhb[0] + r2[k] * dhb[1] + d[k] * 0.5 * dhb[2] + d[3 + k] * 0.5 * dhb[3];
-            ddc[k] = r1[k] * ddhb[0] + r2[k] * ddhb[1] + d[k] * 0.5 * ddhb[2] + d[3 + k] * 0.5 * ddhb[3];
+            ddc[k] =
+                r1[k] * ddhb[0] + r2[k] * ddhb[1] + d[k] * 0.5 * ddhb[2] + d[3 + k] * 0.5 * ddhb[3];
         }
         for k in 0..3 {
             let b12 = c[k] - l1 * r1[k] - l2 * r2[k];
@@ -449,7 +457,10 @@ pub(crate) fn element_frame(
             for _ in 0..GEOMETRY_MAX_ITERS {
                 let s = blending_surface_info(nodes, edge, uk, vk);
                 pk = s.x;
-                let r = [p0[0] + target[0] - dot(&pk, &g1), p0[1] + target[1] - dot(&pk, &g2)];
+                let r = [
+                    p0[0] + target[0] - dot(&pk, &g1),
+                    p0[1] + target[1] - dot(&pk, &g2),
+                ];
                 if norm(&r) < GEOMETRY_EPSILON * hk {
                     converged = true;
                     break;
@@ -505,7 +516,10 @@ fn taylor_parameters(z0: &[f64; 16], h1: f64, h2: f64) -> [f64; 6] {
     // 1-based as in the Fortran.
     let z = |i: usize| z0[i - 1];
     let apar = (-9.0
-        * (z(1) + 9.0 * z(10) + 9.0 * z(11) - 9.0 * z(12) + z(13) - z(14) - z(15) + z(16) - z(2) - z(3) + z(4)
+        * (z(1) + 9.0 * z(10) + 9.0 * z(11) - 9.0 * z(12) + z(13) - z(14) - z(15) + z(16)
+            - z(2)
+            - z(3)
+            + z(4)
             - 9.0 * z(5)
             + 9.0 * z(6)
             + 9.0 * z(7)
@@ -513,7 +527,8 @@ fn taylor_parameters(z0: &[f64; 16], h1: f64, h2: f64) -> [f64; 6] {
             - 9.0 * z(9)))
         / (32.0 * h1.powi(2));
     let bpar = (-9.0
-        * (z(1) + 9.0 * z(10) + 9.0 * z(11) - z(12) + z(13) - 9.0 * z(14) - 9.0 * z(15) + z(16) - 9.0 * z(2)
+        * (z(1) + 9.0 * z(10) + 9.0 * z(11) - z(12) + z(13) - 9.0 * z(14) - 9.0 * z(15) + z(16)
+            - 9.0 * z(2)
             - 9.0 * z(3)
             + z(4)
             - z(5)
@@ -523,7 +538,8 @@ fn taylor_parameters(z0: &[f64; 16], h1: f64, h2: f64) -> [f64; 6] {
             - z(9)))
         / (32.0 * h2.powi(2));
     let dpar = (27.0
-        * (z(1) + 27.0 * z(10) - 27.0 * z(11) + 9.0 * z(12) + z(13) - 3.0 * z(14) + 3.0 * z(15) - z(16)
+        * (z(1) + 27.0 * z(10) - 27.0 * z(11) + 9.0 * z(12) + z(13) - 3.0 * z(14) + 3.0 * z(15)
+            - z(16)
             - 3.0 * z(2)
             + 3.0 * z(3)
             - z(4)
@@ -534,7 +550,10 @@ fn taylor_parameters(z0: &[f64; 16], h1: f64, h2: f64) -> [f64; 6] {
             - 9.0 * z(9)))
         / (16.0 * h1.powi(3));
     let epar = (9.0
-        * (z(1) - 27.0 * z(10) - 27.0 * z(11) + 27.0 * z(12) - z(13) + z(14) + z(15) - z(16) - z(2) - z(3)
+        * (z(1) - 27.0 * z(10) - 27.0 * z(11) + 27.0 * z(12) - z(13) + z(14) + z(15)
+            - z(16)
+            - z(2)
+            - z(3)
             + z(4)
             - 27.0 * z(5)
             + 27.0 * z(6)
@@ -543,7 +562,8 @@ fn taylor_parameters(z0: &[f64; 16], h1: f64, h2: f64) -> [f64; 6] {
             + 27.0 * z(9)))
         / (16.0 * h1.powi(2) * h2);
     let fpar = (9.0
-        * (z(1) + 27.0 * z(10) - 27.0 * z(11) + z(12) + z(13) - 27.0 * z(14) + 27.0 * z(15) - z(16)
+        * (z(1) + 27.0 * z(10) - 27.0 * z(11) + z(12) + z(13) - 27.0 * z(14) + 27.0 * z(15)
+            - z(16)
             - 27.0 * z(2)
             + 27.0 * z(3)
             - z(4)
@@ -554,7 +574,8 @@ fn taylor_parameters(z0: &[f64; 16], h1: f64, h2: f64) -> [f64; 6] {
             - z(9)))
         / (16.0 * h1 * h2.powi(2));
     let gpar = (27.0
-        * (z(1) - 27.0 * z(10) - 27.0 * z(11) + 3.0 * z(12) - z(13) + 9.0 * z(14) + 9.0 * z(15) - z(16)
+        * (z(1) - 27.0 * z(10) - 27.0 * z(11) + 3.0 * z(12) - z(13) + 9.0 * z(14) + 9.0 * z(15)
+            - z(16)
             - 9.0 * z(2)
             - 9.0 * z(3)
             + z(4)
@@ -572,8 +593,16 @@ fn taylor_parameters(z0: &[f64; 16], h1: f64, h2: f64) -> [f64; 6] {
 fn patch_constants(t: &[f64; 6], umbilical: bool) -> [f64; 8] {
     let (a, b, e, f) = (t[0], t[1], t[3], t[4]);
     let parabolic = !umbilical && a.abs() / b.abs() < PARABOLIC_DELTA;
-    let (c1, c2) = if umbilical { (0.0, 0.0) } else { (f / (b - a), e / (b - a)) };
-    let c4 = if parabolic { 0.0 } else { -0.5 * (a.powi(2) + a * b + b.powi(2)) };
+    let (c1, c2) = if umbilical {
+        (0.0, 0.0)
+    } else {
+        (f / (b - a), e / (b - a))
+    };
+    let c4 = if parabolic {
+        0.0
+    } else {
+        -0.5 * (a.powi(2) + a * b + b.powi(2))
+    };
     let c5 = -2.0 * c1 * c2;
     let c6 = -a.powi(2) - a * b - c4;
     let c7 = -c5;
@@ -598,11 +627,15 @@ fn curvature_patch(
         let (mut y1, mut y2) = (ln[i][0], ln[i][1]);
         let mut converged = false;
         for _ in 0..GEOMETRY_MAX_ITERS {
-            let x = y1 - c1 * y1.powi(2) / 2.0 + c2 * y1 * y2 + c1 * y2.powi(2) / 2.0 + c4 * y1.powi(3) / 6.0
+            let x = y1 - c1 * y1.powi(2) / 2.0
+                + c2 * y1 * y2
+                + c1 * y2.powi(2) / 2.0
+                + c4 * y1.powi(3) / 6.0
                 + c5 * y1.powi(2) * y2 / 2.0
                 + c6 * y1 * y2.powi(2) / 2.0
                 + c7 * y2.powi(3) / 6.0;
-            let y = y2 - c2 * y1.powi(2) / 2.0 - c1 * y1 * y2 + c2 * y2.powi(2) / 2.0 - c5 * y1.powi(3) / 6.0
+            let y = y2 - c2 * y1.powi(2) / 2.0 - c1 * y1 * y2 + c2 * y2.powi(2) / 2.0
+                - c5 * y1.powi(3) / 6.0
                 + b5 * y1.powi(2) * y2 / 2.0
                 - c7 * y1 * y2.powi(2) / 2.0
                 + b7 * y2.powi(3) / 6.0;
@@ -613,12 +646,22 @@ fn curvature_patch(
             }
             let m = [
                 [
-                    1.0 - c1 * y1 + c2 * y2 + c4 * y1.powi(2) / 2.0 + c5 * y1 * y2 + c6 * y2.powi(2) / 2.0,
-                    c2 * y1 + c1 * y2 + c5 * y1.powi(2) / 2.0 + c6 * y1 * y2 + c7 * y2.powi(2) / 2.0,
+                    1.0 - c1 * y1
+                        + c2 * y2
+                        + c4 * y1.powi(2) / 2.0
+                        + c5 * y1 * y2
+                        + c6 * y2.powi(2) / 2.0,
+                    c2 * y1
+                        + c1 * y2
+                        + c5 * y1.powi(2) / 2.0
+                        + c6 * y1 * y2
+                        + c7 * y2.powi(2) / 2.0,
                 ],
                 [
-                    -c2 * y1 - c1 * y2 - c5 * y1.powi(2) / 2.0 + b5 * y1 * y2 - c7 * y2.powi(2) / 2.0,
-                    1.0 - c1 * y1 + c2 * y2 + b5 * y1.powi(2) / 2.0 - c7 * y1 * y2 + b7 * y2.powi(2) / 2.0,
+                    -c2 * y1 - c1 * y2 - c5 * y1.powi(2) / 2.0 + b5 * y1 * y2
+                        - c7 * y2.powi(2) / 2.0,
+                    1.0 - c1 * y1 + c2 * y2 + b5 * y1.powi(2) / 2.0 - c7 * y1 * y2
+                        + b7 * y2.powi(2) / 2.0,
                 ],
             ];
             let delta = solve2x2(m, r)?;
@@ -626,7 +669,9 @@ fn curvature_patch(
             y2 += delta[1];
         }
         if !converged {
-            return Err(ShellError::Fatal("LinesOfCurvaturePatch: Nonlinear iteration fails".into()));
+            return Err(ShellError::Fatal(
+                "LinesOfCurvaturePatch: Nonlinear iteration fails".into(),
+            ));
         }
         patch[i] = [y1, y2];
     }
@@ -732,5 +777,54 @@ pub(crate) fn surface_basis(x: f64, y: f64, f: &Frame) -> Basis3 {
         c212: c111,
         dual1: scale(1.0 / a11, a1),
         dual2: scale(1.0 / a22, a2),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SQUARE: [V3; 4] = [
+        [0.0, 0.0, 0.0],
+        [2.0, 0.0, 0.0],
+        [2.0, 1.0, 0.0],
+        [0.0, 1.0, 0.0],
+    ];
+
+    fn flat_edges() -> [[f64; 6]; 4] {
+        let d = [0.0, 0.0, 1.0];
+        let pairs = [(0usize, 1usize), (1, 2), (3, 2), (0, 3)];
+        std::array::from_fn(|k| hermite_form(SQUARE[pairs[k].0], SQUARE[pairs[k].1], d, d))
+    }
+
+    #[test]
+    fn hermite_tangents_of_a_straight_edge_are_the_edge() {
+        let t = hermite_form([0.0; 3], [2.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]);
+        assert_eq!(t, [2.0, 0.0, 0.0, 2.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn the_blending_surface_of_a_flat_rectangle_is_bilinear() {
+        let edges = flat_edges();
+        for (u, v) in [(0.0, 0.0), (0.5, -0.25), (-1.0, 1.0)] {
+            let s = blending_surface_info(&SQUARE, &edges, u, v);
+            let x = 1.0 + u;
+            let y = 0.5 * (1.0 + v);
+            assert!((s.x[0] - x).abs() < 1e-15 && (s.x[1] - y).abs() < 1e-15 && s.x[2] == 0.0);
+            assert!((s.deta - 0.25).abs() < 1e-15, "{}", s.deta);
+            assert_eq!(s.b, [[0.0, 0.0], [0.0, 0.0]]);
+        }
+    }
+
+    #[test]
+    fn a_flat_element_frame_is_planar_with_the_nodes_in_the_plane() {
+        let f = element_frame(&SQUARE, &flat_edges(), [0.0, 0.0, 1.0], true, false).unwrap();
+        assert!(f.planar && !f.umbilical);
+        assert_eq!(f.e3, [0.0, 0.0, 1.0]);
+        assert_eq!(f.o, [1.0, 0.5, 0.0]);
+        // The patch nodes are the frame coordinates of the 416 nodes.
+        assert!((f.patch[0][0] + 1.0).abs() < 1e-15 && (f.patch[0][1] + 0.5).abs() < 1e-15);
+        let s = surface_basis(0.3, 0.2, &f);
+        assert_eq!((s.a11, s.a22, s.b11), (1.0, 1.0, 0.0));
     }
 }

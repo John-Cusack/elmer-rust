@@ -10,7 +10,9 @@
 use elmer_fe::basis::nodal_basis;
 use elmer_fe::element_type;
 
-use crate::geom::{cross, dot, geometry_basis, quad_p_basis, surface_basis, Basis3, Frame, MAX_PATCH_NODES};
+use crate::geom::{
+    cross, dot, geometry_basis, quad_p_basis, surface_basis, Basis3, Frame, MAX_PATCH_NODES,
+};
 use crate::ShellError;
 
 /// The unknowns per node.
@@ -115,7 +117,10 @@ fn outer(x: &[f64], y: &[f64]) -> Vec<f64> {
 }
 
 fn add_rows(a: &[Vec<f64>], b: &[Vec<f64>]) -> Mat {
-    a.iter().zip(b).map(|(x, y)| x.iter().zip(y).map(|(p, q)| p + q).collect()).collect()
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| x.iter().zip(y).map(|(p, q)| p + q).collect())
+        .collect()
 }
 
 /// `ShearCorrectionFactor( Kappa, h, x, y, 4, alpha )`.
@@ -533,7 +538,8 @@ pub(crate) fn shell_local_matrix(
             pf[1] = dot(&bw[1], &prev);
             let s1 = bm_prev(&bm[0]);
             for c in 0..DOFS {
-                nl_bm[0][c] = s1 / a1n.powi(2) * bm[0][c] + pf[0] / a2n.powi(2) * bw[0][c] + pf[1] * bw[1][c];
+                nl_bm[0][c] =
+                    s1 / a1n.powi(2) * bm[0][c] + pf[0] / a2n.powi(2) * bw[0][c] + pf[1] * bw[1][c];
             }
             strain[0] = 0.5 * dot(&nl_bm[0], &prev);
             for p in 0..ND {
@@ -548,7 +554,8 @@ pub(crate) fn shell_local_matrix(
             pf[3] = dot(&bw[3], &prev);
             let s2 = bm_prev(&bm[1]);
             for c in 0..DOFS {
-                nl_bm[1][c] = s2 / a2n.powi(2) * bm[1][c] + pf[2] / a1n.powi(2) * bw[2][c] + pf[3] * bw[3][c];
+                nl_bm[1][c] =
+                    s2 / a2n.powi(2) * bm[1][c] + pf[2] / a1n.powi(2) * bw[2][c] + pf[3] * bw[3][c];
             }
             strain[1] = 0.5 * dot(&nl_bm[1], &prev);
             for c in 0..DOFS {
@@ -593,13 +600,21 @@ pub(crate) fn shell_local_matrix(
         if ld {
             let f1 = stress[0] + nu / (1.0 - nu) * stress[3] / a1n.powi(2);
             let f2 = stress[1] + nu / (1.0 - nu) * stress[3] / a2n.powi(2);
-            let (o_bm0, o_bw0, o_bw1) = (outer(&bm[0], &bm[0]), outer(&bw[0], &bw[0]), outer(&bw[1], &bw[1]));
+            let (o_bm0, o_bw0, o_bw1) = (
+                outer(&bm[0], &bm[0]),
+                outer(&bw[0], &bw[0]),
+                outer(&bw[1], &bw[1]),
+            );
             for k in 0..DOFS * DOFS {
                 stiff[k] += o_bm0[k] / a1n.powi(2) * f1 * kappa_m * weight
                     + o_bw0[k] / a2n.powi(2) * f1 * kappa_m * weight
                     + o_bw1[k] * f1 * kappa_m * weight;
             }
-            let (o_bm1, o_bw2, o_bw3) = (outer(&bm[1], &bm[1]), outer(&bw[2], &bw[2]), outer(&bw[3], &bw[3]));
+            let (o_bm1, o_bw2, o_bw3) = (
+                outer(&bm[1], &bm[1]),
+                outer(&bw[2], &bw[2]),
+                outer(&bw[3], &bw[3]),
+            );
             for k in 0..DOFS * DOFS {
                 stiff[k] += o_bm1[k] / a2n.powi(2) * f2 * kappa_m * weight
                     + o_bw2[k] / a1n.powi(2) * f2 * kappa_m * weight
@@ -613,7 +628,11 @@ pub(crate) fn shell_local_matrix(
                     + (x3[k] + x4[k]) * stress[2] / a2n.powi(2) * kappa_m * weight
                     + (x5[k] + x6[k]) * stress[2] * kappa_m * weight;
             }
-            let (y4, y5, y6) = (outer(&bw[4], &bw[4]), outer(&bw[5], &bw[5]), outer(&bw[6], &bw[6]));
+            let (y4, y5, y6) = (
+                outer(&bw[4], &bw[4]),
+                outer(&bw[5], &bw[5]),
+                outer(&bw[6], &bw[6]),
+            );
             for k in 0..DOFS * DOFS {
                 stiff[k] += y4[k] * stress[3] / a1n.powi(2) * kappa_m * weight
                     + y5[k] * stress[3] / a2n.powi(2) * kappa_m * weight
@@ -812,13 +831,21 @@ pub(crate) fn shell_local_matrix(
                 let (x, y) = (outer(a, b), outer(b, a));
                 x.iter().zip(&y).map(|(p, q)| p + q).collect::<Vec<f64>>()
             };
-            let (p1, p2, p3) = (pairs(&bw[7], &bm[0]), pairs(&bw[8], &bw[0]), pairs(&bw[9], &bw[1]));
+            let (p1, p2, p3) = (
+                pairs(&bw[7], &bm[0]),
+                pairs(&bw[8], &bw[0]),
+                pairs(&bw[9], &bw[1]),
+            );
             for k in 0..DOFS * DOFS {
                 stiff[k] += p1[k] * stress[0] / a1n.powi(2) * weight
                     + p2[k] * stress[0] / a2n.powi(2) * weight
                     + p3[k] * stress[0] * weight;
             }
-            let (p1, p2, p3) = (pairs(&bw[10], &bw[2]), pairs(&bw[11], &bm[1]), pairs(&bw[12], &bw[3]));
+            let (p1, p2, p3) = (
+                pairs(&bw[10], &bw[2]),
+                pairs(&bw[11], &bm[1]),
+                pairs(&bw[12], &bw[3]),
+            );
             for k in 0..DOFS * DOFS {
                 stiff[k] += p1[k] * stress[1] / a1n.powi(2) * weight
                     + p2[k] * stress[1] / a2n.powi(2) * weight
@@ -832,7 +859,9 @@ pub(crate) fn shell_local_matrix(
                     outer(&bw[2], &bw[7]),
                     outer(&bw[7], &bw[2]),
                 );
-                (0..DOFS * DOFS).map(|k| a[k] + b[k] + c[k] + d[k]).collect::<Vec<f64>>()
+                (0..DOFS * DOFS)
+                    .map(|k| a[k] + b[k] + c[k] + d[k])
+                    .collect::<Vec<f64>>()
             };
             let q2 = {
                 let (a, b, c, d) = (
@@ -841,7 +870,9 @@ pub(crate) fn shell_local_matrix(
                     outer(&bm[1], &bw[8]),
                     outer(&bw[8], &bm[1]),
                 );
-                (0..DOFS * DOFS).map(|k| a[k] + b[k] + c[k] + d[k]).collect::<Vec<f64>>()
+                (0..DOFS * DOFS)
+                    .map(|k| a[k] + b[k] + c[k] + d[k])
+                    .collect::<Vec<f64>>()
             };
             let q3 = {
                 let (a, b, c, d) = (
@@ -850,7 +881,9 @@ pub(crate) fn shell_local_matrix(
                     outer(&bw[3], &bw[9]),
                     outer(&bw[9], &bw[3]),
                 );
-                (0..DOFS * DOFS).map(|k| a[k] + b[k] + c[k] + d[k]).collect::<Vec<f64>>()
+                (0..DOFS * DOFS)
+                    .map(|k| a[k] + b[k] + c[k] + d[k])
+                    .collect::<Vec<f64>>()
             };
             for k in 0..DOFS * DOFS {
                 stiff[k] += q1[k] * stress[2] / a1n.powi(2) * weight
@@ -858,21 +891,36 @@ pub(crate) fn shell_local_matrix(
                     + q3[k] * stress[2] * weight;
             }
             let curv = b11 / a11 + b22 / a22;
-            let (r1, r2, r3) = (outer(&bm[0], &bm[0]), outer(&bw[0], &bw[0]), outer(&bw[1], &bw[1]));
+            let (r1, r2, r3) = (
+                outer(&bm[0], &bm[0]),
+                outer(&bw[0], &bw[0]),
+                outer(&bw[1], &bw[1]),
+            );
             for k in 0..DOFS * DOFS {
                 stiff[k] = stiff[k]
-                    - (r1[k] / a1n.powi(2) + r2[k] / a2n.powi(2) + r3[k]) * curv * stress[0] * weight;
+                    - (r1[k] / a1n.powi(2) + r2[k] / a2n.powi(2) + r3[k])
+                        * curv
+                        * stress[0]
+                        * weight;
             }
-            let (r1, r2, r3) = (outer(&bm[1], &bm[1]), outer(&bw[2], &bw[2]), outer(&bw[3], &bw[3]));
+            let (r1, r2, r3) = (
+                outer(&bm[1], &bm[1]),
+                outer(&bw[2], &bw[2]),
+                outer(&bw[3], &bw[3]),
+            );
             for k in 0..DOFS * DOFS {
                 stiff[k] = stiff[k]
-                    - (r1[k] / a2n.powi(2) + r2[k] / a1n.powi(2) + r3[k]) * curv * stress[1] * weight;
+                    - (r1[k] / a2n.powi(2) + r2[k] / a1n.powi(2) + r3[k])
+                        * curv
+                        * stress[1]
+                        * weight;
             }
             let (t1, t2) = (pairs(&bw[2], &bm[0]), pairs(&bw[0], &bm[1]));
             let (x, y) = (outer(&bw[1], &bw[3]), outer(&bw[3], &bw[1]));
             let cs = curv * stress[2] * weight;
             for k in 0..DOFS * DOFS {
-                stiff[k] = stiff[k] - cs * (t1[k] * 1.0 / a1n.powi(2) + t2[k] * 1.0 / a2n.powi(2) + x[k] + y[k]);
+                stiff[k] = stiff[k]
+                    - cs * (t1[k] * 1.0 / a1n.powi(2) + t2[k] * 1.0 / a2n.powi(2) + x[k] + y[k]);
             }
         }
 
@@ -949,28 +997,34 @@ pub(crate) fn shell_local_matrix(
                 let (x, y) = (outer(&bw[9], &bw[6]), outer(&bw[6], &bw[9]));
                 let sw = stress[0] * weight;
                 for k in 0..DOFS * DOFS {
-                    stiff[k] = stiff[k] - sw * (p1[k] * 1.0 / a1n.powi(2) - p2[k] * 1.0 / a2n.powi(2) - x[k] + y[k]);
+                    stiff[k] = stiff[k]
+                        - sw * (p1[k] * 1.0 / a1n.powi(2) - p2[k] * 1.0 / a2n.powi(2) - x[k]
+                            + y[k]);
                 }
                 let p1 = pairs(&bw[10], &bw[4]);
                 let p2 = pairs(&bw[11], &bw[5]);
                 let (x, y) = (outer(&bw[12], &bw[6]), outer(&bw[6], &bw[12]));
                 let sw = stress[1] * weight;
                 for k in 0..DOFS * DOFS {
-                    stiff[k] = stiff[k] - sw * (p1[k] * 1.0 / a1n.powi(2) - p2[k] * 1.0 / a2n.powi(2) - x[k] + y[k]);
+                    stiff[k] = stiff[k]
+                        - sw * (p1[k] * 1.0 / a1n.powi(2) - p2[k] * 1.0 / a2n.powi(2) - x[k]
+                            + y[k]);
                 }
                 let p1 = pairs(&bw[4], &bm[0]);
                 let p2 = pairs(&bw[0], &bw[5]);
                 let (x, y) = (outer(&bw[1], &bw[6]), outer(&bw[6], &bw[1]));
                 let sw = b11 / a11 * stress[0] * weight;
                 for k in 0..DOFS * DOFS {
-                    stiff[k] += sw * (p1[k] * 1.0 / a1n.powi(2) + p2[k] * 1.0 / a2n.powi(2) + x[k] + y[k]);
+                    stiff[k] +=
+                        sw * (p1[k] * 1.0 / a1n.powi(2) + p2[k] * 1.0 / a2n.powi(2) + x[k] + y[k]);
                 }
                 let p1 = pairs(&bw[4], &bw[2]);
                 let p2 = pairs(&bm[1], &bw[5]);
                 let (x, y) = (outer(&bw[3], &bw[6]), outer(&bw[6], &bw[3]));
                 let sw = b22 / a22 * stress[1] * weight;
                 for k in 0..DOFS * DOFS {
-                    stiff[k] += sw * (p1[k] * 1.0 / a1n.powi(2) + p2[k] * 1.0 / a2n.powi(2) + x[k] + y[k]);
+                    stiff[k] +=
+                        sw * (p1[k] * 1.0 / a1n.powi(2) + p2[k] * 1.0 / a2n.powi(2) + x[k] + y[k]);
                 }
             }
         }
