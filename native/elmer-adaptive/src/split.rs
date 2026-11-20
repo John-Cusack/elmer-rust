@@ -145,7 +145,12 @@ fn split_one_level(m: &dyn MeshView, splitted: &[i32]) -> (OwnedMesh, Vec<i32>) 
     let mut elems: Vec<Elem> = Vec::new();
     let mut children = vec![[usize::MAX; 4]; nb + m.n_boundary()];
     let mut new_split: Vec<i32> = Vec::new();
-    let push = |elems: &mut Vec<Elem>, new_split: &mut Vec<i32>, nodes: [u32; 3], tag: i32, s: i32| -> usize {
+    let push = |elems: &mut Vec<Elem>,
+                new_split: &mut Vec<i32>,
+                nodes: [u32; 3],
+                tag: i32,
+                s: i32|
+     -> usize {
         elems.push(Elem {
             etype: ElementType(303),
             nodes: nodes.to_vec(),
@@ -165,7 +170,9 @@ fn split_one_level(m: &dyn MeshView, splitted: &[i32]) -> (OwnedMesh, Vec<i32>) 
         let en = |e: usize| edges.edges[e].nodes;
         let opposite = |e: usize| -> u32 {
             let n = en(e);
-            *rn.iter().find(|&&x| x != n[0] && x != n[1]).expect("a triangle")
+            *rn.iter()
+                .find(|&&x| x != n[0] && x != n[1])
+                .expect("a triangle")
         };
         match marked {
             0 => {
@@ -183,8 +190,13 @@ fn split_one_level(m: &dyn MeshView, splitted: &[i32]) -> (OwnedMesh, Vec<i32>) 
                 let e = ei[j];
                 let kn = opposite(e);
                 let others: Vec<usize> = (0..3).filter(|&k| k != j).collect();
-                children[i][0] =
-                    push(&mut elems, &mut new_split, [kn, mo(ei[others[0]]), mo(ei[others[1]])], tag, s);
+                children[i][0] = push(
+                    &mut elems,
+                    &mut new_split,
+                    [kn, mo(ei[others[0]]), mo(ei[others[1]])],
+                    tag,
+                    s,
+                );
                 let mut max_len = 0.0f64;
                 let mut longest = 0usize;
                 for &k in &others {
@@ -196,16 +208,55 @@ fn split_one_level(m: &dyn MeshView, splitted: &[i32]) -> (OwnedMesh, Vec<i32>) 
                 }
                 let ej = en(e);
                 let ek = en(ei[longest]);
-                let third = if ej[0] == ek[0] || ej[0] == ek[1] { ej[1] } else { ej[0] };
-                children[i][1] =
-                    push(&mut elems, &mut new_split, [mo(ei[others[0]]), mo(ei[others[1]]), third], tag, s);
-                children[i][2] = push(&mut elems, &mut new_split, [ej[0], ej[1], mo(ei[longest])], tag, s);
+                let third = if ej[0] == ek[0] || ej[0] == ek[1] {
+                    ej[1]
+                } else {
+                    ej[0]
+                };
+                children[i][1] = push(
+                    &mut elems,
+                    &mut new_split,
+                    [mo(ei[others[0]]), mo(ei[others[1]]), third],
+                    tag,
+                    s,
+                );
+                children[i][2] = push(
+                    &mut elems,
+                    &mut new_split,
+                    [ej[0], ej[1], mo(ei[longest])],
+                    tag,
+                    s,
+                );
             }
             _ => {
-                children[i][0] = push(&mut elems, &mut new_split, [rn[0], mo(ei[0]), mo(ei[2])], tag, s);
-                children[i][1] = push(&mut elems, &mut new_split, [rn[1], mo(ei[1]), mo(ei[0])], tag, s);
-                children[i][2] = push(&mut elems, &mut new_split, [rn[2], mo(ei[2]), mo(ei[1])], tag, s);
-                children[i][3] = push(&mut elems, &mut new_split, [mo(ei[0]), mo(ei[1]), mo(ei[2])], tag, s);
+                children[i][0] = push(
+                    &mut elems,
+                    &mut new_split,
+                    [rn[0], mo(ei[0]), mo(ei[2])],
+                    tag,
+                    s,
+                );
+                children[i][1] = push(
+                    &mut elems,
+                    &mut new_split,
+                    [rn[1], mo(ei[1]), mo(ei[0])],
+                    tag,
+                    s,
+                );
+                children[i][2] = push(
+                    &mut elems,
+                    &mut new_split,
+                    [rn[2], mo(ei[2]), mo(ei[1])],
+                    tag,
+                    s,
+                );
+                children[i][3] = push(
+                    &mut elems,
+                    &mut new_split,
+                    [mo(ei[0]), mo(ei[1]), mo(ei[2])],
+                    tag,
+                    s,
+                );
             }
         }
     }
@@ -271,4 +322,66 @@ fn split_one_level(m: &dyn MeshView, splitted: &[i32]) -> (OwnedMesh, Vec<i32>) 
         },
         new_split,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mesh::{Elem, OwnedMesh};
+
+    /// The unit square in two triangles with its four boundary lines.
+    fn square() -> OwnedMesh {
+        let tri = |n: [u32; 3]| Elem {
+            etype: ElementType(303),
+            nodes: n.to_vec(),
+            tag: 1,
+            parents: [None, None],
+        };
+        let line = |n: [u32; 2], p: u32| Elem {
+            etype: ElementType(202),
+            nodes: n.to_vec(),
+            tag: 1,
+            parents: [Some(ElemId(p)), None],
+        };
+        OwnedMesh {
+            dim: 2,
+            coords: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+            ],
+            elems: vec![
+                tri([0, 1, 2]),
+                tri([0, 2, 3]),
+                line([0, 1], 0),
+                line([1, 2], 0),
+                line([2, 3], 1),
+                line([3, 0], 1),
+            ],
+            n_bulk: 2,
+        }
+    }
+
+    /// Marking one triangle splits the shared diagonal (its longest edge):
+    /// both triangles are bisected and no boundary line changes.
+    #[test]
+    fn one_mark_bisects_both_triangles_on_the_diagonal() {
+        let (m, s) = split_one_level(&square(), &[1, 0]);
+        assert_eq!(m.n_nodes(), 5);
+        assert_eq!(m.coords[4], [0.5, 0.5, 0.0]);
+        assert_eq!(m.n_bulk(), 4);
+        assert_eq!(m.n_boundary(), 4);
+        assert_eq!(s, vec![0, 0, -1, -1]);
+        for b in 4..8 {
+            assert!(m.elems[b].parents[0].is_some());
+        }
+    }
+
+    #[test]
+    fn nothing_marked_is_no_new_mesh() {
+        let m = square();
+        let r = split_mesh(&m, 0, &[0.0, 0.0], 1.0, &[1.0; 4], 3.0).unwrap();
+        assert!(r.is_none());
+    }
 }

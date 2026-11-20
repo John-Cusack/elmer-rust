@@ -65,7 +65,10 @@ pub fn element_hk(ctx: &SolverCtx<'_>, e: ElemId) -> Result<f64, SolverError> {
             })
             || p.logical("pressure stabilization") == Some(true)
     });
-    let long = ctx.simulation_params().logical("stabilization use longest element edge").unwrap_or(false);
+    let long = ctx
+        .simulation_params()
+        .logical("stabilization use longest element edge")
+        .unwrap_or(false);
     let el = ctx.mesh.element(e);
     let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
     if stabilize {
@@ -83,7 +86,11 @@ fn unsupported(what: &str) -> SolverError {
 
 /// The keywords of RefineMesh this port does not follow.
 pub fn check_params(p: &ParamMap) -> Result<(), SolverError> {
-    for k in ["adaptive remesh", "flux recovery", "adaptive error histogram"] {
+    for k in [
+        "adaptive remesh",
+        "flux recovery",
+        "adaptive error histogram",
+    ] {
         if p.logical(k) == Some(true) {
             return Err(unsupported(k));
         }
@@ -110,7 +117,12 @@ pub struct RefineState {
 /// A nodal field of the current mesh with the identity permutation, created
 /// with `init` when missing (`VariableAdd` without a Perm). Returns whether
 /// it was created.
-fn field(ctx: &mut SolverCtx<'_>, name: &str, output: bool, init: f64) -> Result<bool, SolverError> {
+fn field(
+    ctx: &mut SolverCtx<'_>,
+    name: &str,
+    output: bool,
+    init: f64,
+) -> Result<bool, SolverError> {
     if ctx.sim.vars.get(name).is_some() {
         return Ok(false);
     }
@@ -130,7 +142,10 @@ fn store(ctx: &mut SolverCtx<'_>, name: &str, v: Vec<f64>) {
 }
 
 /// `ComputeError`: the element error indicators and their maximum.
-fn compute_error(ctx: &SolverCtx<'_>, est: &mut dyn Estimator) -> Result<(Vec<f64>, f64), SolverError> {
+fn compute_error(
+    ctx: &SolverCtx<'_>,
+    est: &mut dyn Estimator,
+) -> Result<(Vec<f64>, f64), SolverError> {
     let mesh = ctx.mesh;
     let nb = mesh.n_bulk();
     let edges = Edges::find(mesh);
@@ -146,7 +161,9 @@ fn compute_error(ctx: &SolverCtx<'_>, est: &mut dyn Estimator) -> Result<(Vec<f6
         return Err(unsupported("three-dimensional meshes (face residuals)"));
     }
     for e in &edges.edges {
-        let (Some(l), Some(r)) = (e.left, e.right) else { continue };
+        let (Some(l), Some(r)) = (e.left, e.right) else {
+            continue;
+        };
         let ind = est.edge(ctx, e)?;
         t[l][0] += ind[0];
         t[l][1] += ind[1];
@@ -176,7 +193,10 @@ fn compute_error(ctx: &SolverCtx<'_>, est: &mut dyn Estimator) -> Result<(Vec<f6
         s2 += x[0];
     }
     let s = s1.sqrt() / s2.sqrt();
-    let mut ei: Vec<f64> = t.iter().map(|x| (x[0] / (2.0 * s) + s * x[1] / 2.0).sqrt()).collect();
+    let mut ei: Vec<f64> = t
+        .iter()
+        .map(|x| (x[0] / (2.0 * s) + s * x[1] / 2.0).sqrt())
+        .collect();
     if fnorm > AEPS {
         let sf = fnorm.sqrt();
         for x in &mut ei {
@@ -190,9 +210,17 @@ fn compute_error(ctx: &SolverCtx<'_>, est: &mut dyn Estimator) -> Result<(Vec<f6
 /// `RefineMesh` with the internal splitting: estimates the error of the
 /// solver's solution, decides whether the mesh has converged and, if not,
 /// asks the run to go on with the split mesh.
-pub fn refine_mesh(ctx: &mut SolverCtx<'_>, state: &mut RefineState, est: &mut dyn Estimator) -> Result<(), SolverError> {
+pub fn refine_mesh(
+    ctx: &mut SolverCtx<'_>,
+    state: &mut RefineState,
+    est: &mut dyn Estimator,
+) -> Result<(), SolverError> {
     ctx.info(CALLER, " ", 5);
-    ctx.info(CALLER, "----------- M E S H   R E F I N E M E N T --------------", 5);
+    ctx.info(
+        CALLER,
+        "----------- M E S H   R E F I N E M E N T --------------",
+        5,
+    );
     let p = ctx.params().clone();
     check_params(&p)?;
     let depth = ctx.adaptive_depth();
@@ -255,7 +283,10 @@ pub fn refine_mesh(ctx: &mut SolverCtx<'_>, state: &mut RefineState, est: &mut d
     if init && !created {
         hconv = vec![1.0; nn];
     }
-    let name = ctx.variable_name().ok_or_else(|| SolverError::fatal(CALLER, "no variable"))?.to_string();
+    let name = ctx
+        .variable_name()
+        .ok_or_else(|| SolverError::fatal(CALLER, "no variable"))?
+        .to_string();
     let err_name = format!("{name}.error");
     let perr_name = format!("{name}.perror");
     let eref_name = format!("{name}.eref");
@@ -325,7 +356,10 @@ pub fn refine_mesh(ctx: &mut SolverCtx<'_>, state: &mut RefineState, est: &mut d
     }
     let mut new_mesh = None;
     if !converged {
-        let mc = p.real("adaptive max change").filter(|&m| m > AEPS).unwrap_or(3.0);
+        let mc = p
+            .real("adaptive max change")
+            .filter(|&m| m > AEPS)
+            .unwrap_or(3.0);
         for k in 0..nn {
             if eref[k] > 0.0 {
                 prev_nodal[k] += (hvalue[k] / href[k]).ln() * (nodal[k] / eref[k]).ln();
@@ -336,7 +370,11 @@ pub fn refine_mesh(ctx: &mut SolverCtx<'_>, state: &mut RefineState, est: &mut d
         }
         if depth > 0 {
             for k in 0..nn {
-                hconv[k] = if prev_h[k] > 0.0 { (prev_nodal[k] / prev_h[k]).max(0.25) } else { 0.25 };
+                hconv[k] = if prev_h[k] > 0.0 {
+                    (prev_nodal[k] / prev_h[k]).max(0.25)
+                } else {
+                    0.25
+                };
             }
         }
         store(ctx, &perr_name, prev_nodal.clone());
@@ -353,9 +391,16 @@ pub fn refine_mesh(ctx: &mut SolverCtx<'_>, state: &mut RefineState, est: &mut d
         ctx.info(CALLER, &format!("Nodal points: {}", m.n_nodes()), 5);
         ctx.info(CALLER, &format!("Bulk elements: {}", m.n_bulk()), 5);
         ctx.info(CALLER, &format!("Boundary elements: {}", m.n_boundary()), 5);
-        let base = p.string("adaptive mesh name").unwrap_or("RefinedMesh").to_string();
+        let base = p
+            .string("adaptive mesh name")
+            .unwrap_or("RefinedMesh")
+            .to_string();
         let numbering = p.logical("adaptive mesh numbering").unwrap_or(true);
-        let name = if numbering { format!("{base}{}", depth + 1) } else { base };
+        let name = if numbering {
+            format!("{base}{}", depth + 1)
+        } else {
+            base
+        };
         if p.logical("adaptive save mesh") == Some(true) {
             // `OutputPath // '/' // NewMesh % Name`; elmer-run gives the
             // directory of the case.
@@ -363,8 +408,15 @@ pub fn refine_mesh(ctx: &mut SolverCtx<'_>, state: &mut RefineState, est: &mut d
             mesh::write_mesh_to_disk(&m, &std::path::Path::new(&base_dir).join(&name), &|t| t)
                 .map_err(|e| SolverError::fatal("WriteMeshToDisk", e.to_string()))?;
         }
-        ctx.request_mesh_change(MeshChange { mesh: Arc::new(m), name });
+        ctx.request_mesh_change(MeshChange {
+            mesh: Arc::new(m),
+            name,
+        });
     }
-    ctx.info(CALLER, "----------- E N D   M E S H   R E F I N E M E N T --------------", 5);
+    ctx.info(
+        CALLER,
+        "----------- E N D   M E S H   R E F I N E M E N T --------------",
+        5,
+    );
     Ok(())
 }

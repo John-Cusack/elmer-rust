@@ -48,7 +48,12 @@ fn material(ctx: &SolverCtx<'_>, e: ElemId) -> Result<ParamMap, SolverError> {
 }
 
 /// A keyword at the nodes of element `e`, zero when absent.
-fn at_nodes(ctx: &SolverCtx<'_>, p: &ParamMap, key: &str, e: ElemId) -> Result<(Vec<f64>, bool), SolverError> {
+fn at_nodes(
+    ctx: &SolverCtx<'_>,
+    p: &ParamMap,
+    key: &str,
+    e: ElemId,
+) -> Result<(Vec<f64>, bool), SolverError> {
     let n = ctx.mesh.element(e).nodes.len();
     Ok(match ctx.real_at_nodes(p, key, e)? {
         Some(v) => (v, true),
@@ -82,7 +87,12 @@ fn gauss(ctx: &SolverCtx<'_>, etype: ElementType) -> Result<Vec<([f64; 3], f64)>
         .fe
         .as_ref()
         .ok_or_else(|| SolverError::NotWired("basis and quadrature (elmer-fe)".into()))?;
-    Ok(fe.quadrature.gauss_points(etype, None).iter().map(|q| (q.uvw, q.weight)).collect())
+    Ok(fe
+        .quadrature
+        .gauss_points(etype, None)
+        .iter()
+        .map(|q| (q.uvw, q.weight))
+        .collect())
 }
 
 fn coords(mesh: &dyn MeshView, nodes: &[u32]) -> Vec<[f64; 3]> {
@@ -93,16 +103,29 @@ fn coords(mesh: &dyn MeshView, nodes: &[u32]) -> Vec<[f64; 3]> {
 fn node_uvw(etype: ElementType, k: usize) -> [f64; 3] {
     match etype.0 {
         303 => [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]][k],
-        _ => [[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0], [-1.0, 1.0, 0.0]][k],
+        _ => [
+            [-1.0, -1.0, 0.0],
+            [1.0, -1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [-1.0, 1.0, 0.0],
+        ][k],
     }
 }
 
 /// The parent-local coordinates of the edge point with `edge_basis`.
-fn parent_uvw(parent_type: ElementType, parent_nodes: &[u32], edge_nodes: &[u32], eb: &[f64]) -> [f64; 3] {
+fn parent_uvw(
+    parent_type: ElementType,
+    parent_nodes: &[u32],
+    edge_nodes: &[u32],
+    eb: &[f64],
+) -> [f64; 3] {
     let loc: Vec<[f64; 3]> = edge_nodes
         .iter()
         .map(|n| {
-            let k = parent_nodes.iter().position(|p| p == n).expect("an edge of its parent");
+            let k = parent_nodes
+                .iter()
+                .position(|p| p == n)
+                .expect("an edge of its parent");
             node_uvw(parent_type, k)
         })
         .collect();
@@ -121,17 +144,31 @@ impl HeatEstimator {
                 return Err(unsupported(&format!("Coordinate System = {cs}")));
             }
         }
-        if sim.string("simulation type").is_some_and(|s| elmer_core::normalize_key(s) == "transient") {
+        if sim
+            .string("simulation type")
+            .is_some_and(|s| elmer_core::normalize_key(s) == "transient")
+        {
             return Err(unsupported("transient runs"));
         }
         let model = &ctx.sim.model;
-        if model.equations.iter().any(|e| e.get("convection").is_some_and(|v| *v != elmer_core::Value::Str("none".into()))) {
+        if model.equations.iter().any(|e| {
+            e.get("convection")
+                .is_some_and(|v| *v != elmer_core::Value::Str("none".into()))
+        }) {
             return Err(unsupported("convection"));
         }
-        if model.materials.iter().any(|m| m.get("compressibility model").is_some()) {
+        if model
+            .materials
+            .iter()
+            .any(|m| m.get("compressibility model").is_some())
+        {
             return Err(unsupported("Compressibility Model"));
         }
-        if model.boundary_conditions.iter().any(|b| b.get("radiation").is_some()) {
+        if model
+            .boundary_conditions
+            .iter()
+            .any(|b| b.get("radiation").is_some())
+        {
             return Err(unsupported("radiation boundaries"));
         }
         for e in 0..ctx.mesh.n_bulk() {
@@ -172,7 +209,11 @@ impl Estimator for HeatEstimator {
             let b = &ev.basis[..n];
             let s = w * ev.det_j;
             let density = sum(&dens, b);
-            let mut residual = if vol { -sum(&src, b) } else { -density * sum(&src, b) };
+            let mut residual = if vol {
+                -sum(&src, b)
+            } else {
+                -density * sum(&src, b)
+            };
             for j in 0..dim {
                 let dbj: Vec<f64> = ev.dbasis_dx[..n].iter().map(|d| d[j]).collect();
                 residual -= sum(&t, &dbj) * sum(&cond, &dbj);
@@ -197,7 +238,10 @@ impl Estimator for HeatEstimator {
         let mut len = 0.0;
         let mut rnorm = 0.0;
         // The unchecked normal of the line (NormalVector, Check = .FALSE.).
-        let (dxdu, dydu) = (0.0 + -0.5 * exyz[0][0] + 0.5 * exyz[1][0], 0.0 + -0.5 * exyz[0][1] + 0.5 * exyz[1][1]);
+        let (dxdu, dydu) = (
+            0.0 + -0.5 * exyz[0][0] + 0.5 * exyz[1][0],
+            0.0 + -0.5 * exyz[0][1] + 0.5 * exyz[1][1],
+        );
         let det = 1.0 / (dxdu * dxdu + dydu * dydu).sqrt();
         let normal = [-dydu * det, dxdu * det, 0.0];
         for (uvw, w) in gauss(ctx, ElementType(202))? {
@@ -209,7 +253,9 @@ impl Estimator for HeatEstimator {
                 let pe = ElemId(p as u32);
                 let pel = ctx.mesh.element(pe);
                 let pnodes = pel.nodes.to_vec();
-                let Some(t) = temperature(ctx, &pnodes) else { continue };
+                let Some(t) = temperature(ctx, &pnodes) else {
+                    continue;
+                };
                 let uvw = parent_uvw(pel.etype, &pnodes, &en, &eb);
                 let pxyz = coords(ctx.mesh, &pnodes);
                 let pev = basis_at(ctx, pel.etype, &pxyz, uvw)?;
@@ -221,7 +267,8 @@ impl Estimator for HeatEstimator {
                     .collect();
                 let conductivity = sum(&cond_e, &eb);
                 for j in 0..dim {
-                    let dbj: Vec<f64> = pev.dbasis_dx[..pnodes.len()].iter().map(|d| d[j]).collect();
+                    let dbj: Vec<f64> =
+                        pev.dbasis_dx[..pnodes.len()].iter().map(|d| d[j]).collect();
                     grad[j][i] = conductivity * sum(&dbj, &t);
                 }
             }
@@ -247,11 +294,20 @@ impl Estimator for HeatEstimator {
             Some(l) if !in_system(l) => right,
             Some(l) => Some(l),
         };
-        let Some(pe) = parent else { return Ok((0.0, [0.0; 2])) };
+        let Some(pe) = parent else {
+            return Ok((0.0, [0.0; 2]));
+        };
         let pel = ctx.mesh.element(pe);
         let pnodes = pel.nodes.to_vec();
-        let Some(t) = temperature(ctx, &pnodes) else { return Ok((0.0, [0.0; 2])) };
-        let Some(bc) = ctx.sim.model.bc_of_tag(tag).map(|i| ctx.sim.model.boundary_conditions[i - 1].clone()) else {
+        let Some(t) = temperature(ctx, &pnodes) else {
+            return Ok((0.0, [0.0; 2]));
+        };
+        let Some(bc) = ctx
+            .sim
+            .model
+            .bc_of_tag(tag)
+            .map(|i| ctx.sim.model.boundary_conditions[i - 1].clone())
+        else {
             return Ok((0.0, [0.0; 2]));
         };
         let dim = ctx.mesh.dim();
@@ -263,15 +319,18 @@ impl Estimator for HeatEstimator {
         let (ext, _) = at_nodes(ctx, &bc, "external temperature", e)?;
         let mat = material(ctx, pe)?;
         let (cond_p, _) = at_nodes(ctx, &mat, "heat conductivity", pe)?;
-        let cond_e: Vec<f64> =
-            en.iter().map(|n| cond_p[pnodes.iter().position(|q| q == n).expect("edge node")]).collect();
+        let cond_e: Vec<f64> = en
+            .iter()
+            .map(|n| cond_p[pnodes.iter().position(|q| q == n).expect("edge node")])
+            .collect();
         let mut gnorm = 0.0;
         let mut len = 0.0;
         let mut rnorm = 0.0;
         for (uvw, w) in gauss(ctx, el.etype)? {
             let ev = basis_at(ctx, el.etype, &exyz, uvw)?;
             let eb = ev.basis[..en.len()].to_vec();
-            let normal = elmer_solver::boundary_normal(ctx.mesh, &ctx.sim.model, e, [uvw[0], uvw[1]])?;
+            let normal =
+                elmer_solver::boundary_normal(ctx.mesh, &ctx.sim.model, e, [uvw[0], uvw[1]])?;
             let s = w * ev.det_j;
             let puvw = parent_uvw(pel.etype, &pnodes, &en, &eb);
             let pev = basis_at(ctx, pel.etype, &pxyz, puvw)?;

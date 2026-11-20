@@ -110,7 +110,11 @@ impl Edges {
             let mut idx = Vec::with_capacity(n);
             for k in 0..n {
                 let a = el.nodes[k];
-                let b = if n == 1 { el.nodes[1] } else { el.nodes[(k + 1) % n] };
+                let b = if n == 1 {
+                    el.nodes[1]
+                } else {
+                    el.nodes[(k + 1) % n]
+                };
                 let key = (a.min(b), a.max(b));
                 let e = *hash.entry(key).or_insert_with(|| {
                     edges.push(Edge {
@@ -160,7 +164,11 @@ pub fn e_format(x: f64, w: usize, d: usize) -> String {
 
 /// `WriteMeshToDisk` (MeshIO.F90): `mesh.header`, `mesh.nodes`,
 /// `mesh.elements`, `mesh.boundary` of `mesh` in `dir`.
-pub fn write_mesh_to_disk(mesh: &dyn MeshView, dir: &std::path::Path, bc_tag: &dyn Fn(i32) -> i32) -> std::io::Result<()> {
+pub fn write_mesh_to_disk(
+    mesh: &dyn MeshView,
+    dir: &std::path::Path,
+    bc_tag: &dyn Fn(i32) -> i32,
+) -> std::io::Result<()> {
     use std::fmt::Write as _;
     std::fs::create_dir_all(dir)?;
     let nb = mesh.n_bulk();
@@ -186,7 +194,14 @@ pub fn write_mesh_to_disk(mesh: &dyn MeshView, dir: &std::path::Path, bc_tag: &d
     let mut s = String::new();
     for i in 0..mesh.n_nodes() {
         let c = mesh.coord(i as u32);
-        let _ = writeln!(s, "{} -1 {}{}{} ", i + 1, e_format(c[0], 23, 15), e_format(c[1], 23, 15), e_format(c[2], 23, 15));
+        let _ = writeln!(
+            s,
+            "{} -1 {}{}{} ",
+            i + 1,
+            e_format(c[0], 23, 15),
+            e_format(c[1], 23, 15),
+            e_format(c[2], 23, 15)
+        );
     }
     std::fs::write(dir.join("mesh.nodes"), s)?;
     let mut s = String::new();
@@ -203,7 +218,15 @@ pub fn write_mesh_to_disk(mesh: &dyn MeshView, dir: &std::path::Path, bc_tag: &d
     for i in 0..nbd {
         let e = el(nb + i);
         let p = |x: Option<ElemId>| x.map_or(0, |p| p.0 as usize + 1);
-        let _ = write!(s, "{} {} {} {} {} ", i + 1, bc_tag(e.tag), p(e.parents[0]), p(e.parents[1]), e.etype.0);
+        let _ = write!(
+            s,
+            "{} {} {} {} {} ",
+            i + 1,
+            bc_tag(e.tag),
+            p(e.parents[0]),
+            p(e.parents[1]),
+            e.etype.0
+        );
         for n in e.nodes {
             let _ = write!(s, "{} ", n + 1);
         }
