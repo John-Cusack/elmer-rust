@@ -353,6 +353,10 @@ fn register_p_matrices(
         if gid.contains(&u64::MAX) {
             return Err(SolverError::fatal("MatrixParallelInfoDefault", "a p-element row without a global number"));
         }
+        if let Ok(dir) = std::env::var("ELMER_RS_DUMP") {
+            let text: String = gid.iter().zip(&owner).map(|(g, o)| format!("{} {}\n", g + 1, o)).collect();
+            let _ = std::fs::write(format!("{dir}/rs_gid.{rank}"), text);
+        }
         let owned: std::sync::Arc<[bool]> = owner.iter().map(|&o| o == rank).collect();
         ctx.register_rows(gid, owner, &a);
         sim.slots[ix].owned_rows = Some(owned);
