@@ -21,12 +21,14 @@
 
 pub mod arpack;
 pub mod config;
+pub mod dsyev;
 pub mod krylov;
 pub mod scale;
 pub mod solve;
 pub mod sort;
 
 pub use config::{ArpackWhich, EigenConfig, Normalize, Which};
+pub use dsyev::{dsyev, DsyevError, Jobz};
 pub use krylov::{krylov_schur, EigenOperator, KrylovParams, RitzPairs};
 pub use scale::{check_residuals, scale_eigen_vectors};
 pub use solve::{eigs, shifted_matrix, EigenResult, Mass};

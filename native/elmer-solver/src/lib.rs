@@ -64,6 +64,9 @@ pub use assembly::ElmerAssembly;
 /// Elmer's file formats and Fortran edit descriptors, for the run's writers.
 pub use elmer_saveio;
 pub use restart::{load_restart, restart};
+/// The dense symmetric eigensolver (`DSYEV`) and the eigen analysis, for
+/// solver crates that depend on this one only.
+pub use elmer_eigen;
 pub use backend::{
     AssemblyBackend, Backends, DofsBackend, FeBackend, LinearSolverRegistry, Perm, SolverDofs, TimeBackend, TimeTerms,
 };
