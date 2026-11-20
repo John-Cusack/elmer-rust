@@ -167,7 +167,7 @@ impl<T: IterScalar> IterativeSolver<T> for BiCgStabL<T> {
                 if !cplx && rho1.is_nan() {
                     return Err(breakdown("rho1 == NaN"));
                 }
-                let beta = alpha * rho1.fdiv(rho0);
+                let beta = alpha * rho1.fortran_div(rho0);
                 rho0 = rho1;
                 for j in 0..k {
                     for i in 0..n {
@@ -189,7 +189,7 @@ impl<T: IterScalar> IterativeSolver<T> for BiCgStabL<T> {
                 if !cplx && sigma.is_nan() {
                     return Err(breakdown("sigma == NaN"));
                 }
-                alpha = rho1.fdiv(sigma);
+                alpha = rho1.fortran_div(sigma);
                 axpy(alpha, &w[u], x);
                 for j in 0..k {
                     for i in 0..n {

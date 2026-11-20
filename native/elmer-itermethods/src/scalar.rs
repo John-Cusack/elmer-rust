@@ -22,7 +22,7 @@ pub trait IterScalar: Scalar {
     /// for complex operands the range-reduced (Smith) division GCC expands
     /// inline under the Fortran rules (`-fcx-fortran-rules`, the gfortran
     /// default), not `num_complex`'s `(self * conj(d)) / |d|^2`.
-    fn fdiv(self, d: Self) -> Self;
+    fn fortran_div(self, d: Self) -> Self;
 }
 
 impl IterScalar for f64 {
@@ -45,7 +45,7 @@ impl IterScalar for f64 {
     fn is_nan(self) -> bool {
         f64::is_nan(self)
     }
-    fn fdiv(self, d: Self) -> Self {
+    fn fortran_div(self, d: Self) -> Self {
         self / d
     }
 }
@@ -70,7 +70,7 @@ impl IterScalar for Complex64 {
     fn is_nan(self) -> bool {
         self.re.is_nan() || self.im.is_nan()
     }
-    fn fdiv(self, d: Self) -> Self {
+    fn fortran_div(self, d: Self) -> Self {
         // tree-complex.cc expand_complex_div_wide.
         let (ar, ai, br, bi) = (self.re, self.im, d.re, d.im);
         if br.abs() < bi.abs() {
@@ -96,13 +96,13 @@ mod tests {
     /// Quotients gfortran 13 (-O3) prints for the same operands (`Z17`).
     #[test]
     fn complex_division_rounds_like_gfortran() {
-        let q = Complex64::new(0.3, 0.7).fdiv(Complex64::new(1.1, 1e-3));
+        let q = Complex64::new(0.3, 0.7).fortran_div(Complex64::new(1.1, 1e-3));
         assert_eq!((q.re.to_bits(), q.im.to_bits()), (0x3FD17DD699B33D82, 0x3FE45B0E371624DB));
-        let q = Complex64::new(0.123456789, -9.87654321).fdiv(Complex64::new(3.3, 7.7));
+        let q = Complex64::new(0.123456789, -9.87654321).fortran_div(Complex64::new(3.3, 7.7));
         assert_eq!((q.re.to_bits(), q.im.to_bits()), (0xBFF13EC8AAAA27B6, 0xBFDE96E42B591715));
         // The naive quotient differs in the last bit here.
         let n = Complex64::new(0.123456789, -9.87654321) / Complex64::new(3.3, 7.7);
         assert_ne!(n.re.to_bits(), 0xBFF13EC8AAAA27B6);
-        assert_eq!(2.0f64.fdiv(8.0), 0.25);
+        assert_eq!(2.0f64.fortran_div(8.0), 0.25);
     }
 }
