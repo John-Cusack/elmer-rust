@@ -34,6 +34,10 @@ pub enum ExecWhen {
     AfterTimestep,
     BeforeSaving,
     AfterSaving,
+    /// `predictor-corrector` (`SOLVER_EXEC_PREDCORR`): the predictor with
+    /// the timestep's ahead-of-time solvers, the corrector with the
+    /// after-time ones.
+    PredCorr,
 }
 
 impl ExecWhen {
@@ -48,7 +52,8 @@ impl ExecWhen {
                 "after timestep" => ExecWhen::AfterTimestep,
                 "before saving" => ExecWhen::BeforeSaving,
                 "after saving" => ExecWhen::AfterSaving,
-                "predictor-corrector" | "when created" | "after control" => {
+                "predictor-corrector" => ExecWhen::PredCorr,
+                "when created" | "after control" => {
                     return Err(SolverError::Unsupported(format!("Exec Solver = {s}")))
                 }
                 _ => return Err(SolverError::fatal("AddExecWhenFlag", format!("Unknown \"exec solver\" flag: {s}"))),
@@ -67,6 +72,8 @@ impl ExecWhen {
             ExecWhen::BeforeSaving
         } else if flag("after saving") {
             ExecWhen::AfterSaving
+        } else if flag("predictor-corrector") {
+            ExecWhen::PredCorr
         } else {
             ExecWhen::Always
         })
@@ -173,6 +180,10 @@ pub struct SolverSlot {
     pub order: usize,
     /// `Solver % DoneTime`: timesteps initialised so far.
     pub done_time: usize,
+    /// `Element % PropertyData` of the Adams-Bashforth / Adams-Moulton
+    /// local schemes: per element, the residual and force of the last
+    /// predictor.
+    pub adams: std::collections::HashMap<u32, Vec<f64>>,
     pub times_visited: usize,
     /// `Solver % dt`: the step size of the current visit (`Timestep Scale`
     /// applied).
@@ -240,6 +251,7 @@ impl SolverSlot {
             time_order: 0,
             order: 1,
             done_time: 0,
+            adams: Default::default(),
             times_visited: 0,
             dt: 0.0,
             state: SolverState::default(),
@@ -369,6 +381,8 @@ pub struct Simulation {
     pub reference: ReferenceTally,
     /// Previous step sizes, newest first (`sPrevSizes`, ElmerSolver.F90:3064-3070).
     pub prev_sizes: Vec<f64>,
+    /// `PredictorCorrectorControl`'s SAVEd `dtOld`, `etaOld`, `zeta`.
+    pub pred_corr: (f64, f64, f64),
     /// The model view handed to user functions, once asked for.
     live: Option<Arc<LiveModel>>,
     /// `SharedWarned` of `CalculateLoads`: warn about shared boundary dofs once.
@@ -480,6 +494,7 @@ impl Simulation {
             reference: ReferenceTally::default(),
             dg_indexes: None,
             prev_sizes: vec![0.0; 5],
+            pred_corr: (0.0, 0.0, 1.0),
             live: None,
             flux_shared_warned: false,
             keywords_normalized: false,
@@ -1114,6 +1129,22 @@ impl Simulation {
 
     /// `Solver % Order` and `TimeOrder` (MainUtils.F90:1429-1485, 2501-2520).
     fn set_time_order(&self, slot: &mut SolverSlot) -> Result<(), SolverError> {
+        // MainUtils.F90:1437-1456: `Predictor Method` / `Corrector Method`
+        // from the Simulation when the solver lacks them; with a corrector
+        // the predictor-corrector defaults are read and the corrector becomes
+        // the `Timestepping Method`.
+        for key in ["predictor method", "corrector method"] {
+            if slot.params.get(key).is_none() {
+                if let Some(s) = self.model.simulation.string(key) {
+                    let s = s.to_string();
+                    slot.params.insert(key, Value::Str(s));
+                }
+            }
+        }
+        if let Some(c) = slot.params.string("corrector method").map(str::to_string) {
+            read_pred_corr_params(&self.model.simulation, &mut slot.params);
+            slot.params.insert("Timestepping Method", Value::Str(c));
+        }
         let p = &slot.params;
         let method = p
             .string("timestepping method")
@@ -1126,9 +1157,8 @@ impl Simulation {
                 .or_else(|| self.model.simulation.integer("bdf order"))
                 .unwrap_or(2)
                 .clamp(1, 5) as usize,
-            "runge-kutta" | "adams-bashforth" | "adams-moulton" => {
-                return Err(SolverError::Unsupported(format!("Timestepping Method = {method}")))
-            }
+            "runge-kutta" => return Err(SolverError::Unsupported(format!("Timestepping Method = {method}"))),
+            m if m.starts_with("adams") => 2,
             _ => 1,
         };
         if p.logical("eigen analysis") == Some(true) || p.logical("harmonic analysis") == Some(true) {
@@ -1274,12 +1304,9 @@ impl Simulation {
         };
         for &e in &slot.active {
             let el = mesh.element(e);
-            let Some(ic) = self
-                .model
-                .body_of_tag(el.tag)
-                .and_then(|b| self.model.body_params(b))
-                .and_then(|b| b.initial_condition)
-            else {
+            // A boundary element of a BC with `Body Id` is that body's.
+            let body = if (e.0 as usize) < mesh.n_bulk() { self.model.body_of_tag(el.tag) } else { self.model.boundary_body(el.tag) };
+            let Some(ic) = body.and_then(|b| self.model.body_params(b)).and_then(|b| b.initial_condition) else {
                 continue;
             };
             let fields = self.fields(mesh);
@@ -1873,9 +1900,25 @@ impl Simulation {
             log.info("SolveEquations", "Solvers before timestep", 12);
             for ix in 0..self.slots.len() {
                 let s = &self.slots[ix];
-                if s.has_procedure() && s.exec_when == ExecWhen::BeforeTimestep && !skip_first(s) {
+                let pc = s.exec_when == ExecWhen::PredCorr;
+                if s.has_procedure() && (s.exec_when == ExecWhen::BeforeTimestep || pc) && !skip_first(s) {
+                    if pc {
+                        log.info("SolveEquations", "Switching time-stepping method to predictor method", 7);
+                        let m = self.slots[ix].params.string("predictor method").map(str::to_string).ok_or_else(|| {
+                            SolverError::fatal("SolveEquations", "Predictor-corrector schemes require > Predictor Method <")
+                        })?;
+                        self.slots[ix].params.insert("Timestepping Method", Value::Str(m));
+                        self.slots[ix].params.insert("Predictor Phase", Value::Logical(true));
+                    }
                     self.solver_activate(ix, dt, transient, mesh, log, comm)?;
                     comm.barrier();
+                    if pc {
+                        log.info("SolveEquations", "Switching time-stepping method to corrector method", 7);
+                        let m = self.slots[ix].params.string("corrector method").map(str::to_string).ok_or_else(|| {
+                            SolverError::fatal("SolveEquations", "Predictor-corrector schemes require > Corrector Method <")
+                        })?;
+                        self.slots[ix].params.insert("Timestepping Method", Value::Str(m));
+                    }
                 }
             }
         }
@@ -1887,7 +1930,12 @@ impl Simulation {
             log.info("SolveEquations", "Solvers after timestep", 12);
             for ix in 0..self.slots.len() {
                 let s = &self.slots[ix];
-                if s.has_procedure() && s.exec_when == ExecWhen::AfterTimestep && !skip_first(s) {
+                let pc = s.exec_when == ExecWhen::PredCorr;
+                if s.has_procedure() && (s.exec_when == ExecWhen::AfterTimestep || pc) && !skip_first(s) {
+                    if pc {
+                        self.initialize_timestep(ix)?;
+                        self.slots[ix].params.insert("Predictor Phase", Value::Logical(false));
+                    }
                     self.solver_activate(ix, dt, transient, mesh, log, comm)?;
                     comm.barrier();
                 }
@@ -2097,7 +2145,7 @@ impl Simulation {
         let transient = self.is_transient();
         let scanning = self.is_scanning();
         let timed = transient || scanning;
-        for k in ["periodic time", "predictor-corrector control", "parallel timestepping"] {
+        for k in ["periodic time", "parallel timestepping"] {
             if simp.get(k).is_some_and(|v| *v != Value::Logical(false)) {
                 return Err(SolverError::Unsupported(format!("Simulation keyword {k}")));
             }
@@ -2166,6 +2214,9 @@ impl Simulation {
                 cum += 1;
                 self.vars.set_scalar("timestep", cum as f64);
                 dt = self.step_size(&simp, timed, cum, interval, timestep, &sizes, ratios.as_deref(), dt, mesh, log)?;
+                if simp.logical("predictor-corrector control") == Some(true) {
+                    dt = self.predictor_corrector_control(dt, timestep as usize, log)?;
+                }
                 let mut t = self.vars.scalar("time").unwrap_or(0.0);
                 if cum == 1 && simp.logical("timestep start zero") == Some(true) {
                     log.info("ExecSimulation", "Not advancing the 1st timestep!", 4);
@@ -2325,6 +2376,80 @@ impl Simulation {
             ));
         }
         Ok(f)
+    }
+
+    /// `PredictorCorrectorControl(Model, dt, RealTimestep)` (MainUtils.F90:
+    /// 5958-6052): the first step is taken with `dt = 0` (`dtOld` kept), the
+    /// second with `dtOld`; from the third the local error estimate of the
+    /// predictor-corrector solver's change sets the next size
+    /// (`TimeStepController`, `TimeStepLimiter`) and `Adams Zeta`.
+    fn predictor_corrector_control(&mut self, dt: f64, real_timestep: usize, log: &dyn Logger) -> Result<f64, SolverError> {
+        let ix = self
+            .slots
+            .iter()
+            .rposition(|s| s.exec_when == ExecWhen::PredCorr)
+            .ok_or_else(|| SolverError::fatal("Predictor-Corrector Control", "Predictor-Corrector Solver is not found!"))?;
+        let (mut dt_old, mut eta_old, mut zeta) = self.pred_corr;
+        let mut dt = dt;
+        match real_timestep {
+            1 => {
+                dt_old = dt;
+                dt = 0.0;
+                zeta = 1.0;
+            }
+            2 => {
+                dt = dt_old;
+                zeta = 1.0;
+            }
+            _ => {
+                let simulation = self.model.simulation.clone();
+                let (mut order, epsilon, beta1, beta2) = read_pred_corr_params(&simulation, &mut self.slots[ix].params);
+                let id = self.slots[ix].variable.ok_or_else(|| SolverError::fatal("Predictor-Corrector Control", "no variable"))?;
+                let v = self.vars.by_id(id);
+                let prev = v.prev_values.first().ok_or_else(|| SolverError::fatal("Predictor-Corrector Control", "no history"))?;
+                let time_error = v.values.iter().zip(prev).fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
+                if real_timestep == 3 {
+                    order = 1;
+                }
+                // PredCorrErrorEstimate.
+                let eta = if dt_old > 0.0 {
+                    if order == 2 {
+                        time_error * zeta / dt_old / (zeta + 1.0) / 3.0
+                    } else {
+                        time_error / dt_old / 2.0
+                    }
+                } else {
+                    log.warn("Predictor-Corrector", "Time Step is 0 in Local error estimate!");
+                    0.0
+                };
+                if real_timestep == 3 {
+                    eta_old = eta;
+                }
+                // TimeStepController / TimeStepLimiter.
+                if eta != 0.0 && eta_old != 0.0 {
+                    let g = (epsilon / eta).powf(beta1) * (epsilon / eta_old).powf(beta2);
+                    let x = 1.0 + 2.0 * ((g - 1.0) * 0.5).atan();
+                    dt = dt_old * x;
+                } else {
+                    dt = dt_old;
+                }
+                zeta = dt / dt_old;
+                self.slots[ix].params.insert("Adams Zeta", Value::real(zeta));
+                eta_old = eta;
+                if self.slots[ix].params.logical("predictor-corrector save error") == Some(true) {
+                    return Err(SolverError::Unsupported("Predictor-Corrector Save Error (ErrorPredictorCorrector.dat)".into()));
+                }
+                log.info("Predictor-Corrector", " ---------------- Predictor-Corrector Control ----------------------", 4);
+                log.info(
+                    "Predictor-Corrector",
+                    &format!(" current dt={dt_old:>25.17} next dt={dt:>25.17}"),
+                    4,
+                );
+                dt_old = dt;
+            }
+        }
+        self.pred_corr = (dt_old, eta_old, zeta);
+        Ok(dt)
     }
 
     /// One step of `Adaptive Timestepping` (ElmerSolver.F90:3181-3330):
@@ -2575,6 +2700,35 @@ pub fn node_order_perm(mesh: &dyn MeshView, active: &[ElemId]) -> Perm {
     }
 }
 
+/// `ReadPredCorrParams(Model, SolverParams, Order, Epsilon, Beta1, Beta2)`
+/// (MainUtils.F90): each from the solver, else the Simulation, else its
+/// default (order 2, tolerance 1e-6, `0.6/(order+1)`, `-0.2/(order+1)`),
+/// written back to the solver section.
+pub(crate) fn read_pred_corr_params(simulation: &ParamMap, p: &mut ParamMap) -> (i32, f64, f64, f64) {
+    let order = match p.integer("predictor-corrector scheme order") {
+        Some(o) => o,
+        None => {
+            let o = simulation.integer("predictor-corrector scheme order").unwrap_or(2);
+            p.insert("Predictor-Corrector Scheme Order", Value::Integer(vec![o]));
+            o
+        }
+    };
+    let mut real = |key: &str, name: &str, default: f64| -> f64 {
+        match p.real(key) {
+            Some(x) => x,
+            None => {
+                let x = simulation.real(key).unwrap_or(default);
+                p.insert(name, Value::real(x));
+                x
+            }
+        }
+    };
+    let eps = real("predictor-corrector control tolerance", "Predictor-Corrector Control Tolerance", 1.0e-6);
+    let b1 = real("predictor-corrector control beta 1", "Predictor-Corrector Control Beta 1", 0.6 / (f64::from(order) + 1.0));
+    let b2 = real("predictor-corrector control beta 2", "Predictor-Corrector Control Beta 2", -0.2 / (f64::from(order) + 1.0));
+    (order, eps, b1, b2)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2638,3 +2792,4 @@ mod tests {
         assert_eq!(prev(&sim), vec![vec![3.0], vec![2.0]]);
     }
 }
+

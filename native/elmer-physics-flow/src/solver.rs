@@ -40,6 +40,7 @@ pub fn register(registry: &mut SolverRegistry) {
     registry.register("AdvectionReaction", "AdvectionReactionSolver", crate::adv_react::factory);
     registry.register("PoissonDG", "PoissonSolver", crate::poisson_dg::factory);
     registry.register("ParStokes", "StokesSolver", crate::parstokes::factory);
+    registry.register("FreeSurfaceSolver", "FreeSurfaceSolver", crate::fs_solver::factory);
     registry.register("VelocityPrecond", "VelocityPrecond", crate::parstokes::velocity_precond_factory);
     registry.register("PressurePrecond", "PressurePrecond", crate::parstokes::pressure_precond_factory);
 }
