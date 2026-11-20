@@ -212,6 +212,58 @@ pub fn eval_at_nodes_with(
     Ok(out)
 }
 
+/// The fields a keyword of `section` sees: a dependency that names no field
+/// but another keyword of the section is that keyword at the same node
+/// (`VarTable % Keyword`, `ListGetRealInside`, Lists.F90:5008), so a
+/// material can depend on its own `LinX`.
+pub struct SectionFields<'a> {
+    pub inner: &'a dyn FieldLookup,
+    pub section: &'a ParamMap,
+    pub matc: Option<&'a dyn MatcEngine>,
+    pub udfs: &'a UdfRegistry,
+    /// Nesting of keyword lookups (a keyword depending on itself stops).
+    pub depth: usize,
+}
+
+impl SectionFields<'_> {
+    fn keyword(&self, var: &str, node: u32) -> Option<f64> {
+        if self.depth >= 8 {
+            return None;
+        }
+        let v = self.section.get(var)?;
+        let nested = SectionFields { depth: self.depth + 1, ..*self };
+        eval_at_nodes_with(v, &[node], &nested, self.matc, self.udfs).ok().map(|o| o[0])
+    }
+}
+
+impl FieldLookup for SectionFields<'_> {
+    fn value(&self, var: &str, node: u32) -> Option<f64> {
+        self.inner.value(var, node).or_else(|| self.keyword(var, node))
+    }
+    fn coord(&self, node: u32) -> [f64; 3] {
+        self.inner.coord(node)
+    }
+    fn time(&self) -> f64 {
+        self.inner.time()
+    }
+    fn values(&self, var: &str, nodes: &[u32], out: &mut [f64]) {
+        self.inner.values(var, nodes, out);
+        for (o, &n) in out.iter_mut().zip(nodes) {
+            if *o == elmer_expr::MISSING {
+                if let Some(x) = self.keyword(var, n) {
+                    *o = x;
+                }
+            }
+        }
+    }
+    fn dofs(&self, var: &str) -> usize {
+        self.inner.dofs(var)
+    }
+    fn component_values(&self, var: &str, k: usize, nodes: &[u32], out: &mut [f64]) {
+        self.inner.component_values(var, k, nodes, out)
+    }
+}
+
 /// `ListGetConstReal` of a scalar keyword, procedures resolved in the
 /// process-wide registry only.
 pub fn eval_const(v: &Value, matc: Option<&dyn MatcEngine>) -> Result<f64, SolverError> {

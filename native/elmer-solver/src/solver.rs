@@ -462,7 +462,10 @@ impl<'a> SolverCtx<'a> {
         let nodes = self.mesh.element(e).nodes;
         self.set_current_element(e);
         let b = &self.sim.backends;
-        crate::expr::eval_at_nodes_with(v, nodes, &self.fields(), b.matc.as_deref(), &b.udfs).map(Some)
+        let fields = self.fields();
+        // A dependency may be another keyword of `section` (Lists.F90).
+        let sf = crate::expr::SectionFields { inner: &fields, section, matc: b.matc.as_deref(), udfs: &b.udfs, depth: 0 };
+        crate::expr::eval_at_nodes_with(v, nodes, &sf, b.matc.as_deref(), &b.udfs).map(Some)
     }
 
     /// Makes `e` the `Model % CurrentElement` user functions see
