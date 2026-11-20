@@ -1378,6 +1378,54 @@ impl<'a> SolverCtx<'a> {
 
     /// [`dirichlet_values`](Self::dirichlet_values) with the rows that the
     /// n-t system sets directly ([`apply_dirichlet_values_with_rows`](Self::apply_dirichlet_values_with_rows)).
+    /// SetDirichletBoundaries' body-force pass (BoundaryConditionUtils.F90,
+    /// after the boundary conditions, so its values win where both set a
+    /// dof): each bulk element whose body's body force gives the field (or
+    /// a component) fixes its nodes at those values, except where `<name>
+    /// Condition` is negative. Refused: `<name> DOFs`, the passive
+    /// variants, p elements and the solver's own n-t system.
+    fn body_force_dirichlet(&self) -> Result<Vec<(u32, f64)>, SolverError> {
+        let Some(id) = self.sim.slots[self.slot].variable else { return Ok(Vec::new()) };
+        let v = self.sim.vars.by_id(id);
+        let names = self.sim.vars.component_names(id);
+        let keys: Vec<String> = if v.dofs == 1 {
+            vec![v.name.clone()]
+        } else {
+            (0..v.dofs).map(|k| names.get(k).cloned().unwrap_or_else(|| format!("{} {}", v.name, k + 1))).collect()
+        };
+        let model = &self.sim.model;
+        let mut out = Vec::new();
+        for (k, name) in keys.iter().enumerate() {
+            if !model.body_forces.iter().any(|b| b.get(name).is_some()) {
+                continue;
+            }
+            for extra in [format!("{name} dofs"), format!("{name} passive"), format!("{name} passive condition")] {
+                if model.body_forces.iter().any(|b| b.get(&extra).is_some()) {
+                    return Err(SolverError::Unsupported(format!("body-force Dirichlet with \"{extra}\"")));
+                }
+            }
+            if self.sim.slots[self.slot].dofs.is_some() || self.sim.slots[self.slot].nt.is_some() {
+                return Err(SolverError::Unsupported("body-force Dirichlet values with p elements or an n-t system".into()));
+            }
+            let cond = format!("{name} condition");
+            for t in 0..self.mesh.n_bulk() {
+                let e = ElemId(t as u32);
+                let Some(bf) = self.body_params(e).and_then(|b| b.body_force) else { continue };
+                let Some(vals) = self.real_at_nodes(bf, name, e)? else { continue };
+                let c = if bf.get(&cond).is_some() { self.real_at_nodes(bf, &cond, e)? } else { None };
+                for (j, &node) in self.mesh.element(e).nodes.iter().enumerate() {
+                    if c.as_ref().is_some_and(|c| c[j] < 0.0) {
+                        continue;
+                    }
+                    if let Some(s) = v.slot(node) {
+                        out.push(((s * v.dofs + k) as u32, vals[j]));
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
     pub fn dirichlet_values_with_rows(&mut self) -> Result<DirichletRows, SolverError> {
         let Some(id) = self.sim.slots[self.slot].variable else {
             return Ok((Vec::new(), Vec::new()));
@@ -1876,9 +1924,11 @@ impl<'a> SolverCtx<'a> {
             Vec::new()
         };
         let (values, rows) = self.dirichlet_values_with_rows()?;
+        let bodies = self.body_force_dirichlet()?;
         let mut fixed: BTreeMap<u32, f64> = first.iter().copied().collect();
         fixed.extend(limited);
         fixed.extend(values);
+        fixed.extend(bodies);
         self.passive_values(&mut fixed)?;
         crate::constraint_modes::set_boundaries(self, &mut fixed)?;
         let fixed: Vec<(u32, f64)> = fixed.into_iter().collect();
