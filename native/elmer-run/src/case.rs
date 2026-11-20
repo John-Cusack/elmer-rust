@@ -158,6 +158,11 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if is(params, ("MarchingODESolver", "MarchingODESolver")) {
             elmer_physics_meshtools::marching_defaults(params);
         }
+        // `ShellSolver_Init0`: the deflection variable, large deflection
+        // and the Simulation's `Initialize Dirichlet Conditions`.
+        if is(params, elmer_physics_shell::PROCEDURE) {
+            elmer_physics_shell::solver_defaults(params, &mut model.simulation);
+        }
         // `TopoOpt_init0` / `_init`: the elemental topology fields.
         if is(params, elmer_physics_topoopt::PROCEDURE) {
             elmer_physics_topoopt::solver_defaults(params);
@@ -816,6 +821,22 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
         .map_err(|e| SolverError::fatal("ReadTargetNames", e.to_string()))?;
     let mut discont_perm: Option<Vec<u32>> = None;
     let transformed = transform_mesh(&mut model, mesh, &mut discont_perm)?;
+    // ReadSurfaceDirector: ShellSolver's `Mesh % Name/mesh.director`.
+    let director = mesh_dir.join("mesh.director");
+    if director.exists() {
+        for params in &mut model.solvers {
+            let shell = procedure_of(params).is_some_and(|(lib, entry)| {
+                lib.eq_ignore_ascii_case(elmer_physics_shell::PROCEDURE.0) && entry.eq_ignore_ascii_case(elmer_physics_shell::PROCEDURE.1)
+            });
+            if !shell {
+                continue;
+            }
+            if transformed.is_some() {
+                return Err(SolverError::Unsupported("ShellSolver: mesh.director on a transformed mesh".into()));
+            }
+            params.insert("Mesh Director File", Value::File(director.to_string_lossy().into_owned()));
+        }
+    }
     let mesh: &dyn MeshView = match &transformed {
         Some(m) => m,
         None => mesh,

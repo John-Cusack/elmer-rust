@@ -28,6 +28,7 @@ pub fn solver_registry() -> SolverRegistry {
     elmer_physics_filmflow::register(&mut reg);
     elmer_physics_coil::register(&mut reg);
     elmer_physics_topoopt::register(&mut reg);
+    elmer_physics_shell::register(&mut reg);
     elmer_savedata::register(&mut reg);
     reg
 }
