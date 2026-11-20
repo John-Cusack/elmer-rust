@@ -34,7 +34,11 @@ pub(crate) struct BeamInput {
 /// `TangentDirections( Normal, Tangent1, Tangent2 )`.
 fn tangent_directions(n: V3) -> (V3, V3) {
     let (n1, n2, n3) = (n[0].abs(), n[1].abs(), n[2].abs());
-    let mut t1 = if n1 <= n3 && n2 <= n3 { [0.0, -n[2], n[1]] } else { [-n[1], n[0], 0.0] };
+    let mut t1 = if n1 <= n3 && n2 <= n3 {
+        [0.0, -n[2], n[1]]
+    } else {
+        [-n[1], n[0], 0.0]
+    };
     let s = norm(&t1);
     for x in &mut t1 {
         *x /= s;
@@ -101,7 +105,11 @@ pub(crate) fn beam_stiffness(
     let nt = nd * DOFS;
     let mut stiff = vec![0.0f64; nt * nt];
     let mut force = vec![0.0f64; nt];
-    let mut e1 = [xyz[1][0] - xyz[0][0], xyz[1][1] - xyz[0][1], xyz[1][2] - xyz[0][2]];
+    let mut e1 = [
+        xyz[1][0] - xyz[0][0],
+        xyz[1][1] - xyz[0][1],
+        xyz[1][2] - xyz[0][2],
+    ];
     let l = norm(&e1);
     e1 = [1.0 / l * e1[0], 1.0 / l * e1[1], 1.0 / l * e1[2]];
     let (e2, e3) = if let Some(d) = inp.director {
@@ -128,7 +136,8 @@ pub(crate) fn beam_stiffness(
         };
         if dot(&e1, &e2).abs() > 100.0 * AEPS {
             return Err(ShellError::Fatal(
-                "BeamStiffnessMatrix: Principal Direction 2 should be orthogonal to the beam axis".into(),
+                "BeamStiffnessMatrix: Principal Direction 2 should be orthogonal to the beam axis"
+                    .into(),
             ));
         }
         (e2, e3)
@@ -146,12 +155,20 @@ pub(crate) fn beam_stiffness(
         // The bubble: Basis(3) = B1 B2, its derivative by the product rule.
         let b = [b2[0], b2[1], b2[0] * b2[1]];
         let db = [db2[0], db2[1], db2[0] * b2[1] + b2[0] * db2[1]];
-        let f = [sum2(&b, &inp.load[0]), sum2(&b, &inp.load[1]), sum2(&b, &inp.load[2])];
+        let f = [
+            sum2(&b, &inp.load[0]),
+            sum2(&b, &inp.load[1]),
+            sum2(&b, &inp.load[2]),
+        ];
         let e = sum2(&b, &inp.youngs);
         let g = sum2(&b, &inp.shear);
         let ff = sum2(&b, &inp.form_factor);
         let a = sum2(&b, &inp.area);
-        let ed = [g * sum2(&b, &inp.torsion), e * sum2(&b, &inp.moment2), e * sum2(&b, &inp.moment3)];
+        let ed = [
+            g * sum2(&b, &inp.torsion),
+            e * sum2(&b, &inp.moment2),
+            e * sum2(&b, &inp.moment3),
+        ];
         let ga = ff * g * a;
         let ea = e * a;
         let w = s * det_j;
@@ -199,7 +216,8 @@ pub(crate) fn beam_stiffness(
             kbb[i + 3 * j] = stiff[bd[i] * nt + bd[j]];
         }
     }
-    invert_matrix(&mut kbb, 3).ok_or_else(|| ShellError::Fatal("BeamCondensate: singular bubble block".into()))?;
+    invert_matrix(&mut kbb, 3)
+        .ok_or_else(|| ShellError::Fatal("BeamCondensate: singular bubble block".into()))?;
     let kbbm = |i: usize, j: usize| kbb[i + 3 * j];
     let fb: [f64; 3] = std::array::from_fn(|i| force[bd[i]]);
     let kfb: [f64; 3] = std::array::from_fn(|i| {

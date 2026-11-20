@@ -210,7 +210,12 @@ fn boundary_matrix(
 
 /// `BeamStiffnessMatrix( BGElement, 2, 3, 1, ..., CombineWithShell=.TRUE.,
 /// ApplyRotation=.TRUE. )` of a beam section.
-fn beam_matrix(ctx: &SolverCtx<'_>, e: ElemId, ld: bool, prev: &[f64]) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), SolverError> {
+fn beam_matrix(
+    ctx: &SolverCtx<'_>,
+    e: ElemId,
+    ld: bool,
+    prev: &[f64],
+) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), SolverError> {
     let el = ctx.mesh.element(e);
     let bp = ctx.body_params(e);
     let mat = bp
@@ -227,7 +232,9 @@ fn beam_matrix(ctx: &SolverCtx<'_>, e: ElemId, ld: bool, prev: &[f64]) -> Result
     };
     let youngs = need("youngs modulus", "Youngs Modulus")?;
     let shear = need("shear modulus", "Shear Modulus")?;
-    let form_factor = ctx.real_at_nodes(mat, "shear correction factor", e)?.unwrap_or_else(|| vec![1.0; 2]);
+    let form_factor = ctx
+        .real_at_nodes(mat, "shear correction factor", e)?
+        .unwrap_or_else(|| vec![1.0; 2]);
     let area = need("cross section area", "Cross Section Area")?;
     let torsion = need("torsional constant", "Torsional Constant")?;
     let (moment2, moment3) = match ctx.real_at_nodes(mat, "second moment of area", e)? {
@@ -288,11 +295,22 @@ fn beam_matrix(ctx: &SolverCtx<'_>, e: ElemId, ld: bool, prev: &[f64]) -> Result
     let basis = |u: f64, l: f64| -> Result<([f64; 2], [f64; 2], f64), ShellError> {
         let mut ev = elmer_core::BasisEval::default();
         fe.basis
-            .eval(etype, &[[0.0, 0.0, 0.0], [l, 0.0, 0.0]], [u, 0.0, 0.0], &mut ev)
+            .eval(
+                etype,
+                &[[0.0, 0.0, 0.0], [l, 0.0, 0.0]],
+                [u, 0.0, 0.0],
+                &mut ev,
+            )
             .map_err(ShellError::Fatal)?;
-        Ok(([ev.basis[0], ev.basis[1]], [ev.dbasis_dx[0][0], ev.dbasis_dx[1][0]], ev.det_j))
+        Ok((
+            [ev.basis[0], ev.basis[1]],
+            [ev.dbasis_dx[0][0], ev.dbasis_dx[1][0]],
+            ev.det_j,
+        ))
     };
-    Ok(crate::beam::beam_stiffness(xyz, &inp, &points, &basis, ld, prev)?)
+    Ok(crate::beam::beam_stiffness(
+        xyz, &inp, &points, &basis, ld, prev,
+    )?)
 }
 
 /// `DisplaceMesh` by the solver's six components, `sgn` times.
@@ -668,7 +686,10 @@ impl Solver for ShellSolver {
             .collect();
         for &e in &beams {
             if ctx.mesh.element(e).nodes.len() != 2 {
-                return Err(SolverError::fatal(CALLER, "An unsupported 1-D element type or definition"));
+                return Err(SolverError::fatal(
+                    CALLER,
+                    "An unsupported 1-D element type or definition",
+                ));
             }
         }
         let shells: Vec<ElemId> = elems
