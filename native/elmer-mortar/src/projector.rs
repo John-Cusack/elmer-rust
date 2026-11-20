@@ -154,22 +154,17 @@ pub fn nodal_projector(
     })
 }
 
-/// Projector families of `PeriodicProjector` that are not ported.
-const REFUSED: [&str; 15] = [
+/// Projector families of `PeriodicProjector` that are not ported (the
+/// radial, flat and plane ones are, see [`crate::level`]).
+const REFUSED: [&str; 9] = [
     "normal projector",
     "rotational projector",
     "anti rotational projector",
     "cylindrical projector",
-    "radial projector",
-    "anti radial projector",
     "axial projector",
     "anti axial projector",
     "sliding projector",
     "anti sliding projector",
-    "flat projector",
-    "plane projector",
-    "anti plane projector",
-    "level projector",
     "stride projector",
 ];
 
@@ -244,8 +239,47 @@ pub fn periodic_projector(
 
     if let Some(k) = REFUSED.iter().find(|k| flag(bc, k)) {
         return Err(MortarError::Unsupported(format!(
-            "{k} (only the generic nodal projector is ported)"
+            "{k} (only the generic, radial, flat and plane projectors are ported)"
         )));
+    }
+    let anti_radial = flag(bc, "anti radial projector");
+    let radial = anti_radial || flag(bc, "radial projector");
+    let flat = flag(bc, "flat projector");
+    let anti_plane = flag(bc, "anti plane projector");
+    let plane = anti_plane || flag(bc, "plane projector");
+    let family = radial || flat || plane;
+    // `Mortar BC Scaling`, -1 by default for the anti projectors.
+    let node_scale = bc
+        .real("mortar bc scaling")
+        .unwrap_or(if anti_radial || anti_plane { -1.0 } else { 1.0 });
+    // These families default to the level projector ("dimensional
+    // reduction"); an explicit `Level Projector = False` flattens z instead.
+    let level_key = bc.logical("level projector");
+    let mut level = level_key.unwrap_or(false);
+    if family {
+        match level_key {
+            None => {
+                env.log.info(
+                    CALLER,
+                    "Enforcing > Level Projector = True < with dimensional reduction",
+                    7,
+                );
+                level = true;
+            }
+            Some(false) => {
+                for c in b1.coords.iter_mut().chain(b2.coords.iter_mut()) {
+                    c[2] = 0.0;
+                }
+            }
+            Some(true) => {}
+        }
+    }
+    if radial {
+        crate::level::radial_interface_meshes(&mut b1, &mut b2, env.log);
+    } else if flat {
+        crate::level::flat_interface_meshes(&mut b1, &mut b2, bc, env.coord_dim, env.log);
+    } else if plane {
+        crate::level::plane_interface_meshes(&mut b1, &mut b2, bc, env.coord_dim, env.coord_dim, env.log)?;
     }
     if bc.get("mesh rotate 3").is_some() {
         return Err(MortarError::Fatal(format!(
@@ -253,12 +287,28 @@ pub fn periodic_projector(
         )));
     }
 
-    // Not sliding or normal, so the overlay defaults to on.
-    if bc.logical("mortar bc enforce overlay").unwrap_or(true) {
+    // Not sliding or normal, so the overlay defaults to on, except for the
+    // mapped families.
+    if bc.logical("mortar bc enforce overlay").unwrap_or(!family) {
         overlay_interface_meshes(&b1, &mut b2, bc, env.log)?;
     }
 
-    let mut p = if weak {
+    let mut p = if level {
+        if flag(bc, "projector skip nodes") || env.solver.is_some_and(|s| flag(s, "projector skip nodes")) {
+            env.log.warn("LevelProjector", "Nothing to do, no nonodes, no edges!");
+            return Ok(None);
+        }
+        let o = crate::level::LevelOptions {
+            bc,
+            simulation: env.simulation,
+            solver: env.solver,
+            mesh_dim: env.mesh.dim(),
+            n_nodes: env.mesh.n_nodes(),
+            coord_dim: env.coord_dim,
+            node_scale,
+        };
+        crate::level::level_projector(&b1, &b2, &o, env.log)?
+    } else if weak {
         env.log.info(
             CALLER,
             "Weighted projector is very suboptimal, do not use it!",
@@ -295,7 +345,7 @@ pub fn periodic_projector(
                 "{CALLER}: Projector Relative Integration Order {rel_order} not in [-1, 1]"
             )));
         }
-        let scale = bc.real("mortar bc scaling").unwrap_or(1.0);
+        let scale = node_scale;
         weighted_projector(
             &b2,
             &b1,

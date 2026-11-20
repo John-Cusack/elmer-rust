@@ -41,6 +41,9 @@ enum Kind {
     Periodic,
     /// `GenerateProjectors` for solver 1.
     Mortar,
+    /// `GenerateProjectors` for solver 1, the projectors only (a vector
+    /// field, whose constraint matrix is not compared here).
+    MortarProjectors,
 }
 
 /// Builds every periodic projector of the case, saves them into a scratch
@@ -73,7 +76,7 @@ fn check_kind(name: &str, kind: Kind) {
     std::fs::create_dir_all(&out).unwrap();
     let (projectors, stop) = match kind {
         Kind::Periodic => generate_periodic_projectors(&env, &out, 0).unwrap(),
-        Kind::Mortar => generate_mortar_projectors(&env, &[], false, &out, 0)
+        Kind::Mortar | Kind::MortarProjectors => generate_mortar_projectors(&env, &[], false, &out, 0)
             .unwrap()
             .expect("Apply Mortar BCs"),
     };
@@ -170,4 +173,26 @@ fn mortar_sum2d_additive() {
 #[test]
 fn mortar_priority2d_additive_priority() {
     check_kind("mortar_priority2d", Kind::Mortar);
+}
+
+/// ContactPatch2D with `Apply Mortar BCs` in place of the contact: a flat,
+/// level, Galerkin projector of a 2D mesh (`FlatInterfaceMeshes`, the flat
+/// coordinate detected, then `AddProjectorWeak1D`).
+#[test]
+fn level_flat2d() {
+    check_kind("level_flat2d", Kind::MortarProjectors);
+}
+
+/// ContactPatch2Dtie the same way: a plane, level, Galerkin projector with
+/// the plane normal detected (`PlaneInterfaceMeshes`).
+#[test]
+fn level_plane2d() {
+    check_kind("level_plane2d", Kind::MortarProjectors);
+}
+
+/// mgdyn_nodalforce2d's two Anti Radial Galerkin pairs
+/// (`RadialInterfaceMeshes`, `Mortar BC Scaling` -1).
+#[test]
+fn level_anti_radial2d() {
+    check_kind("level_anti_radial2d", Kind::MortarProjectors);
 }
