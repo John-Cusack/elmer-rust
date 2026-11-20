@@ -163,6 +163,12 @@ impl Solver for PoissonDg {
                     }
                 }
             }
+            // In parallel a face between partitions is half on each.
+            let Some(share) = ctx.partition_share([Some(lp), Some(rp)]) else { continue };
+            if share != 1.0 {
+                local.stiff.iter_mut().for_each(|v| *v /= 2.0);
+                local.force.iter_mut().for_each(|v| *v /= 2.0);
+            }
             // GetElementDOFs of the edge: the left, then the right parent's.
             let mut slots = lslots.clone();
             slots.extend_from_slice(&rslots);

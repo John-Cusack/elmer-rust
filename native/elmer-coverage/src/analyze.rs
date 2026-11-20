@@ -74,7 +74,6 @@ fn section_features(kind: &str, p: &ParamMap, out: &mut Vec<String>) {
             "eigen analysis" if is_true(v) => feature("eigenvalue analysis"),
             "harmonic analysis" if is_true(v) => feature("harmonic analysis"),
             "linear system complex" if is_true(v) => feature("complex linear system"),
-            "discontinuous galerkin" if is_true(v) => feature("discontinuous Galerkin"),
             "element" if elmer_run::case::native_element(p) => {}
             "element" if t.contains("p:") => feature("p-hierarchic elements"),
             "element" if t.contains("e:") => feature("edge elements"),

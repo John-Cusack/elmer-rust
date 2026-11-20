@@ -155,11 +155,12 @@ impl Solver for AdvectionReaction {
         }
         if p.logical("calculate nodal average") == Some(true) {
             // `Exported Variable = -nodal <var>_nodal` (CreateNodalPerm: the
-            // nodes of the active elements in node order).
+            // nodes of the elements with the equation, halo ones included,
+            // in node order).
             let name = format!("{}_nodal", ctx.variable_name().unwrap_or("tracer"));
             if ctx.variable(&name).is_none() {
                 let mut mark = vec![false; ctx.mesh.n_nodes()];
-                for e in ctx.active_elements() {
+                for e in ctx.equation_elements() {
                     for &k in ctx.mesh.element(e).nodes {
                         mark[k as usize] = true;
                     }
@@ -246,12 +247,10 @@ impl Solver for AdvectionReaction {
                 ctx.default_update(&local, e)?;
             }
 
-            // Interior edges, in Mesh % Edges order, both parents active.
-            let active: std::collections::HashSet<ElemId> = elems.iter().copied().collect();
+            // Interior edges, in Mesh % Edges order, whose dofs are all in
+            // the system (`ActiveBoundaryElement(Face)`): a halo parent of a
+            // partitioned run has its DG dofs too.
             for (lp, rp, face) in elmer_solver::dg_interfaces(ctx.mesh)? {
-                if !active.contains(&lp) || !active.contains(&rp) {
-                    continue;
-                }
                 let n = face.len();
                 let ftype = ElementType(match n {
                     2 => 202,
@@ -313,6 +312,12 @@ impl Solver for AdvectionReaction {
                 if slots.contains(&NO_DOF) {
                     continue;
                 }
+                // In parallel a face between partitions is half on each.
+                let Some(share) = ctx.partition_share([Some(lp), Some(rp)]) else { continue };
+                if share != 1.0 {
+                    local.stiff.iter_mut().for_each(|v| *v /= 2.0);
+                    local.force.iter_mut().for_each(|v| *v /= 2.0);
+                }
                 ctx.update_global_equations(&local, &slots)?;
             }
             ctx.default_finish_bulk_assembly()?;
@@ -327,6 +332,10 @@ impl Solver for AdvectionReaction {
                     continue;
                 }
                 let el = ctx.mesh.element(e);
+                // A boundary of another partition's element is not assembled here.
+                if ctx.partition_share(el.parents).is_none() {
+                    continue;
+                }
                 let parent = el.parents[0].or(el.parents[1]).ok_or_else(|| fatal("a boundary element without a parent"))?;
                 let (enodes, etype) = (el.nodes.to_vec(), el.etype);
                 let n = enodes.len();

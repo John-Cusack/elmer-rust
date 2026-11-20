@@ -26,6 +26,7 @@
 
 pub mod backend;
 pub mod context;
+pub mod edges;
 pub mod levels;
 pub mod mesh;
 pub mod run;

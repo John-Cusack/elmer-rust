@@ -37,6 +37,10 @@ pub struct ChangeEnv<'a> {
     /// System Consistent Norm` ([`crate::Simulation::set_node_owned`]);
     /// `None` counts every dof.
     pub node_owned: Option<&'a [bool]>,
+    /// Row ownership given directly for this solver (a DG solver's dofs are
+    /// owned by their element's partition, not by a node); used in place of
+    /// `node_owned` when present.
+    pub row_owned: Option<&'a [bool]>,
     pub log: &'a dyn Logger,
     pub comm: &'a dyn Communicator,
 }
@@ -322,8 +326,9 @@ pub fn compute_change(env: &ChangeEnv<'_>, var: &mut Variable, st: &mut SolverSt
     let prev_norm = if env.steady { var.conv.prev_norm } else { var.conv.norm };
 
     let spec = NormSpec::from_params(p, dofs);
-    let owned_rows = match env.node_owned {
-        Some(owned) if spec.consistent && env.comm.size() > 1 => Some(consistent_rows(&spec, var.perm.as_deref(), owned, n)),
+    let owned_rows = match (env.row_owned, env.node_owned) {
+        (Some(rows), _) if spec.consistent && env.comm.size() > 1 && spec.perm_start.is_none() => Some(rows.to_vec()),
+        (_, Some(owned)) if spec.consistent && env.comm.size() > 1 => Some(consistent_rows(&spec, var.perm.as_deref(), owned, n)),
         _ => None,
     };
     let norm_of = |x: &[f64], n: usize| {

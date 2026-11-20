@@ -30,6 +30,12 @@ pub struct ParMesh {
     node_owner: Vec<usize>,
     elems: Vec<Elem>,
     n_bulk: usize,
+    /// Global id (`GElementIndex`) and owning partition (`PartIndex`) of
+    /// every element, bulk then boundary; empty for a serial mesh.
+    elem_gid: Vec<u64>,
+    elem_owner: Vec<usize>,
+    /// [`MeshView::edge_order`] ([`crate::edges`]).
+    edge_keys: Option<Vec<u64>>,
 }
 
 /// Node data in local order.
@@ -53,19 +59,41 @@ impl ParMesh {
             node_owner,
             elems,
             n_bulk,
+            elem_gid: Vec::new(),
+            edge_keys: None,
+            elem_owner: Vec::new(),
         }
     }
 
     /// Rank `rank` of `<mesh_dir>/partitioning.<n_parts>`, coordinates
-    /// multiplied by `scale` (`Coordinate Scaling`). Partitions written with
-    /// halo elements (`ElmerGrid -halo`) are an error: their ghost elements
-    /// would be assembled twice.
+    /// multiplied by `scale` (`Coordinate Scaling`). Halo elements
+    /// (`ElmerGrid -halo`) are kept, marked by [`ParMesh::halo_elements`]:
+    /// no solver assembles them, a DG solver numbers their DG nodes.
     pub fn read(mesh_dir: &Path, rank: usize, n_parts: usize, scale: f64) -> Result<Self, String> {
         let part = PartitionMesh::read(mesh_dir, rank, n_parts).map_err(|e: PartError| e.to_string())?;
-        if part.n_owned_bulk() != part.bulk_elements().len() {
-            return Err("partitions with halo elements (ElmerGrid -halo)".into());
-        }
         Ok(Self::from_partition(&part, scale))
+    }
+
+    /// The elements (bulk then boundary) of another partition, `None` when
+    /// every element is this rank's.
+    pub fn halo_elements(&self) -> Option<Vec<bool>> {
+        let h: Vec<bool> = self.elem_owner.iter().map(|&o| o != self.rank).collect();
+        h.iter().any(|&x| x).then_some(h)
+    }
+
+    /// Sets [`MeshView::edge_order`].
+    pub fn set_edge_order(&mut self, keys: Vec<u64>) {
+        self.edge_keys = Some(keys);
+    }
+
+    /// Global element ids (`GElementIndex`), bulk then boundary.
+    pub fn element_gids(&self) -> &[u64] {
+        &self.elem_gid
+    }
+
+    /// Owning partition of every element, bulk then boundary.
+    pub fn element_owners(&self) -> &[usize] {
+        &self.elem_owner
     }
 
     /// The whole mesh DB in `mesh_dir` as the only rank's piece, as
@@ -102,7 +130,10 @@ impl ParMesh {
             gid: part.node_gids().to_vec(),
             parts,
         };
-        Self::new(rank, part.n_parts(), part.dim(), nodes, elems_of(part), part.n_bulk())
+        let mut m = Self::new(rank, part.n_parts(), part.dim(), nodes, elems_of(part), part.n_bulk());
+        let all = part.bulk_elements().iter().chain(part.boundary_elements());
+        (m.elem_gid, m.elem_owner) = all.map(|e| (e.gid, e.owner)).unzip();
+        m
     }
 
     pub fn rank(&self) -> usize {
@@ -172,6 +203,10 @@ impl MeshView for ParMesh {
     fn element(&self, e: ElemId) -> ElementRef<'_> {
         let el = &self.elems[e.0 as usize];
         ElementRef { etype: el.etype, nodes: &el.nodes, tag: el.tag, parents: el.parents }
+    }
+
+    fn edge_order(&self) -> Option<&[u64]> {
+        self.edge_keys.as_deref()
     }
 }
 

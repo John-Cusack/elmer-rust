@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use elmer_cli::driver::{Engine, EngineOutcome, RunRequest};
 use elmer_cli::{ElmerLogger, ExitCode};
-use elmer_core::{normalize_key, Communicator, LinalgError, Logger, MeshView, ParamMap, Params, Value};
+use elmer_core::{normalize_key, Communicator, ElemId, LinalgError, Logger, MeshView, ParamMap, Params, Value, NO_DOF};
 use elmer_dist::Exchange;
 use elmer_run::{Frontend, SifFrontend, SifMatc};
 use elmer_solver::{finalize_reference, solver::procedure_of, Model, RunReport, Simulation, SolverError};
@@ -157,6 +157,101 @@ fn load_mesh(mesh_dir: &Path, rank: usize, np: usize, scale: f64) -> Result<ParM
 /// [`SolverError::Unsupported`] before any file is written. Setup and run
 /// errors are not yet agreed between ranks: one that only some ranks hit
 /// leaves the others waiting, and the binary's `mpirun` then needs a kill.
+/// `MatrixParallelInfoDG` (ParallelUtils.F90:341): every DG solver's matrix
+/// with the global dof `8 (GElementIndex - 1) + j` of its element's node `j`
+/// (`MaxDGNodes = 8`), owned by the element's partition.
+/// [`elmer_solver::NodeInterface`] over the thread's [`RankContext`].
+struct ParNodes;
+
+impl elmer_solver::NodeInterface for ParNodes {
+    fn sum_shared(&self, v: &mut [f64]) -> Result<(), SolverError> {
+        let ctx = RankContext::current().ok_or_else(|| unsupported("a nodal exchange outside a partitioned run"))?;
+        ctx.sum_shared_nodes(v).map_err(|e| SolverError::Unsupported(e.to_string()))
+    }
+}
+
+/// `MatrixParallelInfoDG` (ParallelUtils.F90:341-511) for every DG solver:
+/// the global id and owner of each row. Without `DG Reduced Basis` index
+/// `j` of an element is `8 (GElementIndex - 1) + j`; with it, a row is the
+/// node's `GlobalDOFs` offset by its body group times the largest node id.
+/// A row of an element whose nodes are all interface nodes is shared with
+/// the partitions of its node (the element's own first when not reduced);
+/// any other row is private to this rank. Collective.
+fn register_dg_matrices(sim: &mut Simulation, mesh: &ParMesh, ctx: &RankContext) -> Result<(), SolverError> {
+    if mesh.element_gids().is_empty() {
+        return Ok(());
+    }
+    let mut slots = Vec::new();
+    let rank = ctx.ex.rank();
+    let parts = mesh.node_parts();
+    let node_gid = mesh.node_gids();
+    let mut maxnode = [node_gid.iter().copied().max().unwrap_or(0) as f64];
+    ctx.ex.max_f64(&mut maxnode);
+    let maxnode = maxnode[0] as u64;
+    for ix in 0..sim.slots.len() {
+        let slot = &sim.slots[ix];
+        if slot.params.logical("discontinuous galerkin") != Some(true) {
+            continue;
+        }
+        let (Some(d), Some(id)) = (slot.solver_dofs(), slot.variable) else { continue };
+        let reduced = slot.params.logical("dg reduced basis") == Some(true);
+        let ints = |key: &str| match slot.params.get(key) {
+            Some(elmer_core::Value::Integer(v)) => Some(v.clone()),
+            _ => None,
+        };
+        let (map, master) = (ints("dg reduced basis mapping"), ints("dg reduced basis master bodies"));
+        if reduced && master.is_some() && ints("dg reduced basis slave bodies").is_some() {
+            return Err(unsupported("DG Reduced Basis Master and Slave Bodies in a partitioned run"));
+        }
+        let dofs = sim.vars.by_id(id).dofs;
+        let a = d.create_matrix(dofs);
+        let mut gid = vec![0u64; a.nrows];
+        let mut owner = vec![rank; a.nrows];
+        for t in 0..mesh.n_bulk() {
+            let el = mesh.element(ElemId(t as u32));
+            let all_interface = el.nodes.iter().all(|&n| parts[n as usize].len() > 1);
+            let group = if reduced {
+                let body = sim.model.body_of_tag(el.tag).unwrap_or(0) as i32;
+                (match (&master, &map) {
+                    (Some(m), _) => if m.contains(&body) { 1 } else { 2 },
+                    (None, Some(m)) => m.get((body - 1).max(0) as usize).copied().unwrap_or(0),
+                    (None, None) => body,
+                } - 1) as u64
+            } else {
+                0
+            };
+            d.element_slots(ElemId(t as u32), &mut slots);
+            for (j, &s) in slots.iter().enumerate() {
+                if s == NO_DOF {
+                    continue;
+                }
+                let node = el.nodes[j] as usize;
+                let base = if reduced {
+                    group * maxnode + node_gid[node]
+                } else {
+                    8 * (mesh.element_gids()[t] - 1) + j as u64 + 1
+                };
+                for k in 0..dofs {
+                    let row = s as usize * dofs + k;
+                    if row >= a.nrows {
+                        continue;
+                    }
+                    gid[row] = dofs as u64 * (base - 1) + k as u64;
+                    if all_interface {
+                        let nl = &parts[node];
+                        let own = mesh.element_owners()[t];
+                        owner[row] = if !reduced && nl.contains(&own) { own } else { nl[0] };
+                    }
+                }
+            }
+        }
+        let owned: std::sync::Arc<[bool]> = owner.iter().map(|&o| o == rank).collect();
+        ctx.register_rows(gid, owner, &a);
+        sim.slots[ix].owned_rows = Some(owned);
+    }
+    Ok(())
+}
+
 pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> Result<ParOutcome, SolverError> {
     let (rank, np) = (ex.rank(), ex.size());
     let loaded = SifFrontend { mesh: no_mesh }.load(sif).map_err(SolverError::Unsupported)?;
@@ -193,6 +288,14 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     elmer_run::install_fe(coords.dim)?;
     let (ctx, _guard) = RankContext::install(ex, mesh.node_gids().to_vec(), mesh.node_owners().to_vec());
     let comm: &dyn Communicator = &*ctx.ex;
+    if np > 1 && model.solvers.iter().any(|p| p.logical("discontinuous galerkin") == Some(true)) {
+        if mesh.dim() != 2 {
+            return Err(unsupported("Discontinuous Galerkin on a partitioned 3D mesh (SParFaceNumbering)"));
+        }
+        let edges = elmer_solver::dg_edges(&mesh)?;
+        let keys = crate::edges::edge_numbers(&*ctx.ex, &mesh, &edges).map_err(SolverError::Unsupported)?;
+        mesh.set_edge_order(keys);
+    }
 
     elmer_run::elmer_fixtures::registry::init_sections(&fixture_case, &mut model);
     let mut sim = Simulation::new(model);
@@ -202,8 +305,28 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     // Basis and quadrature for the simulation's own integrals (component
     // reductions), as the serial run installs them.
     sim.backends.fe = Some(elmer_run::fe_backend(coords.dim));
+    // The p and DG dofs, as the serial composition installs them.
+    let degree: Arc<elmer_run::elmer_pdofs::solver::MatcFn> = Arc::new(|f: &str, cx: [f64; 4]| {
+        use elmer_solver::elmer_expr::MatcEngine;
+        elmer_run::SifMatc.eval_with("cx", f, &cx)?.first().copied().ok_or_else(|| format!("MATC {f}: no value"))
+    });
+    sim.backends.dofs = Some(Box::new(elmer_run::elmer_pdofs::PDofsBackend::new().with_matc(degree)));
+    sim.backends.nodes = Some(Box::new(ParNodes));
     elmer_run::elmer_fixtures::registry::install_live(&fixture_case, &mut sim, &mesh);
+    if let Some(h) = mesh.halo_elements() {
+        sim.set_halo_elements(h.into());
+    }
     sim.setup(&mesh, &registry, log, comm)?;
+    // `InitialPermutation` numbers the nodes of halo elements as well; only
+    // the DG numbering follows it here, so a solver numbered by nodes is
+    // refused.
+    if mesh.halo_elements().is_some() {
+        if let Some(s) = sim.slots.iter().find(|s| s.perm.is_some() && s.params.logical("discontinuous galerkin") != Some(true)) {
+            let name = procedure_of(&s.params).map_or_else(|| format!("solver {}", s.id), |(_, entry)| entry);
+            return Err(unsupported(format!("{name} without Discontinuous Galerkin on a halo partitioning")));
+        }
+    }
+    register_dg_matrices(&mut sim, &mesh, &ctx)?;
     if let Some(writer) = elmer_run::result_file::writer(&sim.model, &loaded.mesh_dir, rank, np, log) {
         sim.set_save_current(Box::new(writer));
     }
