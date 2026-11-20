@@ -67,17 +67,20 @@ fn keywords_that_are_not_implemented_are_refused_by_name() {
         ("Run Control Numbering", yes()),
         ("Mark Failed Strategy", yes()),
         ("Avoid Failed Strategy", yes()),
-        ("Coefficient 2", st("Density")),
         ("Expression 1", st("1+1")),
     ] {
         let mut s = with_oper("max");
         s.insert(key, value);
         let m = refused("SaveScalars", s);
-        assert!(m.to_lowercase().contains(&key.to_lowercase()) || m.contains("coefficient") , "{key}: {m}");
+        assert!(m.to_lowercase().contains(&key.to_lowercase()), "{key}: {m}");
     }
     // A keyword switched off is not a request.
     let mut s = with_oper("max");
     s.insert("Json Format", Value::Logical(false));
+    build("SaveScalars", s).unwrap();
+    // `Coefficient n` weights the integrals; a statistic ignores it.
+    let mut s = with_oper("max");
+    s.insert("Coefficient 1", st("Density"));
     build("SaveScalars", s).unwrap();
 }
 

@@ -286,6 +286,8 @@ impl SaveScalars {
             }
 
             let op = parse_operator(&oper0)?;
+            // `Coefficient n` (SaveScalars.F90:621): only the integrals use it.
+            let coeff = p.string(&format!("coefficient {n}")).map(|c| c.trim_matches('"').to_string());
             let passive = p
                 .integer("passive coordinate")
                 .or_else(|| p.integer(&format!("passive coordinate {n}")))
@@ -345,9 +347,13 @@ impl SaveScalars {
                             mask: op.mask,
                             mask_name: &mask_name,
                             passive,
+                            coeff: coeff.as_deref(),
                         };
                         bulk_integral(ctx, self.fe()?, &view, &req)?
                     };
+                    if let Some(c) = &coeff {
+                        save_name = format!("{save_name} with {c}");
+                    }
                     list.add(&plan, ctx, &save_name, val, false)?;
                 }
                 OperKind::BoundaryStatistic => {
@@ -394,7 +400,7 @@ impl SaveScalars {
                             }
                             _ => None,
                         };
-                        boundary_integrals(ctx, self.fe()?, view.as_ref(), &op.oper, &mask_name, passive)?
+                        boundary_integrals(ctx, self.fe()?, view.as_ref(), &op.oper, &mask_name, passive, coeff.as_deref())?
                     };
                     for (j, _) in active.iter().enumerate().filter(|(_, &a)| a) {
                         let mut val = totals.fluxes[j];
