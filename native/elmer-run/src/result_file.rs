@@ -37,7 +37,6 @@ fn unsupported(model: &Model) -> Option<String> {
         "output file final only",
         "separate results files",
         "output file each timestep",
-        "output coordinates",
         "output ip variables",
         "omit unchanged variables in output",
     ] {
@@ -83,6 +82,8 @@ pub fn writer(model: &Model, mesh_dir: &std::path::Path, rank: usize, ranks: usi
         path: mesh_dir.join(name),
         save_global: model.simulation.logical("output global variables") == Some(true),
         binary: model.simulation.logical("binary output") == Some(true),
+        save_coordinates: model.simulation.logical("output coordinates") == Some(true),
+        rank,
         saves_done: 0,
     })
 }
@@ -93,6 +94,11 @@ pub struct ResultWriter {
     save_global: bool,
     /// `Binary Output`; text otherwise.
     binary: bool,
+    /// `Output Coordinates`: `coordinate 1..3`, the mesh's, saved first.
+    save_coordinates: bool,
+    /// The `Partition` global Elmer always has (`ParEnv % MyPe`), saved
+    /// with the globals when the case has no such variable.
+    rank: usize,
     saves_done: i32,
 }
 
@@ -114,9 +120,44 @@ struct Entry<'a> {
     equation: String,
 }
 
+/// A field the variable store does not hold, by name.
+type Named = (String, Vec<f64>);
+
+/// An entry of values the variable store does not hold: Perm NULL, no
+/// equation.
+fn plain<'a>(name: &str, values: &'a [f64], kind: FieldKind) -> Entry<'a> {
+    Entry {
+        name: name.to_string(),
+        header_name: name.to_string(),
+        dofs: 1,
+        size: values.len(),
+        perm: None,
+        values,
+        offset: 0,
+        stride: 1,
+        kind,
+        output: true,
+        equation: "no equation".to_string(),
+    }
+}
+
 /// The variable list, with the values of `over` (a primary variable and
 /// what to save for it) in place of its own; its components follow.
-fn entries<'a>(sim: &'a Simulation, over: Option<(VarId, &'a [f64])>) -> Vec<Entry<'a>> {
+/// `first` and `last` (coordinates, `Partition`) go before and after it,
+/// where Elmer's mesh load and `AddTimeEtc` put them.
+fn entries<'a>(
+    sim: &'a Simulation,
+    over: Option<(VarId, &'a [f64])>,
+    first: &'a [Named],
+    last: &'a [Named],
+) -> Vec<Entry<'a>> {
+    let mut out: Vec<Entry<'a>> = first.iter().map(|(n, v)| plain(n, v, FieldKind::Nodal)).collect();
+    out.extend(variable_entries(sim, over));
+    out.extend(last.iter().map(|(n, v)| plain(n, v, FieldKind::Global)));
+    out
+}
+
+fn variable_entries<'a>(sim: &'a Simulation, over: Option<(VarId, &'a [f64])>) -> Vec<Entry<'a>> {
     let equation = |id| {
         sim.slots
             .iter()
@@ -184,14 +225,36 @@ fn component_spec(names: &[String]) -> String {
 impl ResultWriter {
     /// `SaveThis` for a scalar entry of the data part.
     fn saves(&self, e: &Entry<'_>) -> bool {
-        if !e.output || e.dofs != 1 || e.kind == FieldKind::Ip {
+        e.dofs == 1 && self.saves_header(e)
+    }
+
+    /// `SaveThis` of the header part, vectors included.
+    fn saves_header(&self, e: &Entry<'_>) -> bool {
+        if !e.output || e.kind == FieldKind::Ip {
             return false;
         }
         if e.size == e.dofs {
             self.save_global
         } else {
-            !e.name.starts_with("coordinate")
+            self.save_coordinates || !e.name.starts_with("coordinate")
         }
+    }
+
+    /// The entries Elmer has that the variable store does not: the mesh's
+    /// coordinates (when saved) and `Partition`.
+    fn extras(&self, sim: &Simulation, mesh: &dyn MeshView) -> (Vec<Named>, Vec<Named>) {
+        let mut first = Vec::new();
+        if self.save_coordinates && sim.vars.resolve("coordinate 1").is_none() {
+            for a in 0..3 {
+                let v = (0..mesh.n_nodes() as u32).map(|k| mesh.coord(k)[a]).collect();
+                first.push((format!("coordinate {}", a + 1), v));
+            }
+        }
+        let mut last = Vec::new();
+        if self.save_global && sim.vars.resolve("partition").is_none() {
+            last.push(("partition".to_string(), vec![self.rank as f64]));
+        }
+        (first, last)
     }
 
     /// `InitializeFile` and the header part; returns the `.pos` header.
@@ -204,11 +267,7 @@ impl ResultWriter {
         let mut pos_names = Vec::new();
         for vector in [true, false] {
             for e in list {
-                if !e.output || e.kind == FieldKind::Ip || (e.dofs > 1) != vector {
-                    continue;
-                }
-                let save = if e.size == e.dofs { self.save_global } else { !e.name.starts_with("coordinate") };
-                if !save {
+                if (e.dofs > 1) != vector || !self.saves_header(e) {
                     continue;
                 }
                 let perm_size = e.perm.map_or(0, |p| p.len());
@@ -283,7 +342,8 @@ impl ResultWriter {
         let io = |e: std::io::Error| SolverError::fatal(CALLER, format!("{}: {e}", self.path.display()));
         log.info(CALLER, "-----------------------------------------", 5);
         log.info(CALLER, &format!("Saving results to file: {}", self.path.display()), 4);
-        let list = entries(sim, over);
+        let (first, last) = self.extras(sim, mesh);
+        let list = entries(sim, over, &first, &last);
         let pos_path = PathBuf::from(format!("{}.pos", self.path.display()));
         let (mut data, mut pos, base) = if self.saves_done == 0 {
             let (d, p) = self.header(&list, mesh.n_nodes());
