@@ -779,7 +779,7 @@ impl Solver for ElasticSolver {
         }
         let mut lump = if lumping {
             let fe = self.fe();
-            Some(crate::lumping::Lump::init(ctx, &*fe.basis, &*fe.quad)?)
+            Some(elmer_physics_elastic::lumping::Lump::init(ctx, &*fe.basis, &*fe.quad)?)
         } else {
             None
         };

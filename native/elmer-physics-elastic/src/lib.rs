@@ -24,7 +24,9 @@
 pub mod boundary;
 pub mod bulk;
 pub mod error;
+pub mod lumping;
 pub mod material;
+pub mod nodes;
 pub mod post;
 mod props;
 pub mod solver;
