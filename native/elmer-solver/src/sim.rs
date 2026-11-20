@@ -1050,23 +1050,24 @@ impl Simulation {
         };
         let mut perm = perm;
         if conforming {
-            let transient = self
-                .model
-                .simulation
-                .string("simulation type")
-                .is_some_and(|t| t.eq_ignore_ascii_case("transient"));
-            if transient {
-                // MainUtils: conforming BCs enforce `Use Global Mass Matrix`.
-                return Err(SolverError::Unsupported(format!(
-                    "Solver {}: Apply Conforming BCs in a transient run (Use Global Mass Matrix)",
-                    slot.id
-                )));
-            }
+            // MainUtils: conforming BCs enforce `Use Global Mass Matrix`.
+            slot.params.insert("Use Global Mass Matrix", Value::Logical(true));
             // Without a map (no `Conforming BC`) Elmer warns that the
             // conforming BC is requested but not generated, and numbers the
-            // nodes as usual.
-            if let Some(map) = &self.backends.conforming {
-                slot.conforming_flip = crate::conforming::apply_conforming(&mut perm, map);
+            // nodes as usual. A model with `Conforming BC` sections whose map
+            // the front end did not build (the partitioned runner) would run
+            // without them.
+            match &self.backends.conforming {
+                Some(map) => {
+                    slot.conforming_flip = crate::conforming::apply_conforming(&mut perm, map);
+                }
+                None if self.model.boundary_conditions.iter().any(|b| b.get("conforming bc").is_some()) => {
+                    return Err(SolverError::Unsupported(format!(
+                        "Solver {}: Apply Conforming BCs without the conforming map (partitioned runs)",
+                        slot.id
+                    )));
+                }
+                None => {}
             }
         }
         // A DG solver: its variable lives on the mesh's DG indexes

@@ -491,8 +491,10 @@ impl<'a> SolverCtx<'a> {
                 None => backend.create_matrix(self.mesh, &slot.active, &perm, v.dofs),
             };
             let n = matrix.nrows;
-            // `Matrix % MassValues` of an eigen solver, on the same pattern.
-            let mass = (slot.nof_eigen > 0).then(|| matrix.clone());
+            // `Matrix % MassValues` of an eigen solver, or of a solver with
+            // `Use Global Mass Matrix`, on the same pattern.
+            let global_mass = slot.params.logical("use global mass matrix") == Some(true);
+            let mass = (slot.nof_eigen > 0 || global_mass).then(|| matrix.clone());
             slot.system = Some(LinearSystem { matrix, rhs: vec![0.0; n], mass });
         }
         let sys = slot.system.as_mut().expect("system created above");
@@ -557,14 +559,21 @@ impl<'a> SolverCtx<'a> {
             .assembly
             .as_ref()
             .ok_or_else(|| SolverError::NotWired("assembly backend (elmer-assembly)".into()))?;
-        let Some(m) = sim.slots[self.slot].system.as_mut().and_then(|s| s.mass.as_mut()) else {
+        if sim.slots[self.slot].system.as_ref().is_none_or(|s| s.mass.is_none()) {
             return Ok(());
-        };
+        }
         let n = (mass.len() as f64).sqrt().round() as usize;
         if n * n != mass.len() {
             return Err(SolverError::fatal("DefaultUpdateMass", "element mass matrix is not square"));
         }
-        let local = LocalSystem { n, stiff: mass.to_vec(), mass: None, damp: None, force: vec![0.0; n] };
+        let mut local = LocalSystem { n, stiff: mass.to_vec(), mass: None, damp: None, force: vec![0.0; n] };
+        // DefaultUpdateMass flips the antisymmetric conforming couplings too.
+        if let (Some(map), true) = (&sim.backends.conforming, sim.slots[self.slot].conforming_flip) {
+            crate::conforming::flip_local(&mut local, self.mesh.element(e).nodes, map);
+        }
+        let Some(m) = sim.slots[self.slot].system.as_mut().and_then(|s| s.mass.as_mut()) else {
+            return Ok(());
+        };
         let mut rhs = vec![0.0; m.nrows];
         backend.add_local(m, &mut rhs, &idx, &local);
         Ok(())
@@ -578,6 +587,15 @@ impl<'a> SolverCtx<'a> {
     }
 
     fn time_terms(&mut self, local: &mut LocalSystem, e: ElemId, dt: f64, second: bool) -> Result<(), SolverError> {
+        // Default1stOrderTime: with `Use Global Mass Matrix` the element mass
+        // goes to the global mass matrix; DefaultFinishAssembly adds the time
+        // terms to the assembled system.
+        if !second && self.params().logical("use global mass matrix") == Some(true) {
+            if let Some(m) = local.mass.take() {
+                self.default_update_mass(&m, e)?;
+            }
+            return Ok(());
+        }
         let mut idx = Vec::new();
         self.element_dofs(e, &mut idx);
         let id = self.sim.slots[self.slot]
@@ -781,6 +799,7 @@ impl<'a> SolverCtx<'a> {
             self.default_finish_bulk_assembly()?;
         }
         if !self.sim.slots[self.slot].asm.boundary_done {
+            self.global_time_terms()?;
             self.sim.set_nodal_loads(self.slot, self.mesh)?;
             self.sim.slots[self.slot].asm.boundary_done = true;
             // DefUtils.F90:7917: `Constant System` keeps the whole system
@@ -794,6 +813,57 @@ impl<'a> SolverCtx<'a> {
             }
         }
         Ok(())
+    }
+
+    /// DefaultFinishAssembly's `Use Global Mass Matrix` branch: in a
+    /// transient run (`Steady State Condition` not positive) of time order
+    /// 1, `Default1stOrderTimeGlobal` -> `Add1stOrderTime_CRS`.
+    fn global_time_terms(&mut self) -> Result<(), SolverError> {
+        if self.params().logical("use global mass matrix") != Some(true) {
+            return Ok(());
+        }
+        let transient = self
+            .sim
+            .model
+            .simulation
+            .string("simulation type")
+            .is_some_and(|t| normalize_key(t) == "transient");
+        let ss = self.creal(self.params(), "steady state condition")?;
+        if !transient || ss.is_some_and(|c| c > 0.0) {
+            return Ok(());
+        }
+        let slot = &self.sim.slots[self.slot];
+        let order = slot
+            .params
+            .integer("time derivative order")
+            .unwrap_or(slot.time_order as i32);
+        if order != 1 {
+            return Err(SolverError::Unsupported(format!(
+                "Use Global Mass Matrix with Time Derivative Order {order}"
+            )));
+        }
+        if slot.params.logical("lumped mass matrix") == Some(true) {
+            return Err(SolverError::Unsupported("Use Global Mass Matrix with a lumped mass matrix".into()));
+        }
+        let scheme = elmer_timeint::Scheme::from_params(&slot.params, &self.sim.model.simulation, 1)
+            .map_err(|e| SolverError::fatal("Add1stOrderTime_CRS", e.to_string()))?
+            .for_step(slot.done_time);
+        let n = slot.done_time.min(slot.order);
+        let dt = slot.dt;
+        let id = slot
+            .variable
+            .ok_or_else(|| SolverError::fatal("Default1stOrderTimeGlobal", "solver has no variable"))?;
+        let prev = self.sim.vars.by_id(id).prev_values.clone();
+        let dts = self.sim.prev_sizes.clone();
+        let sys = self.sim.slots[self.slot]
+            .system
+            .as_mut()
+            .ok_or_else(|| SolverError::fatal("Default1stOrderTimeGlobal", "call default_initialize first"))?;
+        let Some(mass) = sys.mass.as_ref() else {
+            return Ok(());
+        };
+        let h = crate::global_time::History { prev: &prev, dts: &dts };
+        crate::global_time::add_1st_order_time_crs(&mut sys.matrix, mass, &mut sys.rhs, dt, scheme, n, &h)
     }
 
     /// The Dirichlet values this solver's variable gets from boundary
