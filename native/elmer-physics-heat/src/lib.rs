@@ -18,9 +18,12 @@
 //! evaluates properties with `elmer-expr` each nonlinear iteration, so
 //! temperature-dependent properties converge by Picard iteration.
 //!
-//! Supported: scalar, diagonal and full-tensor conductivity, constant or
-//! computed convection velocity (given at nodes) with plain Galerkin or SUPG
-//! weighting, volumetric and per-mass heat source, heat transfer multiplier,
+//! Supported: scalar, diagonal and full-tensor conductivity, constant
+//! convection velocity or `Convection = Computed` (the velocity of the flow
+//! solution, less any `Mesh Velocity`) with plain Galerkin or SUPG weighting,
+//! `Compressibility Model = Thermal` and `Perfect Gas` (the density law and,
+//! with computed convection, the pressure work of the flow pressure),
+//! volumetric and per-mass heat source, heat transfer multiplier,
 //! axisymmetric weighting, heat flux and Robin (heat transfer coefficient and
 //! external temperature) boundary terms. With `Legacy Assembly = True` (the
 //! HeatSolveLegacy path, see `legacy`) also `Smart Heater Control` and
@@ -29,9 +32,9 @@
 //! two-node boundaries runs through `elmer-viewfactors` (view factors,
 //! normalisation, Gebhart factors, computed on the first solve) and widens
 //! the matrix pattern by the factors' couplings. Everything else HeatSolve can do is refused by
-//! [`check_supported`] instead of being approximated; `Convection = Computed`
-//! and `Compressibility Model` wait for the solve, so a solver with `Exec
-//! Solver = Never` passes setup as it does in Elmer.
+//! [`check_supported`] instead of being approximated; the legacy path's
+//! `Convection = Computed` and `Compressibility Model` wait for the solve, so
+//! a solver with `Exec Solver = Never` passes setup as it does in Elmer.
 #![forbid(unsafe_code)]
 
 mod boundary;
@@ -49,8 +52,8 @@ pub use boundary::heat_boundary_local;
 pub use bulk::heat_bulk_local;
 pub use error::HeatError;
 pub use material::{
-    Conductivity, HeatBcAtNodes, HeatBoundaryConfig, HeatBulkConfig, HeatMaterialAtNodes,
-    Stabilization,
+    CompressModel, Compressibility, Conductivity, HeatBcAtNodes, HeatBoundaryConfig,
+    HeatBulkConfig, HeatMaterialAtNodes, Stabilization,
 };
 pub use preflight::{check_supported, HeatSections, PROCEDURE};
 pub use solver::{factory, install_fe, register, FeProvider, HeatSolver};

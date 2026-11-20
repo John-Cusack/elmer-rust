@@ -96,6 +96,46 @@ pub struct HeatMaterialAtNodes {
     /// `Heat Transfer Multiplier`, scaling the whole local system (for
     /// lower-dimensional elements embedded in a larger mesh).
     pub heat_transfer_multiplier: Option<Vec<f64>>,
+    /// The material's `Compressibility Model`; `None` is incompressible.
+    pub compressibility: Option<Compressibility>,
+}
+
+/// A `Compressibility Model` of `LocalMatrixVec` (HeatSolve.F90:1300): the
+/// density is replaced at each integration point, and with computed
+/// convection the reversible pressure work `Pcoeff*(dp/dt + v.grad p)` is
+/// added to the force.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Compressibility {
+    pub model: CompressModel,
+    /// The solver's own `Temperature`, the current iterate, at the nodes.
+    pub temperature: Vec<f64>,
+    /// The flow solution's pressure (its last component) at the nodes. Set
+    /// only with `Convection = Computed`; it turns the pressure work on.
+    pub pressure: Option<Vec<f64>>,
+    /// The flow pressure of the previous time step at the nodes, with the
+    /// step size: the `dp/dt` part of the pressure work in a transient run.
+    pub prev_pressure: Option<(Vec<f64>, f64)>,
+}
+
+/// The density law of a [`Compressibility`]. A keyword absent from the SIF
+/// is `None` and takes Elmer's default.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CompressModel {
+    /// `Thermal`: `rho * (1 - beta*(T - Tref))` with `Heat Expansion
+    /// Coefficient` beta and `Reference Temperature` Tref (both zero when
+    /// absent).
+    Thermal {
+        heat_expansion: Option<Vec<f64>>,
+        reference_temperature: Option<Vec<f64>>,
+    },
+    /// `Perfect Gas`: `(p + p0) / ((gamma-1)/gamma * cp * T)` with `Specific
+    /// Heat Ratio` gamma (default 5/3) and `Reference Pressure` p0 (default
+    /// 0), both read at the first integration point. Needs
+    /// [`Compressibility::pressure`].
+    PerfectGas {
+        specific_heat_ratio: Option<Vec<f64>>,
+        reference_pressure: Option<Vec<f64>>,
+    },
 }
 
 /// Element-level switches for [`crate::heat_boundary_local`].

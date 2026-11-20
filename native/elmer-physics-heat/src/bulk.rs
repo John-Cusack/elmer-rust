@@ -2,7 +2,8 @@ use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, Quadrature};
 
 use crate::error::HeatError;
 use crate::material::{
-    check_len, check_opt, interp, Conductivity, HeatBulkConfig, HeatMaterialAtNodes, Stabilization,
+    check_len, check_opt, interp, CompressModel, Conductivity, HeatBulkConfig, HeatMaterialAtNodes,
+    Stabilization,
 };
 
 /// Bulk element matrices of `LocalMatrixVec` (HeatSolve.F90:1006) for an
@@ -15,8 +16,11 @@ use crate::material::{
 /// `q`, as Fortran's `STIFF(p,q)`.
 ///
 /// Differences from the Fortran that callers should know about:
-/// * `Joule Heat`, compressibility, phase change and bubbles are not
-///   implemented (see [`crate::check_supported`]).
+/// * `Joule Heat`, phase change and bubbles are not implemented (see
+///   [`crate::check_supported`]).
+/// * A [`Compressibility`](crate::Compressibility) replaces the density at
+///   each integration point; its pressure work is added only when the
+///   caller gives the flow pressure (`Convection = Computed`).
 /// * SUPG with `rho*cp = 0` at a point gives `tau = 0` where Fortran divides
 ///   by zero.
 pub fn heat_bulk_local(
@@ -55,6 +59,9 @@ pub fn heat_bulk_local(
     // The Heat Transfer Multiplier is read once, at the first integration
     // point (`Basis(1,1:nd)` in the Fortran).
     let mut multiplier = None;
+    // `Specific Heat Ratio` and `Reference Pressure` of a perfect gas, also
+    // read at the first integration point (`Basis(1,1:n)`).
+    let mut gas = (5.0 / 3.0, 0.0);
 
     for (t, qp) in ips.iter().enumerate() {
         basis
@@ -74,7 +81,50 @@ pub fn heat_bulk_local(
             }
         }
 
-        let rho = mat.density.as_deref().map_or(0.0, |r| interp(phi, r));
+        let mut rho = mat.density.as_deref().map_or(0.0, |r| interp(phi, r));
+
+        // Compressibility Model: the density from the temperature (and the
+        // flow pressure), and the pressure-work coefficient `Pcoeff`.
+        let mut pcoeff = 0.0;
+        if let Some(c) = &mat.compressibility {
+            let temp = interp(phi, &c.temperature);
+            match &c.model {
+                CompressModel::Thermal {
+                    heat_expansion,
+                    reference_temperature,
+                } => {
+                    let beta = heat_expansion.as_deref().map_or(0.0, |b| interp(phi, b));
+                    let t_ref = reference_temperature
+                        .as_deref()
+                        .map_or(0.0, |r| interp(phi, r));
+                    rho *= 1.0 - beta * (temp - t_ref);
+                    pcoeff = temp * beta / (1.0 - beta * (temp - t_ref));
+                }
+                CompressModel::PerfectGas {
+                    specific_heat_ratio,
+                    reference_pressure,
+                } => {
+                    let Some(p) = c.pressure.as_deref() else {
+                        return Err(HeatError::Invalid(
+                            "Compressibility Model \"Perfect Gas\" requires computed convection"
+                                .into(),
+                        ));
+                    };
+                    if t == 0 {
+                        if let Some(g) = specific_heat_ratio {
+                            gas.0 = interp(phi, g);
+                        }
+                        if let Some(p0) = reference_pressure {
+                            gas.1 = interp(phi, p0);
+                        }
+                    }
+                    let (gamma, p0) = gas;
+                    let cp = mat.heat_capacity.as_deref().map_or(0.0, |c| interp(phi, c));
+                    rho = (interp(phi, p) + p0) / ((gamma - 1.0) / gamma * cp * temp);
+                    pcoeff = 1.0;
+                }
+            }
+        }
 
         // Diffusion: (k grad u, grad v).
         let mut k_tau = 0.0;
@@ -144,6 +194,28 @@ pub fn heat_bulk_local(
                         vg += vel[i] * dphi[q][i];
                     }
                     out.stiff[p * n + q] += vg * phi[p] * w * rho_cp;
+                }
+            }
+            // Pressure work: Pcoeff*(dp/dt + v.grad p), the flow pressure
+            // interpolated over the element nodes.
+            if let Some(c) = &mat.compressibility {
+                if let Some(pn) = c.pressure.as_deref() {
+                    let p_ip = interp(phi, pn);
+                    if let Some((prev, dt)) = &c.prev_pressure {
+                        let s = pcoeff * (p_ip - interp(phi, prev)) / dt;
+                        for p in 0..n {
+                            out.force[p] += phi[p] * w * s;
+                        }
+                    }
+                    let mut grad_p = [0.0; 3];
+                    for (i, g) in grad_p.iter_mut().enumerate().take(dim) {
+                        *g = pn.iter().zip(dphi).map(|(pv, d)| pv * d[i]).sum();
+                    }
+                    let vg: f64 = (0..dim).map(|i| vel[i] * grad_p[i]).sum();
+                    let s = pcoeff * vg;
+                    for p in 0..n {
+                        out.force[p] += phi[p] * w * s;
+                    }
                 }
             }
         }
@@ -269,6 +341,29 @@ fn check_nodal_inputs(n: usize, mat: &HeatMaterialAtNodes) -> Result<(), HeatErr
     check_opt("heat transfer multiplier", n, &mat.heat_transfer_multiplier)?;
     if let Some(v) = &mat.convection_velocity {
         check_len("convection velocity", n, v.len())?;
+    }
+    if let Some(c) = &mat.compressibility {
+        check_len("temperature", n, c.temperature.len())?;
+        check_opt("flow pressure", n, &c.pressure)?;
+        if let Some((p, _)) = &c.prev_pressure {
+            check_len("previous flow pressure", n, p.len())?;
+        }
+        match &c.model {
+            CompressModel::Thermal {
+                heat_expansion,
+                reference_temperature,
+            } => {
+                check_opt("heat expansion coefficient", n, heat_expansion)?;
+                check_opt("reference temperature", n, reference_temperature)?;
+            }
+            CompressModel::PerfectGas {
+                specific_heat_ratio,
+                reference_pressure,
+            } => {
+                check_opt("specific heat ratio", n, specific_heat_ratio)?;
+                check_opt("reference pressure", n, reference_pressure)?;
+            }
+        }
     }
     Ok(())
 }

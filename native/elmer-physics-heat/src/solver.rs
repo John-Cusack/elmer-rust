@@ -14,8 +14,8 @@ use crate::preflight::stabilized;
 use crate::radiation::{is_diffuse_gray, temps4, DiffuseGray};
 use crate::radiators::{is_radiator_bc, Radiators};
 use crate::{
-    check_supported, heat_boundary_local, heat_bulk_local, HeatError, HeatMaterialAtNodes,
-    HeatSections, PROCEDURE,
+    check_supported, heat_boundary_local, heat_bulk_local, CompressModel, Compressibility,
+    HeatError, HeatMaterialAtNodes, HeatSections, PROCEDURE,
 };
 
 /// Builds the element basis and quadrature the solver integrates with. The
@@ -152,43 +152,49 @@ pub(crate) fn convection_velocity(
 /// The kernel inputs of bulk element `e` with `n` nodes: material and body
 /// force evaluated at the element nodes. `legacy` forms the heat source as
 /// HeatSolveLegacy does, the nodal product `Density * Heat Source`, instead
-/// of `HeatSolveVec`'s product of interpolants.
+/// of `HeatSolveVec`'s product of interpolants. `dt` is the step of a
+/// transient run (`None` when steady), for the `dp/dt` pressure work.
 pub(crate) fn bulk_inputs(
     ctx: &SolverCtx<'_>,
     e: ElemId,
     n: usize,
     legacy: bool,
+    dt: Option<f64>,
 ) -> Result<HeatMaterialAtNodes, SolverError> {
     const CALLER: &str = "HeatSolver";
     let bp = ctx
         .body_params(e)
         .ok_or_else(|| SolverError::fatal(CALLER, format!("element {} has no body", e.0)))?;
     let (m, bf) = (bp.material, bp.body_force);
-    // Elmer's `init` accepts these; only a solver that runs needs the flow
-    // solution they read, so the refusal waits for the solve (a solver with
-    // `Exec Solver = Never` never gets here).
-    if bp
+    let convection = bp
         .equation
         .and_then(|q| q.string("Convection"))
-        .is_some_and(|c| c.eq_ignore_ascii_case("computed"))
-    {
+        .map(elmer_core::normalize_key);
+    let computed = convection.as_deref() == Some("computed");
+    let convected = computed || convection.as_deref() == Some("constant");
+    // HeatSolveLegacy reads the flow field and the compressibility through
+    // its own paths, which are not ported. Elmer's `init` accepts these, so
+    // the refusal waits for the solve (a solver with `Exec Solver = Never`
+    // never gets here).
+    if legacy && computed {
         return Err(SolverError::Unsupported(
-            "Convection = Computed: reading the flow solution as the convection field is \
-             not implemented"
+            "Convection = Computed with Legacy Assembly: reading the flow solution as the \
+             convection field is not implemented"
                 .into(),
         ));
     }
-    if m.is_some_and(|m| m.get("Compressibility Model").is_some()) {
+    if legacy && m.is_some_and(|m| m.get("Compressibility Model").is_some()) {
         return Err(SolverError::Unsupported(
-            "material keyword \"Compressibility Model\": compressible heat is not \
-             implemented"
+            "material keyword \"Compressibility Model\" with Legacy Assembly: compressible \
+             heat is not implemented"
                 .into(),
         ));
     }
-    let convected = bp
-        .equation
-        .and_then(|q| q.string("Convection"))
-        .is_some_and(|c| c.eq_ignore_ascii_case("constant"));
+    let flow = if computed {
+        Some(flow_at_nodes(ctx, e, dt.is_some())?)
+    } else {
+        None
+    };
     let density = real_at_nodes(ctx, m, "Density", e)?;
     let mut heat_source = real_at_nodes(ctx, bf, "Heat Source", e)?;
     let mut volumetric_heat_source = real_at_nodes(ctx, bf, "Volumetric Heat Source", e)?;
@@ -213,12 +219,210 @@ pub(crate) fn bulk_inputs(
         heat_transfer_multiplier: real_at_nodes(ctx, m, "Heat Transfer Multiplier", e)?,
         heat_source,
         volumetric_heat_source,
-        convection_velocity: if convected {
-            Some(convection_velocity(ctx, m, e, n)?)
-        } else {
-            None
+        convection_velocity: match (&flow, convected) {
+            (Some(f), _) => Some(minus_mesh_velocity(ctx, e, f.velocity.clone())),
+            (None, true) => Some(minus_mesh_velocity(
+                ctx,
+                e,
+                convection_velocity(ctx, m, e, n)?,
+            )),
+            (None, false) => None,
+        },
+        compressibility: match m {
+            Some(m) => compressibility(ctx, m, e, flow, dt)?,
+            None => None,
         },
     })
+}
+
+/// The convection field (`Temperature Convection Field`, else `Flow
+/// Solution`) at the nodes of element `e`: its first `dim` components as the
+/// velocity, its last as the pressure (`ConvField_h`, `PressureField_h` and,
+/// transient, `PrevFlowField_h` of `LocalMatrixVec`).
+struct FlowAtNodes {
+    velocity: Vec<[f64; 3]>,
+    pressure: Vec<f64>,
+    prev_pressure: Option<Vec<f64>>,
+}
+
+fn flow_at_nodes(
+    ctx: &SolverCtx<'_>,
+    e: ElemId,
+    transient: bool,
+) -> Result<FlowAtNodes, SolverError> {
+    const CALLER: &str = "HeatSolver";
+    let name = ctx
+        .params()
+        .string("Temperature Convection Field")
+        .unwrap_or("Flow Solution");
+    let Some(var) = ctx.sim.vars.get(name) else {
+        return Err(SolverError::fatal(
+            CALLER,
+            format!("Convection = Computed: no convection field \"{name}\""),
+        ));
+    };
+    let dim = ctx.mesh.dim();
+    let dofs = var.dofs;
+    let nodes = ctx.mesh.element(e).nodes;
+    let mut slots = Vec::with_capacity(nodes.len());
+    for &nn in nodes {
+        // `ListGetElementVectorSolutionVec` leaves an element with a node
+        // outside the field's Perm without values (Fortran then reads a
+        // null pointer).
+        match var.perm.as_deref().map_or(nn, |p| p[nn as usize]) {
+            NO_DOF => {
+                return Err(SolverError::fatal(
+                    CALLER,
+                    format!(
+                        "Convection = Computed: element {} has a node outside the \"{name}\" field",
+                        e.0
+                    ),
+                ))
+            }
+            k => slots.push(k as usize),
+        }
+    }
+    let velocity = slots
+        .iter()
+        .map(|&k| {
+            let mut v = [0.0; 3];
+            for (i, vi) in v.iter_mut().enumerate().take(dofs.min(dim)) {
+                *vi = var.values[dofs * k + i];
+            }
+            v
+        })
+        .collect();
+    // The pressure is component `dim + 1` (1-based) of the field.
+    let at = |vals: &[f64]| -> Vec<f64> {
+        slots
+            .iter()
+            .map(|&k| {
+                if dim < dofs {
+                    vals[dofs * k + dim]
+                } else {
+                    0.0
+                }
+            })
+            .collect()
+    };
+    let pressure = at(&var.values);
+    let prev_pressure = match transient {
+        false => None,
+        true => match var.prev_values.first() {
+            Some(pv) => Some(at(pv)),
+            None => {
+                return Err(SolverError::fatal(
+                    CALLER,
+                    format!("Convection = Computed: \"{name}\" has no previous time step"),
+                ))
+            }
+        },
+    };
+    Ok(FlowAtNodes {
+        velocity,
+        pressure,
+        prev_pressure,
+    })
+}
+
+/// Convection is relative to a moving mesh: the `Mesh Velocity` field, where
+/// it covers every node of `e`, is subtracted (`MeshVeloField_h`).
+fn minus_mesh_velocity(ctx: &SolverCtx<'_>, e: ElemId, mut v: Vec<[f64; 3]>) -> Vec<[f64; 3]> {
+    let Some(mv) = ctx.sim.vars.get("Mesh Velocity") else {
+        return v;
+    };
+    let dim = ctx.mesh.dim();
+    let nodes = ctx.mesh.element(e).nodes;
+    let slots: Option<Vec<usize>> = nodes
+        .iter()
+        .map(
+            |&nn| match mv.perm.as_deref().map_or(nn, |p| p[nn as usize]) {
+                NO_DOF => None,
+                k => Some(k as usize),
+            },
+        )
+        .collect();
+    if let Some(slots) = slots {
+        for (vn, k) in v.iter_mut().zip(slots) {
+            for (i, vi) in vn.iter_mut().enumerate().take(mv.dofs.min(dim)) {
+                *vi -= mv.values[mv.dofs * k + i];
+            }
+        }
+    }
+    v
+}
+
+/// The material's `Compressibility Model` (`Thermal`, `Perfect Gas` or
+/// `Perfect Gas Equation 1`) with the solver's temperature and, with
+/// computed convection, the flow pressure. Any other value is incompressible,
+/// as in `LocalMatrixVec`.
+fn compressibility(
+    ctx: &SolverCtx<'_>,
+    m: &ParamMap,
+    e: ElemId,
+    flow: Option<FlowAtNodes>,
+    dt: Option<f64>,
+) -> Result<Option<Compressibility>, SolverError> {
+    const CALLER: &str = "HeatSolver";
+    let Some(name) = m
+        .string("Compressibility Model")
+        .map(elmer_core::normalize_key)
+    else {
+        return Ok(None);
+    };
+    let model = match name.as_str() {
+        "thermal" => CompressModel::Thermal {
+            heat_expansion: ctx.real_at_nodes(m, "Heat Expansion Coefficient", e)?,
+            reference_temperature: ctx.real_at_nodes(m, "Reference Temperature", e)?,
+        },
+        "perfect gas" | "perfect gas equation 1" => {
+            if flow.is_none() {
+                return Err(SolverError::fatal(
+                    CALLER,
+                    "Compressibility Model \"Perfect Gas\" requires computed convection",
+                ));
+            }
+            CompressModel::PerfectGas {
+                specific_heat_ratio: ctx.real_at_nodes(m, "Specific Heat Ratio", e)?,
+                reference_pressure: ctx.real_at_nodes(m, "Reference Pressure", e)?,
+            }
+        }
+        "user defined" => {
+            return Err(SolverError::Unsupported(
+                "Compressibility Model = User Defined".into(),
+            ))
+        }
+        _ => return Ok(None),
+    };
+    // `TempField_h`: the solver's own variable at the nodes.
+    let Some(tv) = ctx.primary() else {
+        return Err(SolverError::fatal(
+            CALLER,
+            "the heat solver has no Temperature variable",
+        ));
+    };
+    let mut temperature = Vec::new();
+    for &nn in ctx.mesh.element(e).nodes {
+        match tv.perm.map_or(nn, |p| p[nn as usize]) {
+            NO_DOF => {
+                return Err(SolverError::fatal(
+                    CALLER,
+                    format!("element {} has a node without a temperature", e.0),
+                ))
+            }
+            k => temperature.push(tv.values[k as usize * tv.dofs]),
+        }
+    }
+    let (pressure, prev_pressure) = match flow {
+        Some(f) => (Some(f.pressure), f.prev_pressure.zip(dt)),
+        None => (None, None),
+    };
+    Ok(Some(Compressibility {
+        model,
+        temperature,
+        pressure,
+        prev_pressure,
+    }))
 }
 
 pub(crate) fn axisymmetric(ctx: &SolverCtx<'_>) -> Result<bool, SolverError> {
@@ -239,8 +443,7 @@ pub(crate) fn axisymmetric(ctx: &SolverCtx<'_>) -> Result<bool, SolverError> {
 
 impl Solver for HeatSolver {
     /// Refuses every keyword in the sections this solver reads that the
-    /// kernels would otherwise ignore (see [`check_supported`]), and
-    /// `Convection = Computed`, which needs the flow solution field.
+    /// kernels would otherwise ignore (see [`check_supported`]).
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         axisymmetric(ctx)?;
         let elems: Vec<ElemId> = ctx.active_elements().collect();
@@ -369,7 +572,7 @@ impl Solver for HeatSolver {
                 let el = ctx.mesh.element(e);
                 let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
                 let n = xyz.len();
-                let mat = bulk_inputs(ctx, e, n, false)?;
+                let mat = bulk_inputs(ctx, e, n, false, transient.then_some(dt))?;
                 bulk_cfg.stabilization = if supg && mat.convection_velocity.is_some() {
                     let (m_k, h_k) = elmer_fe::stab_param(el.etype, &xyz, dim, long_edge)
                         .map_err(|err| SolverError::fatal(CALLER, err.to_string()))?;
