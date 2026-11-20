@@ -426,6 +426,25 @@ impl<'a> SolverCtx<'a> {
         self.sim.slots[self.slot].dofs.as_deref()
     }
 
+    /// `key` of `section` on boundary element `e` at the boundary points
+    /// `uvw`, when it depends on an integration-point variable
+    /// (`ListGetElementReal(.., GaussPoint)` with `EvaluateAtIp`); `None`
+    /// when it is absent or depends on none, for the nodal path.
+    pub fn boundary_real_at_ips(
+        &self,
+        section: &ParamMap,
+        key: &str,
+        e: ElemId,
+        uvw: &[[f64; 3]],
+    ) -> Result<Option<Vec<f64>>, SolverError> {
+        match section.get(key) {
+            Some(v) if crate::exported::depends_on_ip(self.sim, v) => {
+                crate::exported::boundary_ip_values(self.sim, self.mesh, v, e, uvw).map(Some)
+            }
+            _ => Ok(None),
+        }
+    }
+
     /// The simulation's fields as `elmer-expr` reads them.
     pub fn fields(&self) -> crate::expr::SimFields<'_> {
         crate::expr::SimFields {

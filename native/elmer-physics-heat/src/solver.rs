@@ -1125,8 +1125,22 @@ impl Solver for HeatSolver {
                 }
                 let mut bc = {
                     let p = ctx.bc_params(e);
+                    // A flux of an integration-point variable, at the points.
+                    let flux_at_ips = match p {
+                        Some(p) => {
+                            let el = ctx.mesh.element(e);
+                            let uvw: Vec<[f64; 3]> =
+                                self.quad.gauss_points(el.etype, bnd_cfg.quad_points).iter().map(|q| q.uvw).collect();
+                            ctx.boundary_real_at_ips(p, "heat flux", e, &uvw)?
+                        }
+                        None => None,
+                    };
                     HeatBcAtNodes {
-                        heat_flux: real_at_nodes(ctx, p, "Heat Flux", e)?,
+                        heat_flux: match flux_at_ips {
+                            Some(_) => None,
+                            None => real_at_nodes(ctx, p, "Heat Flux", e)?,
+                        },
+                        heat_flux_at_ips: flux_at_ips,
                         heat_transfer_coefficient: real_at_nodes(
                             ctx,
                             p,
@@ -1141,13 +1155,18 @@ impl Solver for HeatSolver {
                 if let Some(Some(r)) = &self.radiators {
                     if is_radiator_bc(ctx, e) && !is_diffuse_gray(ctx, e) {
                         if let Some(q) = r.flux(e) {
+                            if bc.heat_flux_at_ips.is_some() {
+                                return Err(SolverError::Unsupported(
+                                    "HeatSolver: a radiator BC with a heat flux of integration-point variables".into(),
+                                ));
+                            }
                             let n = ctx.mesh.element(e).nodes.len();
                             let flux = bc.heat_flux.get_or_insert_with(|| vec![0.0; n]);
                             flux.iter_mut().for_each(|x| *x += q);
                         }
                     }
                 }
-                if bc.heat_flux.is_some() || bc.heat_transfer_coefficient.is_some() {
+                if bc.heat_flux.is_some() || bc.heat_flux_at_ips.is_some() || bc.heat_transfer_coefficient.is_some() {
                     let el = ctx.mesh.element(e);
                     // LocalMatrixBC spans the boundary's p DOFs, which this
                     // nodal boundary assembly leaves out.

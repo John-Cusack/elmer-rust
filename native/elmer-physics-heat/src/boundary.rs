@@ -1,7 +1,7 @@
 use elmer_core::{BasisEval, ElementBasis, ElementType, LocalSystem, Quadrature};
 
 use crate::error::HeatError;
-use crate::material::{check_opt, interp, HeatBcAtNodes, HeatBoundaryConfig};
+use crate::material::{check_len, check_opt, interp, HeatBcAtNodes, HeatBoundaryConfig};
 
 /// Boundary element matrices of `LocalMatrixBC` (HeatSolve.F90:2399) for the
 /// `Heat Flux` and Robin (`Heat Transfer Coefficient`, `External
@@ -45,8 +45,11 @@ pub fn heat_boundary_local(
         return Err(HeatError::NoQuadrature(etype.0));
     }
 
+    if let Some(q) = &bc.heat_flux_at_ips {
+        check_len("heat flux at the Gauss points", ips.len(), q.len())?;
+    }
     let mut be = BasisEval::default();
-    for qp in &ips {
+    for (k, qp) in ips.iter().enumerate() {
         basis
             .eval(etype, xyz, qp.uvw, &mut be)
             .map_err(HeatError::Basis)?;
@@ -57,8 +60,12 @@ pub fn heat_boundary_local(
             w *= phi.iter().zip(xyz).map(|(b, x)| b * x[0]).sum::<f64>();
         }
 
-        if let Some(q) = &bc.heat_flux {
-            let f = interp(phi, q);
+        let flux = match (&bc.heat_flux_at_ips, &bc.heat_flux) {
+            (Some(q), _) => Some(q[k]),
+            (None, Some(q)) => Some(interp(phi, q)),
+            (None, None) => None,
+        };
+        if let Some(f) = flux {
             for p in 0..n {
                 out.force[p] += w * f * phi[p];
             }

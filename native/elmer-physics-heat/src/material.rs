@@ -191,6 +191,10 @@ pub struct HeatBoundaryConfig {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HeatBcAtNodes {
     pub heat_flux: Option<Vec<f64>>,
+    /// `Heat Flux` at the boundary's Gauss points instead of `heat_flux`,
+    /// when it depends on an integration-point variable (`HeatFlux_h`
+    /// evaluated at each point, HeatSolve.F90:2445).
+    pub heat_flux_at_ips: Option<Vec<f64>>,
     pub heat_transfer_coefficient: Option<Vec<f64>>,
     /// Read only together with the coefficient; absent reads as zero.
     pub external_temperature: Option<Vec<f64>>,
