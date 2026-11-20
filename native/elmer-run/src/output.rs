@@ -38,6 +38,15 @@ pub struct VtuOutput {
     auto_fields: Option<(bool, usize)>,
 }
 
+/// A ResultOutputSolver section that writes STL only.
+pub fn is_stl_output(params: &ParamMap) -> bool {
+    let vtu = params.logical("vtu format") == Some(true)
+        || params.string("output format").is_some_and(|f| f.eq_ignore_ascii_case("vtu"));
+    let stl = params.logical("stl format") == Some(true)
+        || params.string("output format").is_some_and(|f| f.eq_ignore_ascii_case("stl"));
+    is_result_output(params) && stl && !vtu
+}
+
 pub fn is_result_output(params: &ParamMap) -> bool {
     procedure_of(params).is_some_and(|(lib, entry)| {
         lib.eq_ignore_ascii_case("resultoutputsolve") && entry.eq_ignore_ascii_case("resultoutputsolver")
@@ -76,6 +85,16 @@ pub fn prepare_vtu_output(
         }
         let vtu = params.logical("vtu format") == Some(true)
             || params.string("output format").is_some_and(|f| f.eq_ignore_ascii_case("vtu"));
+        let stl = params.logical("stl format") == Some(true)
+            || params.string("output format").is_some_and(|f| f.eq_ignore_ascii_case("stl"));
+        if stl && !vtu {
+            // `SaveSTLSurface`, installed by the case ([`crate::stl`]).
+            if parallel {
+                return Err(SolverError::Unsupported(format!("Solver {id}: STL output in parallel")));
+            }
+            crate::stl::StlSolver::check(params)?;
+            continue;
+        }
         if !vtu {
             return Err(SolverError::Unsupported(format!("Solver {id}: ResultOutputSolver other than VTU")));
         }
@@ -538,7 +557,7 @@ impl Solver for VtuSolver {
 
 /// The first column of `Reference Values` (`RefResults(:,1)`); `None` with
 /// fewer than the six entries `AscBinCompareNorm` reads.
-fn reference_values(v: &elmer_core::Value) -> Option<[f64; 6]> {
+pub(crate) fn reference_values(v: &elmer_core::Value) -> Option<[f64; 6]> {
     let col: Vec<f64> = match v {
         elmer_core::Value::Real { cols, data, .. } => data.iter().step_by((*cols).max(1)).copied().collect(),
         elmer_core::Value::Integer(v) => v.iter().map(|&i| f64::from(i)).collect(),
