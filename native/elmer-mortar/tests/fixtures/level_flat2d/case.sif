@@ -83,6 +83,8 @@ Solver 1
   Linear System Convergence Tolerance = 1.0e-10
 
   Apply Mortar BCs = Logical True
+  Save Constraint Matrix = Logical True
+  Optimize Bandwidth = False
 ! Save Contact = Logical True
 
 ! Restore the linear solution

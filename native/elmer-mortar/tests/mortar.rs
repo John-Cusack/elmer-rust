@@ -217,6 +217,7 @@ fn check(case: &str, pristine: f64, tol_t: f64, tol_l: f64) {
         solver: &solver,
         name: "temperature",
         dofs: 1,
+        dim: 2,
         perm: &perm,
         n_rows: sys.matrix.nrows,
     };

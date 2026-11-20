@@ -355,6 +355,7 @@ pub fn level_projector(
         mortar_perm: false,
         rhs: None,
         diag: None,
+        active: None,
     })
 }
 

@@ -180,6 +180,7 @@ impl MortarSolver {
             solver: ctx.params(),
             name,
             dofs: var.dofs,
+            dim: self.coord_dim,
             perm,
             n_rows: var.values.len(),
         };

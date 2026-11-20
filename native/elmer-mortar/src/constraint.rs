@@ -38,6 +38,9 @@ pub struct ConstraintTarget<'a> {
     /// keywords such as `Mortar BC Temperature`.
     pub name: &'a str,
     pub dofs: usize,
+    /// `CoordinateSystemDimension()`: a field of `dim` (or, under `Apply
+    /// Contact BCs`, `dim + 1`) components is a vector field.
+    pub dim: usize,
     /// Parent node -> matrix row (`Solver % Variable % Perm`), [`NO_DOF`]
     /// when absent.
     pub perm: &'a [u32],
@@ -52,7 +55,9 @@ fn flag(p: &dyn Params, k: &str) -> bool {
 /// `GenerateConstraintMatrix` for the solver's mortar projectors
 /// (`projectors[i]` from boundary condition `i + 1`, as
 /// [`crate::generate_mortar_projectors`] returns them). Ported: a scalar
-/// field, `Minimum Projector Value`, nodal (`[D - P]`) and Galerkin
+/// field, a real vector field (`AddVectorConstraint`: one row per projector
+/// row and active component, the contact's `MortarBC % Active` mask, `Mortar
+/// BC <var> <i>` per component, not additive and without `MortarBC % Diag`), `Minimum Projector Value`, nodal (`[D - P]`) and Galerkin
 /// projectors, `Mortar BC <var> = False` to skip a boundary, and `Mortar
 /// BCs Additive`: one row per constrained node across all projectors, the
 /// contributions of every projector summed (`CRS_PackMatrix`), with
@@ -90,11 +95,35 @@ pub fn generate_constraint_matrix(
                 || flag(s, "apply conforming bcs")
         }
     };
-    if t.dofs != 1 {
-        return Err(MortarError::Unsupported(format!(
-            "mortar constraints on a {}-component field",
+    // ComplexMatrix and cdofs (ProjectorUtils.F90:616-647).
+    let complex = s
+        .logical("linear system complex")
+        .unwrap_or(t.dofs == 2 * t.dim);
+    let contact = flag(s, "apply contact bcs");
+    let cdofs = if t.dofs == 1 || t.dofs == t.dim {
+        t.dofs
+    } else if t.dofs == t.dim + 1 {
+        if contact {
+            t.dim
+        } else {
+            t.dofs
+        }
+    } else {
+        return Err(MortarError::Fatal(format!(
+            "{CALLER}: Invalid number of dofs for field: {}",
             t.dofs
         )));
+    };
+    if t.dofs > 1 && complex {
+        return Err(MortarError::Unsupported(format!(
+            "mortar constraints on a complex {}-component field",
+            t.dofs
+        )));
+    }
+    if t.dofs > 1 && summed {
+        return Err(MortarError::Unsupported(
+            "Mortar BCs Additive on a vector field".into(),
+        ));
     }
     let mut any_priority = bcs.iter().any(|bc| bc.get("projector priority").is_some());
     if any_priority && !summed {
@@ -157,9 +186,55 @@ pub fn generate_constraint_matrix(
             &format!("Adding projector rows: {}", p.n_rows()),
             12,
         );
+        // ActiveComponents: `Mortar BC <component>` (the variable name for
+        // a scalar).
+        let mut comp_active = vec![true; cdofs];
+        let (mut some_set, mut some_skip, mut all_defined) = (false, false, true);
+        for (c, a) in comp_active.iter_mut().enumerate() {
+            let key = if cdofs > 1 {
+                format!("mortar bc {} {}", t.name, c + 1)
+            } else {
+                format!("mortar bc {}", t.name)
+            };
+            match bc.logical(&key) {
+                Some(v) => {
+                    *a = v;
+                    if v {
+                        some_set = true;
+                    } else {
+                        some_skip = true;
+                    }
+                }
+                None => all_defined = false,
+            }
+        }
+        if some_set && !all_defined {
+            if some_skip {
+                return Err(MortarError::Fatal(format!(
+                    "{CALLER}: Do not know what to do with all {cdofs} components"
+                )));
+            }
+            for (c, a) in comp_active.iter_mut().enumerate() {
+                let key = format!("mortar bc {} {}", t.name, c + 1);
+                if bc.logical(&key).is_none() {
+                    *a = false;
+                }
+            }
+        }
         // A skipped boundary does not advance the row offset or the
         // previous priority either.
-        if !bc.logical(&format!("mortar bc {}", t.name)).unwrap_or(true) {
+        if t.dofs == 1 && !comp_active[0] {
+            continue;
+        }
+        if t.dofs > 1 {
+            if p.diag.is_some() {
+                return Err(MortarError::Unsupported(
+                    "MortarBC Diag on a vector field".into(),
+                ));
+            }
+            add_vector(p, &comp_active, cdofs, eps, rowoffset, t, &mut rows, &mut rhs, &mut inv_perm)?;
+            rowoffset += t.n_rows;
+            prev_priority = priority;
             continue;
         }
         // MasterScale and SlaveScale: 1 unless the projector is a
@@ -335,6 +410,99 @@ pub fn generate_constraint_matrix(
     Ok(Some(c))
 }
 
+/// `AddVectorConstraint` (ProjectorUtils.F90:1469-1753) of one projector,
+/// not summed and without `MortarBC % Diag`: for each projector row `i` and
+/// active component `j` (and active `MortarBC % Active(cdofs*i + j)`), a row
+/// on the matrix dofs `dofs * Perm(col) + j`. `wsum` counts only the nodal
+/// projector's own entries or, with `MortarBC % Perm`, the slave ones.
+#[allow(clippy::too_many_arguments)]
+fn add_vector(
+    p: &Projector,
+    comp_active: &[bool],
+    cdofs: usize,
+    eps: f64,
+    rowoffset: usize,
+    t: &ConstraintTarget<'_>,
+    rows: &mut Vec<Vec<(u32, f64)>>,
+    rhs: &mut Vec<f64>,
+    inv_perm: &mut Vec<usize>,
+) -> Result<(), MortarError> {
+    let create_self = !p.galerkin;
+    let slave_nodes: std::collections::HashSet<u32> = if p.mortar_perm {
+        p.inv_perm
+            .iter()
+            .copied()
+            .filter(|&k| k != NO_DOF)
+            .collect()
+    } else {
+        Default::default()
+    };
+    let dofs = t.dofs;
+    for i in 0..p.n_rows() {
+        if p.rows[i] >= p.rows[i + 1] {
+            continue;
+        }
+        for (j, &on) in comp_active.iter().enumerate() {
+            if !on {
+                continue;
+            }
+            if let Some(a) = &p.active {
+                if !a[cdofs * i + j] {
+                    continue;
+                }
+            }
+            let k = p.inv_perm[i];
+            if k == NO_DOF {
+                continue;
+            }
+            let kk = t.perm[k as usize];
+            if kk == NO_DOF {
+                continue;
+            }
+            let row = rows.len();
+            rows.push(Vec::new());
+            rhs.push(0.0);
+            inv_perm.push(rowoffset + dofs * kk as usize + j);
+            let mut valsum = 0.0;
+            for v in &p.values[p.rows[i]..p.rows[i + 1]] {
+                valsum += v.abs();
+            }
+            let mut wsum = 0.0;
+            for (col, val) in p.row(i) {
+                if val.abs() < eps * valsum {
+                    continue;
+                }
+                // A column past the permutation is skipped (with a PRINT).
+                let Some(&col2) = t.perm.get(col as usize) else { continue };
+                if col2 == NO_DOF {
+                    continue;
+                }
+                let scale = if create_self {
+                    wsum += val;
+                    p.master_scale
+                } else if p.mortar_perm {
+                    if slave_nodes.contains(&col) {
+                        wsum += val;
+                        p.slave_scale
+                    } else {
+                        p.master_scale
+                    }
+                } else {
+                    1.0
+                };
+                rows[row].push(((dofs * col2 as usize + j) as u32, scale * val));
+            }
+            if create_self {
+                rows[row].push(((dofs * kk as usize + j) as u32, p.slave_scale * wsum));
+            }
+            if let Some(r) = &p.rhs {
+                rhs[row] = wsum * r[cdofs * i + j];
+            }
+        }
+    }
+    Ok(())
+}
+
 /// `CRS_PackMatrix` on one row: repeated columns merged into their first
 /// occurrence, summed in order.
 fn pack_row(r: &mut Vec<(u32, f64)>) {
@@ -346,4 +514,47 @@ fn pack_row(r: &mut Vec<(u32, f64)>) {
         }
     }
     *r = out;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elmer_core::{NullLogger, ParamMap, Value};
+
+    /// The contact case of `AddVectorConstraint`: `MortarBC % Active` picks
+    /// the rows, `MortarBC % Perm` gives the slave columns `SlaveScale` and
+    /// the weight, the master ones `MasterScale`, and the rhs is by
+    /// component.
+    #[test]
+    fn vector_rows_follow_the_active_mask() {
+        // Two slave nodes (0, 1) against two master nodes (2, 3).
+        let p = Projector {
+            rows: vec![0, 3, 6],
+            cols: vec![0, 1, 2, 0, 1, 3],
+            values: vec![0.5, 0.25, -0.75, 0.25, 0.5, -0.75],
+            inv_perm: vec![0, 1],
+            projector_bc: 1,
+            galerkin: true,
+            slave_scale: 1.0,
+            master_scale: -1.0,
+            mortar_perm: true,
+            rhs: Some(vec![1.0, 2.0, 3.0, 4.0]),
+            diag: None,
+            active: Some(vec![true, false, false, true]),
+        };
+        let mut solver = ParamMap::new();
+        solver.insert("Apply Contact BCs", Value::Logical(true));
+        let bc = ParamMap::new();
+        let bcs: Vec<&dyn Params> = vec![&bc];
+        let perm: Vec<u32> = vec![0, 1, 2, 3];
+        let t = ConstraintTarget { solver: &solver, name: "displacement", dofs: 2, dim: 2, perm: &perm, n_rows: 8 };
+        let c = generate_constraint_matrix(&bcs, &[Some(p)], &t, &NullLogger).unwrap().unwrap();
+        assert_eq!(c.n_rows(), 2);
+        // Row 0: node 0, x; row 1: node 1, y.
+        assert_eq!(c.inv_perm, vec![0, 3]);
+        assert_eq!(c.cols, vec![0, 2, 4, 1, 3, 7]);
+        assert_eq!(c.values, vec![0.5, 0.25, 0.75, 0.25, 0.5, 0.75]);
+        // wsum is the slave weight: 0.75 per row.
+        assert_eq!(c.rhs, vec![0.75 * 1.0, 0.75 * 4.0]);
+    }
 }
