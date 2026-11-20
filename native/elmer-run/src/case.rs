@@ -933,6 +933,9 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     for p in model.solvers.iter_mut().filter(|p| elmer_physics_datatofield::is_section(p)) {
         elmer_physics_datatofield::init_section(p);
     }
+    for p in model.solvers.iter_mut().filter(|p| elmer_physics_isosurface::is_section(p)) {
+        elmer_physics_isosurface::init_section(p);
+    }
     let mut sim = Simulation::new(model);
     sim.backends.fe = Some(fe_backend(coords.dim));
     // Solver sections with a non-nodal `Element`; `p:%f` degrees are

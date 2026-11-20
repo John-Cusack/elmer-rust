@@ -706,6 +706,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "elmer-physics-isosurface"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-solver",
+]
+
+[[package]]
 name = "elmer-physics-magneto"
 version = "0.1.0"
 dependencies = [
@@ -805,6 +813,7 @@ dependencies = [
  "elmer-physics-flux",
  "elmer-physics-heat",
  "elmer-physics-incompressible",
+ "elmer-physics-isosurface",
  "elmer-physics-magneto",
  "elmer-physics-meshtools",
  "elmer-physics-scalar",
