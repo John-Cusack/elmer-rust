@@ -417,11 +417,23 @@ fn refnorm_one(
     let Ok(plan) = plan_test(&spec, &runtest, np, arm) else {
         return skip("plan error");
     };
-    if plan.custom.is_some() {
-        return skip("custom runtest (replay)");
-    }
+    // A custom `runtest.cmake` is replayed through `cmake -P` with the
+    // arm's recorded registration, as `capture` does; the injection reaches
+    // its sifs the same way.
+    let registered = match &plan.custom {
+        None => None,
+        Some(_) => {
+            let reg = read_registry_under(&arm.build_dir.join("fem").join("tests"))
+                .ok()
+                .and_then(|r| r.into_iter().find(|t| t.name == test && t.np == np));
+            match reg {
+                Some(r) => Some(r),
+                None => return skip("custom runtest without a registration to replay"),
+            }
+        }
+    };
     let solver_steps = plan.steps.iter().filter(|s| matches!(s, Step::Solver { .. })).count();
-    if solver_steps != 1 {
+    if registered.is_none() && solver_steps != 1 {
         return skip("several solver runs");
     }
     let text: String = std::fs::read(src.join(&sif))
@@ -546,12 +558,16 @@ fn refnorm_one(
             exit_verdict: false,
         };
         // Same in-memory-mesh retry as `capture`.
-        let mut result = run_plan(arm, &spec, &plan, &src, run_dir, &staging);
+        let go = |staging: &Staging| match &registered {
+            Some(reg) => run_replay(arm, reg, &src, run_dir, staging),
+            None => run_plan(arm, &spec, &plan, &src, run_dir, staging),
+        };
+        let mut result = go(&staging);
         if result.as_ref().is_ok_and(|o| !o.passed) {
             let missing = missing_output_dirs(run_dir);
             if !missing.is_empty() && std::fs::remove_dir_all(run_dir).is_ok() {
                 staging.mkdirs = missing;
-                result = run_plan(arm, &spec, &plan, &src, run_dir, &staging);
+                result = go(&staging);
             }
         }
         result
