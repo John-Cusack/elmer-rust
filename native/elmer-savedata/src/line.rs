@@ -499,7 +499,8 @@ impl Solver for SaveLine {
                 for (i, &n) in line.nodes.iter().enumerate() {
                     perm[n] = i as u32;
                 }
-                ctx.calculate_nodal_weights(true, &perm, &format!("{} Weights", plan.mask))?;
+                let name = format!("{} Weights", plan.mask);
+                ctx.calculate_nodal_weights(true, &perm, &name, &name)?;
             }
             self.line = Some(line);
         }

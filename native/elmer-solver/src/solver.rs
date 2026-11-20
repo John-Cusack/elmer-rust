@@ -1680,8 +1680,8 @@ impl<'a> SolverCtx<'a> {
     /// (SolverBasics.F90): the integral of each basis function over the
     /// boundary (or bulk) elements whose nodes all have a slot in `perm`,
     /// into the nodal variable `var_name` on `perm` (created when missing).
-    /// When some BC (Body Force) gives `var_name` only its elements count.
-    pub fn calculate_nodal_weights(&mut self, at_boundary: bool, perm: &[u32], var_name: &str) -> Result<(), SolverError> {
+    /// When some BC (Body Force) gives `mask_name` only its elements count.
+    pub fn calculate_nodal_weights(&mut self, at_boundary: bool, perm: &[u32], var_name: &str, mask_name: &str) -> Result<(), SolverError> {
         const CALLER: &str = "CalculateNodalWeights";
         let model = &self.sim.model;
         let cs = model.simulation.string("coordinate system").unwrap_or("cartesian").to_ascii_lowercase();
@@ -1689,10 +1689,11 @@ impl<'a> SolverCtx<'a> {
             return Err(SolverError::Unsupported("CalculateNodalWeights in non-Cartesian coordinates".into()));
         }
         let key = normalize_key(var_name);
+        let mask = normalize_key(mask_name);
         let use_mask = if at_boundary {
-            model.boundary_conditions.iter().any(|b| b.get(&key).is_some())
+            model.boundary_conditions.iter().any(|b| b.get(&mask).is_some())
         } else {
-            model.body_forces.iter().any(|b| b.get(&key).is_some())
+            model.body_forces.iter().any(|b| b.get(&mask).is_some())
         };
         if !at_boundary && use_mask {
             return Err(SolverError::Unsupported("CalculateNodalWeights masked by a Body Force".into()));
@@ -1718,7 +1719,7 @@ impl<'a> SolverCtx<'a> {
                 let Some(bc) = model.bc_of_tag(el.tag).and_then(|b| model.boundary_conditions.get(b - 1)) else {
                     continue;
                 };
-                if bc.get(&key).is_none() {
+                if bc.get(&mask).is_none() {
                     continue;
                 }
             }
@@ -1741,6 +1742,28 @@ impl<'a> SolverCtx<'a> {
             None => {
                 self.sim.vars.add(crate::Variable::new(&key, elmer_core::FieldKind::Nodal, 1, Some(perm.into()), w))?;
             }
+        }
+        Ok(())
+    }
+
+    /// `CalculateNodalWeights(Solver, .FALSE.)` / `(Solver, .TRUE.)` of
+    /// SolverActivate: `<Var> Weights` over the bulk and `<Var> Boundary
+    /// Weights` over the boundary, on the solver's permutation, masked by
+    /// `Calculate <name>`. Nothing for a solver without a permuted variable.
+    pub fn library_nodal_weights(&mut self, bulk: bool, boundary: bool) -> Result<(), SolverError> {
+        let Some(v) = self.primary() else { return Ok(()) };
+        let Some(perm) = v.perm.map(|p| p.to_vec()) else { return Ok(()) };
+        if v.dofs != 1 {
+            return Err(SolverError::Unsupported("Calculate Weights on a multi-component field".into()));
+        }
+        let name = v.name.to_string();
+        if bulk {
+            let w = format!("{name} weights");
+            self.calculate_nodal_weights(false, &perm, &w, &format!("calculate {w}"))?;
+        }
+        if boundary {
+            let w = format!("{name} boundary weights");
+            self.calculate_nodal_weights(true, &perm, &w, &format!("calculate {w}"))?;
         }
         Ok(())
     }
