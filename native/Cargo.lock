@@ -747,6 +747,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "elmer-physics-particle"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-fe",
+ "elmer-interp",
+ "elmer-itermethods",
+ "elmer-solver",
+]
+
+[[package]]
 name = "elmer-physics-scalar"
 version = "0.1.0"
 dependencies = [
@@ -816,6 +827,7 @@ dependencies = [
  "elmer-physics-isosurface",
  "elmer-physics-magneto",
  "elmer-physics-meshtools",
+ "elmer-physics-particle",
  "elmer-physics-scalar",
  "elmer-physics-shell",
  "elmer-physics-thermoelectric",
