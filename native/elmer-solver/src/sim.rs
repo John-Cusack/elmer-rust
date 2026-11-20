@@ -434,6 +434,11 @@ impl Simulation {
     /// mesh node `i` (`ParallelInfo % NeighbourList(i) % Neighbours(1) ==
     /// MyPE`). `Nonlinear System Consistent Norm` then counts each shared
     /// dof once, on its owner (`ComputeNorm`, SolverBasics.F90:3216).
+    /// The non-nodal dofs of slot `ix` (`None` for a nodal solver).
+    pub fn slot_dofs(&self, ix: usize) -> Option<Arc<dyn crate::SolverDofs>> {
+        self.slots[ix].dofs.clone()
+    }
+
     pub fn set_node_owned(&mut self, owned: Arc<[bool]>) {
         self.node_owned = Some(owned);
     }

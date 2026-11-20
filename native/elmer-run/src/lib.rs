@@ -36,6 +36,7 @@
 pub mod case;
 pub mod compose;
 pub mod engine;
+mod lagrange;
 pub mod matc;
 pub mod mesh_db;
 mod mortar;

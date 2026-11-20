@@ -182,6 +182,10 @@ pub struct VtuOptions {
     /// The mesh's `Element % DGIndexes`, supplied by the caller for a
     /// discontinuous write.
     pub dg_layout: Option<std::sync::Arc<DgLayout>>,
+    /// `Lagrange Element Degree` (`LagN`): the caller supplies a mesh of
+    /// Lagrange cells (`GetLagrangeIndexes` order, not reordered for VTK)
+    /// with the fields on their points.
+    pub lagrange_degree: usize,
 }
 
 /// `Element % DGIndexes` of every bulk and boundary element (0-based,
@@ -232,6 +236,7 @@ impl Default for VtuOptions {
             discontinuous_bodies: false,
             average_within_materials: true,
             dg_layout: None,
+            lagrange_degree: 0,
         }
     }
 }
@@ -323,9 +328,7 @@ impl VtuOptions {
                 o.unsupported.push((*k).to_string());
             }
         }
-        if p.integer("lagrange element degree").unwrap_or(0) > 0 {
-            o.unsupported.push("lagrange element degree".to_string());
-        }
+        o.lagrange_degree = p.integer("lagrange element degree").unwrap_or(0).max(0) as usize;
         o
     }
 
