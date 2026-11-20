@@ -17,7 +17,7 @@ pub mod curve;
 pub mod udf;
 
 pub use compiled::{compile, compile_with, CompileOptions, Compiled, ExprError};
-pub use udf::{current_element, set_current_element, ArrayFn, ConstFn, CurrentElement, NodeFn, Udf, UdfRegistry};
+pub use udf::{current_coords, current_element, set_current_coords, set_current_element, ArrayFn, ConstFn, CurrentElement, NodeFn, Udf, UdfRegistry};
 
 /// Marker for "no value at this node", the `HUGE(1.0_dp)` sentinel of
 /// `VarsToValuesOnNodes`. A property whose dependency is missing at a node

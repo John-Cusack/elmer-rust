@@ -380,6 +380,76 @@ impl<'a> SolverCtx<'a> {
         }
     }
 
+    /// `SetFrictionBoundaries` (BoundaryConditionUtils.F90:2454), part of
+    /// SetDirichletBoundaries' variable-level call (`DOF = -1`) for a vector
+    /// variable: at every node of a boundary with `Friction BC <var>`, the
+    /// tangential row becomes itself minus `Friction Coefficient <var>`
+    /// times the normal row (`Normal-Tangential <var>` makes component 1
+    /// the normal one, else `Friction Normal Component <var>`), matrix and
+    /// right-hand side, once per node in boundary element order.
+    fn friction_boundaries(&mut self) -> Result<(), SolverError> {
+        let Some(id) = self.sim.slots[self.slot].variable else { return Ok(()) };
+        let (name, dofs, perm) = {
+            let v = self.sim.vars.by_id(id);
+            (v.name.to_lowercase(), v.dofs, v.perm.clone())
+        };
+        let key = format!("friction bc {name}");
+        if dofs < 2 || !self.sim.model.boundary_conditions.iter().any(|bc| bc.get(&key).is_some()) {
+            return Ok(());
+        }
+        let Some(perm) = perm else { return Ok(()) };
+        if dofs != 2 {
+            self.log.warn("SetFrictionBoundaries", "Assumes friction only in 2D system");
+        }
+        // (row, coefficient, normal component) in the order the Fortran applies them.
+        let mut ops: Vec<(usize, f64, usize)> = Vec::new();
+        let mut done = vec![false; perm.len()];
+        let elems: Vec<ElemId> = self.boundary_elements().collect();
+        for e in elems {
+            let bc = self.bc_params(e).expect("boundary element with a BC").clone();
+            if bc.logical(&key) != Some(true) {
+                continue;
+            }
+            let coeff = self
+                .real_at_nodes(&bc, &format!("friction coefficient {name}"), e)?
+                .ok_or_else(|| SolverError::fatal("SetFrictionBoundaries", format!("no 'Friction Coefficient {name}'")))?;
+            let normal = if bc.logical(&format!("normal-tangential {name}")) == Some(true) {
+                1
+            } else {
+                bc.integer(&format!("friction normal component {name}")).unwrap_or(0).max(0) as usize
+            };
+            if !(1..=2).contains(&normal) {
+                return Err(SolverError::fatal("SetFrictionBoundaries", "Friction Normal Component must be 1 or 2"));
+            }
+            for (i, &node) in self.mesh.element(e).nodes.iter().enumerate() {
+                let j = perm[node as usize];
+                if j == elmer_core::NO_DOF || done[j as usize] {
+                    continue;
+                }
+                ops.push((j as usize, coeff[i], normal));
+                done[j as usize] = true;
+            }
+        }
+        let sys = self.sim.slots[self.slot]
+            .system
+            .as_mut()
+            .ok_or_else(|| SolverError::fatal("SetFrictionBoundaries", "call default_initialize first"))?;
+        let a = &mut sys.matrix;
+        for (j, c, normal) in ops {
+            let k = dofs * j + normal - 1;
+            let k2 = dofs * j + (3 - normal) - 1;
+            for l in a.row_ptr[k]..a.row_ptr[k + 1] {
+                let col = a.col_idx[l];
+                let l2 = (a.row_ptr[k2]..a.row_ptr[k2 + 1]).find(|&l2| a.col_idx[l2] == col).ok_or_else(|| {
+                    SolverError::fatal("SetFrictionBoundaries", "normal and tangential rows of different patterns")
+                })?;
+                a.values[l2] -= c * a.values[l];
+            }
+            sys.rhs[k2] -= c * sys.rhs[k];
+        }
+        Ok(())
+    }
+
     /// `ListGetReal(section, key, n, Indexes)`: a scalar keyword at the
     /// nodes of element `e`, `None` when the section lacks it.
     pub fn real_at_nodes(&self, section: &ParamMap, key: &str, e: ElemId) -> Result<Option<Vec<f64>>, SolverError> {
@@ -394,7 +464,10 @@ impl<'a> SolverCtx<'a> {
     /// ([`elmer_expr::current_element`]), as `GetActiveElement` /
     /// `GetBoundaryElement` do in the Fortran loops.
     pub fn set_current_element(&self, e: ElemId) {
-        elmer_expr::set_current_element(e.0, self.mesh.element(e).nodes);
+        let nodes = self.mesh.element(e).nodes;
+        elmer_expr::set_current_element(e.0, nodes);
+        let xyz: Vec<[f64; 3]> = nodes.iter().map(|&n| self.mesh.coord(n)).collect();
+        elmer_expr::set_current_coords(&xyz);
     }
 
     /// `ListGetCReal(section, key)`: a scalar keyword at node 1, so it may
@@ -1381,6 +1454,7 @@ impl<'a> SolverCtx<'a> {
         crate::constraint_modes::set_boundaries(self, &mut fixed)?;
         let fixed: Vec<(u32, f64)> = fixed.into_iter().collect();
         self.lumped_rows()?;
+        self.friction_boundaries()?;
         let sim = &mut *self.sim;
         let backend = sim
             .backends
@@ -1753,10 +1827,9 @@ impl<'a> SolverCtx<'a> {
         let nullify = p.logical("linear system nullify guess") == Some(true)
             || (p.logical("linear system nullify first guess") == Some(true) && nonlin_iter.is_some_and(|i| i.round() <= 1.0));
         let nt_sys = slot.nt.clone().filter(|_| p.logical("back rotate n-t solution").unwrap_or(true));
-        if slot.nt.is_some() && (ca.is_some() || eliminate || residual_mode || crate::loads::keeps_bulk(p)?) {
+        if slot.nt.is_some() && (ca.is_some() || eliminate || residual_mode) {
             return Err(SolverError::Unsupported(
-                "normal-tangential systems with linear constraints, EliminateDirichlet, residual mode or Calculate Loads"
-                    .into(),
+                "normal-tangential systems with linear constraints, EliminateDirichlet or residual mode".into(),
             ));
         }
         if eliminate && ca.is_some() {
@@ -1845,14 +1918,26 @@ impl<'a> SolverCtx<'a> {
             } else {
                 sim.slots[slot_ix].lin_converged =
                     solve_linear(&sim.backends.linear, &env, p, &mut sys.matrix, b, x, bnorm, nullify, log, comm)?;
-                // SolveCore.F90:1744: the n-t solution back to Cartesian
-                // components (`Back Rotate N-T Solution`, default true).
-                if let (Some(nt), Some(perm)) = (nt_sys.as_ref(), var.perm.as_deref()) {
-                    nt.back_rotate(x, perm, var.dofs, mesh.dim());
-                }
                 var.values_changed = true;
-                // SolveCore.F90:1727-1741, then the change, then :1763-1771.
+                // SolveCore.F90:1727-1741: the loads (and boundary fluxes) of
+                // the n-t system, then :1744-1748 the solution and the loads
+                // back to Cartesian components (`Back Rotate N-T Solution`,
+                // default true); the change; :1763-1771 the residual.
                 sim.calculate_loads(slot_ix, n, true, mesh, log)?;
+                if let Some(nt) = nt_sys.as_ref() {
+                    let dim = mesh.dim();
+                    let var = sim.vars.by_id_mut(id);
+                    let (dofs, perm) = (var.dofs, var.perm.clone());
+                    if let Some(perm) = perm.as_deref() {
+                        nt.back_rotate(&mut var.values[..n], perm, dofs, dim);
+                        let lname = format!("{} loads", var.name);
+                        if let Some(lv) = sim.vars.get_mut(&lname) {
+                            if let Some(lp) = lv.perm.clone() {
+                                nt.back_rotate(&mut lv.values, &lp, dofs, dim);
+                            }
+                        }
+                    }
+                }
                 sim.compute_change(slot_ix, false, Some(n), true, mesh, log, comm)?;
                 sim.calculate_loads(slot_ix, n, false, mesh, log)?;
             }

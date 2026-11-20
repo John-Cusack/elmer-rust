@@ -166,6 +166,10 @@ impl Simulation {
                         if owner != Some(sec + 1) {
                             continue;
                         }
+                        // `CurrentModel % CurrentElement => Element`.
+                        elmer_expr::set_current_element(e.0, el.nodes);
+                        let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| mesh.coord(n)).collect();
+                        elmer_expr::set_current_coords(&xyz);
                         let w = crate::expr::eval_at_nodes_with(
                             val,
                             el.nodes,
