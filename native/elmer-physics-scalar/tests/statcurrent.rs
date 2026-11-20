@@ -74,6 +74,7 @@ fn current_time_table_and_current_density_match_elmer() {
             x: vec![1.0, 2.0, 3.0],
             y: vec![1.0e-3, 1.0e-4, 1.0e-4],
             cubic: false,
+            monotone: false,
         },
         rows: 1,
         cols: 1,

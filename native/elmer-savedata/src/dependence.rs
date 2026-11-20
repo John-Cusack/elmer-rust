@@ -36,8 +36,8 @@ fn list_get_fun(ctx: &SolverCtx<'_>, v: &Value, x: f64, der: bool) -> Result<(f6
     match v {
         Value::Real { data, .. } if data.len() == 1 => Ok((data[0], 0.0)),
         Value::Dependent(d) => match &d.kind {
-            DependentKind::Table { x: tv, y: fv, cubic } => {
-                let spline = cubic.then(|| cubic_spline(tv, fv, false));
+            DependentKind::Table { x: tv, y: fv, cubic, monotone } => {
+                let spline = cubic.then(|| cubic_spline(tv, fv, *monotone));
                 Ok((interpolate_curve(tv, fv, x, spline.as_deref()), derivate_curve(tv, fv, x, spline.as_deref())))
             }
             DependentKind::Matc(expr) if !der => {

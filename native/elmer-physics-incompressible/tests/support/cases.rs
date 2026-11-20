@@ -47,6 +47,7 @@ pub fn table(axis: usize, pts: &[(f64, f64)]) -> Value {
             x: pts.iter().map(|p| p.0).collect(),
             y: pts.iter().map(|p| p.1).collect(),
             cubic: false,
+            monotone: false,
         },
         rows: 1,
         cols: 1,

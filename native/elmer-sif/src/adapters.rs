@@ -91,7 +91,7 @@ fn entry_to_value(e: &Entry) -> Value {
             };
             Value::Dependent(Dependent {
                 variables: vec![t.dep.clone()],
-                kind: DependentKind::Table { x, y, cubic: t.cubic },
+                kind: DependentKind::Table { x, y, cubic: t.cubic, monotone: t.monotone },
                 rows: t.n1,
                 cols: t.n2,
             })

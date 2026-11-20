@@ -744,8 +744,8 @@ fn mesh_density(sim: &ParamMap, t: f64) -> Result<f64, String> {
         return Err("Extruded Mesh Density is not a function".into());
     };
     match &d.kind {
-        DependentKind::Table { x, y, cubic } => {
-            let spline = cubic.then(|| elmer_expr::curve::cubic_spline(x, y, false));
+        DependentKind::Table { x, y, cubic, monotone } => {
+            let spline = cubic.then(|| elmer_expr::curve::cubic_spline(x, y, *monotone));
             Ok(elmer_expr::curve::interpolate_curve(x, y, t, spline.as_deref()))
         }
         DependentKind::Matc(expr) => SifMatc.eval(expr, &[t])?.first().copied().ok_or_else(|| format!("MATC {expr}: no value")),

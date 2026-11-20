@@ -13,7 +13,7 @@ use support::cases::{a2d, run};
 fn table(var: &str, x: &[f64], y: &[f64]) -> Value {
     Value::Dependent(Dependent {
         variables: vec![var.into()],
-        kind: DependentKind::Table { x: x.to_vec(), y: y.to_vec(), cubic: false },
+        kind: DependentKind::Table { x: x.to_vec(), y: y.to_vec(), cubic: false, monotone: false },
         rows: 1,
         cols: 1,
     })
