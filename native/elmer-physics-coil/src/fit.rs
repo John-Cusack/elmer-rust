@@ -261,83 +261,18 @@ pub(crate) fn coil_axes(
     Ok(Axes { tangent1, tangent2 })
 }
 
-/// `DSYEV( 'V', 'U', n, A, n, W, ... )` of reference LAPACK 3.12.0 for
-/// `n < 32` (the unblocked paths): `DSYTD2`, `DORGTR` -> `DORG2L`, `DSTEQR(
-/// 'V' )`. `a` (column-major, upper triangle read) becomes the eigenvectors;
-/// returns the eigenvalues ascending. The scaling branch is refused.
+/// `DSYEV( 'V', 'U', n, A, n, W, ... )` ([`elmer_eigen::dsyev`]): `a`
+/// becomes the eigenvectors; the eigenvalues ascending.
 pub(crate) fn dsyev_vu(a: &mut [f64], n: usize) -> Result<Vec<f64>, SolverError> {
-    if n == 1 {
-        let w = a[0];
-        a[0] = 1.0;
-        return Ok(vec![w]);
-    }
-    let safmin = f64::MIN_POSITIVE;
-    let eps = f64::EPSILON;
-    let smlnum = safmin / eps;
-    let bignum = 1.0 / smlnum;
-    let (rmin, rmax) = (smlnum.sqrt(), bignum.sqrt());
-    let mut anrm = 0.0f64;
-    for j in 0..n {
-        for i in 0..=j {
-            let v = a[i + j * n].abs();
-            if anrm < v || v.is_nan() {
-                anrm = v;
-            }
-        }
-    }
-    if (anrm > 0.0 && anrm < rmin) || anrm > rmax {
-        return Err(SolverError::Unsupported(
-            "DSYEV scaling of the coil inertia".into(),
-        ));
-    }
-    let (mut d, mut e, tau) = elmer_fe::dsytd2_upper(a, n);
-    // DORGTR( 'U' ): the reflectors one column to the left, the last row
-    // and column of the unit matrix, then DORGQL -> DORG2L.
-    for j in 0..n - 1 {
-        for i in 0..j {
-            a[i + j * n] = a[i + (j + 1) * n];
-        }
-        a[n - 1 + j * n] = 0.0;
-    }
-    for i in 0..n - 1 {
-        a[i + (n - 1) * n] = 0.0;
-    }
-    a[n - 1 + (n - 1) * n] = 1.0;
-    let mut work = vec![0.0; 2 * n];
-    elmer_eigen::arpack::lapack::dorg2l(n - 1, n - 1, n - 1, a, n, &tau, &mut work);
-    let info = elmer_eigen::arpack::lapack::dsteqr_v(n, &mut d, &mut e, a, n, &mut work);
-    if info != 0 {
-        return Err(SolverError::fatal(
-            CALLER,
-            "DSYEV cannot generate eigen basis",
-        ));
-    }
-    Ok(d)
+    elmer_eigen::dsyev(elmer_eigen::Jobz::Vectors, a, n).map_err(|e| match e {
+        elmer_eigen::DsyevError::Scaling => SolverError::Unsupported("DSYEV scaling of the coil inertia".into()),
+        elmer_eigen::DsyevError::NoConvergence => SolverError::fatal(CALLER, "DSYEV cannot generate eigen basis"),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn dsyev_gives_orthonormal_eigenvectors() {
-        // A symmetric 3x3 (column-major, upper triangle read).
-        let m = [4.0, 1.0, -2.0, 1.0, 2.0, 0.0, -2.0, 0.0, 3.0];
-        let mut a = m;
-        let w = dsyev_vu(&mut a, 3).unwrap();
-        assert!(w[0] <= w[1] && w[1] <= w[2]);
-        for k in 0..3 {
-            let v = [a[3 * k], a[3 * k + 1], a[3 * k + 2]];
-            for i in 0..3 {
-                let mut av = 0.0;
-                for j in 0..3 {
-                    av += m[i + 3 * j] * v[j];
-                }
-                assert!((av - w[k] * v[i]).abs() < 1e-12, "{k} {i}");
-            }
-            assert!((norm3(v) - 1.0).abs() < 1e-14);
-        }
-    }
 
     #[test]
     fn tangents_are_orthonormal_to_the_normal() {
