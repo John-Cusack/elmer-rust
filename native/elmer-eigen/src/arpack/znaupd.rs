@@ -462,7 +462,7 @@ fn znapps(
 /// `ZNEIGH(rnorm, n, h, ldh, ritz, bounds, q, ldq, workl, rwork, ierr)`:
 /// the eigenvalues of `H` and their Ritz estimates. `workl` (at least `n *
 /// n + 2 n`) gets the Schur form; `q` the eigenvectors. Returns `ierr`.
-fn zneigh(rnorm: f64, n: usize, h: &[C], ldh: usize, ritz: &mut [C], bounds: &mut [C], q: &mut [C], ldq: usize, workl: &mut [C]) -> usize {
+pub fn zneigh(rnorm: f64, n: usize, h: &[C], ldh: usize, ritz: &mut [C], bounds: &mut [C], q: &mut [C], ldq: usize, workl: &mut [C]) -> usize {
     zlacpy(n, n, h, ldh, workl, n);
     zlaset(n, n, ZERO, ONE, q, ldq);
     let ierr = zlahqr(true, true, n, 1, n, workl, ldh, ritz, 1, n, q, ldq);
