@@ -118,7 +118,7 @@ fn nodal_average(ctx: &mut SolverCtx<'_>, var: &str) -> Result<(), SolverError> 
 
 /// `FindParentUVW`: the parent's reference coordinates at a point of
 /// `face` (whose basis values there are `fb`).
-fn parent_uvw(face: &[u32], parent: &[u32], ptype: ElementType, fb: &[f64]) -> Result<[f64; 3], SolverError> {
+pub(crate) fn parent_uvw(face: &[u32], parent: &[u32], ptype: ElementType, fb: &[f64]) -> Result<[f64; 3], SolverError> {
     let def = elmer_fe::element_type(ptype.0).map_err(|e| SolverError::fatal("FindParentUVW", e.to_string()))?;
     let mut nu = [vec![0.0; face.len()], vec![0.0; face.len()], vec![0.0; face.len()]];
     for (i, f) in face.iter().enumerate() {
@@ -135,7 +135,7 @@ fn parent_uvw(face: &[u32], parent: &[u32], ptype: ElementType, fb: &[f64]) -> R
 
 /// `NormalVector(Face, Nodes, u, v, .FALSE.)` of a line in 2D: the
 /// unoriented unit normal `(-y', x')`.
-fn line_normal(xyz: &[[f64; 3]], u: f64) -> [f64; 3] {
+pub(crate) fn line_normal(xyz: &[[f64; 3]], u: f64) -> [f64; 3] {
     let d: Vec<f64> = match xyz.len() {
         2 => vec![-0.5, 0.5],
         _ => vec![u - 0.5, u + 0.5, -2.0 * u],
