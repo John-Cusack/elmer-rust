@@ -267,16 +267,16 @@ fn idrs_is_deterministic_for_a_seed() {
     let a = nonsym(N);
     let b = rhs_real(N);
     let run = |seed| {
-        let c = IterMethodsConfig {
-            random_seed: seed,
-            ..cfg("idrs")
-        };
-        solve_real(&mut Idrs::<f64>::new(&c), &a, &b)
+        elmer_itermethods::initialize_random_seed(seed);
+        solve_real(&mut Idrs::<f64>::new(&cfg("idrs")), &a, &b)
     };
     let (x1, s1) = run(7);
     let (x2, s2) = run(7);
     assert_eq!(x1, x2);
     assert_eq!(s1.iterations, s2.iterations);
+    // Without a new seed the stream goes on: another shadow space.
+    let (x3, _) = solve_real(&mut Idrs::<f64>::new(&cfg("idrs")), &a, &b);
+    assert_ne!(x1, x3);
 }
 
 #[test]

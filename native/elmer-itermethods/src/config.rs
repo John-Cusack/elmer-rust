@@ -88,7 +88,9 @@ pub struct IterMethodsConfig {
     /// IterSolve.F90:1000 sets `x = 1e-8` before BiCGStab-family calls when the
     /// initial guess is all zero. `None` skips it for callers that did it.
     pub zero_guess_fill: Option<f64>,
-    /// IDR(s) shadow-space seed (`Simulation: Random Number Seed`, default 314159265).
+    /// The seed of the IDR(s) shadow-space stream when this thread has not
+    /// seeded it ([`crate::initialize_random_seed`]): `Random Number Seed`,
+    /// default 314159265.
     pub random_seed: u64,
 }
 

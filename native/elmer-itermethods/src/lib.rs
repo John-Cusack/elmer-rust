@@ -34,6 +34,7 @@ pub use bicgstabl::BiCgStabL;
 pub use config::{IterMethod, IterMethodsConfig, PseudoComplex, RobustConfig};
 pub use gcr::Gcr;
 pub use idrs::Idrs;
+pub use rng::initialize_random_seed;
 pub use scalar::IterScalar;
 pub use stationary::{Jacobi, Richardson, Sgs};
 

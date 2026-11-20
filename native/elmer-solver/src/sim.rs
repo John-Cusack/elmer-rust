@@ -468,6 +468,10 @@ impl Simulation {
         log: &dyn Logger,
         comm: &dyn Communicator,
     ) -> Result<(), SolverError> {
+        // InitializeRandomSeed (ElmerSolver.F90:874): the RANDOM_NUMBER
+        // stream IDR(s) draws its shadow spaces from.
+        let seed = self.model.simulation.integer("random number seed").unwrap_or(314_159_265);
+        elmer_itermethods::initialize_random_seed(seed);
         // MeshLoad's MapInternalExternalBCs.
         let bc = |k: &str| self.model.boundary_conditions.iter().rposition(|b| b.logical(k) == Some(true));
         let (int_bc, ext_bc) = (bc("default internal bc"), bc("default external bc"));
