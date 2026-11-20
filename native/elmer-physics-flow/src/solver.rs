@@ -168,7 +168,7 @@ fn check_body(eq: Option<&ParamMap>, mat: Option<&ParamMap>, bf: Option<&ParamMa
             let c = elmer_core::normalize_key(c);
             if matches!(
                 c.as_str(),
-                "perfect gas" | "perfect gas equation 1" | "thermal" | "user defined" | "pressure dependent"
+                "perfect gas" | "perfect gas equation 1" | "user defined" | "pressure dependent"
                     | "artificial compressible"
             ) {
                 return Err(unsupported(format!("Compressibility Model = {c}")));
@@ -220,6 +220,28 @@ fn surface_tension(ctx: &SolverCtx<'_>, bc: &ParamMap, e: ElemId, n: usize) -> R
         None => alpha.clone(),
     };
     Ok((alpha, beta))
+}
+
+/// FlowSolve.F90:916-932: `Density * (1 - Heat Expansion Coefficient *
+/// (T - Reference Temperature))`, `T` the `Temperature` at the nodes when
+/// all of them have one, else zero.
+fn thermal_density(ctx: &SolverCtx<'_>, mat: Option<&ParamMap>, e: ElemId, n: usize, density: &mut [f64]) -> Result<(), SolverError> {
+    let beta = nodal(ctx, mat, "heat expansion coefficient", e, n)?;
+    let t0 = nodal(ctx, mat, "reference temperature", e, n)?;
+    let mut temp = vec![0.0; n];
+    if let Some(v) = ctx.variable("temperature") {
+        let nodes = ctx.mesh.element(e).nodes;
+        let slot = |k: u32| v.perm.map_or(Some(k), |p| (p[k as usize] != NO_DOF).then(|| p[k as usize]));
+        if nodes.iter().all(|&k| slot(k).is_some()) {
+            for (t, &k) in temp.iter_mut().zip(nodes) {
+                *t = v.values[slot(k).expect("checked") as usize * v.dofs];
+            }
+        }
+    }
+    for k in 0..n {
+        density[k] *= 1.0 - beta[k] * (temp[k] - t0[k]);
+    }
+    Ok(())
 }
 
 /// FlowSolve.F90:940-958: with `Porous Media`, `Porous Resistivity` at the
@@ -607,13 +629,28 @@ impl Solver for FlowSolver {
                     .map(|k| std::array::from_fn(|i| if i < vdim { values[dofs[k * nsdofs + i] as usize] } else { 0.0 }))
                     .collect();
 
-                let density = nodal(ctx, mat, "density", e, n)?;
+                let thermal = mat
+                    .and_then(|m| m.string("compressibility model"))
+                    .is_some_and(|c| elmer_core::normalize_key(c) == "thermal");
+                let mut density = nodal(ctx, mat, "density", e, n)?;
+                if thermal {
+                    if cyl {
+                        return Err(unsupported("Compressibility Model = thermal in Cylindric Symmetric coordinates"));
+                    }
+                    if transient {
+                        return Err(unsupported("transient Compressibility Model = thermal (PrevDensity)"));
+                    }
+                    thermal_density(ctx, mat, e, n, &mut density)?;
+                }
                 let viscosity = nodal(ctx, mat, "viscosity", e, n)?;
                 let porous = porous_resistivity(ctx, mat, e, n, vdim)?;
                 if porous.is_some() && cyl {
                     return Err(unsupported("porous media in Cylindric Symmetric coordinates"));
                 }
-                let bubbles = !cyl && stabilize_flag == "bubbles";
+                // NavierStokesCompose takes bubbles on a linear element of a
+                // compressible model whatever the method (and FlowSolve.F90:1128
+                // condenses them).
+                let bubbles = !cyl && (stabilize_flag == "bubbles" || thermal);
                 if bubbles {
                     if pe.is_some() {
                         return Err(unsupported("Bubbles on p elements (element bubbles)"));
@@ -719,6 +756,7 @@ impl Solver for FlowSolver {
                     omega: angular_velocity(bf)?,
                     bubbles,
                     porous: porous.as_deref(),
+                    thermal,
                     power_law: power_law.then_some(PowerLaw {
                         exponent: &exponent,
                         critical: critical.as_deref(),
