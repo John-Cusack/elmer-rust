@@ -1,0 +1,278 @@
+//! Moving a running simulation onto a new mesh, as adaptive mesh
+//! refinement does (Adaptive.F90 `RefineMesh`): every variable is
+//! interpolated from the old mesh (`VariableGet( NewMesh % Variables, Name,
+//! ThisOnly = .FALSE. )`, with the mesh projector of
+//! `InterpolateMeshToMesh`), then every solver is moved to the new mesh
+//! (`UpdateSolverMesh`) keeping its state.
+//!
+//! The interface:
+//!
+//! - a solver calls [`SolverCtx::request_mesh_change`] with the new mesh;
+//! - [`Simulation::run`] finishes the steady-state iteration on the old
+//!   mesh, saves it (`SaveCurrent` of the mesh the solution lives on), then
+//!   calls [`Simulation::swap_mesh`] and goes on with the new mesh;
+//! - [`SolverCtx::set_adaptive_finished`] marks the mesh converged
+//!   (`Mesh % AdaptiveFinished`), which overrides the steady-state
+//!   convergence of the solver (SolveEquations, MainUtils.F90:3502);
+//! - the runner gives a [`MeshWriterFactory`] that makes the result writer
+//!   of each new mesh (each mesh writes its own `<mesh name>/case.result`).
+//!
+//! Refused for now: transient runs, coupled and block systems, solvers on
+//! other than nodal variables, p and DG layouts, conforming assembly, n-t
+//! systems and more than one partition (and the runner refuses periodic
+//! assembly).
+
+use std::sync::Arc;
+
+use elmer_core::{Communicator, FieldKind, Logger, MeshView, Params, NO_DOF};
+use elmer_interp::field::FieldData;
+use elmer_interp::transfer::{build_projector, Extras};
+use elmer_interp::{InterpOptions, Locator};
+
+use crate::error::SolverError;
+use crate::sim::{SaveCurrent, Simulation};
+use crate::variable::{Variable, VariableStore};
+
+/// A new mesh a solver asks the run to move to after the current save.
+#[derive(Clone)]
+pub struct MeshChange {
+    pub mesh: Arc<dyn MeshView + Send + Sync>,
+    /// `NewMesh % Name`, the directory of its results.
+    pub name: String,
+}
+
+/// Makes the result writer of a mesh from its name.
+pub type MeshWriterFactory =
+    Box<dyn FnMut(&str, &Simulation) -> Result<Option<Box<dyn SaveCurrent>>, SolverError>>;
+
+/// The run's adaptive-mesh state.
+#[derive(Default)]
+pub struct AdaptiveMeshes {
+    pub(crate) pending: Option<MeshChange>,
+    /// `Mesh % AdaptiveFinished` of the current mesh.
+    pub(crate) finished: bool,
+    /// `Mesh % AdaptiveDepth` of the current mesh.
+    pub(crate) depth: usize,
+    pub(crate) writer: Option<MeshWriterFactory>,
+    /// Name of the current mesh, empty for the run's first mesh.
+    pub(crate) name: String,
+}
+
+fn unsupported(what: &str) -> SolverError {
+    SolverError::Unsupported(format!("adaptive mesh change: {what}"))
+}
+
+impl Simulation {
+    /// Installs the factory of the per-mesh result writers.
+    pub fn set_mesh_writer_factory(&mut self, f: MeshWriterFactory) {
+        self.adaptive.writer = Some(f);
+    }
+
+    /// `Mesh % AdaptiveDepth` of the current mesh (0 for the first).
+    pub fn adaptive_depth(&self) -> usize {
+        self.adaptive.depth
+    }
+
+    /// `Mesh % AdaptiveFinished` of the current mesh.
+    pub fn adaptive_finished(&self) -> bool {
+        self.adaptive.finished
+    }
+
+    /// The pending mesh change, if a solver asked for one.
+    pub fn has_pending_mesh(&self) -> bool {
+        self.adaptive.pending.is_some()
+    }
+
+    /// Checks that the run can move to another mesh at all.
+    fn check_swappable(&self, comm: &dyn Communicator) -> Result<(), SolverError> {
+        if comm.size() > 1 {
+            return Err(unsupported("more than one partition"));
+        }
+        if self.is_transient() || self.is_scanning() {
+            return Err(unsupported("a transient or scanning run"));
+        }
+        // Periodic assembly is refused by the runner, which installs it.
+        if self.backends.conforming.is_some() {
+            return Err(unsupported("conforming assembly"));
+        }
+        for slot in &self.slots {
+            if crate::coupled::is_coupled_system(&slot.params)
+                || slot.params.logical("block solver") == Some(true)
+            {
+                return Err(unsupported("coupled or block systems"));
+            }
+            if slot.nt.is_some() || !slot.children.is_empty() || slot.mg_meshes.is_some() {
+                return Err(unsupported(
+                    "n-t systems, child systems or multigrid meshes",
+                ));
+            }
+        }
+        for (_, v) in self.vars.iter() {
+            match v.kind {
+                FieldKind::Nodal | FieldKind::Global => {}
+                k => return Err(unsupported(&format!("the {k:?} variable {}", v.name))),
+            }
+        }
+        Ok(())
+    }
+
+    /// Moves the run from `old` to `new`: the slots are set up again on the
+    /// new mesh with their solver instances and run state kept, and every
+    /// nodal variable is interpolated (`InterpolateMeshToMesh` with the mesh
+    /// projector). Variables only the old mesh had get the identity
+    /// permutation, as RefineMesh's `VariableAdd` without a `Perm` gives
+    /// them; their norm (and the solvers') is that of the interpolated
+    /// values, as RefineMesh sets it.
+    pub fn swap_mesh(
+        &mut self,
+        old: &dyn MeshView,
+        new: &dyn MeshView,
+        log: &dyn Logger,
+        comm: &dyn Communicator,
+    ) -> Result<(), SolverError> {
+        self.check_swappable(comm)?;
+        let opts = InterpOptions::from_params(&self.model.simulation, None);
+        let loc = Locator::new(old, opts)
+            .map_err(|e| SolverError::fatal("InterpolateMeshToMesh", e.to_string()))?;
+        let fe = self
+            .backends
+            .fe
+            .as_ref()
+            .ok_or_else(|| SolverError::NotWired("basis and quadrature (elmer-fe)".into()))?;
+        let extras = Extras {
+            body_mask: None,
+            new_mask_perm: None,
+            old_dg: None,
+            new_dg: None,
+        };
+        let projector = build_projector(&loc, new, fe.basis.as_ref(), &extras, log)
+            .map_err(|e| SolverError::fatal("InterpolateMeshToMesh", e.to_string()))?;
+
+        // The new store keeps the globals; the slots rebuild their fields.
+        let old_vars = std::mem::replace(&mut self.vars, VariableStore::new());
+        for (id, v) in old_vars.iter() {
+            if v.kind == FieldKind::Global {
+                let comps = old_vars.component_names(id);
+                self.vars.add_with_components(v.clone(), &comps)?;
+            }
+        }
+        self.dg_indexes = None;
+        self.clear_node_owned();
+        self.p_ndeg_parts = None;
+        self.p_element_nodes = None;
+        let old_slots = std::mem::take(&mut self.slots);
+        for mut o in old_slots {
+            let Some(mut s) = self.build_slot(o.id - 1, new, None, false)? else {
+                continue;
+            };
+            s.instance = o.instance.take();
+            s.times_visited = o.times_visited;
+            s.done_time = o.done_time;
+            s.dt = o.dt;
+            s.state = o.state;
+            s.null_norm = o.null_norm;
+            s.order = o.order;
+            s.started = o.started;
+            s.finished = o.finished;
+            s.lin_converged = o.lin_converged;
+            self.slots.push(s);
+        }
+
+        // Every old nodal field onto the new mesh, component by component.
+        let n_new = new.n_nodes();
+        for (id, ov) in old_vars.iter() {
+            if ov.kind != FieldKind::Nodal || ov.values.len() == ov.dofs {
+                continue;
+            }
+            if self.vars.id(&ov.name).is_none() {
+                let comps = old_vars.component_names(id);
+                let perm = match &ov.perm {
+                    None => None,
+                    Some(p) if p.iter().all(|&k| k != NO_DOF) => None,
+                    Some(_) => return Err(unsupported(&format!(
+                        "{}: a field on part of the mesh that no solver of the new mesh defines",
+                        ov.name
+                    ))),
+                };
+                let mut v = Variable::new(
+                    &ov.name,
+                    FieldKind::Nodal,
+                    ov.dofs,
+                    perm,
+                    vec![0.0; n_new * ov.dofs],
+                );
+                v.output = ov.output;
+                v.secondary = ov.secondary;
+                self.vars.add_with_components(v, &comps)?;
+            }
+            let nid = self.vars.id(&ov.name).expect("added");
+            let nv = self.vars.by_id_mut(nid);
+            let dofs = ov.dofs;
+            if nv.dofs != dofs {
+                return Err(unsupported(&format!(
+                    "{}: different dofs on the new mesh",
+                    ov.name
+                )));
+            }
+            let old_perm: Option<Vec<u32>> = ov.perm.as_deref().map(|p| p.to_vec());
+            let new_perm: Option<Vec<u32>> = nv.perm.as_deref().map(|p| p.to_vec());
+            let nslots_old = ov.values.len() / dofs;
+            let nslots_new = nv.values.len() / dofs;
+            for k in 0..dofs {
+                let ou: Vec<f64> = (0..nslots_old).map(|s| ov.values[dofs * s + k]).collect();
+                let old_f = FieldData {
+                    name: ov.name.clone(),
+                    location: elmer_interp::Location::Nodes,
+                    values: ou,
+                    perm: old_perm.clone(),
+                    prev_values: Vec::new(),
+                };
+                let mut new_f = vec![FieldData {
+                    name: ov.name.clone(),
+                    location: elmer_interp::Location::Nodes,
+                    values: (0..nslots_new).map(|s| nv.values[dofs * s + k]).collect(),
+                    perm: new_perm.clone(),
+                    prev_values: Vec::new(),
+                }];
+                // `Var % Values = 0` before the projection.
+                new_f[0].values.iter_mut().for_each(|x| *x = 0.0);
+                projector.apply(std::slice::from_ref(&old_f), &mut new_f);
+                for (s, x) in new_f[0].values.iter().enumerate() {
+                    nv.values[dofs * s + k] = *x;
+                }
+            }
+            // RefineMesh: `NewVar % Norm = SQRT( SUM( Values**2 ) / k )` over
+            // the slots with a dof.
+            let k = match &nv.perm {
+                Some(p) => p.iter().filter(|&&x| x != NO_DOF).count(),
+                None => nv.values.len(),
+            };
+            let mut s = 0.0;
+            for x in &nv.values {
+                s += x.powi(2);
+            }
+            nv.conv.norm = (s / k.max(1) as f64).sqrt();
+        }
+        for ix in 0..self.slots.len() {
+            if let Some(id) = self.slots[ix].variable {
+                let v = self.vars.by_id(id);
+                if v.kind != FieldKind::Nodal {
+                    return Err(unsupported("a solver whose variable is not nodal"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The writer of the mesh named `name`, from the installed factory.
+    pub(crate) fn mesh_writer(&mut self, name: &str) -> Result<(), SolverError> {
+        if let Some(mut f) = self.adaptive.writer.take() {
+            let w = f(name, self);
+            self.adaptive.writer = Some(f);
+            if let Some(w) = w? {
+                self.set_save_current(w);
+            }
+        }
+        Ok(())
+    }
+}

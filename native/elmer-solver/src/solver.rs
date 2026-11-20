@@ -485,6 +485,22 @@ impl<'a> SolverCtx<'a> {
         self.sim.publish_live();
     }
 
+    /// Asks the run to move to another mesh once this steady-state
+    /// iteration is saved (adaptive mesh refinement, [`crate::remesh`]).
+    pub fn request_mesh_change(&mut self, change: crate::remesh::MeshChange) {
+        self.sim.adaptive.pending = Some(change);
+    }
+
+    /// `Mesh % AdaptiveFinished`: the current mesh needs no more refinement.
+    pub fn set_adaptive_finished(&mut self, finished: bool) {
+        self.sim.adaptive.finished = finished;
+    }
+
+    /// `Mesh % AdaptiveDepth` of the current mesh.
+    pub fn adaptive_depth(&self) -> usize {
+        self.sim.adaptive.depth
+    }
+
     pub fn info(&self, caller: &str, msg: &str, level: u8) {
         self.log.info(caller, msg, level);
     }

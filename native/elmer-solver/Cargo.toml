@@ -13,6 +13,7 @@ elmer-core.workspace = true
 elmer-direct = { path = "../elmer-direct" }
 elmer-eigen = { path = "../elmer-eigen" }
 elmer-expr = { path = "../elmer-expr" }
+elmer-interp = { path = "../elmer-interp" }
 elmer-itermethods = { path = "../elmer-itermethods" }
 elmer-saveio = { path = "../elmer-saveio" }
 elmer-krylov = { path = "../elmer-krylov" }
