@@ -1,0 +1,13 @@
+[package]
+name = "elmer-physics-filmflow"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "FilmFlowSolver (reduced-dimensional Navier-Stokes of a thin film or channel) kernels and solver for the Rust-native Elmer rewrite"
+
+[dependencies]
+elmer-core.workspace = true
+elmer-fe = { path = "../elmer-fe" }
+elmer-solver = { path = "../elmer-solver" }
+thiserror.workspace = true

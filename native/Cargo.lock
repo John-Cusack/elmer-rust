@@ -638,6 +638,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "elmer-physics-filmflow"
+version = "0.1.0"
+dependencies = [
+ "elmer-core",
+ "elmer-fe",
+ "elmer-solver",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "elmer-physics-flow"
 version = "0.1.0"
 dependencies = [
@@ -760,6 +770,7 @@ dependencies = [
  "elmer-physics-datatofield",
  "elmer-physics-elastic",
  "elmer-physics-elasticsolve",
+ "elmer-physics-filmflow",
  "elmer-physics-flow",
  "elmer-physics-flux",
  "elmer-physics-heat",
