@@ -87,6 +87,29 @@ pub fn solver_defaults(p: &mut ParamMap, simulation: &mut ParamMap) {
 
 pub struct ShellSolver;
 
+/// `ReadSurfaceDirector`: the unit nodal directors of `mesh.director`
+/// (`k d1 d2 d3` per line, `k` 1-based), by node.
+fn read_directors(path: &str) -> Result<HashMap<u32, V3>, SolverError> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| SolverError::fatal("ReadSurfaceDirector", format!("Opening mesh.director file failed: {e}")))?;
+    let mut out = HashMap::new();
+    for line in text.lines() {
+        let w: Vec<&str> = line.split_whitespace().collect();
+        if w.len() < 4 {
+            continue;
+        }
+        let bad = || SolverError::fatal("ReadSurfaceDirector", format!("bad line in mesh.director: {line}"));
+        let k: u32 = w[0].parse().map_err(|_| bad())?;
+        let mut d = [0.0f64; 3];
+        for i in 0..3 {
+            d[i] = w[1 + i].replace(['d', 'D'], "E").parse().map_err(|_| bad())?;
+        }
+        let nr = norm(&d);
+        out.insert(k.saturating_sub(1), [d[0] / nr, d[1] / nr, d[2] / nr]);
+    }
+    Ok(out)
+}
+
 /// The geometry of one background element.
 struct ElementGeometry {
     frame: Frame,
@@ -188,7 +211,11 @@ fn checked_normal(ctx: &SolverCtx<'_>, e: ElemId) -> Result<V3, SolverError> {
 /// The geometry of every active quadrilateral: `GetElementalDirector`
 /// (the face normal at every node), `CheckSurfaceOrientation`,
 /// `CreateCurvedEdges`, `AverageDirector` and the lines-of-curvature frame.
-fn element_geometry(ctx: &SolverCtx<'_>, elems: &[ElemId]) -> Result<HashMap<u32, ElementGeometry>, SolverError> {
+fn element_geometry(
+    ctx: &SolverCtx<'_>,
+    elems: &[ElemId],
+    directors: Option<&HashMap<u32, V3>>,
+) -> Result<HashMap<u32, ElementGeometry>, SolverError> {
     let mut out = HashMap::new();
     for &e in elems {
         let el = ctx.mesh.element(e);
@@ -196,8 +223,18 @@ fn element_geometry(ctx: &SolverCtx<'_>, elems: &[ElemId]) -> Result<HashMap<u32
             return Err(unsupported(&format!("background element type {}", el.etype.0)));
         }
         let nodes: [V3; 4] = std::array::from_fn(|i| ctx.mesh.coord(el.nodes[i]));
-        let normal = checked_normal(ctx, e)?;
-        let dirs = [normal; 4];
+        let dirs: [V3; 4] = match directors {
+            Some(map) => {
+                let mut d = [[0.0f64; 3]; 4];
+                for i in 0..4 {
+                    d[i] = *map.get(&el.nodes[i]).ok_or_else(|| {
+                        SolverError::fatal("ReadSurfaceDirector", format!("no director for node {}", el.nodes[i] + 1))
+                    })?;
+                }
+                d
+            }
+            None => [checked_normal(ctx, e)?; 4],
+        };
         // CheckSurfaceOrientation: the directors on one side of the face.
         let e1 = {
             let v = [nodes[1][0] - nodes[0][0], nodes[1][1] - nodes[0][1], nodes[1][2] - nodes[0][2]];
@@ -301,14 +338,6 @@ impl Solver for ShellSolver {
         if ctx.comm.size() > 1 {
             return Err(unsupported("more than one partition"));
         }
-        // ReadSurfaceDirector: a mesh.director file gives the directors.
-        let header = &ctx.sim.model.header;
-        if let Some(Value::Str(db)) | Some(Value::File(db)) = header.get("mesh db") {
-            let dir = std::path::Path::new(db);
-            if dir.join("mesh.director").exists() {
-                return Err(unsupported("directors from mesh.director"));
-            }
-        }
         // ShellBoundaryMatrix: loads on edges.
         let nb = ctx.mesh.n_bulk();
         for t in nb..nb + ctx.mesh.n_boundary() {
@@ -364,7 +393,11 @@ impl Solver for ShellSolver {
             .copied()
             .filter(|&e| matches!(ctx.mesh.element(e).etype.0 / 100, 3 | 4))
             .collect();
-        let geometry = element_geometry(ctx, &shells)?;
+        let directors = match p.string("mesh director file") {
+            Some(f) => Some(read_directors(f)?),
+            None => None,
+        };
+        let geometry = element_geometry(ctx, &shells, directors.as_ref())?;
         let fe = ctx
             .sim
             .backends

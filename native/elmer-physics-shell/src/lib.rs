@@ -6,14 +6,14 @@
 //! membrane (curl kernel with edge DOFs) and MITC shear strains and the
 //! large-deflection terms, solved incrementally as in the Fortran.
 //!
-//! Ported: four-node quadrilaterals whose directors are the face normals
-//! (no `mesh.director`), `Large Deflection` (default on, its nonlinear
+//! Ported: four-node quadrilaterals with the directors of `mesh.director`
+//! (`ReadSurfaceDirector`) or else the face normals, `Large Deflection` (default on, its nonlinear
 //! iterations and residuals), `Nonlinear Bending Strains`, `Normal
 //! Pressure`, `Shear / Membrane / Stretch Relaxation Alpha`, `Benchmark
 //! Problem` and `Spherical Body`.
 //!
 //! Refused: triangles and other element types, p elements (`Cartesian
-//! Formulation`), `mesh.director` and `Director` fields, beams, edge loads
+//! Formulation`), a `Director` field, beams, edge loads
 //! (`ShellBoundaryMatrix`), the solid coupling, `Displace Mesh`, `Drilling
 //! DOFs`, `Rotate DOFs`, bubbles, explicit strain reduction operators,
 //! mass (transient, harmonic, eigen) and more than one partition.
