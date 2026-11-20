@@ -54,6 +54,7 @@ pub mod backend;
 pub mod conforming;
 pub mod constrain;
 pub mod constraint;
+pub mod contact;
 pub mod interface;
 pub mod level;
 pub mod overlay;

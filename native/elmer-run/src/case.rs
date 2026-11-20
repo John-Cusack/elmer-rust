@@ -1105,6 +1105,10 @@ fn run_case_meshes(
         sim.backends.assembly = Some(Box::new(periodic));
     }
     sim.backends.conforming = conforming.map(Arc::new);
+    // Mortar contact (`Apply Contact BCs`, elmer-mortar's DetermineContact).
+    if sim.model.solvers.iter().any(|s| s.logical("apply contact bcs") == Some(true)) {
+        sim.backends.contact = Some(elmer_mortar::contact::MortarContact::new(case_dir.clone(), coords.dim));
+    }
     sim.set_matc(Rc::new(SifMatc));
     for (name, value) in globals.iter().chain(&env.globals) {
         sim.vars.set_scalar(name, *value);
