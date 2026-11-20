@@ -8,7 +8,7 @@
 
 use std::sync::OnceLock;
 
-use elmer_core::{ElemId, ElementBasis, ElementType, FieldKind, FieldRef, LocalSystem, ParamMap, Params, Value};
+use elmer_core::{ElemId, ElementBasis, ElementType, FieldKind, FieldRef, LocalSystem, ParamMap, Params, Quadrature, Value};
 use elmer_physics_elastic::post::{self, stress_strain_local, StressPostInput};
 pub use elmer_physics_elastic::FeServices;
 use elmer_physics_elastic::{diagonal_c, CoordSystem, ElasticLaw, IpProps, Spring};
@@ -59,6 +59,45 @@ impl ElasticSolver {
 
     fn fe(&self) -> &FeServices {
         self.fe.as_ref().or_else(|| FE.get()).expect("checked by factory")
+    }
+}
+
+/// `RelIntegOrder` / `RelIntegOrderBC` of ElasticSolver: `Relative
+/// Integration Order`, overridden by `Bulk Relative Integration Order` for
+/// the bulk and `Boundary Relative Integration Order` for the boundary.
+#[derive(Copy, Clone, Debug, Default)]
+struct RelOrders {
+    bulk: i32,
+    bc: i32,
+}
+
+impl RelOrders {
+    fn of(p: &ParamMap) -> Self {
+        let base = p.integer("relative integration order").unwrap_or(0);
+        Self {
+            bulk: p.integer("bulk relative integration order").unwrap_or(base),
+            bc: p.integer("boundary relative integration order").unwrap_or(base),
+        }
+    }
+}
+
+/// `GaussPoints(Element, RelOrder = rel)` of a nodal element as a point
+/// count: `GaussPoints0` / `GaussPoints2` of elements.def for -1 / +1, the
+/// element's own rule (`None`) for 0. Prisms are refused: their rule for a
+/// named count is not the one `RelOrder` gives.
+fn rel_np(quad: &dyn Quadrature, etype: ElementType, rel: i32) -> Result<Option<usize>, SolverError> {
+    if rel == 0 {
+        return Ok(None);
+    }
+    if etype.family() == 7 {
+        return Err(unsupported("relative integration order on prisms"));
+    }
+    match quad.gauss_points_rel(etype, rel) {
+        Some(points) => Ok(Some(points.len())),
+        None => Err(SolverError::fatal(
+            "GaussPoints",
+            format!("Relative Integration Order = {rel} but a non-p element only has rules for {{-1,0,1}}"),
+        )),
     }
 }
 
@@ -123,9 +162,6 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
         }
     }
     for (key, what) in [
-        ("relative integration order", "relative integration order"),
-        ("bulk relative integration order", "relative integration order"),
-        ("boundary relative integration order", "relative integration order"),
         ("element relative integration order", "elemental integration rule"),
         ("element integration points", "elemental integration rule"),
         ("update transient system", "update transient system"),
@@ -563,7 +599,7 @@ impl ElasticSolver {
                 ip: d.ip.as_ref(),
                 want_strain: flags.strain,
                 want_stress: flags.stress,
-                np: None,
+                np: rel_np(&*fe.quad, el.etype, RelOrders::of(ctx.params()).bulk)?,
             };
             let loc = stress_strain_local(&*fe.basis, &*fe.quad, &inp).map_err(|x| fatal(x.to_string()))?;
             let slots: Vec<Option<usize>> = el
@@ -774,10 +810,14 @@ impl Solver for ElasticSolver {
                         load: &d.load,
                         inertial: d.inertial.as_deref(),
                         want_mass: transient,
-                        np: None,
+                        np: rel_np(&*fe.quad, el.etype, RelOrders::of(ctx.params()).bulk)?,
                     };
                     neo_hookean_local(&*fe.basis, &*fe.quad, &inp, &mut local).map_err(|x| fatal(x.to_string()))?;
                 } else {
+                    let bulk_np = rel_np(&*fe.quad, el.etype, RelOrders::of(ctx.params()).bulk)?;
+                    if bulk_np.is_some() && d.ip.is_some() {
+                        return Err(unsupported("properties at integration points with a relative integration order"));
+                    }
                     let inp = BulkInput {
                         etype: el.etype,
                         xyz: &xyz,
@@ -797,7 +837,7 @@ impl Solver for ElasticSolver {
                         temperature: d.temperature.as_deref(),
                         heat_expansion: d.heat_expansion.as_deref(),
                         want_mass: transient,
-                        np: None,
+                        np: bulk_np,
                         ip: d.ip.as_ref(),
                     };
                     elastic_bulk_local(&*fe.basis, &*fe.quad, &inp, &mut local).map_err(|x| fatal(x.to_string()))?;
@@ -958,7 +998,7 @@ impl Solver for ElasticSolver {
                     normal_traction: &nt,
                     spring,
                     parent: ParentInput { etype: pel.etype, xyz: &pxyz, disp: &pdisp, node_uvw: &node_local, center },
-                    np: None,
+                    np: rel_np(&*fe.quad, ElementType(el.etype.0), RelOrders::of(ctx.params()).bc)?,
                 };
                 let mut local = LocalSystem::zeros(0);
                 elastic_boundary_local(&*fe.basis, &*fe.quad, &inp, &mut local).map_err(|x| fatal(x.to_string()))?;
