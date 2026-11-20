@@ -31,7 +31,9 @@
 //! Elmer's `Matrix % Symmetric`), `DNAUPD`/`DNEUPD` otherwise, complex
 //! pairs included. They equal the pristine run's when the inner linear
 //! solves do.
-//! Refused: complex, damped, lumped-mass, stability and parallel eigen
+//! A `Stability Analysis` goes through `ArpackStabEigenSolve`'s mode-2
+//! iteration instead ([`arpack_stab_eigen_solve`]).
+//! Refused: complex, damped, lumped-mass and parallel eigen
 //! systems, block and multigrid inner solvers, and scaling methods other
 //! than the diagonal one.
 
@@ -260,6 +262,111 @@ fn arpack_eigen_solve(
     })
 }
 
+/// `ArpackStabEigenSolve` (EigenSolve.F90:803), the eigen solve of a
+/// `Stability Analysis`: `DSAUPD` in mode 2 with `B = K` and `OP = K^-1 M`,
+/// `M` being what the solver put in the mass slot (minus the geometric
+/// stiffness), no shift, `NCV = 3 NEIG + 1`. `ido = -1, 1`: `y = M x` copied
+/// over `x`, then `K y = x` from the guess `M x`; `ido = 2`: `y = K x`. The
+/// eigenvalues are `1/theta` in `Eigen System Sorting` order, and the
+/// vector of a negative one is multiplied by `i`.
+fn arpack_stab_eigen_solve(
+    arp: &mut elmer_eigen::arpack::saupd::Arpack,
+    k: &CsrMatrix<f64>,
+    mass: &CsrMatrix<f64>,
+    dofs: usize,
+    cfg: &EigenConfig,
+    inner: &mut InnerSolve<'_>,
+) -> Result<elmer_eigen::EigenResult, SolverError> {
+    use elmer_eigen::arpack::{saupd, seupd};
+    use elmer_eigen::ArpackWhich as W;
+    use num_complex::Complex64;
+    const STAB: &str = "StabEigenSolve";
+    let n = k.nrows;
+    let nev = cfg.nev;
+    let ncv = 3 * nev + 1;
+    if ncv > n {
+        return Err(SolverError::fatal("StabEigenSolve", format!("Error with DSAUPD, info = {:>11}", -3)));
+    }
+    let which = match elmer_eigen::ArpackWhich::for_mode(cfg.select, true) {
+        W::LM => saupd::Which::LM,
+        W::SM => saupd::Which::SM,
+        _ => return Err(SolverError::fatal(STAB, format!("Error with DSAUPD, info = {:>11}", -5))),
+    };
+    let mut iter = 1usize;
+    let mut resid = vec![0.0; n];
+    let mut v = vec![0.0; n * ncv];
+    let mut workd = vec![0.0; 3 * n];
+    let mut workl = vec![0.0; ncv * (ncv + 8)];
+    let mut iparam = [0i32; 11];
+    iparam[0] = 1;
+    iparam[2] = cfg.max_iter as i32;
+    iparam[6] = 2;
+    let mut tol = cfg.tol;
+    let mut failure: Option<SolverError> = None;
+    let au = {
+        let mm = crate::matvec::ElmerMatvec::new(mass, dofs);
+        let kk = crate::matvec::ElmerMatvec::new(k, dofs);
+        let mut op = |ido: i32, ip: [usize; 3], wd: &mut [f64]| -> Result<(), String> {
+            let r = match ido {
+                -1 | 1 => {
+                    iter += 1;
+                    let mut y = vec![0.0; n];
+                    elmer_core::LinearOperator::apply(&mm, &wd[ip[0]..ip[0] + n], &mut y);
+                    wd[ip[1]..ip[1] + n].copy_from_slice(&y);
+                    wd[ip[0]..ip[0] + n].copy_from_slice(&y);
+                    inner(k, &y, &mut wd[ip[1]..ip[1] + n])
+                }
+                2 => {
+                    let mut y = vec![0.0; n];
+                    elmer_core::LinearOperator::apply(&kk, &wd[ip[0]..ip[0] + n], &mut y);
+                    wd[ip[1]..ip[1] + n].copy_from_slice(&y);
+                    Ok(())
+                }
+                _ => Err(SolverError::fatal(STAB, format!("unexpected ARPACK request ido = {ido}"))),
+            };
+            r.map_err(|e| {
+                let msg = e.to_string();
+                failure = Some(e);
+                msg
+            })
+        };
+        saupd::dsaupd(&mut op, arp, true, n, which, nev, &mut tol, &mut resid, ncv, &mut v, n, iparam, &mut workd, &mut workl, 0)
+    };
+    let au = match au {
+        Ok(a) => a,
+        Err(m) => return Err(failure.unwrap_or_else(|| SolverError::fatal(STAB, m))),
+    };
+    if au.info != 0 {
+        return Err(SolverError::fatal(STAB, format!("Error with DSAUPD, info = {:>11}", au.info)));
+    }
+    let (d, ierr) = seupd::dseupd(0.0, true, n, which, nev, tol, &resid, ncv, &mut v, n, &au, &mut workd, &mut workl);
+    if ierr != 0 {
+        return Err(SolverError::fatal(STAB, format!(" Error with DSEUPD, info = {ierr:>11}")));
+    }
+    // `EigValues(i) = CMPLX(1.0d0 / D(i,1), D(i,2))`; D(:,2) is zero here.
+    let vals: Vec<Complex64> = (0..nev).map(|i| Complex64::new(1.0 / d.get(i).copied().unwrap_or(0.0), 0.0)).collect();
+    let perm = elmer_eigen::eigen_system_sorting(cfg.sorting, &vals);
+    let values: Vec<Complex64> = perm.iter().map(|&p| vals[p]).collect();
+    let vectors: Vec<Vec<Complex64>> = perm
+        .iter()
+        .zip(&values)
+        .map(|(&p, lam)| {
+            v[p * n..p * n + n]
+                .iter()
+                .map(|&x| if lam.re < 0.0 { Complex64::new(x, 0.0) * Complex64::new(0.0, 1.0) } else { Complex64::new(x, 0.0) })
+                .collect()
+        })
+        .collect();
+    Ok(elmer_eigen::EigenResult {
+        values,
+        vectors,
+        iterations: au.iparam[2].max(0) as usize,
+        op_applications: iter - 1,
+        converged: au.iparam[4].max(0) as usize,
+        residuals: None,
+    })
+}
+
 /// The eigen solve of `SolveSystem`; returns the variable's norm.
 pub(crate) fn solve(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverError> {
     let (mesh, log, comm, ix) = (ctx.mesh, ctx.log, ctx.comm, ctx.slot);
@@ -347,7 +454,11 @@ pub(crate) fn solve(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverError> {
                 }
             }
         };
-        arpack_eigen_solve(&mut sim.arpack, k, &mass, dofs, &cfg, symmetric, &mut inner)
+        if p.logical("stability analysis") == Some(true) {
+            arpack_stab_eigen_solve(&mut sim.arpack, k, &mass, dofs, &cfg, &mut inner)
+        } else {
+            arpack_eigen_solve(&mut sim.arpack, k, &mass, dofs, &cfg, symmetric, &mut inner)
+        }
     };
 
     // BackScaleLinearSystem(EigenScaling = .TRUE.), then K and M unscaled.

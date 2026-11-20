@@ -582,13 +582,14 @@ fn incompressible_impl(
     let unsupported = inp.coord == CoordSystem::AxiSymmetric
         || inp.want_mass
         || inp.gpa.is_some()
+        || inp.geometric.is_some()
         || inp.ip.is_some()
         || inp.stress_load.is_some()
         || inp.strain_load.is_some()
         || inp.temperature.is_some_and(|t| t.iter().any(|x| *x != 0.0));
     if unsupported {
         return Err(StressError::Unsupported(
-            "\"Incompressible\" with axial symmetry, mass, GPA, integration point data, prestress or thermal loads".into(),
+            "\"Incompressible\" with axial symmetry, mass, GPA, geometric stiffness, integration point data, prestress or thermal loads".into(),
         ));
     }
     if inp.xyz.len() != n || inp.load.len() != n || young.len() != n {
