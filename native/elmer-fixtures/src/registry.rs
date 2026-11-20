@@ -26,6 +26,7 @@ use elmer_solver::{ElementAssembly, Model, Simulation, SolverFactory, SolverRegi
 use crate::benchmark_shell;
 use crate::bentonite;
 use crate::edge_element_test;
+use crate::edge_fe_interpolation;
 use crate::hooks::{PoissonBoundary, PoissonBulk};
 use crate::l2nd_derivatives;
 use crate::model_pde_handle;
@@ -195,6 +196,12 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("RaviartThomas3D", "ComputeError", "IntegrateError", Hook::Solver(compute_error::factory_3d)),
     ("SecondOrderEdgeElement2D", "EdgeElementTest", "EdgeElementSolver", Hook::Solver(edge_element_test::factory_2d)),
     ("SecondOrderEdgeElement3D", "EdgeElementTest", "EdgeElementSolver", Hook::Solver(edge_element_test::factory_3d)),
+    (
+        "SecondOrderEdgeElement2D_BCs",
+        "EdgeFEInterpolationTest",
+        "BestApproximationSolver",
+        Hook::Solver(edge_fe_interpolation::factory),
+    ),
     ("FaceElement2D_BCs", "FaceFEInterpolationTest", "BestApproximationSolver", Hook::Solver(face_fe_interpolation::factory)),
     ("FaceElement3D_BCs", "FaceFEInterpolationTest", "BestApproximationSolver", Hook::Solver(face_fe_interpolation::factory)),
     // `PoissonPFEM/Poisson.f90` on p-elements, ported in `elmer-pdofs`.
@@ -215,6 +222,12 @@ const SECTION_INITS: &[(&str, &str, &str, SectionInit)] = &[
     ("ElementUnitTest_edge", "SingleEdgeElements", "SingleEdgeElements", single_edge_elements::init_section),
     ("ElementUnitTest_edge_piola", "SingleEdgeElements", "SingleEdgeElements", single_edge_elements::init_section),
     ("ElementUnitTest_edge_quadratic", "SingleEdgeElements", "SingleEdgeElements", single_edge_elements::init_section),
+    (
+        "SecondOrderEdgeElement2D_BCs",
+        "EdgeFEInterpolationTest",
+        "BestApproximationSolver",
+        edge_fe_interpolation::init_section,
+    ),
 ];
 
 fn hooks(case: &str) -> impl Iterator<Item = (&'static str, &'static str, Hook)> + '_ {
