@@ -20,12 +20,15 @@ use crate::variable::{VarHandle, VariableStore};
 pub struct SimFields<'a> {
     pub vars: &'a VariableStore,
     pub mesh: &'a dyn MeshView,
+    /// The mesh's DG indexes, through which a DG variable is read at a node
+    /// of `Model % CurrentElement` ([`elmer_expr::current_element`]).
+    pub dg: Option<&'a crate::exported::DgIndexes>,
 }
 
 /// `VariableGet` + `Perm` at one node: `None` where the variable has no dof.
 /// A multi-dof variable answers with its first component.
 pub(crate) fn lookup(vars: &VariableStore, var: &str, node: u32) -> Option<f64> {
-    component(vars, var, 0, node)
+    component(vars, var, 0, node, None)
 }
 
 /// Components a dependency on `var` passes (`ListParseStrToValues`): every
@@ -46,17 +49,32 @@ pub(crate) fn dependency_dofs(vars: &VariableStore, var: &str) -> usize {
 
 /// Component `k` of `var` at `node`: dof `k` of slot `Perm(node)`, as
 /// `Values(DOFs*(k1-1)+l)` in `ListParseStrToValues`. A component alias
-/// (`velocity 2`) is its parent's dof.
-pub(crate) fn component(vars: &VariableStore, var: &str, k: usize, node: u32) -> Option<f64> {
+/// (`velocity 2`) is its parent's dof. A DG variable is read at the DG
+/// index the node has in `Model % CurrentElement` (`Perm(DGIndexes(j))`)
+/// when `dg` is given and the node is one of that element's.
+pub(crate) fn component(
+    vars: &VariableStore,
+    var: &str,
+    k: usize,
+    node: u32,
+    dg: Option<&crate::exported::DgIndexes>,
+) -> Option<f64> {
     let (v, offset) = match vars.resolve(var)? {
         VarHandle::Primary(id) => (vars.by_id(id), k),
         VarHandle::Component { parent, component } if k == 0 => (vars.by_id(parent), component),
         VarHandle::Component { .. } => return None,
     };
     let stride = v.dofs.max(1);
+    let dg_index = match (v.kind, dg) {
+        (elmer_core::FieldKind::Dg, Some(dg)) => elmer_expr::current_element().and_then(|ce| {
+            let pos = ce.nodes.iter().position(|&n| n == node)?;
+            dg.index.get(ce.index as usize)?.get(pos).copied().filter(|&d| d != elmer_core::NO_DOF)
+        }),
+        _ => None,
+    };
     match v.perm.as_deref() {
         Some(perm) => {
-            let s = *perm.get(node as usize)?;
+            let s = *perm.get(dg_index.unwrap_or(node) as usize)?;
             if s == elmer_core::NO_DOF {
                 None
             } else {
@@ -72,7 +90,7 @@ pub(crate) fn component(vars: &VariableStore, var: &str, k: usize, node: u32) ->
 
 impl FieldLookup for SimFields<'_> {
     fn value(&self, var: &str, node: u32) -> Option<f64> {
-        lookup(self.vars, var, node)
+        component(self.vars, var, 0, node, self.dg)
     }
 
     fn dofs(&self, var: &str) -> usize {
@@ -81,7 +99,7 @@ impl FieldLookup for SimFields<'_> {
 
     fn component_values(&self, var: &str, k: usize, nodes: &[u32], out: &mut [f64]) {
         for (o, &n) in out.iter_mut().zip(nodes) {
-            *o = component(self.vars, var, k, n).unwrap_or(elmer_expr::MISSING);
+            *o = component(self.vars, var, k, n, self.dg).unwrap_or(elmer_expr::MISSING);
         }
     }
 
@@ -275,9 +293,9 @@ mod component_tests {
         assert_eq!(dependency_dofs(&vars, "pressure"), 2);
         assert_eq!(dependency_dofs(&vars, "pressure im"), 1);
         assert_eq!(dependency_dofs(&vars, "frequency"), 1);
-        assert_eq!(component(&vars, "pressure", 0, 0), Some(20.0));
-        assert_eq!(component(&vars, "pressure", 1, 0), Some(21.0));
-        assert_eq!(component(&vars, "pressure", 1, 1), Some(11.0));
+        assert_eq!(component(&vars, "pressure", 0, 0, None), Some(20.0));
+        assert_eq!(component(&vars, "pressure", 1, 0, None), Some(21.0));
+        assert_eq!(component(&vars, "pressure", 1, 1, None), Some(11.0));
         assert_eq!(lookup(&vars, "pressure", 1), Some(10.0));
         assert_eq!(lookup(&vars, "pressure im", 0), Some(21.0));
         assert_eq!(lookup(&vars, "frequency", 7), Some(5.0));

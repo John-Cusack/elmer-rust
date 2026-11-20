@@ -7,9 +7,12 @@
 //! Ported: one-component variables, `<var>: Source` and `<var>: Time
 //! Derivative Coefficient` material keywords, `Apply BCs Only`, `Parabolic
 //! Model`, `Minimum Cons`, the nonlinear iterations of a layer and the
-//! transient marching. Refused: several components, `Use Internal Values`
-//! (with `Additional Internal Variable` and `Timestep Divisions`),
-//! `Enforce Unity Sum` and discontinuous Galerkin solvers.
+//! transient marching. With a mapping mask or a discontinuous Galerkin
+//! solver in the model the coefficients are read node by node with the
+//! node's first active (masked) element as `Model % CurrentElement`
+//! (`ParentElem`), so a DG field is taken at that element's DG index.
+//! Refused: several components, `Use Internal Values` (with `Additional
+//! Internal Variable` and `Timestep Divisions`) and `Enforce Unity Sum`.
 
 use elmer_core::{normalize_key, ElemId, ParamMap, Params, Value, NO_DOF};
 use elmer_solver::{Solver, SolverCtx, SolverError};
@@ -75,15 +78,6 @@ impl Solver for MarchingOde {
         }
         if p.integer("timestep divisions").unwrap_or(1) > 1 {
             return Err(unsupported("Timestep Divisions"));
-        }
-        if ctx
-            .sim
-            .model
-            .solvers
-            .iter()
-            .any(|s| flag(s, "discontinuous galerkin"))
-        {
-            return Err(unsupported("discontinuous Galerkin solvers"));
         }
         Ok(())
     }
@@ -179,6 +173,24 @@ impl Solver for MarchingOde {
         }
         let have_f = material.get(&f_key).is_some();
         let have_c = material.get(&c_key).is_some();
+        // ParentElem: the first active element holding each node, all of its
+        // nodes in the mask.
+        let any_dg = ctx.sim.model.solvers.iter().any(|s| flag(s, "discontinuous galerkin"));
+        let parent: Option<Vec<Option<ElemId>>> = if any_dg || p.get("mapping mask name").is_some() {
+            let mut pe = vec![None; ctx.mesh.n_nodes()];
+            for e in ctx.active_elements() {
+                let nodes = ctx.mesh.element(e).nodes;
+                if nodes.iter().any(|&k| perm[k as usize] == NO_DOF) {
+                    continue;
+                }
+                for &k in nodes {
+                    pe[k as usize].get_or_insert(e);
+                }
+            }
+            Some(pe)
+        } else {
+            None
+        };
 
         let mut dtn = 0usize;
         if transient {
@@ -225,15 +237,22 @@ impl Solver for MarchingOde {
             |ctx: &SolverCtx<'_>, nodes: &[usize]| -> Result<(Vec<f64>, Vec<f64>), SolverError> {
                 let ids: Vec<u32> = nodes.iter().map(|&k| k as u32).collect();
                 let eval = |key: &str| -> Result<Vec<f64>, SolverError> {
-                    match material.get(key) {
-                        Some(v) => elmer_solver::expr::eval_at_nodes_with(
-                            v,
-                            &ids,
-                            &ctx.fields(),
-                            ctx.sim.backends.matc.as_deref(),
-                            &ctx.sim.backends.udfs,
-                        ),
-                        None => Ok(vec![0.0; ids.len()]),
+                    let Some(v) = material.get(key) else { return Ok(vec![0.0; ids.len()]) };
+                    let b = &ctx.sim.backends;
+                    match &parent {
+                        None => elmer_solver::expr::eval_at_nodes_with(v, &ids, &ctx.fields(), b.matc.as_deref(), &b.udfs),
+                        Some(pe) => {
+                            let mut out = Vec::with_capacity(ids.len());
+                            for &k in &ids {
+                                let e = pe[k as usize].ok_or_else(|| {
+                                    SolverError::fatal("GetCoefficients", "We should have positive index!")
+                                })?;
+                                ctx.set_current_element(e);
+                                let x = elmer_solver::expr::eval_at_nodes_with(v, &[k], &ctx.fields(), b.matc.as_deref(), &b.udfs)?;
+                                out.push(x[0]);
+                            }
+                            Ok(out)
+                        }
                     }
                 };
                 let f = if have_f {

@@ -376,6 +376,7 @@ impl<'a> SolverCtx<'a> {
         crate::expr::SimFields {
             vars: &self.sim.vars,
             mesh: self.mesh,
+            dg: self.sim.dg_indexes.as_ref(),
         }
     }
 
@@ -1586,7 +1587,7 @@ impl<'a> SolverCtx<'a> {
         let relaxation = crate::expr::eval_creal(
             &sim.slots[slot_ix].params,
             "nonlinear system relaxation factor",
-            &crate::expr::SimFields { vars: &sim.vars, mesh },
+            &crate::expr::SimFields { vars: &sim.vars, mesh, dg: sim.dg_indexes.as_ref() },
             sim.backends.matc.as_deref(),
             &sim.backends.udfs,
         )?;
@@ -1807,7 +1808,7 @@ impl<'a> SolverCtx<'a> {
                 let relax = crate::expr::eval_creal(
                     &sim.slots[slot_ix].params,
                     "lagrange multiplier relaxation factor",
-                    &crate::expr::SimFields { vars: &sim.vars, mesh },
+                    &crate::expr::SimFields { vars: &sim.vars, mesh, dg: sim.dg_indexes.as_ref() },
                     sim.backends.matc.as_deref(),
                     &sim.backends.udfs,
                 )?;
