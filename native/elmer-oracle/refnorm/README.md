@@ -104,10 +104,10 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
 
 | Verdict | Tests |
 |---|---:|
-| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **390** (497 solver checks) |
+| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **391** (499 solver checks) |
 | grader gap: the solver sets its own norm (FluxSolver, VectorHelmholtzNodal, WhitneyAVSolver) | 7 |
 | grader gap: DG field (PoissonDG) | 1 |
-| unexplained mismatch (PhaseChange3, solver 3 `PhaseSurface`) | 1 |
+| unexplained mismatch | **0** |
 | **printed-precision** (separate class, never counted as bitwise; see below) | **6** |
 | out of the validated class | 77 |
 
@@ -115,9 +115,10 @@ Before this widening the class held 223 tests (238 solvers). All 223 are
 still bitwise, each with at least as many solvers as before.
 
 **Kill check (§5.2).** Every test in the class that ran without a bitwise
-match is counted: 9/482 = 1.9% of the quick tests, under the 2% bar.
-Eight of them are grader gaps. In each, the values are all in the file, but
-the solver's norm is not `ComputeNorm` of them:
+match is counted: 8/482 = 1.7% of the quick tests, under the 2% bar.
+All eight are explained grader gaps; none is unexplained. In each, the
+values are in the file, but the solver's norm is not `ComputeNorm` of
+them:
 - 34 solver entries assign `Solver % Variable % Norm` themselves (grep of
   the pristine `fem/src/modules`, listed in `SELF_NORM` in
   `src/refnorm.rs`). When only such solvers fail, the test is rerun
@@ -131,8 +132,16 @@ the solver's norm is not `ComputeNorm` of them:
 - PoissonDG's norm runs over DG unknowns that the nodal rebuild does not
   follow.
 
-PhaseChange3's transient phase-change solver reports a norm 5× the saved
-field's. It is the one open item for this check.
+- TransientPhaseChange without surface smoothing (PhaseChange3, solver 3)
+  takes its norm in `SolveSystem` on the `-nooutput` `PhaseSurface Velo`
+  array (`TransientPhaseChange.F90:435`; Elmer's norm 0.9698 against the
+  saved `PhaseSurface`'s 0.1946). It then updates the saved surface from
+  that velocity without a new norm (lines 465–467). That array is never
+  saved, because `SaveResult` skips `-nooutput` variables, so the gap
+  stays. The rerun without solver 3's override validates PhaseChange3's
+  other two solvers bitwise. The smoothed path solves for the surface
+  itself and is bitwise (PhaseChange4). This was the last unexplained
+  mismatch; it is listed under `SELF_NORM`.
 
 ## Out of class (not validated, not failed)
 

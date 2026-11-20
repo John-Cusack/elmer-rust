@@ -262,7 +262,7 @@ ParticleFallingPathIntegral	bitwise	1	solver 1: no explicit Variable; 4 variable
 PerfectGasCompress_vec	bitwise	1	solver 2: flow solution (default)
 PerfectGasCompress_vec_transient	bitwise	1	solver 2: flow solution (default)
 PhaseChange2	bitwise	1	
-PhaseChange3	MISMATCH	3	solver 1: mesh update (default); solver 2: temperature (default); WARNING:: CompareToReferenceSolution: Solver 3 FAILED:  Norm = 9.69756455E-01  RefNorm = 1.94623870E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!
+PhaseChange3	bitwise	2	solver 1: mesh update (default); solver 2: temperature (default); WARNING:: CompareToReferenceSolution: Solver 3 FAILED:  Norm = 9.69756455E-01  RefNorm = 1.94623870E-01; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!; solver 3: sets its own norm, not validated
 PhaseChange4	bitwise	3	solver 1: mesh update (default); solver 2: temperature (default)
 PlatesEigenComplex	out-of-class	0	solver 2: norm option show norm; solver 2: Show Norm without a scalars file (the norm is in no file)
 PoissonBEM	bitwise	1	
