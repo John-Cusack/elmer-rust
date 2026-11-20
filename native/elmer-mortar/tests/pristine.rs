@@ -71,6 +71,7 @@ fn check_kind(name: &str, kind: Kind) {
         coord_dim: mesh.dim(),
         log: &NullLogger,
         discont_perm: None,
+        edges: None,
     };
     let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("elmer-mortar")

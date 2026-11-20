@@ -71,9 +71,10 @@ pub use constrain::{
     PeriodicTarget,
 };
 pub use constraint::{generate_constraint_matrix, ConstraintMatrix, ConstraintTarget};
-pub use interface::{create_interface_meshes, map_interface_coordinate, InterfaceMesh};
+pub use interface::{create_interface_meshes, create_interface_meshes_faces, map_interface_coordinate, FaceOf, InterfaceMesh};
 pub use overlay::overlay_interface_meshes;
 pub use projector::{
+    EdgeEnv, FaceEdgeBasis,
     generate_mortar_projectors, generate_periodic_projectors, nodal_projector,
     nodal_projector_discont, periodic_projector, save_request, GeneratedProjectors, Projector,
     ProjectorEnv, SaveRequest,

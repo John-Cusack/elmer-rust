@@ -110,6 +110,7 @@ fn run(case: &str) -> Solution {
         coord_dim: coords.dim,
         log: &NullLogger,
         discont_perm: None,
+        edges: None,
     };
     let (projectors, stop) = generate_periodic_projectors(&env, &dir, 0).unwrap();
     assert!(!stop);

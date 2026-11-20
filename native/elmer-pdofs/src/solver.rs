@@ -86,6 +86,20 @@ impl SolverDofs for PSetup {
         self.mesh.edges.len()
     }
 
+    fn boundary_face(&self, e: ElemId) -> Option<(Vec<u32>, Vec<u32>)> {
+        let m = &self.mesh;
+        let el = m.elements.get(e.0 as usize)?;
+        let parent = el.parents[0].or(el.parents[1])?;
+        let mut want: Vec<u32> = el.nodes.clone();
+        want.sort_unstable();
+        m.elements[parent as usize].faces.iter().find_map(|&f| {
+            let face = &m.faces[f as usize];
+            let mut have = face.nodes.clone();
+            have.sort_unstable();
+            (have == want).then(|| (face.nodes.clone(), face.edges.clone()))
+        })
+    }
+
     fn ndeg_parts(&self) -> (usize, usize) {
         let m = &self.mesh;
         let bdofs = m.elements[..m.n_bulk].iter().map(|e| e.bdofs).max().unwrap_or(0);

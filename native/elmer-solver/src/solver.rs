@@ -2470,6 +2470,16 @@ impl<'a> SolverCtx<'a> {
                 precond: None,
                 prec_values: None,
             };
+            // The collection matrix's `ExtraDOFs` for the `Edge Basis` ILU.
+            let pe;
+            let p = if p.logical("edge basis") == Some(true) && a.nrows > n {
+                let mut q = p.clone();
+                q.insert(crate::linsys::EXTRA_DOFS_KEY, elmer_core::Value::Integer(vec![(a.nrows - n) as i32]));
+                pe = q;
+                &pe
+            } else {
+                p
+            };
             sim.slots[slot_ix].lin_converged = solve_linear(&sim.backends.linear, &env, p, a, b, x, bnorm, nullify, log, comm)?;
             // SolveCore.F90:1744-1748: SolveLinearSystem back-rotates the n-t
             // dofs of the collection solution (through the variable's perm,

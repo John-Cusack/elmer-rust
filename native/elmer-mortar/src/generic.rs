@@ -12,9 +12,13 @@
 //!
 //! With a repeating (rotational) interface the master element is shifted by
 //! whole periods `ArcRange` until it meets the slave element, and an
-//! antisymmetric one changes sign on odd periods. Ported: nodal dofs,
-//! `Projector Node Multiplier`, `Projector Max Distance`, full circles.
-//! Refused (by the caller): edge dofs, p-elements, biorthogonal bases,
+//! antisymmetric one changes sign on odd periods. Ported: nodal dofs, the
+//! edge dofs of the lowest-order Piola basis on triangles (`DoEdges`: row
+//! of slave edge `j` gets `W_j . W_i w` on the slave edges and `-sgn
+//! EdgeScale W_j . M_k w` on the master edges, entries above 1e-12),
+//! `Projector Node Multiplier`, `Projector Edge Multiplier`, `Projector Max
+//! Distance`, full circles.
+//! Refused (by the caller): other edge bases, p-elements, biorthogonal bases,
 //! `Axial Projector Periods`, `Projector Symmetry X/Y`.
 
 use std::collections::BTreeMap;
@@ -80,8 +84,23 @@ pub(crate) fn sort_r(a: &mut [usize], b: &mut [f64]) {
     }
 }
 
+/// The edge rows of `AddProjectorWeakGeneric` (`DoEdges`, lowest-order
+/// Piola basis on triangles).
+pub(crate) struct GenericEdges<'a> {
+    /// `EdgePerm`: 1-based row within the edge block, 0 if not a row.
+    pub edge_perm: &'a [usize],
+    pub edge_row0: usize,
+    /// `Mesh % NumberOfNodes`: edge `k`'s dof is `n_nodes + k`.
+    pub n_nodes: usize,
+    /// `Projector Edge Multiplier`.
+    pub edge_coeff: f64,
+    /// `EdgeScale` (= `NodeScale`).
+    pub edge_scale: f64,
+    pub basis: crate::projector::FaceEdgeBasis<'a>,
+}
+
 /// The geometry `LevelProjector` sets up for the integrator.
-pub(crate) struct GenericSetup {
+pub(crate) struct GenericSetup<'a> {
     pub node_coeff: f64,
     pub node_scale: f64,
     pub max_distance: Option<f64>,
@@ -96,6 +115,16 @@ pub(crate) struct GenericSetup {
     pub full_circle: bool,
     pub gauss_points: Option<usize>,
     pub coord_dim: usize,
+    pub edges: Option<GenericEdges<'a>>,
+}
+
+/// `ConvertToPReference(303, u, v, w)`.
+fn p_reference_triangle(uvw: [f64; 3]) -> [f64; 3] {
+    [2.0 * uvw[0] + uvw[1] - 1.0, 3.0f64.sqrt() * uvw[1], uvw[2]]
+}
+
+fn dot3(a: &[f64; 3], b: &[f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
 /// The coordinates of an element, `x` scaled by `arc`, `z` zero.
@@ -135,7 +164,7 @@ fn linear_shape(code: u16, ne: usize) -> Result<&'static Shape, MortarError> {
 pub(crate) fn weak_generic(
     b1: &InterfaceMesh,
     b2: &InterfaceMesh,
-    s: &GenericSetup,
+    s: &GenericSetup<'_>,
     node_perm: &[usize],
     inv_perm: &mut [u32],
     list: &mut [BTreeMap<u32, f64>],
@@ -368,10 +397,29 @@ pub(crate) fn weak_generic(
                                     let wtemp = bt.det_j * ip.s[g];
                                     sum_area += wtemp;
                                     let uvw = global_to_local(shape, &nodes[..ne], [xq, yq, 0.0], cd);
-                                    element_info(def, &nodes, uvw, cd, &mut st, &mut bs).map_err(fe)?;
                                     let uvw_m = global_to_local(shape_m, &nodes_m[..ne_m], [xq, yq, 0.0], cd);
-                                    if element_info(def_m, &nodes_m, uvw_m, cd, &mut st, &mut bm).is_err() {
-                                        continue;
+                                    // With edges `ElementInfo( TrueElement, ..., EdgeBasis )`
+                                    // on the p-reference triangle gives the nodal basis too.
+                                    let (mut wb, mut wbm) = (Vec::new(), Vec::new());
+                                    if let Some(ed) = &s.edges {
+                                        let gi: Vec<i64> = el.nodes.iter().map(|&k| i64::from(b1.inv_perm[k as usize])).collect();
+                                        let (w, nb) = (ed.basis)(code, &nodes[..n], &gi, p_reference_triangle(uvw))
+                                            .map_err(|e| MortarError::Fatal(format!("{CALLER}: {e}")))?;
+                                        wb = w;
+                                        bs.basis.clear();
+                                        bs.basis.extend_from_slice(&nb[..n]);
+                                        let gim: Vec<i64> = elm.nodes.iter().map(|&k| i64::from(b2.inv_perm[k as usize])).collect();
+                                        let Ok((w, nb)) = (ed.basis)(code_m, &nodes_m[..n_m], &gim, p_reference_triangle(uvw_m)) else {
+                                            continue;
+                                        };
+                                        wbm = w;
+                                        bm.basis.clear();
+                                        bm.basis.extend_from_slice(&nb[..n_m]);
+                                    } else {
+                                        element_info(def, &nodes, uvw, cd, &mut st, &mut bs).map_err(fe)?;
+                                        if element_info(def_m, &nodes_m, uvw_m, cd, &mut st, &mut bm).is_err() {
+                                            continue;
+                                        }
                                     }
                                     for jn in 0..n {
                                         let jj = b1.inv_perm[el.nodes[jn] as usize];
@@ -391,6 +439,34 @@ pub(crate) fn weak_generic(
                                             nmaster += 1;
                                             *row.entry(b2.inv_perm[elm.nodes[i] as usize]).or_insert(0.0) +=
                                                 -sgn0 * s.node_scale * s.node_coeff * bm.basis[i] * val;
+                                        }
+                                    }
+                                    if let Some(ed) = &s.edges {
+                                        let edges = b1.element_edges(ind);
+                                        let edges_m = b2.element_edges(indm);
+                                        for (j, &jj) in edges.iter().enumerate() {
+                                            let er = ed.edge_perm[jj as usize];
+                                            if er == 0 {
+                                                continue;
+                                            }
+                                            let nrow = ed.edge_row0 + er;
+                                            inv_perm[nrow - 1] = (ed.n_nodes + jj as usize) as u32;
+                                            let row = &mut list[nrow - 1];
+                                            for (i, &ii) in edges.iter().enumerate() {
+                                                let val = wtemp * dot3(&wb[j], &wb[i]);
+                                                if val.abs() > 1.0e-12 {
+                                                    nslave += 1;
+                                                    *row.entry((ed.n_nodes + ii as usize) as u32).or_insert(0.0) += ed.edge_coeff * val;
+                                                }
+                                            }
+                                            for (i, &ii) in edges_m.iter().enumerate() {
+                                                let val = -wtemp * sgn0 * dot3(&wb[j], &wbm[i]);
+                                                if val.abs() > 1.0e-12 {
+                                                    nmaster += 1;
+                                                    *row.entry((ed.n_nodes + ii as usize) as u32).or_insert(0.0) +=
+                                                        ed.edge_scale * ed.edge_coeff * val;
+                                                }
+                                            }
                                         }
                                     }
                                 }

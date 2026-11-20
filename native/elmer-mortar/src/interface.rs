@@ -12,6 +12,9 @@ struct IfaceElem {
     nodes: Vec<u32>,
     /// The boundary condition the parent boundary element belongs to.
     tag: i32,
+    /// `EdgeIndexes` of the mesh face (0-based global edges) when the mesh
+    /// has faces; empty otherwise.
+    edges: Vec<u32>,
 }
 
 /// One side of an interface: the boundary elements of one boundary
@@ -31,6 +34,12 @@ pub struct InterfaceMesh {
 impl InterfaceMesh {
     pub fn n_elements(&self) -> usize {
         self.elems.len()
+    }
+
+    /// `Element % EdgeIndexes` of element `e`: the mesh face's 0-based
+    /// global edges, empty when the interface was built without faces.
+    pub fn element_edges(&self, e: usize) -> &[u32] {
+        &self.elems[e].edges
     }
 
     /// A node set without elements (the Gauss points `WeightedProjector`
@@ -108,6 +117,25 @@ pub fn create_interface_meshes(
     target: usize,
     split_quadratic: bool,
 ) -> Result<Option<(InterfaceMesh, InterfaceMesh)>, MortarError> {
+    create_interface_meshes_faces(mesh, bc_of, n_bcs, this, target, split_quadratic, None)
+}
+
+/// The mesh face of a boundary element (`Find_Face`): its `NodeIndexes`
+/// and 0-based global `EdgeIndexes`.
+pub type FaceOf<'a> = &'a dyn Fn(ElemId) -> Option<(Vec<u32>, Vec<u32>)>;
+
+/// [`create_interface_meshes`] of a mesh with faces (`Mesh % Faces`
+/// associated): an element takes its mesh face's node order and keeps the
+/// face's edges (MortarUtils.F90:485-515).
+pub fn create_interface_meshes_faces(
+    mesh: &dyn MeshView,
+    bc_of: &dyn Fn(i32) -> Option<usize>,
+    n_bcs: usize,
+    this: usize,
+    target: usize,
+    split_quadratic: bool,
+    face_of: Option<FaceOf<'_>>,
+) -> Result<Option<(InterfaceMesh, InterfaceMesh)>, MortarError> {
     if this == 0 || target == 0 {
         return Err(MortarError::Fatal(
             "CreateInterfaceMeshes: Invalid target boundaries".into(),
@@ -144,14 +172,25 @@ pub fn create_interface_meshes(
                         etype: ElementType(101 * part.len() as u16),
                         nodes: part.iter().map(|&k| el.nodes[k - 1]).collect(),
                         tag: constraint as i32,
+                        edges: Vec::new(),
                     });
                 }
             }
-            None => sides[side].push(IfaceElem {
-                etype: el.etype,
-                nodes: el.nodes.to_vec(),
-                tag: constraint as i32,
-            }),
+            None => {
+                let (nodes, edges) = match face_of {
+                    Some(f) => {
+                        let (fnodes, fedges) = f(ElemId((nb + i) as u32)).ok_or_else(|| {
+                            MortarError::Fatal(format!("CreateInterfaceMeshes: no mesh face for boundary element {}", i + 1))
+                        })?;
+                        if fnodes.len() != el.nodes.len() {
+                            return Err(MortarError::Unsupported("interface faces of other than linear elements".into()));
+                        }
+                        (fnodes, fedges)
+                    }
+                    None => (el.nodes.to_vec(), Vec::new()),
+                };
+                sides[side].push(IfaceElem { etype: el.etype, nodes, tag: constraint as i32, edges })
+            }
         }
         for &n in el.nodes {
             perms[side][n as usize] = 1;
