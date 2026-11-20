@@ -18,6 +18,8 @@ pub(crate) struct VarView<'a> {
     pub ncomp: usize,
     /// An elemental (`-elem`) field: `perm` is indexed by element, not node.
     pub elemental: bool,
+    /// A DG (`-dg`) field: `perm` is indexed by DG index, not node.
+    pub dg: bool,
 }
 
 impl<'a> VarView<'a> {
@@ -29,6 +31,7 @@ impl<'a> VarView<'a> {
             offset,
             ncomp,
             elemental: v.kind == FieldKind::Elemental,
+            dg: v.kind == FieldKind::Dg,
         }
     }
 
@@ -138,7 +141,8 @@ pub(crate) fn resolve_bulk<'a>(vars: &'a VariableStore, name: &str) -> Result<Op
 /// [`resolve`] as `VectorStatistics` and `VectorMeanDeviation` read a
 /// field: an elemental or Gauss-point variable loses its Perm
 /// (SaveScalars.F90:1874, :2055), so the operator runs over every stored
-/// value. Other variables resolve as [`resolve`] does.
+/// value. A DG variable keeps its Perm, over its DG indexes. Other
+/// variables resolve as [`resolve`] does.
 pub(crate) fn resolve_values<'a>(vars: &'a VariableStore, name: &str) -> Result<Option<Resolved<'a>>, SolverError> {
     let per_element = |v: &Variable| matches!(v.kind, FieldKind::Elemental | FieldKind::Ip);
     let unpermuted = |v: &'a Variable, offset: usize, ncomp: usize| {
@@ -151,6 +155,13 @@ pub(crate) fn resolve_values<'a>(vars: &'a VariableStore, name: &str) -> Result<
         }
         Some(VarHandle::Component { parent, component }) if per_element(vars.by_id(parent)) => {
             unpermuted(vars.by_id(parent), component, 1)
+        }
+        Some(VarHandle::Primary(id)) if vars.by_id(id).kind == FieldKind::Dg => {
+            let v = vars.by_id(id);
+            Ok(Some(Resolved::Field(VarView::of(v, 0, v.dofs))))
+        }
+        Some(VarHandle::Component { parent, component }) if vars.by_id(parent).kind == FieldKind::Dg => {
+            Ok(Some(Resolved::Field(VarView::of(vars.by_id(parent), component, 1))))
         }
         _ => resolve(vars, name),
     }

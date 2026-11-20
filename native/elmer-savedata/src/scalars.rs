@@ -327,6 +327,14 @@ impl SaveScalars {
                             Some(Resolved::Components { first, .. }) => first,
                             _ => return Err(SolverError::Unsupported(format!("SaveScalars: {} of a global variable", op.oper))),
                         };
+                        // The node mask and the nodal range of a DG field
+                        // run over its DG indexes (`Element % DgIndexes`).
+                        if view.dg && (op.mask != MaskKind::None || got_nodal) {
+                            return Err(SolverError::Unsupported(format!(
+                                "SaveScalars: masked or nodal {} of the DG variable {variable}",
+                                op.oper
+                            )));
+                        }
                         let mask = (op.mask != MaskKind::None)
                             .then(|| node_mask(ctx, op.mask, &mask_name, view.n_perm()));
                         if op.kind == OperKind::Deviation {

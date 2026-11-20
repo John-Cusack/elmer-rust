@@ -47,14 +47,23 @@ fn section_of<'m>(sim: &'m Simulation, mesh: &dyn MeshView, e: ElemId, name: &st
     })
 }
 
-/// `ListGetLogicalGen(section, mask)`: false without the section or key.
-fn mask_on(section: Option<&ParamMap>, mask: &str) -> bool {
-    match section.and_then(|s| s.get(mask)) {
+/// `ListGetLogicalGen(section, mask)` (Lists.F90): false without the
+/// section or key; a logical is itself; a constant real scalar is true when
+/// positive; any other present value (an integer, an array, a function of
+/// variables, a string) is true. A constant MATC expression or procedure
+/// would be evaluated by `ListGetConstReal` and is refused.
+fn mask_on(section: Option<&ParamMap>, mask: &str) -> Result<bool, SolverError> {
+    Ok(match section.and_then(|s| s.get(mask)) {
+        None => false,
         Some(Value::Logical(b)) => *b,
-        Some(Value::Real { data, .. }) => data.first().is_some_and(|&x| x > 0.0),
-        Some(Value::Integer(v)) => v.first().is_some_and(|&x| x > 0),
-        _ => false,
-    }
+        Some(Value::Real { rows, cols, data }) if rows * cols == 1 => data.first().is_some_and(|&x| x > 0.0),
+        Some(Value::Dependent(d)) if d.variables.is_empty() => {
+            return Err(SolverError::Unsupported(format!(
+                "mask > {mask} < given by a constant expression or procedure (ListGetLogicalGen)"
+            )))
+        }
+        Some(_) => true,
+    })
 }
 
 /// `CreateElementsPerm` with a mask: active elements whose section sets the
@@ -76,7 +85,7 @@ pub(crate) fn element_perm_masked(
     let (mut on, mut m) = (false, 0usize);
     for t in 0..n {
         if active[t] {
-            on = mask_on(section_of(sim, mesh, ElemId(t as u32), sec)?, mask);
+            on = mask_on(section_of(sim, mesh, ElemId(t as u32), sec)?, mask)?;
         }
         if on {
             perm[t] = m as u32;
@@ -84,6 +93,83 @@ pub(crate) fn element_perm_masked(
         }
     }
     Ok((perm, m))
+}
+
+/// `Element % DGIndexes` of every bulk and boundary element, 0-based.
+#[derive(Clone, Debug)]
+pub struct DgIndexes {
+    /// Per element, one index per node ([`NO_DOF`] where a boundary element
+    /// found none in its parents).
+    pub index: Vec<Vec<u32>>,
+    /// The number of DG indexes (`MAXVAL` over the bulk elements).
+    pub count: usize,
+}
+
+impl DgIndexes {
+    /// `CreateDGPerm` when no element has DG indexes yet: the nodes of the
+    /// bulk elements numbered in element order, then each boundary element
+    /// takes its nodes' indexes from its first parent (left, else right).
+    pub fn create(mesh: &dyn MeshView) -> Self {
+        let nb = mesh.n_bulk();
+        let mut index: Vec<Vec<u32>> = Vec::with_capacity(nb + mesh.n_boundary());
+        let mut next = 0u32;
+        for t in 0..nb {
+            let n = mesh.element(ElemId(t as u32)).nodes.len();
+            index.push((next..next + n as u32).collect());
+            next += n as u32;
+        }
+        for t in nb..nb + mesh.n_boundary() {
+            let el = mesh.element(ElemId(t as u32));
+            let mut idx = vec![NO_DOF; el.nodes.len()];
+            if let Some(p) = el.parents.iter().flatten().find(|p| (p.0 as usize) < nb) {
+                let parent = mesh.element(*p);
+                for (i, n) in el.nodes.iter().enumerate() {
+                    if let Some(j) = parent.nodes.iter().position(|m| m == n) {
+                        idx[i] = index[p.0 as usize][j];
+                    }
+                }
+            }
+            index.push(idx);
+        }
+        DgIndexes { index, count: next as usize }
+    }
+}
+
+/// `CreateDGPerm(Solver, DGPerm, DGCount[, MaskName, SecName])`: DG index ->
+/// 0-based slot over the DG indexes of the solver's active bulk elements
+/// (those whose section sets the mask, when there is one), numbered in DG
+/// index order. A boundary element's indexes are its parent's, so they add
+/// none. The mesh's DG indexes are created on first use.
+pub(crate) fn dg_perm(
+    sim: &mut Simulation,
+    mesh: &dyn MeshView,
+    slot: &SolverSlot,
+    mask: Option<(&str, &str)>,
+) -> Result<(Vec<u32>, usize), SolverError> {
+    if sim.dg_indexes.is_none() {
+        sim.dg_indexes = Some(DgIndexes::create(mesh));
+    }
+    let dg = sim.dg_indexes.as_ref().expect("created above");
+    let mut perm = vec![NO_DOF; dg.count];
+    for &e in &slot.active {
+        if (e.0 as usize) >= mesh.n_bulk() {
+            continue;
+        }
+        if let Some((sec, key)) = mask {
+            if !mask_on(section_of(sim, mesh, e, sec)?, key)? {
+                continue;
+            }
+        }
+        for &i in &dg.index[e.0 as usize] {
+            perm[i as usize] = 0;
+        }
+    }
+    let mut n = 0u32;
+    for p in perm.iter_mut().filter(|p| **p != NO_DOF) {
+        *p = n;
+        n += 1;
+    }
+    Ok((perm, n as usize))
 }
 
 /// `InvActiveElements`: element -> 0-based position among the solver's
@@ -145,7 +231,7 @@ pub(crate) fn ip_perm(
     for t in 0..n {
         let on = active[t]
             && match mask {
-                Some((sec, key)) => mask_on(section_of(sim, mesh, ElemId(t as u32), sec)?, key),
+                Some((sec, key)) => mask_on(section_of(sim, mesh, ElemId(t as u32), sec)?, key)?,
                 None => true,
             };
         if on {
@@ -484,6 +570,35 @@ impl Simulation {
                             } else if el.nodes.iter().all(|&n| slot(n).is_some()) {
                                 for (i, &n) in el.nodes.iter().enumerate() {
                                     writes.push((slot(n).expect("checked") as usize * dofs + j, local[i]));
+                                }
+                            }
+                        }
+                        FieldKind::Dg => {
+                            // `VarIndexes => Element % DGIndexes`.
+                            let local = crate::expr::eval_at_nodes_with(value, el.nodes, &fields, b.matc.as_deref(), &b.udfs)?;
+                            let dg = self.dg_indexes.as_ref().ok_or_else(|| {
+                                SolverError::fatal(CALLER, "a DG variable without the mesh's DG indexes")
+                            })?;
+                            let slot = |i: usize| {
+                                let d = dg.index[t][i];
+                                (d != NO_DOF).then(|| perm[d as usize]).filter(|&s| s != NO_DOF)
+                            };
+                            if conditional {
+                                let c = crate::expr::eval_at_nodes_with(
+                                    section.get(&cond).expect("checked"),
+                                    el.nodes,
+                                    &fields,
+                                    b.matc.as_deref(),
+                                    &b.udfs,
+                                )?;
+                                for i in 0..el.nodes.len() {
+                                    if let (true, Some(s)) = (c[i] > 0.0, slot(i)) {
+                                        writes.push((s as usize * dofs + j, local[i]));
+                                    }
+                                }
+                            } else if (0..el.nodes.len()).all(|i| slot(i).is_some()) {
+                                for (i, &x) in local.iter().enumerate() {
+                                    writes.push((slot(i).expect("checked") as usize * dofs + j, x));
                                 }
                             }
                         }
