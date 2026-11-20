@@ -16,6 +16,8 @@ pub(crate) struct VarView<'a> {
     /// `Var % Dofs` as the operators see it: components of a vector field
     /// the view covers (1 for a component alias).
     pub ncomp: usize,
+    /// An elemental (`-elem`) field: `perm` is indexed by element, not node.
+    pub elemental: bool,
 }
 
 impl<'a> VarView<'a> {
@@ -26,6 +28,7 @@ impl<'a> VarView<'a> {
             stride: v.dofs,
             offset,
             ncomp,
+            elemental: v.kind == FieldKind::Elemental,
         }
     }
 
@@ -112,6 +115,23 @@ pub(crate) fn resolve<'a>(vars: &'a VariableStore, name: &str) -> Result<Option<
                 count,
             }))
         }
+    }
+}
+
+/// [`resolve`] as `BulkIntegrals` reads a field: an elemental variable too,
+/// whose value at a point of an element is the element's own
+/// (`EvaluateVariableAtGivenPoint`).
+pub(crate) fn resolve_bulk<'a>(vars: &'a VariableStore, name: &str) -> Result<Option<Resolved<'a>>, SolverError> {
+    let elemental = |v: &Variable| v.kind == FieldKind::Elemental;
+    match vars.resolve(name) {
+        Some(VarHandle::Primary(id)) if elemental(vars.by_id(id)) => {
+            let v = vars.by_id(id);
+            Ok(Some(Resolved::Field(VarView::of(v, 0, v.dofs))))
+        }
+        Some(VarHandle::Component { parent, component }) if elemental(vars.by_id(parent)) => {
+            Ok(Some(Resolved::Field(VarView::of(vars.by_id(parent), component, 1))))
+        }
+        _ => resolve(vars, name),
     }
 }
 

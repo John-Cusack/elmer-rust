@@ -21,7 +21,7 @@ use crate::integrals::{
     vector_statistics, BulkRequest, Fe,
 };
 use crate::plan::{parse_operator, MaskKind, OperKind, PseudoNorm, ScalarPlan};
-use crate::view::{component_name, resolve, resolve_values, Resolved};
+use crate::view::{component_name, resolve, resolve_bulk, resolve_values, Resolved};
 
 const CALLER: &str = "SaveScalars";
 
@@ -339,7 +339,7 @@ impl SaveScalars {
                 }
                 OperKind::Bulk => {
                     let val = {
-                        let view = match resolve(&ctx.sim.vars, &variable)? {
+                        let view = match resolve_bulk(&ctx.sim.vars, &variable)? {
                             Some(Resolved::Field(v)) => v,
                             Some(Resolved::Components { first, .. }) => first,
                             _ => return Err(SolverError::Unsupported(format!("SaveScalars: {} of a global variable", op.oper))),
