@@ -34,6 +34,7 @@ use crate::poisson_solver;
 use crate::count_solver;
 use crate::single_edge_elements;
 use crate::single_elements;
+use crate::q1q0;
 use crate::stokes_pfem;
 use crate::stokes_proj;
 use crate::tresca;
@@ -151,6 +152,7 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("SD_ModelPDEsplitted", "ModelPDEsplitted", "AdvDiffSolver", Hook::Solver(model_pde_splitted::factory)),
     ("PoissonML", "PoissonML", "PoissonSolver", Hook::Solver(poisson_ml::factory)),
     ("StokesPFEM", "Stokes1", "StokesSolver", Hook::Solver(stokes_pfem::factory)),
+    ("Q1Q0", "Q1Q0", "StokesSolver", Hook::Solver(q1q0::factory)),
     ("SlaveSolverSlots", "CountSolver", "CountSolver", Hook::Solver(count_solver::factory)),
     // The same source as `CountSolver2.F90`.
     ("SlaveSolverSlotsScan", "CountSolver2", "CountSolver", Hook::Solver(count_solver::factory)),
