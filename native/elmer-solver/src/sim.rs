@@ -238,6 +238,9 @@ pub struct SolverSlot {
     /// The slot's mesh: 0 for the run's first mesh, else the solver mesh
     /// of its `Mesh` keyword ([`crate::multimesh`]).
     pub mesh_ix: usize,
+    /// `Calculate Weights` / `Calculate Boundary Weights` done on this
+    /// mesh (SolverActivate, once per active-element table).
+    pub(crate) weights_done: bool,
 }
 
 impl SolverSlot {
@@ -289,6 +292,7 @@ impl SolverSlot {
             block_matrix: false,
             conforming_flip: false,
             mesh_ix: 0,
+            weights_done: false,
         })
     }
 
@@ -1845,6 +1849,16 @@ impl Simulation {
             .rfind(|k| p.logical(k) == Some(true));
         let block = with_procedure && mode == Some("block solver");
         let coupled = with_procedure && matches!(mode, Some("coupled solver") | Some("assembly solver"));
+        // MainUtils.F90:5287: the integration weights of the solver's nodes
+        // when the active elements are set up (once per mesh).
+        if !self.slots[ix].weights_done {
+            self.slots[ix].weights_done = true;
+            let p = &self.slots[ix].params;
+            let (bulk, bc) = (p.logical("calculate weights") == Some(true), p.logical("calculate boundary weights") == Some(true));
+            if bulk || bc {
+                SolverCtx::new(self, ix, mesh, log, comm).library_nodal_weights(bulk, bc)?;
+            }
+        }
         for scan in 1..=loops.unwrap_or(1) {
             if !auxiliary {
                 self.vars.set_scalar("nonlin iter", 1.0);
