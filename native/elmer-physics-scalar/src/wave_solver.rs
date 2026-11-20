@@ -203,7 +203,14 @@ impl Solver for WaveSolver {
                 let nd = xyz.len();
                 // `ListGetElementRealParent`: the parent's material at the
                 // boundary nodes.
-                let pmat = ctx.body_params(e).and_then(|b| b.material);
+                let parent = el
+                    .parents
+                    .iter()
+                    .flatten()
+                    .next()
+                    .copied()
+                    .ok_or_else(|| SolverError::fatal(CALLER, format!("boundary element {} has no parent element", e.0)))?;
+                let pmat = ctx.body_params(parent).and_then(|b| b.material);
                 let speed = AtIp::get(ctx, pmat, "sound speed", e)?;
                 let density = AtIp::get(ctx, pmat, "density", e)?;
                 if matches!(density, AtIp::Absent) {
