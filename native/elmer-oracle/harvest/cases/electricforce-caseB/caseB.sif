@@ -1,0 +1,77 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Output Intervals = 1
+  Max Output Level = 4
+  Moment About 1 = Real 0.5
+  Moment About 2 = Real 0.5
+End
+Constants
+  Permittivity Of Vacuum = 8.8542e-12
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(2) = 1 2
+End
+Material 1
+  Relative Permittivity = 2.0
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Potential = Real 0.0
+  Calculate Electric Force = Logical True
+End
+Boundary Condition 2
+  Target Boundaries(1) = 2
+  Potential = Real 1.0
+  Calculate Electric Force = Logical True
+End
+Boundary Condition 3
+  Target Boundaries(2) = 3 4
+  Potential = Real 1.0
+End
+Solver 1
+  Equation = Stat Elec Solver
+  Procedure = "StatElecSolve" "StatElecSolver"
+  Variable = Potential
+  Variable DOFs = 1
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-10
+  Linear System Preconditioning = ILU0
+End
+Solver 2
+  Equation = Electric Force
+  Procedure = "ElectricForce" "StatElecForce"
+  Calculate Nodal Force = Logical True
+  Calculate Force Density = Logical True
+End
+Solver 3
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Potential
+  Operator 1 = min
+  Variable 2 = Potential
+  Operator 2 = max
+End

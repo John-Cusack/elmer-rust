@@ -1,0 +1,74 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Transient
+  Timestep Intervals = 2
+  Timestep Sizes = 0.5
+  Timestepping Method = Implicit Euler
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Diffusion Coefficient = Real 2.0
+  Convection Coefficient = Real 1.0
+  Reaction Coefficient = Real 0.5
+  Time Derivative Coefficient = Real 1.0
+  Convection Velocity 1 = Real 0.5
+  Convection Velocity 2 = Real -0.25
+End
+Body Force 1
+  Field Source = Real 2.0
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Potential = Real 0.0
+End
+Boundary Condition 2
+  Target Boundaries(3) = 2 3 4
+  Potential = Real 3.0
+  Field Flux = Real 1.0
+  Robin Coefficient = Real 1.5
+  External Field = Real 0.5
+End
+Solver 1
+  Equation = AdvDiff
+  Procedure = "ModelPDECutFEM" "AdvDiffSolver"
+  Variable = Potential
+  Variable DOFs = 1
+  Nonlinear System Max Iterations = 2
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Potential
+  Operator 1 = min
+  Variable 2 = Potential
+  Operator 2 = max
+End

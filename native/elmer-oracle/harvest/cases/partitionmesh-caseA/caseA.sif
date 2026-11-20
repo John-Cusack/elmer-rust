@@ -1,0 +1,35 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Solver 1
+  Exec Solver = Always
+  Equation = Partition
+  Procedure = "PartitionMesh" "PartitionMeshSolver"
+  Variable = Partition
+  Variable DOFs = 1
+  No Matrix = Logical True
+  Partitioning Method = String "Uniform"
+  Partitioning Divisions(2) = Integer 2 1
+  Number Of Partitions = Integer 2
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Partition
+  Operator 1 = min
+  Variable 2 = Partition
+  Operator 2 = max
+End

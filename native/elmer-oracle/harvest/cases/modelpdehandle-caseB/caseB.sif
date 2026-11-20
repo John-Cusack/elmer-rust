@@ -1,0 +1,63 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Diffusion Coefficient = Real 1.0
+  Reaction Coefficient = Real 0.25
+  Convection Coefficient = Real 0.5
+  Convection Velocity 1 = Real 0.5
+  Convection Velocity 2 = Real 0.25
+  Time Derivative Coefficient = Real 1.0
+End
+Body Force 1
+  Field Source = Real 1.0
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Field = Real 0.0
+End
+Boundary Condition 2
+  Target Boundaries(3) = 2 3 4
+  Field Flux = Real 0.5
+  Robin Coefficient = Real 10.0
+  External Field = Real 1.0
+End
+Solver 1
+  Equation = ModelPDE
+  Nonlinear System Max Iterations = 2
+  Procedure = "ModelPDEhandle" "AdvDiffSolver"
+  Variable = Field
+  Variable DOFs = 1
+  Linear System Solver = Direct
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Field
+  Operator 1 = min
+  Variable 2 = Field
+  Operator 2 = max
+End

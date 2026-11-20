@@ -1,0 +1,97 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian 2D
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+  Max Output Level = 4
+End
+Constants
+  Permittivity Of Vacuum = Real 8.8542e-12
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Equation 1
+  Active Solvers(2) = 1 2
+  Electric Field = String computed
+End
+Material 1
+  Density = Real 1.0e3
+  Viscosity = Real 1.0e-3
+  Relative Permittivity = Real 2.0
+  Electric Conductivity = Real 1.0
+End
+Body Force 1
+  Source = Variable Potential
+    Real Procedure "Electrokinetics" "getJouleHeat"
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Potential = Real 0.0
+  EO Mobility = Real 5.0e-8
+  Slip = Variable Potential
+    Real Procedure "Electrokinetics" "helmholtz_smoluchowski1"
+End
+Boundary Condition 2
+  Target Boundaries(3) = 2 3 4
+  Potential = Real 1.0
+  EO Mobility = Real 5.0e-8
+  Slip = Variable Potential
+    Real Procedure "Electrokinetics" "helmholtz_smoluchowski2"
+End
+Solver 1
+  Equation = Stat Elec
+  Procedure = "StatElecSolve" "StatElecSolver"
+  Variable = Potential
+  Variable DOFs = 1
+  Calculate Electric Field = Logical True
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+End
+Solver 2
+  Equation = Slip Solver
+  Procedure = "Poisson" "PoissonSolver"
+  Variable = Slip
+  Variable DOFs = 1
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+End
+Solver 3
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Potential
+  Operator 1 = min
+  Variable 2 = Potential
+  Operator 2 = max
+  Variable 3 = Slip
+  Operator 3 = min
+  Variable 4 = Slip
+  Operator 4 = max
+End

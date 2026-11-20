@@ -1,0 +1,106 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+End
+Body 2
+  Equation = 1
+End
+Body 3
+  Equation = 1
+End
+Body 4
+  Equation = 1
+End
+Equation 1
+  Active Solvers(4) = 1 2 3 4
+End
+Solver 1
+  Equation = Poisson
+  Procedure = "DFTSolver" "PoissonSolver"
+  Variable = Potential
+  Variable DOFs = 1
+  NOFnuclei = Integer 3
+  NucleiTable(3,4) = Real 8.0 0.0 0.0 0.0 1.0 1.0 0.0 0.0 1.0 0.0 1.0 0.0
+  Linear System Solver = Iterative
+  Linear System Iterative Method = CG
+  Linear System Max Iterations = 2000
+  Linear System Preconditioning = ILU0
+  Linear System Convergence Tolerance = 1.0e-10
+  Linear System Symmetric = Logical True
+  Linear System Residual Output = 0
+  Relaxation Method = String "constant mixing"
+  Relaxation Parameter A = Real 0.1
+  Relaxation Parameter B = Real 0.05
+  Relaxation Parameter C = Real 0.005
+  Start GRPulay after iterations = Integer 1000000
+  Start GRPulay if relaxation factor is more than = Real 1.0e8
+  Steady State Convergence Tolerance = 1e-6
+End
+Solver 2
+  Equation = EigenProblem
+  Variable = WaveFunctions
+  Procedure = "DFTSolver" "WaveFunctionSolver"
+  Eigen Analysis = Logical True
+  Eigen System Values = Integer 4
+  Eigen System Select = String "Smallest magnitude"
+  Eigen System Convergence Tolerance = Real 1.0e-7
+  Eigen System Compute Residuals = Logical True
+  Eigen System Lanczos Vectors = Integer 20
+  Eigen System Max Iterations = Integer 500
+  Linear System Iterative Method = CG
+  Linear System Solver = Iterative
+  Linear System Max Iterations = 10000
+  Linear System Preconditioning = ILU1
+  Linear System Convergence Tolerance = 1e-9
+  Linear System Residual Output = 0
+  Linear System Symmetric = Logical True
+  Linear System Abort Not Converged = Logical False
+  XC Potential type = String "none"
+  Eigen System Shifting Constant = Real 5.0
+End
+Solver 3
+  Equation = Charge density calculation
+  Variable = Charge density
+  Procedure = "DFTSolver" "ChargeDensitySolver"
+  Number of Eigenmodes Included = Integer 3
+  Linear System Solver = Iterative
+  Linear System Iterative Method = CG
+  Linear System Max Iterations = 10000
+  Linear System Preconditioning = ILU0
+  Linear System Convergence Tolerance = 1e-9
+  Linear System Residual Output = 0
+  Linear System Symmetric = Logical True
+  Linear System Abort Not Converged = Logical False
+  Steady State Convergence Tolerance = 1e-4
+End
+Solver 4
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Potential
+  Operator 1 = min
+  Variable 2 = Potential
+  Operator 2 = max
+  Variable 3 = Charge density
+  Operator 3 = min
+  Variable 4 = Charge density
+  Operator 4 = max
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  WaveFunctions = Real 0.0
+  Potential = Real 100.0
+End
+Boundary Condition 2
+  Target Boundaries(3) = 2 3 4
+  WaveFunctions = Real 0.0
+  Potential = Real 100.0
+End

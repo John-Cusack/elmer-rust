@@ -1,0 +1,90 @@
+Header
+  Mesh DB "." "slab"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+End
+Body 1
+  Name = "Fluid"
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Initial Condition 1
+  Velocity 1 = 0
+  Velocity 2 = -0.5
+End
+Equation 1
+  Name = "Fluid"
+  Active Solvers(3) = 1 2 3
+End
+Material 1
+  Name = "Liquid"
+  Density = 10.0
+  Viscosity = 1.0
+End
+Solver 1
+  Equation = "Navier-Stokes"
+  Procedure = "FlowSolve" "FlowSolver"
+  Variable = Flow Solution[Velocity:2 Pressure:1]
+  Stabilization Method = String Stabilized
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+  Linear System Residual Output = 10
+  Linear System Abort Not Converged = False
+  Nonlinear System Convergence Tolerance = 1.0e-4
+  Nonlinear System Max Iterations = 1
+  Nonlinear System Newton After Iterations = 3
+  Nonlinear System Newton After Tolerance = 1.0e-2
+  Nonlinear System Relaxation Factor = 1.0
+  Steady State Convergence Tolerance = 1.0e-5
+End
+Solver 2
+  Equation = "FlowLine"
+  Procedure = "StructuredFlowLine" "StructuredFlowLine"
+  Nonlinear System Relaxation Factor = 0.7
+  Active Coordinate = Integer 2
+  Velocity Variable Name = String "Flow Solution"
+  Displacement Mode = Logical False
+  True Flow Line Iterations = Integer 2
+  Averaging Order = Integer 1
+  Averaging Method = Integer 0
+  Dot Product Tolerance = Real 0.001
+End
+Solver 3
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Flow Solution
+  Operator 1 = norm
+  Variable 2 = FlowLineDisp
+  Operator 2 = norm
+End
+Boundary Condition 1
+  Name = "Free"
+  Target Boundaries = 1
+  Flow Line = Logical True
+End
+Boundary Condition 2
+  Name = "Walls"
+  Target Boundaries = 2
+  Velocity 1 = 0
+  Velocity 2 = 0
+End
+Boundary Condition 3
+  Name = "Outlet"
+  Target Boundaries = 3
+  Velocity 1 = Real 0.0
+End
+Boundary Condition 4
+  Name = "Inlet"
+  Target Boundaries = 4
+  Velocity 1 = 0
+  Velocity 2 = -0.5
+End

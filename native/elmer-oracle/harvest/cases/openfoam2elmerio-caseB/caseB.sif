@@ -1,0 +1,62 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Steady State Min Iterations = 2
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Heat Conductivity = Real 2.0
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  OFFit = Real 0.0
+End
+Solver 1
+  Equation = OpenFOAMFit
+  Procedure = "OpenFoam2ElmerIO" "OpenFoam2ElmerFit"
+  Variable = OFFit
+  Variable DOFs = 1
+  Exec Solver = Always
+  OpenFOAM Directory = File "of2"
+  OpenFOAM field = File "T"
+  OpenFOAM Timestep = Integer 0
+  Passive OpenFOAM Coordinate = Integer 3
+  Number of cells = Integer 20
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = OFFit
+  Operator 1 = min
+  Variable 2 = OFFit
+  Operator 2 = max
+End

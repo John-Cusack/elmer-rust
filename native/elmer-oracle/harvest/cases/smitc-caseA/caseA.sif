@@ -1,0 +1,69 @@
+Header
+  Mesh DB "." "square"
+End
+Constants
+End
+Simulation
+  Coordinate System = Cartesian 2D
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Body Force = 2
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Density = 7800
+  Thickness = 0.01
+  Youngs Modulus = 70e9
+  Poisson Ratio = 0.3
+End
+Body Force 1
+  Pressure = Real 1e5
+End
+Body Force 2
+  Pressure = Real -1e5
+End
+Boundary Condition 1
+  Target Boundaries(4) = 1 2 3 4
+  Deflection 1 = Real 0.0
+  Deflection 2 = Real 0.0
+  Deflection 3 = Real 0.0
+End
+Solver 1
+  Equation = Plate Solver
+  Procedure = "Smitc" "SmitcSolver"
+  Linear System Solver = Iterative
+  Linear System Max Iterations = 500
+  Linear System Iterative Method = BiCGStab
+  Linear System Preconditioning = ILU0
+  Linear System Convergence Tolerance = 1.0e-10
+  Nonlinear System Max Iterations = 1
+  Nonlinear System Convergence Tolerance = 1.0e-5
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Deflection 1
+  Operator 1 = min
+  Operator 2 = max
+End

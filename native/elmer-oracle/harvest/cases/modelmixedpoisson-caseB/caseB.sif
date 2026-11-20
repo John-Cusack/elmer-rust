@@ -1,0 +1,68 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = "Cartesian 2D"
+  Simulation Type = Steady State
+  Steady State Max Iterations = 2
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Body Force = 2
+End
+Equation 1
+  Active Solvers(2) = 1 2
+End
+Material 1
+  Material Tensor = Real 0.5
+End
+Body Force 1
+  Source Field = Real 2.0
+End
+Body Force 2
+  Source Field = Real -2.0
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Scalar Field = Real 2.0
+  MixedSol Condition = Real 1.0
+End
+Solver 1
+  Equation = "Mixed Poisson"
+  Variable = "MixedSol"
+  Variable DOFs = 1
+  Procedure = "ModelMixedPoisson" "MixedPoisson"
+  Second Kind Basis = Logical True
+  Optimize Bandwidth = False
+  Bubbles in Global System = Logical True
+  Linear System Solver = Iterative
+  Linear System Iterative Method = GCR
+  Linear System Preconditioning = ILU0
+  Linear System Row Equilibration = Logical True
+  Linear System Max Iterations = 100
+  Linear System Convergence Tolerance = 1.0e-6
+ End
+ Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = mixedpot
+  Operator 1 = min
+  Variable 2 = mixedpot
+  Operator 2 = max
+End

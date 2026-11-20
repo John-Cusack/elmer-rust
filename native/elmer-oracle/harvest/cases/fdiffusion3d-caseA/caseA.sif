@@ -1,0 +1,52 @@
+Header
+  Mesh DB "." "cube"
+End
+Simulation
+  Coordinate System = Cylindrical
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+  Max Output Level = Integer 4
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Equation 1
+  Active Solvers(2) = Integer 1 2
+  FourierDiffusion3D = Logical True
+  Angular Frequency = Real 100.0
+End
+Material 1
+  Electric Conductivity = Real 5.0e6
+  Magnetic Permeability = Real 1.2566e-6
+End
+Body Force 1
+  AC Magnetic Field 1 Re = Real 1.0
+  AC Magnetic Field 1 Im = Real 0.5
+  AC Magnetic Field 2 Re = Real 0.25
+  AC Magnetic Field 2 Im = Real -0.5
+  AC Magnetic Field 3 Re = Real 0.75
+  AC Magnetic Field 3 Im = Real 0.125
+End
+Solver 1
+  Equation = FourierDiffusion3D
+  Procedure = File "FDiffusion3D" "FourierDiffusion3DSolver"
+  Variable = BField
+  Variable DOFs = 6
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = Real 1.0e-8
+  Linear System Preconditioning = ILU0
+End
+Solver 2
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = BField
+  Operator 1 = min
+  Variable 2 = BField
+  Operator 2 = max
+End

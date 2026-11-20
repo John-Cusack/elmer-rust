@@ -1,0 +1,8 @@
+INCLUDE(test_macros)
+INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR}/fem/src)
+
+CONFIGURE_FILE(caseD.sif caseD.sif COPYONLY)
+
+file(COPY ELMERSOLVER_STARTINFO quads.grd quads DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/")
+
+ADD_ELMER_TEST(nodetoedgesolver-caseD LABELS harvest)

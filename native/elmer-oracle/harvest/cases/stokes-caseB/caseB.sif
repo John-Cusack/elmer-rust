@@ -1,0 +1,72 @@
+Header
+  Mesh DB "." "Step"
+End
+Simulation
+  Coordinate System = Cartesian 2D
+  Coordinate Mapping(3) = 1 2 3
+  Simulation Type = Steady
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Equation 1
+  Active Solvers(2) = 1 2
+End
+Material 1
+  Density = 1
+  Viscosity = 0.7
+End
+Body Force 1
+  Force 1 = Real 1.0
+  Force 2 = Real 0.5
+End
+Boundary Condition 1
+  Target Boundaries = 1
+  RotSol 1 = Variable Coordinate 2
+     Real MATC "(2-tx)*(tx-1)"
+  RotSol 2 = Real 0
+End
+Boundary Condition 2
+  Target Boundaries = 2
+  Outflow Boundary = Logical True
+  RotSol 2 = Real 0
+End
+Boundary Condition 3
+  Target Boundaries = 3
+  RotSol 1 = Real 0
+  RotSol 2 = Real 0
+End
+Solver 1
+  Equation = "Stokes"
+  Procedure = "Stokes" "StokesSolver"
+  Element = "p:2"
+  Variable = RotSol
+  Variable Dofs = 3
+  Convective = Logical True
+  Nonlinear Iteration Method = String "Newton"
+  Nonlinear System Max Iterations = 2
+  Nonlinear System Convergence Tolerance = 1.0e-8
+  Nonlinear System Newton After Iterations = 1
+  Nonlinear System Newton After Tolerance = 1.0e-3
+  Nonlinear System Relaxation Factor = 0.5
+  Block Preconditioning = Logical False
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Preconditioning = ILU0
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Residual Output = 1000
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = RotSol
+  Operator 1 = min
+  Variable 2 = RotSol
+  Operator 2 = max
+End

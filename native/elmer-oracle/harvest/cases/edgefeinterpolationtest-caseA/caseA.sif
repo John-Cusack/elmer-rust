@@ -1,0 +1,64 @@
+Check Keywords "Warn"
+
+Header
+  Mesh DB "." "square"
+End
+
+Simulation
+  Max Output Level = 4
+  Coordinate System = "Cartesian 2D"
+  Simulation Type = Steady
+  Steady State Max Iterations = 1
+  Output Intervals(1) = 1
+End
+
+Body 1
+  Equation = 1
+  Material = 1
+End
+
+Material 1
+  Material Param = Real 0.0
+End
+
+Equation 1
+  Active Solvers(1) = 1
+End
+
+Solver 1
+  Equation = "Interpolation test"
+  Variable = "P"
+  Variable DOFs = 1
+  Procedure = "EdgeFEInterpolationTest" "BestApproximationSolver"
+  Use Piola Transform = Logical True
+  Quadratic Approximation = Logical True
+  Second Kind Basis = Logical False
+  Compute Curl Error = Logical False
+  Error Computation = Logical True
+  Test Mode = Integer 5
+  Optimize Bandwidth = False
+  Bubbles in Global System = Logical True
+  Linear System Solver = Iterative
+  Linear System Iterative Method = bicgstab2
+  Linear System Preconditioning = none
+  Linear System Residual Output = 0
+  Linear System Max Iterations = 1000
+  Linear System Convergence Tolerance = 1e-11
+End
+
+Boundary Condition 1
+  Target Boundaries(1) = 3
+  P {e} 1 = Variable Coordinate
+    Real MATC "-tx(0)*tx(1)*tx(1)"
+  P {e} 2 = Real 0.0
+End
+
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = P
+  Operator 1 = min
+  Variable 2 = P
+  Operator 2 = max
+End

@@ -1,0 +1,71 @@
+Check Keywords "Warn"
+Header
+  Mesh DB "." "beam1d"
+End
+Simulation
+  Max Output Level = 4
+  Coordinate System = Cartesian 3D
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Equation 1
+  Active Solvers(2) = 1 2
+End
+Material 1
+  Youngs Modulus = Real 2.0e-1
+  Shear Modulus = Real 1.0
+  Principal Direction 2(3) = Real 0.0 0.0 -1.0
+  Second Moment of Area 2 = Real 1.0
+  Second Moment of Area 3 = Real 1.0
+  Cross Section Area = Real 1.0
+  Torsional Constant = Real 1.0
+  Density = 2700.0
+End
+Body Force 1
+  Body Force 1 = Real 0.0
+  Body Force 2 = Real 3.0e-2
+  Body Force 3 = Real 0.0
+End
+Solver 1
+  Equation = "Timoshenko Beam Equations"
+  Procedure = "BeamSolver3D" "TimoshenkoSolver"
+  Nonlinear System Max Iterations = 1
+  Nonlinear System Convergence Tolerance = 1.0e-7
+  Linear System Solver = Iterative
+  Linear System Preconditioning = Diagonal
+  Linear System Max Iterations = 1000
+  Linear System Convergence Tolerance = 1.0e-9
+  Linear System Iterative Method = IDRS
+  Displace Mesh = Logical True
+  Steady State Convergence Tolerance = 1.0e-9
+End
+Solver 2
+  Equation = "Save Scalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = U 1
+  Variable 2 = U 2
+  Variable 3 = U 3
+  Variable 4 = Theta 1
+  Variable 5 = Theta 2
+  Variable 6 = Theta 3
+  Save Points(1) = 2
+End
+Boundary Condition 1
+  Target Nodes(1) = 1
+  U 1 = Real 0.0
+  U 2 = Real 0.0
+  U 3 = Real 0.0
+  Theta 1 = Real 0.0
+  Theta 2 = Real 0.0
+  Theta 3 = Real 0.0
+End
+Boundary Condition 2
+  Target Nodes(1) = 2
+End

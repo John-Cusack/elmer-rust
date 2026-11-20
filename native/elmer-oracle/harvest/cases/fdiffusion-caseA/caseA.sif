@@ -1,0 +1,77 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+  Max Output Level = Integer 4
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Equation 1
+  Active Solvers(2) = Integer 1 2
+  FourierDiffusion = Logical True
+  Angular Frequency = Real 100.0
+End
+Material 1
+  Electric Conductivity = Real 5.0e6
+  Magnetic Permeability = Real 1.2566e-6
+End
+Body Force 1
+  AC Magnetic Field Re = Real 1.0
+  AC Magnetic Field Im = Real 0.5
+End
+Boundary Condition 1
+  Target Boundaries(1) = Integer 1
+  Wave Impedance 1 = Real 1.0e-3
+  Wave Impedance 2 = Real 2.0e-3
+  Wave Flux 1 = Real 0.1
+  Wave Flux 2 = Real 0.2
+End
+Boundary Condition 2
+  Target Boundaries(3) = Integer 2 3 4
+  Wave Impedance 1 = Real 3.0e-3
+  Wave Impedance 2 = Real 4.0e-3
+  Wave Flux 1 = Real 0.3
+  Wave Flux 2 = Real 0.4
+End
+Solver 1
+  Equation = FourierDiffusion
+  Procedure = File "FDiffusion" "FourierDiffusionSolver"
+  Variable = BField
+  Variable DOFs = 2
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = Real 1.0e-8
+  Linear System Preconditioning = ILU0
+End
+Solver 2
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = BField
+  Operator 1 = min
+  Variable 2 = BField
+  Operator 2 = max
+End

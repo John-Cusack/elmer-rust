@@ -1,0 +1,118 @@
+Header
+  Mesh DB "." "Mesh"
+  Check Keywords Warn
+End
+Constants
+  Gravity(4) = 0 1 0 9.81
+  Stefan Boltzmann = 5.67e-8
+End
+Simulation
+  Max Output Level = 4
+  Coordinate System = Cartesian 2D
+  Simulation Type = Transient
+  Steady State Max Iterations = 1
+  Timestepping Method = BDF
+  BDF Order = 1
+  Timestep Sizes = Real 606825.5
+  Timestep Intervals = 2
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 2
+  Equation = 2
+  Material = 1
+  Body Force = 1
+  Initial Condition = 1
+End
+Equation 1
+  Active Solvers(1) = 2
+End
+Equation 2
+  Active Solvers(2) = 1 4
+  Convection = "constant"
+End
+Material 1
+  Viscosity = 1.0E12
+  Density = 918.0
+  Convection Velocity 1 = Variable Coordinate
+    Real MATC "(tx(0) - 5.0)*tx(1)/(31556926.0)"
+  Convection Velocity 2 = Variable Coordinate
+    Real MATC "((5.0 - abs(tx(0) - 5.0))*tx(1)/10.0)/(31556926.0)"
+  Youngs Modulus = 1
+  Poisson Ratio = 0.3
+  Min FreeSurface = Real 0.0
+  Max FreeSurface = Real 0.002
+End
+Body Force 1
+  FreeSurface Accumulation = Real 1.0e-7
+  Max Displacement FreeSurface = Real 0.005
+End
+Initial Condition 1
+  Mesh Update 1 = 0.0
+  Mesh Update 2 = 0.0
+  FreeSurface = Equals Coordinate 2
+End
+Solver 1
+  Equation = Free
+  Procedure = "FreeSurfaceSolver" "FreeSurfaceSolver"
+  Variable = FreeSurface
+  Variable DOFs = 1
+  Linear System Solver = Direct
+  Linear System Convergence Tolerance = 1.0e-7
+  Nonlinear System Max Iterations = 2
+  Nonlinear System Convergence Tolerance = 1.0e-6
+  Steady State Convergence Tolerance = 1.0e-6
+  Exported Variable 1 = Freesurface Residual
+  Exported Variable 1 DOFs = 1
+  Apply Dirichlet = Logical True
+  Compute Local Maximum Displacement = Logical True
+  Relaxation Factor = Real 0.7
+End
+Solver 2
+  Equation = Mesh Update
+  Linear System Solver = Direct
+  Steady State Convergence Tolerance = 1.0e-6
+End
+Solver 3
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Exec Solver = After Timestep
+  Filename = scalars.dat
+  Variable 1 = FreeSurface
+  Operator 1 = max
+  Variable 2 = FreeSurface
+  Operator 2 = min
+End
+Solver 4
+  Equation = Free RotInit
+  Procedure = "FreeSurfaceSolver" "FreeSurfaceSolver_RotInit"
+  Exec Solver = Before Simulation
+  Variable = FSRef
+  Variable DOFs = 1
+  Free Surface Variable Name = String "FreeSurface"
+  FreeSurface Orientation(3) = Real 0.0 0.0 1.0
+End
+Boundary Condition 1
+  Target Boundaries = 1
+  Name = "Bed"
+  Mesh Update 1 = 0
+  Mesh Update 2 = 0
+End
+Boundary Condition 2
+  Target Boundaries = 3
+  Name = "Free"
+  Body Id = 2
+  Mesh Update 2 = Variable FreeSurface, FSRef
+    Real Procedure "FreeSurfaceSolver" "FreeSurfaceToMeshUpdate2"
+  Mesh Update 1 = Variable FreeSurface, FSRef
+    Real Procedure "FreeSurfaceSolver" "FreeSurfaceToMeshUpdate1"
+End
+Boundary Condition 3
+  Target Boundaries(2) = 2 4
+  Name = "sides"
+  Mesh Update 1 = 0
+End

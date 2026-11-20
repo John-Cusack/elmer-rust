@@ -1,0 +1,80 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Transient
+  Timestepping Method = BDF
+  BDF Order = 1
+  Timestep Sizes(1) = 0.1
+  Timestep Intervals(1) = 2
+  Output Intervals = 1
+  Max Output Level = Integer 4
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Initial Condition = 1
+End
+Initial Condition 1
+  Pressure = Real 1.0e6
+  Height = Variable Time
+    Real MATC "0.5+0.5*tx"
+End
+Equation 1
+  Active Solvers(4) = 1 2 3 4
+End
+Material 1
+  Hydrostatic Pressure = Real 8.0e5
+  Thickness = Real 1.0
+  Ice Density = Real 900.0
+End
+Solver 1
+  Equation = AllocP
+  Procedure = "AllocateSolver" "AllocateSolver"
+  Variable = Pressure
+  Variable DOFs = 1
+End
+Solver 2
+  Equation = AllocH
+  Procedure = "AllocateSolver" "AllocateSolver"
+  Variable = Height
+  Variable DOFs = 1
+End
+Solver 3
+  Equation = FilmEq
+  Procedure = "FilmCompressibility" "FilmCompressibility"
+  Pressure Variable Name = String "Pressure"
+  Height Variable Name = String "Height"
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+  Differential Mode = Logical True
+  AC Relaxation Factor = Real 0.5
+End
+Solver 4
+  Equation = SaveEq
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = AC
+  Operator 1 = max
+  Variable 2 = AC
+  Operator 2 = min
+End

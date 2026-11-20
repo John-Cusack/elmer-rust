@@ -1,0 +1,69 @@
+Header
+  Mesh DB "." "port"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Max Output Level = 4
+End
+Constants
+  Permeability of Vacuum = 1.0
+  Permittivity of Vacuum = 1.0
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Body 2
+  Equation = 1
+  Material = 2
+End
+Material 1
+  Name = "higher_eps"
+  Relative Reluctivity = 1.0
+  Relative Permittivity = 2.25
+End
+Material 2
+  Name = "Vacuum"
+  Relative Reluctivity = 1.0
+  Relative Permittivity = 1.0
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Solver 1
+  Equation = "Port mode"
+  Procedure = "EMPort" "EMPortSolver"
+  Variable Output = False
+  Angular Frequency = Real 3.0
+  Use Piola Transform = True
+  Use Potential = Logical True
+  Linear System Solver = "Direct"
+  Linear System Direct Method = Umfpack
+  Eigen System Shift Automatic = Logical True
+  Eigen System Sorting = String "smallest real part"
+  Calculate Nodal Field = Logical True
+  Eigenfunction Index = Integer 2
+  Eigen Analysis = True
+  Eigen System Values = 30
+  Eigen System Convergence Tolerance = Real 1.0e-10
+  Eigen System Compute Residuals = True
+  post: Linear System Solver = Iterative
+  post: Linear System Convergence Tolerance = real 1e-8
+  post: Linear System Iterative Method = CG
+  post: Linear System Residual Output = integer 10
+  post: Linear System Max Iterations = integer 2000
+  post: Linear System Preconditioning = ILU0
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Save EigenValues = True
+  Show Norm Index = 1
+End
+Boundary Condition 1
+  Target Boundaries(6) = 1 2 3 4 5 6
+  Port Ground = True
+End

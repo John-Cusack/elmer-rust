@@ -1,0 +1,75 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+End
+Constants
+  Permittivity Of Vacuum = Real 1.0
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+  Body Force = 2
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Poisson Boltzmann Beta = Real 1.0
+  Poisson Boltzmann Alpha = Real 1.0e2
+End
+Body Force 1
+  Charge Density = Real 1.0
+End
+Body Force 2
+  Charge Density = Real -1.0
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Phi = Real 0.0
+End
+Boundary Condition 2
+  Target Boundaries(3) = 2 3 4
+  Phi = Real 1.0
+End
+Solver 1
+  Equation = PBE
+  Procedure = File "PoissonBoltzmannSolve" "PoissonBoltzmannSolve"
+  Variable = Phi
+  Variable DOFs = 1
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = ILU0
+  Nonlinear System Max Iterations = 2
+  Nonlinear System Newton After Iterations = 100
+  Nonlinear System Convergence Tolerance = 1.0e-6
+  Steady State Convergence Tolerance = 1.0e-6
+End
+Solver 2
+  Equation = "SaveScalars"
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Phi
+  Operator 1 = min
+  Variable 2 = Phi
+  Operator 2 = max
+End

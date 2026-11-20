@@ -1,0 +1,84 @@
+Header
+  Mesh DB "." "cube"
+End
+Simulation
+  Coordinate System = Cartesian
+  Coordinate Mapping(3) = 1 2 3
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+  Max Output Level = 5
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Equation 1
+  Active Solvers(3) = 1 2 3
+End
+Material 1
+  Density = 1.0
+  Heat Conductivity = 1.0
+End
+Body Force 1
+  Heat Source = Variable depth_f, height_f
+    Real MATC "tx(0)+tx(1)"
+End
+Boundary Condition 1
+  Target Boundaries(4) = 1 2 3 4
+End
+Boundary Condition 2
+  Target Boundaries(1) = 5
+  Temperature = Real 0.0
+End
+Boundary Condition 3
+  Target Boundaries(1) = 6
+  Temperature = Real 0.0
+End
+Solver 1
+  Equation = HeightDepth
+  Procedure = "StructuredProjectToPlane" "StructuredProjectToPlane"
+  Active Coordinate = Integer 3
+  Operator 1 = depth
+  Target Variable 1 = String depth_f
+  Operator 2 = height
+  Target Variable 2 = String height_f
+  Operator 3 = distance
+  Target Variable 3 = String dist_f
+  Operator 4 = index
+  Target Variable 4 = String index_f
+End
+Solver 2
+  Equation = Heat Equation
+  Variable = String Temperature
+  Variable DOFs = 1
+  Procedure = "HeatSolve" "HeatSolver"
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations = 500
+  Linear System Convergence Tolerance = 1.0e-8
+  Linear System Preconditioning = none
+  Linear System Residual Output = 1
+  Steady State Convergence Tolerance = 1.0e-5
+  Nonlinear System Convergence Tolerance = 1.0e-5
+  Nonlinear System Max Iterations = 1
+  Nonlinear System Newton After Iterations = 3
+  Nonlinear System Newton After Tolerance = 1.0e-2
+  Nonlinear System Relaxation Factor = 1.0
+End
+Solver 3
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = Temperature
+  Operator 1 = max
+  Variable 2 = depth_f
+  Operator 2 = max
+  Variable 3 = height_f
+  Operator 3 = max
+  Variable 4 = dist_f
+  Operator 4 = max
+  Variable 5 = index_f
+  Operator 5 = max
+End

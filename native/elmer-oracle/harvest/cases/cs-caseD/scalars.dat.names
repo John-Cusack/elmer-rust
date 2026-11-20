@@ -1,0 +1,13 @@
+Metadata for SaveScalars file: ./scalars.dat
+Elmer version: 26.2
+Elmer revision: 9f6af2f85
+Elmer compilation date: 2026-10-28
+Solver input file: casea.sif
+File started at: 2026/10/28 23:03:04
+ 
+Variables in columns of matrix: 
+   1: max: totalpressure
+   2: min: totalpressure
+   3: res: contact force 1 bc 2
+   4: res: contact force 2 bc 2
+   5: res: contact force area bc 2

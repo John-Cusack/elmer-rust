@@ -1,0 +1,57 @@
+Header
+  Mesh DB "." "square"
+End
+Simulation
+  Max Output Level = 4
+  Coordinate System = Cartesian
+  Simulation Type = Transient
+  Timestepping Method = BDF
+  BDF Order = 1
+  Timestep Sizes = 0.02
+  Periodic Timesteps = Integer 5
+  Timestep Intervals = Integer 40
+  Steady State Max Iterations = 1
+  Output Intervals = 1
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Body 2
+  Equation = 1
+  Material = 1
+End
+Body 3
+  Equation = 1
+  Material = 1
+End
+Body 4
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(2) = 1 2
+End
+Material 1
+  Density = 1.0
+End
+Solver 1
+  Equation = CyclicConvergence
+  Procedure = "CyclicConvergence" "CyclicConvergence"
+  Convergence Value Name = String time
+  Mean Value Tolerance = Real 0.3
+  Mean Deviation Tolerance = Real 0.3
+  Range Tolerance = Real 0.3
+  Cyclic System Min Iterations = Integer 3
+  Number of Production Cycles = Integer 2
+  Filename = conv_b.dat
+End
+Solver 2
+  Equation = SaveScalars
+  Procedure = "SaveData" "SaveScalars"
+  Filename = scalars.dat
+  Variable 1 = time
+  Operator 1 = min
+  Variable 2 = Periodic Cycle
+  Operator 2 = max
+End
