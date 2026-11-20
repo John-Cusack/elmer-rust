@@ -264,11 +264,11 @@ impl NtSystem {
                     if ri(p.inv_perm[i]) == 0 {
                         continue;
                     }
-                    for l in p.rows[i]..p.rows[i + 1] {
-                        if p.cols[l] == elmer_core::NO_DOF {
+                    for &col in &p.cols[p.rows[i]..p.rows[i + 1]] {
+                        if col == elmer_core::NO_DOF {
                             continue;
                         }
-                        let mm = ri(p.cols[l]);
+                        let mm = ri(col);
                         if mm > 0 && !done[mm - 1] {
                             done[mm - 1] = true;
                             normals[mm - 1] = normals[mm - 1].map(|c| -c);
@@ -301,11 +301,11 @@ impl NtSystem {
                 if ri(p.inv_perm[i]) == 0 {
                     continue;
                 }
-                for l in p.rows[i]..p.rows[i + 1] {
-                    if p.cols[l] == elmer_core::NO_DOF {
+                for &col in &p.cols[p.rows[i]..p.rows[i + 1]] {
+                    if col == elmer_core::NO_DOF {
                         continue;
                     }
-                    let mm = ri(p.cols[l]);
+                    let mm = ri(col);
                     if mm > 0 {
                         normals[mm - 1] = [0.0; 3];
                     }
@@ -340,8 +340,8 @@ impl NtSystem {
         // Normalize, and the tangents in 3D.
         let mut tangent1 = vec![[0.0f64; 3]; m];
         let mut tangent2 = vec![[0.0f64; 3]; m];
-        for node in 0..mesh.n_nodes() {
-            let k = reorder[node] as usize;
+        for &k in &reorder {
+            let k = k as usize;
             if k == 0 {
                 continue;
             }
@@ -433,8 +433,8 @@ pub(crate) fn rotate_local(local: &mut LocalSystem, normal: &[u32], nt: &NtSyste
     let nodes = (size / dofs).min(normal.len());
     let mut r = vec![0.0f64; size * size];
     let mut q = vec![0.0f64; size * size];
-    for i in 0..nodes {
-        let ii = normal[i] as usize;
+    for (i, &ii) in normal.iter().enumerate().take(nodes) {
+        let ii = ii as usize;
         if ii == 0 || ii > nt.normals.len() {
             continue;
         }

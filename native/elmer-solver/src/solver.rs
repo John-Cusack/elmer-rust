@@ -132,6 +132,10 @@ pub fn procedure_value(params: &ParamMap, key: &str) -> Option<(String, String)>
 
 /// What a running solver sees: the simulation (fields, other sections),
 /// the mesh, the message sink and the communicator, focused on one solver
+/// Dirichlet values `(row, value)` and the rows set as a whole
+/// ([`SolverCtx::dirichlet_values_with_rows`]).
+pub type DirichletRows = (Vec<(u32, f64)>, Vec<crate::backend::DirectRow>);
+
 /// slot.
 pub struct SolverCtx<'a> {
     pub sim: &'a mut Simulation,
@@ -787,7 +791,7 @@ impl<'a> SolverCtx<'a> {
 
     /// [`dirichlet_values`](Self::dirichlet_values) with the rows that the
     /// n-t system sets directly ([`apply_dirichlet_values_with_rows`](Self::apply_dirichlet_values_with_rows)).
-    pub fn dirichlet_values_with_rows(&mut self) -> Result<(Vec<(u32, f64)>, Vec<crate::backend::DirectRow>), SolverError> {
+    pub fn dirichlet_values_with_rows(&mut self) -> Result<DirichletRows, SolverError> {
         let Some(id) = self.sim.slots[self.slot].variable else {
             return Ok((Vec::new(), Vec::new()));
         };
@@ -808,8 +812,8 @@ impl<'a> SolverCtx<'a> {
         &self,
         id: crate::VarId,
         offset: usize,
-        zero_done: &mut Vec<[bool; 3]>,
-    ) -> Result<(Vec<(u32, f64)>, Vec<crate::backend::DirectRow>), SolverError> {
+        zero_done: &mut [[bool; 3]],
+    ) -> Result<DirichletRows, SolverError> {
         let v = self.sim.vars.by_id(id);
         // DefaultDirichletBCs: `ComponentName(name, DOF)`, the declared
         // component names or `"<name> k"`.
