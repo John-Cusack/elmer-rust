@@ -51,8 +51,7 @@ const SOLVER: &[Rule] = &[
 
 /// `Solver i :: Mesh`: a solver of its own mesh (`elmer_solver::multimesh`)
 /// names one mesh directory under the `Mesh DB`. Not composed: the
-/// keyword's other forms, and output solvers (VTU output, SaveData) on
-/// another mesh, which interpolate every field there.
+/// keyword's other forms.
 fn check_solver_mesh(i: usize, s: &ParamMap) -> Result<(), SolverError> {
     if s.get("mesh").is_none() {
         return Ok(());
@@ -61,10 +60,6 @@ fn check_solver_mesh(i: usize, s: &ParamMap) -> Result<(), SolverError> {
     let Some(name) = s.string("mesh") else { return refuse("not a mesh name") };
     if name.split_whitespace().count() != 1 {
         return refuse("a mesh with options or a directory and a name");
-    }
-    let proc = s.get("procedure").map(|p| format!("{p:?}").to_ascii_lowercase()).unwrap_or_default();
-    if ["resultoutput", "savedata", "savescalars", "saveline"].iter().any(|k| proc.contains(k)) {
-        return refuse("output on another mesh (fields interpolated to it) is not implemented");
     }
     Ok(())
 }
