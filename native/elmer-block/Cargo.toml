@@ -12,4 +12,5 @@ elmer-direct = { path = "../elmer-direct" }
 elmer-itermethods = { path = "../elmer-itermethods" }
 elmer-krylov = { path = "../elmer-krylov" }
 elmer-sparse = { path = "../elmer-sparse" }
+elmer-umfpack = { path = "../elmer-umfpack" }
 thiserror.workspace = true

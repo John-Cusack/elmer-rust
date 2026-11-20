@@ -118,8 +118,14 @@ impl IterativeSolver<f64> for OwnedSgs {
 }
 
 /// `Linear System Direct Method`, default `banded` (DirectSolve.F90).
+/// `umfpack` / `big umfpack` run the bit-exact UMFPACK 4.4 port
+/// (`elmer-umfpack`), the other sparse LU methods faer's LU.
 fn direct(p: &ParamMap) -> Result<Box<dyn DirectSolver<f64> + Send>, SolverError> {
-    let kind = kind_for_method(p.string("linear system direct method").unwrap_or("banded"))?;
+    let method = p.string("linear system direct method").unwrap_or("banded");
+    if elmer_umfpack::is_umfpack_method(method) {
+        return Ok(Box::new(elmer_umfpack::UmfpackLu::new(|| Box::new(FaerLu::<f64>::new()))));
+    }
+    let kind = kind_for_method(method)?;
     Ok(match kind {
         DirectKind::BandLu => Box::new(BandLu::<f64>::new()),
         DirectKind::BandCholesky => Box::new(BandCholesky::<f64>::new()),

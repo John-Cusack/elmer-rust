@@ -7,3 +7,4 @@ repository.workspace = true
 description = "Bit-exact Rust port of the UMFPACK 4.4 + AMD 1.1 sparse LU bundled with Elmer (real double, int indices)"
 
 [dependencies]
+elmer-core.workspace = true

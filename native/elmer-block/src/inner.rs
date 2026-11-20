@@ -360,10 +360,15 @@ impl Preconditioner<f64> for DiagonalFallback<'_> {
     }
 }
 
-/// `Linear System Direct Method`, default `banded` (DirectSolve.F90).
+/// `Linear System Direct Method`, default `banded` (DirectSolve.F90);
+/// `umfpack` / `big umfpack` run the UMFPACK 4.4 port.
 fn direct(p: &ParamMap) -> Result<Box<dyn DirectSolver<f64> + Send>, BlockError> {
+    let method = p.string("linear system direct method").unwrap_or("banded");
+    if elmer_umfpack::is_umfpack_method(method) {
+        return Ok(Box::new(elmer_umfpack::UmfpackLu::new(|| Box::new(FaerLu::<f64>::new()))));
+    }
     Ok(
-        match kind_for_method(p.string("linear system direct method").unwrap_or("banded"))? {
+        match kind_for_method(method)? {
             DirectKind::BandLu => Box::new(BandLu::<f64>::new()),
             DirectKind::BandCholesky => Box::new(BandCholesky::<f64>::new()),
             DirectKind::SparseLu => Box::new(FaerLu::<f64>::new()),

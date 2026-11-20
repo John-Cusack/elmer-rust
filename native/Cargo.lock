@@ -340,6 +340,7 @@ dependencies = [
  "elmer-itermethods",
  "elmer-krylov",
  "elmer-sparse",
+ "elmer-umfpack",
  "thiserror 2.0.21",
 ]
 
@@ -863,6 +864,7 @@ dependencies = [
  "elmer-sif",
  "elmer-sparse",
  "elmer-timeint",
+ "elmer-umfpack",
  "num-complex",
  "thiserror 2.0.21",
 ]
@@ -886,6 +888,9 @@ dependencies = [
 [[package]]
 name = "elmer-umfpack"
 version = "0.1.0"
+dependencies = [
+ "elmer-core",
+]
 
 [[package]]
 name = "elmer-viewfactors"
