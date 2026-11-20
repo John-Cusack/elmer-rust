@@ -28,7 +28,7 @@ pub fn is_umfpack_method(method: &str) -> bool {
 /// What [`UmfpackLu::factor`] did.
 enum Factor {
     None,
-    Umfpack(Numeric),
+    Umfpack(Box<Numeric>),
     /// The CRS arrays are not a valid UMFPACK matrix (unsorted or duplicate
     /// column indices), where Elmer's own CRS always is; served by faer's LU
     /// instead of failing.
@@ -109,7 +109,7 @@ impl DirectSolver<f64> for UmfpackLu {
         let (num, _status) =
             umf::umfpack_numeric(&ap, &ai, &a.values, &sym, Some(&control), Some(&mut info))
                 .map_err(|st| err("umf4num", st))?;
-        *self.factor.get_mut() = Factor::Umfpack(num);
+        *self.factor.get_mut() = Factor::Umfpack(Box::new(num));
         Ok(())
     }
 

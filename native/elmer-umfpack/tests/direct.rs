@@ -68,7 +68,7 @@ fn unsorted_columns_use_the_fallback() {
         values: vec![1.0, 2.0, 3.0, 4.0],
         diag: None,
     };
-    let mut lu = UmfpackLu::new(|| Box::new(Dense2::default()));
+    let mut lu = UmfpackLu::new(|| Box::new(Dense2));
     lu.factor(&a).unwrap();
     let mut b = vec![1.0, 2.0];
     lu.solve_in_place(&mut b).unwrap();
