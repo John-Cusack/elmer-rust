@@ -313,6 +313,173 @@ fn beam_matrix(
     )?)
 }
 
+/// `SetSolidCouplingBCs`: on the `Structure Interface` boundaries, the
+/// shell's displacement is the 3-D solid's at the node and its director
+/// derivative `-(U_upper - U_lower) / h` from the solid nodes that span the
+/// director best among the node's matrix neighbours. Returns the shell dofs
+/// and their values (`DValues`, `ConstrainedDOF`), `None` without coupling.
+fn solid_coupling(
+    ctx: &SolverCtx<'_>,
+    perm: &[u32],
+    shells: &[ElemId],
+    directors: Option<&HashMap<u32, V3>>,
+) -> Result<Vec<(u32, f64)>, SolverError> {
+    const CALLER_C: &str = "SetSolidCouplingBCs";
+    let mut out = Vec::new();
+    // SolidShellCoupling: a `Displacement` with nodes in common.
+    let Some(did) = ctx.sim.vars.id("displacement") else { return Ok(out) };
+    let disp = ctx.sim.vars.by_id(did);
+    let Some(dperm) = disp.perm.as_deref() else { return Ok(out) };
+    let common = dperm
+        .iter()
+        .zip(perm)
+        .any(|(&a, &b)| a != NO_DOF && b != NO_DOF);
+    if !common {
+        return Ok(out);
+    }
+    let bcs = &ctx.sim.model.boundary_conditions;
+    if !bcs.iter().any(|b| b.logical("structure interface") == Some(true)) {
+        return Ok(out);
+    }
+    if disp.dofs != 3 {
+        ctx.warn(CALLER_C, "Structure coupling possible in 3D only");
+        return Ok(out);
+    }
+    const DOFS: usize = 3;
+    let a = ctx
+        .sim
+        .slots
+        .iter()
+        .find(|s| s.variable == Some(did))
+        .and_then(|s| s.system.as_ref())
+        .map(|s| &s.matrix)
+        .ok_or_else(|| {
+            SolverError::fatal(
+                CALLER_C,
+                "The solver pointer of displacement variable is not associated",
+            )
+        })?;
+    ctx.info(CALLER_C, "Creating BCs for solid-shell coupling", 9);
+    let mut inv = vec![NO_DOF; a.nrows / DOFS];
+    for (i, &k) in dperm.iter().enumerate() {
+        if k != NO_DOF {
+            inv[k as usize] = i as u32;
+        }
+    }
+    let shell_set: std::collections::HashSet<ElemId> = shells.iter().copied().collect();
+    let nb = ctx.mesh.n_bulk();
+    let x = |n: u32| ctx.mesh.coord(n);
+    for (bi, bc) in bcs.iter().enumerate() {
+        if bc.logical("structure interface") != Some(true) {
+            continue;
+        }
+        if bc.get("target nodes").is_some() {
+            return Err(unsupported("Structure Interface with Target Nodes"));
+        }
+        // The nodes of the BC's active edges, with the parent's director.
+        let mut targets: Vec<(u32, V3)> = Vec::new();
+        for t in nb..nb + ctx.mesh.n_boundary() {
+            let e = ElemId(t as u32);
+            let el = ctx.mesh.element(e);
+            if el.etype.0 / 100 != 2 || el.nodes.iter().any(|&k| perm[k as usize] == NO_DOF) {
+                continue;
+            }
+            if ctx.bc_id(e) != Some(bi + 1) {
+                continue;
+            }
+            let parent = el
+                .parents
+                .iter()
+                .flatten()
+                .copied()
+                .find(|p| shell_set.contains(p));
+            let (Some(parent), Some(dirs)) = (parent, directors) else {
+                return Err(SolverError::fatal(
+                    CALLER_C,
+                    "Director cannot be found from parent elements",
+                ));
+            };
+            let pnodes = ctx.mesh.element(parent).nodes;
+            for &n in el.nodes {
+                if pnodes.contains(&n) {
+                    let d = *dirs.get(&n).ok_or_else(|| {
+                        SolverError::fatal(CALLER_C, "Director cannot be found from parent elements")
+                    })?;
+                    targets.push((n, d));
+                }
+            }
+        }
+        for (node, d) in targets {
+            let ti = dperm[node as usize];
+            if ti == NO_DOF {
+                continue;
+            }
+            // The third component's row; every DOFS-th entry from its third.
+            let row = ti as usize * DOFS + DOFS - 1;
+            let (lo, hi) = (a.row_ptr[row], a.row_ptr[row + 1]);
+            let near: Vec<u32> = (lo + DOFS - 1..hi)
+                .step_by(DOFS)
+                .map(|i| inv[a.col_idx[i] as usize / DOFS])
+                .collect();
+            let x0 = x(node);
+            let nd = norm(&d);
+            let e3 = [d[0] / nd, d[1] / nd, d[2] / nd];
+            let (mut maxres, mut minres) = (0.0f64, 0.0f64);
+            let (mut jz, mut lz) = (None, None);
+            for &m in &near {
+                if m == node {
+                    continue;
+                }
+                let xm = x(m);
+                let c = [xm[0] - x0[0], xm[1] - x0[1], xm[2] - x0[2]];
+                let res = dot(&e3, &c) / dot(&c, &c).sqrt();
+                if res.abs() < 2.0e-2 {
+                    continue;
+                }
+                if res > 0.0 {
+                    if res > maxres {
+                        jz = Some(m);
+                        maxres = res;
+                    }
+                } else if res < minres {
+                    lz = Some(m);
+                    minres = res;
+                }
+            }
+            let jz = jz.unwrap_or(node);
+            let lz = lz.unwrap_or(node);
+            if jz == lz {
+                return Err(SolverError::fatal(CALLER_C, "No solid nodes to span the director"));
+            }
+            let u = |n: u32| -> V3 {
+                let k = dperm[n as usize] as usize * DOFS;
+                [disp.values[k], disp.values[k + 1], disp.values[k + 2]]
+            };
+            let (ul, uu, um) = (u(lz), u(jz), u(node));
+            let (xj, xl) = (x(jz), x(lz));
+            let v = [xj[0] - xl[0], xj[1] - xl[1], xj[2] - xl[2]];
+            let h = dot(&v, &v).sqrt();
+            let dnu: V3 = std::array::from_fn(|i| -1.0 / h * (uu[i] - ul[i]));
+            let hv = dot(&v, &v).sqrt();
+            let dh = [v[0] / hv, v[1] / hv, v[2] / hv];
+            if dot(&dh, &e3).abs() < 0.98 {
+                ctx.warn(CALLER_C, "A BC omitted: Solid-model nodes does not span the director");
+                continue;
+            }
+            let k = perm[node as usize];
+            if k == NO_DOF {
+                continue;
+            }
+            let k = k * M as u32;
+            for i in 0..3 {
+                out.push((k + i as u32, um[i]));
+                out.push((k + 3 + i as u32, dnu[i]));
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// `DisplaceMesh` by the solver's six components, `sgn` times.
 fn displace(ctx: &SolverCtx<'_>, sgn: f64) {
     let Some(v) = ctx.primary() else { return };
@@ -615,9 +782,6 @@ impl Solver for ShellSolver {
         if ctx.sim.vars.get("director").is_some() {
             return Err(unsupported("a Director field"));
         }
-        if ctx.sim.vars.get("displacement").is_some() {
-            return Err(unsupported("shell-solid coupling (a Displacement field)"));
-        }
         let simtype = ctx
             .simulation_params()
             .string("simulation type")
@@ -715,6 +879,8 @@ impl Solver for ShellSolver {
             .map(|q| (q.uvw[0], q.uvw[1], q.weight))
             .collect();
 
+        // SetSolidCouplingBCs: the solid is not solved meanwhile.
+        let coupling = solid_coupling(ctx, &perm, &shells, directors.as_ref())?;
         let mut bulk_rhs = vec![0.0f64; nsize];
         let mut res0 = 1.0;
         for iter in 1..=max_iters + 1 {
@@ -855,7 +1021,13 @@ impl Solver for ShellSolver {
             }
             ctx.default_finish_boundary_assembly()?;
             // DefaultDirichletBCs, then DValues - Values: the increment.
-            let (values, rows) = ctx.dirichlet_values_with_rows()?;
+            let (mut values, rows) = ctx.dirichlet_values_with_rows()?;
+            for &(k, v) in &coupling {
+                match values.iter_mut().find(|(j, _)| *j == k) {
+                    Some(e) => e.1 = v,
+                    None => values.push((k, v)),
+                }
+            }
             let cur = ctx.primary().expect("checked").values.to_vec();
             let fixed: Vec<(u32, f64)> = values
                 .iter()
