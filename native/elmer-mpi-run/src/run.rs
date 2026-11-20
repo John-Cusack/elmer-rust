@@ -171,6 +171,16 @@ impl elmer_solver::NodeInterface for ParNodes {
         let ctx = RankContext::current().ok_or_else(|| unsupported("a nodal exchange outside a partitioned run"))?;
         ctx.sum_shared_nodes(v).map_err(|e| SolverError::Unsupported(e.to_string()))
     }
+
+    fn min_shared(&self, v: &mut [f64]) -> Result<(), SolverError> {
+        let ctx = RankContext::current().ok_or_else(|| unsupported("a nodal exchange outside a partitioned run"))?;
+        ctx.pick_shared_nodes(v, f64::min).map_err(|e| SolverError::Unsupported(e.to_string()))
+    }
+
+    fn max_shared(&self, v: &mut [f64]) -> Result<(), SolverError> {
+        let ctx = RankContext::current().ok_or_else(|| unsupported("a nodal exchange outside a partitioned run"))?;
+        ctx.pick_shared_nodes(v, f64::max).map_err(|e| SolverError::Unsupported(e.to_string()))
+    }
 }
 
 /// `MatrixParallelInfoDG` (ParallelUtils.F90:341-511) for every DG solver:
@@ -288,6 +298,7 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
         mesh = crate::levels::split(&mesh, &*ex)?;
     }
     let coords = elmer_run::coordinate_system(&model, &mesh)?;
+    elmer_run::case::legacy_solvers(&mut model, coords);
     elmer_run::install_fe(coords.dim)?;
     let (ctx, _guard) = RankContext::install(ex, mesh.node_gids().to_vec(), mesh.node_owners().to_vec());
     let comm: &dyn Communicator = &*ctx.ex;

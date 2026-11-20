@@ -101,6 +101,19 @@ impl RankContext {
     /// own value first, then the other holders' in ascending rank order.
     /// Collective (and again on first use, to build the node layout).
     pub fn sum_shared_nodes(&self, v: &mut [f64]) -> Result<(), DistError> {
+        self.node_layout()?.sum_shared(&*self.ex, v);
+        Ok(())
+    }
+
+    /// Every copy of each shared mesh node gets `pick` of all holders'
+    /// values (min or max: the order does not matter). Collective.
+    pub fn pick_shared_nodes(&self, v: &mut [f64], pick: fn(f64, f64) -> f64) -> Result<(), DistError> {
+        self.node_layout()?.reduce_shared(&*self.ex, v, |h, _| h.iter().map(|&(_, x)| x).reduce(pick).expect("a holder"));
+        Ok(())
+    }
+
+    /// The mesh nodes as dofs. Collective on first use.
+    fn node_layout(&self) -> Result<Rc<DofLayout>, DistError> {
         let built = self.nodes.borrow().clone();
         let layout = match built {
             Some(l) => l,
@@ -110,8 +123,7 @@ impl RankContext {
                 l
             }
         };
-        layout.sum_shared(&*self.ex, v);
-        Ok(())
+        Ok(layout)
     }
 
     /// The dof layout of a matrix registered with [`register`](Self::register),

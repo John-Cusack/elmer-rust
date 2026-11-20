@@ -249,6 +249,29 @@ impl<'a> SolverCtx<'a> {
         self.sim.slots[self.slot].active.iter().copied()
     }
 
+    /// Whether this rank owns each mesh node; `None` in a serial run.
+    pub fn node_owned(&self) -> Option<&[bool]> {
+        self.sim.node_owned()
+    }
+
+    /// Each shared node's least value over its holders (per mesh node);
+    /// nothing in a serial run. Collective.
+    pub fn nodes_min(&self, v: &mut [f64]) -> Result<(), SolverError> {
+        match &self.sim.backends.nodes {
+            Some(n) => n.min_shared(v),
+            None => Ok(()),
+        }
+    }
+
+    /// Each shared node's greatest value over its holders (per mesh node);
+    /// nothing in a serial run. Collective.
+    pub fn nodes_max(&self, v: &mut [f64]) -> Result<(), SolverError> {
+        match &self.sim.backends.nodes {
+            Some(n) => n.max_shared(v),
+            None => Ok(()),
+        }
+    }
+
     /// The active elements plus, in a partitioned run with halo elements,
     /// the halo bulk elements whose body has the solver: what
     /// `CheckElementEquation` loops (`InitialPermutation`, `CreateNodalPerm`)
