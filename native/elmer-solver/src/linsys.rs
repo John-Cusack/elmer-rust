@@ -275,9 +275,10 @@ fn precond(p: &ParamMap, a: &CsrMatrix<f64>) -> Result<Box<dyn Preconditioner<f6
 /// complex form of the interleaved real system, with the same keywords as
 /// [`elmer_registry`] reads. Direct: `banded` (`ZGBTF2`/`ZGBTRS`) and the
 /// sparse LU methods; iterative: the HUTI methods in complex arithmetic and
-/// BiCGStab(l), GCR and IDR(s); preconditioners `none`, `diagonal`, `ilu[n]`
-/// and `ilut`. Cholesky methods, the stationary methods, complex
-/// BiCGStab(2), incomplete Cholesky and preconditioner reuse are refused.
+/// BiCGStab(l) (also for `bicgstab2`, as IterSolve remaps it), GCR and
+/// IDR(s); preconditioners `none`, `diagonal`, `ilu[n]` and `ilut`. Cholesky
+/// methods, the stationary methods, incomplete Cholesky and preconditioner
+/// reuse are refused.
 pub(crate) fn solve_complex(
     p: &ParamMap,
     a: &CsrMatrix<Complex64>,
@@ -352,15 +353,18 @@ fn solve_complex_op(
                 .map(normalize_key)
                 .unwrap_or_else(|| "bicgstab".into());
             let mut solver: Box<dyn IterativeSolver<Complex64>> = match m.as_str() {
-                "bicgstabl" | "gcr" | "idrs" => {
+                // IterSolve.F90:753: "The complex BiCGStab2 does not convince,
+                // use BiCGStabl instead" (its `BiCGstabl polynomial degree`,
+                // 2 by default).
+                "bicgstabl" | "bicgstab2" | "gcr" | "idrs" => {
                     let cfg = IterMethodsConfig::from_params(p)?;
                     match m.as_str() {
-                        "bicgstabl" => Box::new(BiCgStabL::<Complex64>::new(&cfg)),
+                        "bicgstabl" | "bicgstab2" => Box::new(BiCgStabL::<Complex64>::new(&cfg)),
                         "gcr" => Box::new(Gcr::<Complex64>::new(&cfg)),
                         _ => Box::new(Idrs::<Complex64>::new(&cfg)),
                     }
                 }
-                "jacobi" | "richardson" | "sgs" | "bicgstab2" => {
+                "jacobi" | "richardson" | "sgs" => {
                     return Err(SolverError::Unsupported(format!("complex iterative method {m}")))
                 }
                 _ => Box::new(Huti::<Complex64>::new(HutiConfig::from_params_with(p, true, log)?)),
@@ -552,6 +556,46 @@ pub(crate) fn bilu(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Complex `bicgstab2` is BiCGStab(l) (IterSolve.F90:753): the same
+    /// iterates as `bicgstabl` with the same keywords.
+    #[test]
+    fn complex_bicgstab2_is_bicgstabl() {
+        let a = CsrMatrix::<Complex64> {
+            nrows: 3,
+            ncols: 3,
+            row_ptr: vec![0, 2, 5, 7],
+            col_idx: vec![0, 1, 0, 1, 2, 1, 2],
+            values: vec![
+                Complex64::new(4.0, 1.0),
+                Complex64::new(-1.0, 0.0),
+                Complex64::new(-1.0, 0.0),
+                Complex64::new(4.0, -0.5),
+                Complex64::new(-1.0, 0.25),
+                Complex64::new(-1.0, 0.25),
+                Complex64::new(3.0, 2.0),
+            ],
+            diag: Some(vec![0, 3, 6]),
+        };
+        let b = [Complex64::new(1.0, 0.0), Complex64::new(0.0, 1.0), Complex64::new(2.0, -1.0)];
+        let solve = |method: &str| {
+            let mut p = ParamMap::default();
+            p.insert("Linear System Solver", elmer_core::Value::Str("Iterative".into()));
+            p.insert("Linear System Iterative Method", elmer_core::Value::Str(method.into()));
+            p.insert("Linear System Convergence Tolerance", elmer_core::Value::real(1e-12));
+            p.insert("Linear System Max Iterations", elmer_core::Value::Integer(vec![100]));
+            let mut x = vec![Complex64::new(0.0, 0.0); 3];
+            solve_complex(&p, &a, &b, &mut x, &elmer_core::NullLogger, &elmer_core::SerialComm).unwrap();
+            x
+        };
+        let (x2, xl) = (solve("BiCGStab2"), solve("BiCGStabl"));
+        assert_eq!(x2, xl);
+        let mut r = [Complex64::new(0.0, 0.0); 3];
+        a.apply(&x2, &mut r);
+        for (ri, bi) in r.iter().zip(&b) {
+            assert!((ri - bi).norm() < 1e-10);
+        }
+    }
 
     /// `to_interleaved` is the inverse of `to_complex`, with the diagonal.
     #[test]
