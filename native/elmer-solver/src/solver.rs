@@ -659,8 +659,10 @@ impl<'a> SolverCtx<'a> {
             slot.system = Some(LinearSystem { matrix, rhs: vec![0.0; n], mass, damp: None });
         }
         // A harmonic eigen analysis's DampValues (DefaultUpdateDamp) start
-        // each assembly from zero.
-        let harmonic_eigen = slot.nof_eigen > 0 && slot.params.logical("harmonic mode") == Some(true);
+        // each assembly from zero, as do those of a second-order solver with
+        // `Use Global Mass Matrix`.
+        let harmonic_eigen = (slot.nof_eigen > 0 && slot.params.logical("harmonic mode") == Some(true))
+            || (slot.time_order >= 2 && slot.params.logical("use global mass matrix") == Some(true));
         let sys = slot.system.as_mut().expect("system created above");
         sys.matrix.values.iter_mut().for_each(|v| *v = 0.0);
         sys.rhs.iter_mut().for_each(|v| *v = 0.0);
@@ -753,7 +755,11 @@ impl<'a> SolverCtx<'a> {
         }
         let local = LocalSystem { n, stiff: damp.to_vec(), mass: None, damp: None, force: vec![0.0; n] };
         let slot = &mut sim.slots[self.slot];
-        if slot.nof_eigen == 0 || slot.params.logical("harmonic mode") != Some(true) {
+        // `Matrix % DampValues`: a harmonic eigen analysis's, or of a
+        // second-order solver with `Use Global Mass Matrix`.
+        let harmonic_eigen = slot.nof_eigen > 0 && slot.params.logical("harmonic mode") == Some(true);
+        let global_2nd = slot.time_order >= 2 && slot.params.logical("use global mass matrix") == Some(true);
+        if !harmonic_eigen && !global_2nd {
             return Ok(());
         }
         let Some(sys) = slot.system.as_mut() else {
@@ -812,12 +818,18 @@ impl<'a> SolverCtx<'a> {
     }
 
     fn time_terms(&mut self, local: &mut LocalSystem, e: ElemId, dt: f64, second: bool) -> Result<(), SolverError> {
-        // Default1stOrderTime: with `Use Global Mass Matrix` the element mass
-        // goes to the global mass matrix; DefaultFinishAssembly adds the time
-        // terms to the assembled system.
-        if !second && self.params().logical("use global mass matrix") == Some(true) {
+        // Default1stOrderTime / Default2ndOrderTime: with `Use Global Mass
+        // Matrix` the element mass (and, second order, damping) go to the
+        // global matrices; DefaultFinishAssembly adds the time terms to the
+        // assembled system (Add1stOrderTime_CRS / Time2ndOrder_CRS).
+        if self.params().logical("use global mass matrix") == Some(true) {
             if let Some(m) = local.mass.take() {
                 self.default_update_mass(&m, e)?;
+            }
+            if second {
+                if let Some(d) = local.damp.take() {
+                    self.default_update_damp(&d, e)?;
+                }
             }
             return Ok(());
         }
