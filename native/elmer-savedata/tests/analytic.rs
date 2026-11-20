@@ -500,3 +500,31 @@ fn integrals_in_unsupported_coordinate_systems_are_refused() {
     let err = c.visit(ix, false).unwrap_err();
     assert!(err.to_string().contains("polar 2d"), "{err}");
 }
+
+/// An elemental field (`-elem`): `BulkIntegrals` takes the element's own
+/// value at each of its points (`EvaluateVariableAtGivenPoint`), so `int`
+/// and `int mean` weight the values by the element areas (1 and 2 here).
+/// The Fortran skips an element whose node numbers hit a Perm entry of
+/// zero, the elemental Perm being indexed by element: with element 6
+/// (0-based 5) given no value, the second cell (nodes 2 3 6 5) drops out.
+#[test]
+fn elemental_fields_integrate_by_element() {
+    use elmer_core::{FieldKind, NO_DOF};
+    use elmer_solver::Variable;
+    let run = |perm: Vec<u32>| {
+        let out = tmp(&format!("an-elem-{}", perm.contains(&NO_DOF)));
+        let mut c = Case::new(two_cell(), model());
+        let values = vec![2.0, 5.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+        let perm: std::sync::Arc<[u32]> = perm.into();
+        c.sim.vars.add(Variable::new("visc", FieldKind::Elemental, 1, Some(perm), values)).unwrap();
+        let ix = c.hook("SaveScalars", scalars(&out, &[("visc", "int"), ("visc", "int mean")])).unwrap();
+        c.visit(ix, false).unwrap();
+        row(&out, "s.dat")
+    };
+    let all = run((0..8).collect());
+    near(all[0], 2.0 * 1.0 + 5.0 * 2.0);
+    near(all[1], 12.0 / 3.0);
+    let skipped = run(vec![0, 1, 2, 3, 4, NO_DOF, 6, 7]);
+    near(skipped[0], 2.0);
+    near(skipped[1], 2.0);
+}

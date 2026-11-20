@@ -290,6 +290,9 @@ pub(crate) fn bulk_integral(
 ) -> Result<f64, SolverError> {
     let axisym = axisymmetric(ctx)?;
     let dim = ctx.mesh.dim();
+    if req.oper == "diffusive energy" && view.elemental {
+        return Err(SolverError::Unsupported("SaveScalars: diffusive energy of an elemental variable".into()));
+    }
     if req.oper == "diffusive energy" && view.ncomp != 1 {
         return Err(SolverError::Unsupported(
             "SaveScalars: diffusive energy of a vector field".into(),
@@ -309,9 +312,18 @@ pub(crate) fn bulk_integral(
         if is_point(el.etype) {
             continue;
         }
+        // `ANY(Var % Perm(NodeIndexes) == 0)`: an elemental variable's Perm is
+        // indexed by element, yet the Fortran checks it at the node indexes too.
         if view.perm.is_some() && el.nodes.iter().any(|&n| view.slot(n as usize).is_none()) {
             continue;
         }
+        // An elemental variable has one value per element.
+        let own = match view.elemental {
+            false => None,
+            true => Some(view.slot(t as usize).ok_or_else(|| {
+                SolverError::Unsupported(format!("SaveScalars: element {t} has no value of an elemental variable"))
+            })?),
+        };
         hits += 1;
         if req.mask != MaskKind::None && !mask_holds(ctx, e, req.mask, req.mask_name) {
             continue;
@@ -335,9 +347,12 @@ pub(crate) fn bulk_integral(
             vol = coeff * vol + ip.s;
             let n = el.nodes.len();
             let comp = |k: usize| -> f64 {
-                (0..n)
-                    .map(|i| ip.basis[i] * view.slot(el.nodes[i] as usize).map_or(0.0, |s| view.at(s, k)))
-                    .sum()
+                match own {
+                    Some(s) => view.at(s, k),
+                    None => (0..n)
+                        .map(|i| ip.basis[i] * view.slot(el.nodes[i] as usize).map_or(0.0, |s| view.at(s, k)))
+                        .sum(),
+                }
             };
             let func = if view.ncomp > 1 {
                 (0..view.ncomp).map(|k| comp(k).powi(2)).sum::<f64>().sqrt()
