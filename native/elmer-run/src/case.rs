@@ -134,6 +134,15 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
         if ns {
             elmer_physics_incompressible::solver_defaults_with(params, cdim, transient, serendipity);
         }
+        // `FilmFlowSolver_Init0` / `_Init`: the MINI element and the `Flow`
+        // variable of the `Model Dimension`.
+        let film = procedure_of(params).is_some_and(|(lib, entry)| {
+            lib.eq_ignore_ascii_case(elmer_physics_filmflow::PROCEDURE.0)
+                && entry.eq_ignore_ascii_case(elmer_physics_filmflow::PROCEDURE.1)
+        });
+        if film {
+            elmer_physics_filmflow::solver_defaults(params, serendipity);
+        }
         // AddEquationBasics (MainUtils.F90:1231): a legacy `Equation` name
         // gives the `Variable` when there is none, with or without a
         // `Procedure`, and the `Procedure` when there is none.
@@ -533,8 +542,9 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 14] = [
+    const P_DOFS: [(&str, &str); 15] = [
         ("benchmarkshell", "shellsolver"),
+        ("filmflowsolver", "filmflowsolver"),
         ("flowsolve", "flowsolver"),
         ("heatsolve", "heatsolver"),
         ("incompressiblens", "incompressiblenssolver"),
