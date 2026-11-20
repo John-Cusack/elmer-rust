@@ -836,7 +836,7 @@ impl<'a> SolverCtx<'a> {
         let order = slot
             .params
             .integer("time derivative order")
-            .map_or(slot.time_order as i32, |k| k);
+            .unwrap_or(slot.time_order as i32);
         if order != 1 {
             return Err(SolverError::Unsupported(format!(
                 "Use Global Mass Matrix with Time Derivative Order {order}"
