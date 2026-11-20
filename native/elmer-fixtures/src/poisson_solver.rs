@@ -119,16 +119,8 @@ impl Solver for PoissonSolver {
         if ctx.primary().is_none_or(|v| v.dofs != 1) {
             return Err(SolverError::Unsupported("Poisson PoissonSolver: a scalar Variable (Variable DOFs = 1)".into()));
         }
-        // `GetActiveElement` also walks boundary elements that a BC's `Body
-        // ID` puts into a body (ExtrudedMeshBaseline1's baseline);
-        // `active_elements` has bulk elements only, so the solve would be
-        // empty.
-        if let Some(i) = ctx.sim.model.boundary_conditions.iter().position(|bc| bc.get("body id").is_some()) {
-            return Err(SolverError::Unsupported(format!(
-                "Poisson PoissonSolver: Boundary Condition {} Body ID (boundary elements as a lower-dimensional body)",
-                i + 1
-            )));
-        }
+        // A BC's `Body ID` makes its boundary elements a lower-dimensional
+        // body; `active_elements` walks them as `GetActiveElement` does.
         Ok(())
     }
 
