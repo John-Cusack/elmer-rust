@@ -145,8 +145,11 @@ impl Communicator for TwoPartitions {
 fn mpi_runs_need_parallel_reduce_and_reducible_operators() {
     let mut c = Case::bare(mesh(), mesh_model());
     c.field("Temperature", 1, |x| vec![x[0]]);
-    // Per-partition files (no Parallel Reduce) and SaveLine stay refused.
-    let a = c.hook("SaveScalars", with_oper("max")).unwrap();
+    // Per-partition files (a Filename without Parallel Reduce) and SaveLine
+    // stay refused.
+    let mut f = with_oper("max");
+    f.insert("Filename", st("scalars.dat"));
+    let a = c.hook("SaveScalars", f).unwrap();
     let b = c.hook("SaveLine", sec(&[("Variable 1", st("temperature"))])).unwrap();
     for (ix, why) in [(a, "Parallel Reduce"), (b, "MPI")] {
         match c.visit_with(ix, &TwoPartitions) {
@@ -163,6 +166,20 @@ fn mpi_runs_need_parallel_reduce_and_reducible_operators() {
         other => panic!("{other:?}"),
     }
     let _ = SerialComm;
+}
+
+/// Without `Parallel Reduce` (and without a file) each rank keeps its own
+/// value, unreduced and under the plain name (SaveScalars.F90:283-325).
+#[test]
+fn without_parallel_reduce_the_values_stay_local() {
+    let mut c = Case::bare(mesh(), mesh_model());
+    c.field("Temperature", 1, |x| vec![x[0]]);
+    let ix = c.hook("SaveScalars", with_oper("max")).unwrap();
+    c.visit_with(ix, &TwoPartitions).unwrap();
+    let s = &c.sim.model.simulation;
+    let local = s.real("max: temperature").unwrap();
+    assert!(local < 5.0, "{local}");
+    assert_eq!(s.real("max: temperature : mpi_max"), None);
 }
 
 /// AddToSaveList: with `Parallel Reduce` the extrema are reduced over the

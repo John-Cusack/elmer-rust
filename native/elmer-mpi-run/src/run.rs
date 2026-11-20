@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use elmer_cli::driver::{Engine, EngineOutcome, RunRequest};
 use elmer_cli::{ElmerLogger, ExitCode};
@@ -71,6 +71,7 @@ fn preflight(model: &Model, registry: &elmer_solver::SolverRegistry) -> Result<(
     // The solver sections go to the Simulation as given; the parallel
     // switches are applied once the variables exist (`prepare_slot`).
     crate::levels::splits(sim, &model.boundary_conditions)?;
+    // `Post File` is a ResultOutputSolver section by now (`prepare_vtu_output`).
     for key in ["post file", "coordinate transformation", "extruded mesh levels"] {
         if sim.get(key).is_some() {
             return Err(unsupported(format!("Simulation {key} in parallel")));
@@ -97,8 +98,9 @@ fn preflight(model: &Model, registry: &elmer_solver::SolverRegistry) -> Result<(
         let Some((lib, entry)) = procedure_of(p) else {
             return Err(unsupported(format!("Solver {id}: no Procedure")));
         };
+        // VTU output, one piece per partition: checked by `prepare_vtu_output`.
         if elmer_run::output::is_result_output(p) {
-            return Err(unsupported(format!("Solver {id}: ResultOutputSolver in parallel")));
+            continue;
         }
         if registry.get(&lib, &entry).is_none() {
             return Err(unsupported(format!("Solver {id}: Procedure \"{lib}\" \"{entry}\"")));
@@ -169,6 +171,10 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     // The case's test-local plugin ports, as elmer-run's serial path.
     let fixture_case = elmer_run::fixture_case(&case_dir);
     let registry = elmer_run::solver_registry_for(&fixture_case);
+    // VTU output (`Post File` and ResultOutputSolver sections): each rank
+    // writes the piece of its partition, `<base>_<np>np<rank+1>`, and rank 0
+    // the `.pvtu` (VtuOutputSolver.F90:622-633), into the mesh directory.
+    let mut outputs = elmer_run::output::prepare_vtu_output(&mut model, &case_dir, &loaded.mesh_dir, np > 1)?;
     preflight(&model, &registry)?;
     // A solver that never runs and owns no variable is left out, as a gap in
     // the numbering: its procedure would still be built at setup.
@@ -193,12 +199,28 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     sim.set_matc(Rc::new(SifMatc));
     sim.backends.assembly = Some(Box::new(ParAssembly));
     sim.backends.linear = linear_registry();
+    // Basis and quadrature for the simulation's own integrals (component
+    // reductions), as the serial run installs them.
+    sim.backends.fe = Some(elmer_run::fe_backend(coords.dim));
     elmer_run::elmer_fixtures::registry::install_live(&fixture_case, &mut sim, &mesh);
     sim.setup(&mesh, &registry, log, comm)?;
     if let Some(writer) = elmer_run::result_file::writer(&sim.model, &loaded.mesh_dir, rank, np, log) {
         sim.set_save_current(Box::new(writer));
     }
     sim.set_node_owned(mesh.owned_nodes().into());
+    for out in &mut outputs {
+        out.select_fields(&sim, mesh.dim())?;
+    }
+    let written = Arc::new(Mutex::new(Vec::new()));
+    for out in outputs {
+        let id = out.index + 1;
+        let slot = sim
+            .slots
+            .iter_mut()
+            .find(|s| s.id == id)
+            .ok_or_else(|| SolverError::fatal("ResultOutputSolver", format!("no slot for Solver {id}")))?;
+        slot.set_instance(Box::new(out.into_solver(Arc::clone(&written)).in_job(rank, np)));
+    }
     for slot in &mut sim.slots {
         if slot.variable.is_some() {
             prepare_slot(&mut slot.params);

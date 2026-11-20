@@ -1889,7 +1889,7 @@ impl Simulation {
             }
             // ... and the components that depend on the solution.
             if let Some(Value::Integer(list)) = self.slots[ix].params.get("update components").cloned() {
-                self.update_dependent_components(&list, mesh, log)?;
+                self.update_dependent_components(&list, mesh, log, comm)?;
             }
             self.slots[ix].times_visited += 1;
         }

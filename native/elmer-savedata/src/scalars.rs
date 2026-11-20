@@ -197,15 +197,19 @@ impl Solver for SaveScalars {
     }
 
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
-        // SaveScalars.F90:283-325. In parallel only `Parallel Reduce` over
-        // all ranks: the values are reduced and rank 0 writes and echoes.
+        // SaveScalars.F90:283-325. In parallel with `Parallel Reduce` over
+        // all ranks the values are reduced and rank 0 writes and echoes;
+        // without it each rank keeps its own values (unreduced), only rank 0
+        // echoes them, and each would write its own file (refused).
         let parallel = ctx.comm.size() > 1;
+        let mut reduce = false;
         if parallel {
             let p = &self.plan.section;
             if p.logical("slices reduce") == Some(true) || p.logical("times reduce") == Some(true) {
                 return Err(SolverError::Unsupported("SaveScalars: Slices Reduce / Times Reduce".into()));
             }
-            if p.logical("parallel reduce") != Some(true) {
+            reduce = p.logical("parallel reduce") == Some(true);
+            if !reduce && self.plan.filename.is_some() {
                 return Err(SolverError::Unsupported(
                     "SaveScalars: per-partition files in parallel (without Parallel Reduce)".into(),
                 ));
@@ -218,7 +222,7 @@ impl Solver for SaveScalars {
         ctx.info(CALLER, "-----------------------------------------", 4);
         ctx.info(CALLER, "Saving scalar values of various kinds", 4);
 
-        let mut list = SaveList { reduce: parallel, ..SaveList::default() };
+        let mut list = SaveList { reduce, ..SaveList::default() };
         self.collect(ctx, &mut list)?;
         if list.values.is_empty() {
             ctx.warn(CALLER, "Found no values to save");
