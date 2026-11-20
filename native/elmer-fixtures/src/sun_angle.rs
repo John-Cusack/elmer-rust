@@ -8,8 +8,14 @@
 //! `tan(phi) = dz / c(1)` of them (`SetShadingAngle`); nodes no edge
 //! shades get 0.
 //!
-//! Serial only: the ridges of other partitions (`Enforce Parallel`, more
-//! than one rank) and the multi-dof variant (several angles) are refused.
+//! In parallel (`Enforce Parallel`, or more than one rank) each partition's
+//! edges are also its ridges for the others: on the first visit every rank
+//! receives the others' (`PopulateRidge`, kept for the later visits) and,
+//! after its own edges, each node is shaded by them in rank order
+//! (`SetShadingAngleParallel`). The ridges travel as an exact all-gather
+//! (a sum where each rank fills its own segment). Refused: `SunAngle
+//! Search Distance` (the bounding-box filter) and the multi-dof variant
+//! (several angles).
 
 use elmer_core::{ElemId, Params};
 use elmer_solver::{Solver, SolverCtx, SolverError};
@@ -26,10 +32,16 @@ pub fn init_section(p: &mut elmer_core::ParamMap) {
 }
 
 pub fn factory(_params: &elmer_core::ParamMap) -> Result<Box<dyn Solver>, SolverError> {
-    Ok(Box::new(SunAngle))
+    Ok(Box::new(SunAngle { ridges: None }))
 }
 
-struct SunAngle;
+/// One ridge: `x0 y0 z0` and `x0 - x1, y0 - y1, z0 - z1` of an edge.
+type Ridge = [f64; 6];
+
+struct SunAngle {
+    /// `RidgeData(i) % Coords` of each rank, from the first visit.
+    ridges: Option<Vec<Vec<Ridge>>>,
+}
 
 /// `FindMeshEdges2D` of the bulk elements: consecutive node pairs, numbered
 /// in first-use order, each with the orientation of its first element.
@@ -52,8 +64,12 @@ fn edges(ctx: &SolverCtx<'_>) -> Vec<[u32; 2]> {
 impl Solver for SunAngle {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
         let p = ctx.params().clone();
-        if p.logical("enforce parallel") == Some(true) || ctx.comm.size() > 1 {
-            return Err(SolverError::Unsupported("SunAngleSolver in parallel (the ridges of other partitions)".into()));
+        let enforce_parallel = p.logical("enforce parallel") == Some(true);
+        let enforce_serial = p.logical("enforce serial") == Some(true);
+        let (rank, pes) = (ctx.comm.rank(), ctx.comm.size());
+        let parallel = enforce_parallel || pes > 1;
+        if parallel && p.get("sunangle search distance").is_some() {
+            return Err(SolverError::Unsupported("SunAngle Search Distance (the ridge bounding-box filter)".into()));
         }
         if ctx.mesh.dim() != 2 {
             return Err(SolverError::Unsupported("SunAngleSolver on a 3D mesh".into()));
@@ -90,13 +106,56 @@ impl Solver for SunAngle {
             }
         }
 
+        // PopulateRidge, on the first visit.
+        if parallel && self.ridges.is_none() {
+            let mine: Vec<Ridge> = edges
+                .iter()
+                .map(|&[i0, i1]| {
+                    let (a, b) = (xyz[i0 as usize], xyz[i1 as usize]);
+                    [a[0], a[1], a[2], a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+                })
+                .collect();
+            let mut ridges = vec![Vec::new(); pes];
+            if pes > 1 {
+                let mut counts = vec![0.0f64; pes];
+                counts[rank] = mine.len() as f64;
+                ctx.comm.sum_f64(&mut counts);
+                let counts: Vec<usize> = counts.iter().map(|&c| c as usize).collect();
+                let total: usize = counts.iter().sum();
+                let start: usize = counts[..rank].iter().sum();
+                let mut buf = vec![0.0f64; 6 * total];
+                for (l, r) in mine.iter().enumerate() {
+                    buf[6 * (start + l)..6 * (start + l + 1)].copy_from_slice(r);
+                }
+                ctx.comm.sum_f64(&mut buf);
+                let mut off = 0;
+                for (i, &c) in counts.iter().enumerate() {
+                    if i != rank {
+                        ridges[i] = (0..c).map(|l| buf[6 * (off + l)..6 * (off + l + 1)].try_into().unwrap()).collect();
+                    }
+                    off += c;
+                }
+            }
+            if enforce_parallel {
+                ridges[rank] = mine;
+            }
+            self.ridges = Some(ridges);
+        }
         let eps = 1.0e-6;
         let alpha = ctx.creal(&p, "test angle")?.unwrap_or(0.0);
         let (a11, a21) = (alpha.cos(), alpha.sin());
         let v = ctx.sim.vars.by_id(id);
         let slots: Vec<Option<usize>> = (0..nn as u32).map(|k| v.slot(k)).collect();
         let mut sun = vec![-100.0f64; v.values.len()];
-        for &[i0, i1] in &edges {
+        let solve2 = |a12: f64, a22: f64, b: [f64; 2]| -> Option<(f64, f64)> {
+            let det = a11 * a22 - a12 * a21;
+            if det.abs() < f64::EPSILON {
+                return None;
+            }
+            let det = 1.0 / det;
+            Some((det * (a22 * b[0] - a12 * b[1]), det * (a11 * b[1] - a21 * b[0])))
+        };
+        for &[i0, i1] in edges.iter().filter(|_| !enforce_parallel) {
             let (i0, i1) = (i0 as usize, i1 as usize);
             if slots[i0].is_none() || slots[i1].is_none() {
                 continue;
@@ -111,20 +170,35 @@ impl Solver for SunAngle {
                     continue;
                 }
                 let b = [x0[0] - xyz[j][0], y0[0] - xyz[j][1]];
-                // Solve2x2
-                let det = a11 * a22 - a12 * a21;
-                if det.abs() < f64::EPSILON {
-                    continue;
-                }
-                let det = 1.0 / det;
-                let c1 = det * (a22 * b[0] - a12 * b[1]);
-                let c2 = det * (a11 * b[1] - a21 * b[0]);
+                let Some((c1, c2)) = solve2(a12, a22, b) else { continue };
                 if c1 < eps || c2 < -eps || c2 > 1.0 + eps {
                     continue;
                 }
                 let dz = (z0[0] + c2 * dz0) - xyz[j][2];
                 let tanphi = dz / c1;
                 sun[k] = sun[k].max(tanphi);
+            }
+        }
+        // SetShadingAngleParallel.
+        if let Some(ridges) = self.ridges.as_ref().filter(|_| parallel) {
+            for j in 0..nn {
+                let Some(k) = slots[j] else { continue };
+                let [x1, y1, z1] = xyz[j];
+                let mut maxangle = sun[k];
+                for (i, rs) in ridges.iter().enumerate() {
+                    if rs.is_empty() || (enforce_serial && i != rank) {
+                        continue;
+                    }
+                    for r in rs {
+                        let Some((c1, c2)) = solve2(r[3], r[4], [r[0] - x1, r[1] - y1]) else { continue };
+                        if c1 < eps || c2 < -eps || c2 > 1.0 + eps {
+                            continue;
+                        }
+                        let dz = (r[2] - c2 * r[5]) - z1;
+                        maxangle = maxangle.max(dz / c1);
+                    }
+                }
+                sun[k] = maxangle;
             }
         }
         for s in &mut sun {
