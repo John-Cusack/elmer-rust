@@ -22,7 +22,7 @@ through firstmate (D11).
 | 9 Held-out seal and determinism | 190 directories sealed with a hash commitment; pristine-vs-pristine determinism of quick, non-quick and ice tests | `heldout/`, `determinism/` |
 | 10 Benchmark baselines | **deferred** (see below) | — |
 | 11 ABI harvest | 256 staged campaign cases from 108 solver proofs as oracle tests; 236 golden-captured on Release, FMA and OpenBLAS (bitwise deterministic, σ_F per field), 20 pristine failures explained; 15 known-divergence entries from the documented upstream defects | `harvest/` |
-| External grading of a candidate | `--solver` plus `grade-tree`; the Rust path is not gradable yet | `candidate/` |
+| External grading of a candidate | `--solver` plus `grade-tree`; the Rust path (`elmer-run` at main `60d64f8`, no Fortran fallback) grades 189/454 serial quick tests `tier-a-pass`, confirming every serial `elmer-coverage` match; 6 `tier-a-FAIL` | `candidate/` |
 
 ## Benchmarks: deferred
 
