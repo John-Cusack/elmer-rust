@@ -259,6 +259,7 @@ fn resolve_solvers(
 /// [`resolve_solvers`] for an `np`-rank run: each result file is written
 /// once per rank (`<file>.<rank>`), and the norm is the parallel branch of
 /// `ComputeNorm` over all ranks' values, reduced in `order`.
+#[allow(clippy::too_many_arguments)]
 fn resolve_solvers_mpi(
     solvers: &[elmer_oracle::refnorm::RefSolver],
     parsed: &[Parsed],
@@ -266,6 +267,8 @@ fn resolve_solvers_mpi(
     equations: &[(u32, String)],
     notes: &mut Vec<String>,
     order: elmer_oracle::norm::ReduceOrder,
+    golden_run: &Path,
+    text: &str,
 ) -> Vec<(u32, f64)> {
     // Files by base name, ranks in order; only complete rank sets count.
     let mut groups: std::collections::BTreeMap<String, Vec<Option<&Parsed>>> = Default::default();
@@ -311,11 +314,35 @@ fn resolve_solvers_mpi(
         let mut parts = Vec::with_capacity(np);
         let mut dofs = None;
         let mut why = None;
-        for p in ranks {
+        // ElmerGrid's partitioning sits beside the per-rank files; without
+        // one (Parallel Slices) every rank solves a copy of the whole mesh.
+        let partitioning = golden_run
+            .join(std::path::Path::new(base.as_str()).parent().unwrap_or(std::path::Path::new("")))
+            .join(format!("partitioning.{np}"));
+        let consistent = elmer_oracle::refnorm::consistent(text, s.number);
+        for (rank, p) in ranks.iter().enumerate() {
             match elmer_oracle::refnorm::golden_values(&p.1, &p.2, &var) {
-                Ok((values, _, d)) if dofs.is_none_or(|x| x == d) => {
+                Ok((values, perm, d)) if dofs.is_none_or(|x| x == d) => {
                     dofs = Some(d);
-                    parts.push(values);
+                    let mut owned = vec![true; values.len()];
+                    if consistent && partitioning.is_dir() {
+                        match elmer_oracle::refnorm::owned_nodes(&partitioning, rank) {
+                            Ok(nodes) => {
+                                for (i, &k) in perm.iter().enumerate() {
+                                    if k > 0 {
+                                        let own = nodes.get(i).copied().unwrap_or(true);
+                                        for c in 0..d {
+                                            if let Some(o) = owned.get_mut(d * (k as usize - 1) + c) {
+                                                *o = own;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => why = Some(e),
+                        }
+                    }
+                    parts.push((values, owned, perm));
                 }
                 Ok(_) => why = Some(String::from("DOFs differ between ranks")),
                 Err(e) => why = Some(e),
@@ -326,7 +353,19 @@ fn resolve_solvers_mpi(
             continue;
         }
         let d = dofs.unwrap_or(1);
-        match elmer_oracle::norm::parallel_norm(&parts, d, &s.norm_opts(d), order) {
+        let opts = s.norm_opts(d);
+        let norm = if !partitioning.is_dir() {
+            notes.push(format!("solver {}: no partitioning.{np}: rank 0's serial norm", s.number));
+            let (v, _, perm) = &parts[0];
+            elmer_oracle::norm::compute_norm(v, Some(perm), d, perm.len(), &opts)
+        } else if consistent {
+            let owned: Vec<(Vec<f64>, Vec<bool>)> = parts.into_iter().map(|(v, o, _)| (v, o)).collect();
+            elmer_oracle::norm::consistent_norm(&owned, d, &opts, order)
+        } else {
+            let values: Vec<Vec<f64>> = parts.into_iter().map(|(v, _, _)| v).collect();
+            elmer_oracle::norm::parallel_norm(&values, d, &opts, order)
+        };
+        match norm {
             Ok(n) => refnorms.push((s.number, n)),
             Err(e) => notes.push(format!("solver {}: {var}: {e}", s.number)),
         }
@@ -413,7 +452,9 @@ fn refnorm_one(
             Err(why) => return skip(&why),
         };
         if np > 1 {
-            refnorms = resolve_solvers_mpi(&solvers, &parsed, np as usize, &equations, &mut notes, mpi_order);
+            refnorms = resolve_solvers_mpi(
+                &solvers, &parsed, np as usize, &equations, &mut notes, mpi_order, &golden_run, &text,
+            );
         } else {
             let all: Vec<&Parsed> = parsed.iter().collect();
             refnorms = resolve_solvers(&solvers, &all, &equations, &mut notes, &mut non_nodal);
