@@ -79,10 +79,21 @@ const SELF_NORM: [&str; 34] = [
     "vorticitysolver",
 ];
 
+/// Solver entries that write into another solver's variable after that
+/// solver computed its norm (`FixTangentVelo.F90:208` adds to the flow
+/// solution's values), so the saved field is not the one Elmer normed.
+pub const MODIFIES_OTHER: [&str; 1] = ["fixtangentvelo"];
+
 impl RefSolver {
     /// Whether the solver's entry sets its own norm (see [`SELF_NORM`]).
     pub fn self_norm(&self) -> bool {
         self.entry.as_deref().is_some_and(|e| SELF_NORM.contains(&e))
+    }
+
+    /// Whether the solver's entry rewrites another solver's variable
+    /// (see [`MODIFIES_OTHER`]).
+    pub fn modifies_other(&self) -> bool {
+        self.entry.as_deref().is_some_and(|e| MODIFIES_OTHER.contains(&e))
     }
 }
 

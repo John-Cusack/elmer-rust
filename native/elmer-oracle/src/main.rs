@@ -484,13 +484,9 @@ fn refnorm_one(
             // A replayed script runs further sifs, each into its own
             // `<stem>.result`; the startinfo sif, the one the overrides go
             // into, writes `case.result`.
-            let all: Vec<&Parsed> = parsed
-                .iter()
-                .filter(|p| {
-                    registered.is_none()
-                        || std::path::Path::new(&p.0).file_name().is_some_and(|n| n == "case.result")
-                })
-                .collect();
+            let is_case = |p: &&Parsed| std::path::Path::new(&p.0).file_name().is_some_and(|n| n == "case.result");
+            let keep_case = registered.is_some() && parsed.iter().any(|p| is_case(&p));
+            let all: Vec<&Parsed> = parsed.iter().filter(|p| !keep_case || is_case(p)).collect();
             refnorms = resolve_solvers(&solvers, &all, &equations, &mut notes, &mut non_nodal);
         }
     } else if np > 1 {
@@ -617,8 +613,22 @@ fn refnorm_one(
                     }
                 }
             }
+            // A later solver rewrote the failed solvers' variables after
+            // their norm was taken (FixTangentVelo).
+            let modifier = text.lines().any(|l| {
+                let c = elmer_oracle::runner::strip_sif_comment(l);
+                elmer_oracle::runner::keyword_of(c.split("::").last().unwrap_or("")).as_deref() == Some("procedure")
+                    && c.split('"').nth(3).is_some_and(|e| {
+                        elmer_oracle::refnorm::MODIFIES_OTHER.contains(&e.trim().to_lowercase().as_str())
+                    })
+            });
+            let modified = modifier
+                && !failed_solvers.is_empty()
+                && failed_solvers.iter().all(|n| solvers.iter().any(|s| s.number == *n && !s.modifies_other()));
             let verdict = if self_norm {
                 "grader-gap-solver-norm"
+            } else if modified {
+                "grader-gap-field-modified-later"
             } else if non_nodal {
                 "grader-gap-non-nodal"
             } else {
