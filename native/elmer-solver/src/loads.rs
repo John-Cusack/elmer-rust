@@ -4,7 +4,7 @@
 //! `<var> Loads` / `<var> Residual` fields computed from it after the solve
 //! (`CalculateLoads`, SolveCore.F90:364, called at :1739 and :1769).
 
-use elmer_core::{CsrMatrix, ElemId, LinearOperator, Logger, MeshView, ParamMap, Params};
+use elmer_core::{CsrMatrix, ElemId, LinearOperator, Logger, MeshView, ParamMap, Params, Value};
 
 use crate::error::SolverError;
 use crate::sim::{Simulation, VarSpec};
@@ -102,7 +102,12 @@ impl Simulation {
     /// `SetNodalLoads` for slot `ix`'s variable into its right-hand side:
     /// each node gets the first boundary condition's `<name> Load` that
     /// reaches it, then (separately) the first body force's.
-    pub(crate) fn set_nodal_loads(&mut self, ix: usize, mesh: &dyn MeshView) -> Result<(), SolverError> {
+    pub(crate) fn set_nodal_loads(
+        &mut self,
+        ix: usize,
+        mesh: &dyn MeshView,
+        log: &dyn Logger,
+    ) -> Result<(), SolverError> {
         let Some(id) = self.slots[ix].variable else { return Ok(()) };
         let (name, dofs) = {
             let v = self.vars.by_id(id);
@@ -208,6 +213,150 @@ impl Simulation {
                 if let Some(b) = sys.rhs.get_mut(k) {
                     *b += x;
                 }
+            }
+        }
+        self.set_couple_loads(ix, mesh, log)
+    }
+
+    /// `SetCoupleLoads` (SolverBasics.F90:2127), which DefaultDirichletBCs
+    /// calls for every solver: a `Torque 1..3` at a BC's `Target Nodes`
+    /// with a `Director` becomes a force couple on the two matrix neighbours
+    /// of the node that lie furthest along and against the director (the
+    /// solid nodes across a shell-solid interface). Without a director the
+    /// Fortran reads a `Torque` it never set; that is refused.
+    fn set_couple_loads(&mut self, ix: usize, mesh: &dyn MeshView, log: &dyn Logger) -> Result<(), SolverError> {
+        const CALLER: &str = "SetCoupleLoads";
+        const AEPS: f64 = 10.0 * f64::EPSILON;
+        let bcs = &self.model.boundary_conditions;
+        if !bcs.iter().any(|b| b.0.keys().any(|k| k.starts_with("torque"))) {
+            return Ok(());
+        }
+        let Some(id) = self.slots[ix].variable else { return Ok(()) };
+        let dofs = self.vars.by_id(id).dofs;
+        let Some(a) = self.slots[ix].system.as_ref().map(|s| &s.matrix) else { return Ok(()) };
+        let v = self.vars.by_id(id);
+        let mut inv = vec![u32::MAX; a.nrows / dofs.max(1)];
+        for n in 0..mesh.n_nodes() as u32 {
+            if let Some(k) = v.slot(n) {
+                if k < inv.len() {
+                    inv[k] = n;
+                }
+            }
+        }
+        let fields = self.fields(mesh);
+        let eval = |bc: &ParamMap, key: &str, nodes: &[u32]| -> Result<Vec<f64>, SolverError> {
+            match bc.get(key) {
+                Some(val) => crate::expr::eval_at_nodes_with(
+                    val,
+                    nodes,
+                    &fields,
+                    self.backends.matc.as_deref(),
+                    &self.backends.udfs,
+                ),
+                None => Ok(vec![0.0; nodes.len()]),
+            }
+        };
+        let dot = |a: &[f64; 3], b: &[f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        let e = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let mut add: Vec<(usize, f64)> = Vec::new();
+        for bc in bcs {
+            if !["torque 1", "torque 2", "torque 3"].iter().any(|k| bc.get(k).is_some()) {
+                continue;
+            }
+            let Some(Value::Integer(ids)) = bc.get("target nodes") else {
+                return Err(SolverError::fatal(CALLER, "Target Nodes not found"));
+            };
+            let nodes: Vec<u32> = ids.iter().map(|&i| (i - 1) as u32).collect();
+            let work: Vec<Vec<f64>> =
+                (1..=3).map(|k| eval(bc, &format!("torque {k}"), &nodes)).collect::<Result<_, _>>()?;
+            if !["director 1", "director 2", "director 3"].iter().any(|k| bc.get(k).is_some()) {
+                return Err(SolverError::Unsupported(
+                    "Torque without a Director (SetCoupleLoads reads an unset torque there)".into(),
+                ));
+            }
+            let dirs: Vec<Vec<f64>> =
+                (1..=3).map(|k| eval(bc, &format!("director {k}"), &nodes)).collect::<Result<_, _>>()?;
+            for (p, &target) in nodes.iter().enumerate() {
+                let Some(ti) = v.slot(target) else { continue };
+                // The last component's row; every dofs-th entry from its last.
+                let row = ti * dofs + dofs - 1;
+                let (lo, hi) = (a.row_ptr[row], a.row_ptr[row + 1]);
+                let near: Vec<u32> =
+                    (lo + dofs - 1..hi).step_by(dofs).map(|i| inv[a.col_idx[i] as usize / dofs]).collect();
+                let x0 = mesh.coord(target);
+                let rel = |n: u32| -> [f64; 3] {
+                    let x = mesh.coord(n);
+                    [x[0] - x0[0], x[1] - x0[1], x[2] - x0[2]]
+                };
+                let d = [dirs[0][p], dirs[1][p], dirs[2][p]];
+                let nd = dot(&d, &d).sqrt();
+                let e3 = [d[0] / nd, d[1] / nd, d[2] / nd];
+                let w = [dot(&e[0], &e3).abs(), dot(&e[1], &e3).abs(), dot(&e[2], &e3).abs()];
+                // MINLOC: the first smallest.
+                let mut k = 0;
+                for i in 1..3 {
+                    if w[i] < w[k] {
+                        k = i;
+                    }
+                }
+                let vk = e[k];
+                let c = dot(&vk, &e3);
+                let mut e1 = [vk[0] - c * e3[0], vk[1] - c * e3[1], vk[2] - c * e3[2]];
+                let n1 = dot(&e1, &e1).sqrt();
+                e1 = [e1[0] / n1, e1[1] / n1, e1[2] / n1];
+                let e2 = [
+                    e3[1] * e1[2] - e3[2] * e1[1],
+                    e3[2] * e1[0] - e3[0] * e1[2],
+                    e3[0] * e1[1] - e3[1] * e1[0],
+                ];
+                let torque = [work[0][p], work[1][p], work[2][p]];
+                let tc = dot(&torque, &e3);
+                let t = [torque[0] - tc * e3[0], torque[1] - tc * e3[1], torque[2] - tc * e3[2]];
+                let (m1, m2) = (dot(&t, &e1), dot(&t, &e2));
+                let (mut maxres, mut minres) = (0.0f64, 0.0f64);
+                let (mut jz, mut lz) = (None, None);
+                for &m in &near {
+                    if m == target {
+                        continue;
+                    }
+                    let r = rel(m);
+                    let res = dot(&e3, &r) / dot(&r, &r).sqrt();
+                    if res > 0.0 {
+                        if res > maxres {
+                            jz = Some(m);
+                            maxres = res;
+                        }
+                    } else if res < minres {
+                        lz = Some(m);
+                        minres = res;
+                    }
+                }
+                let upper = jz.filter(|_| maxres.abs() >= AEPS);
+                let lower = lz.filter(|_| minres.abs() >= AEPS);
+                let (Some(jz), Some(lz)) = (upper, lower) else {
+                    log.warn(CALLER, "A couple BC would need two nodes on opposite sides");
+                    continue;
+                };
+                let rupper = dot(&e3, &rel(jz));
+                let rlower = dot(&[-e3[0], -e3[1], -e3[2]], &rel(lz));
+                let f2 = m1 / (rupper + rlower);
+                let f1 = m2 / (rupper + rlower);
+                let force = [f1 * e1[0] - f2 * e2[0], f1 * e1[1] - f2 * e2[1], f1 * e1[2] - f2 * e2[2]];
+                let f = [dot(&force, &e[0]), dot(&force, &e[1]), dot(&force, &e[2])];
+                let nc = if dofs > 2 { 3 } else { 2 };
+                if let (Some(kj), Some(kl)) = (v.slot(jz), v.slot(lz)) {
+                    for (c, &fc) in f.iter().enumerate().take(nc) {
+                        add.push((kj * dofs + c, fc));
+                    }
+                    for (c, &fc) in f.iter().enumerate().take(nc) {
+                        add.push((kl * dofs + c, -fc));
+                    }
+                }
+            }
+        }
+        if let Some(sys) = self.slots[ix].system.as_mut() {
+            for (k, x) in add {
+                sys.rhs[k] += x;
             }
         }
         Ok(())

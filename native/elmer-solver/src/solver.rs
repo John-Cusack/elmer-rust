@@ -879,7 +879,7 @@ impl<'a> SolverCtx<'a> {
         }
         if !self.sim.slots[self.slot].asm.boundary_done {
             self.global_time_terms()?;
-            self.sim.set_nodal_loads(self.slot, self.mesh)?;
+            self.sim.set_nodal_loads(self.slot, self.mesh, self.log)?;
             self.sim.slots[self.slot].asm.boundary_done = true;
             // DefUtils.F90:7917: `Constant System` keeps the whole system
             // (bulk and boundary, before the Dirichlet conditions) in
