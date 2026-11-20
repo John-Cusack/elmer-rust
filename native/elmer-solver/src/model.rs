@@ -158,6 +158,15 @@ impl Model {
         (tag >= 1 && (tag as usize) <= self.bodies.len()).then_some(tag as usize)
     }
 
+    /// The body a boundary element of `tag` belongs to through its BC's
+    /// `Body Id` (MapBodiesAndBCs, MeshLoad.F90:448: `Element % BodyId`),
+    /// making it a lower-dimensional element of that body; `None` without.
+    pub fn boundary_body(&self, tag: i32) -> Option<usize> {
+        let bc = self.bc_of_tag(tag)?;
+        let b = self.boundary_conditions[bc - 1].integer("body id")?;
+        (b >= 1 && (b as usize) <= self.bodies.len()).then_some(b as usize)
+    }
+
     /// 1-based boundary condition id for a boundary tag (`Target Boundaries`).
     pub fn bc_of_tag(&self, tag: i32) -> Option<usize> {
         self.boundary_conditions

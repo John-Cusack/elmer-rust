@@ -145,7 +145,6 @@ impl Solver for StructuredMeshMapper {
         for k in [
             "mapping coordinate transformation",
             "mapping original coordinates",
-            "base displacement variable",
             "mapped mesh name",
             "mesh height map",
             "correct surface mask",
@@ -346,6 +345,32 @@ impl StructuredMeshMapper {
         let mut new = all.clone();
         for (c, x) in new.iter_mut().zip(&coord) {
             c[dir] = *x;
+        }
+        // BaseVarDisplace after the mapping: each node moves by the base
+        // displacement at the bottom of its column.
+        if let Some(name) = params.string("base displacement variable") {
+            let v = ctx
+                .sim
+                .vars
+                .get(name)
+                .ok_or_else(|| fatal(format!("The variable does not exist: {name}")))?;
+            let bdofs = v.dofs;
+            if bdofs != 2 && bdofs != 3 {
+                return Err(fatal(format!("Invalid base displacement dimension: {bdofs}")));
+            }
+            for (i, c) in new.iter_mut().enumerate() {
+                let ibot = s.bot[i];
+                let k = match v.perm.as_deref() {
+                    Some(p) if p[ibot] == elmer_core::NO_DOF => {
+                        return Err(unsupported("Base Displacement Variable without a value at a column bottom"))
+                    }
+                    Some(p) => p[ibot] as usize,
+                    None => ibot,
+                };
+                for (d, x) in c.iter_mut().enumerate().take(bdofs) {
+                    *x += v.values[bdofs * k + d];
+                }
+            }
         }
         apply_coords(CALLER, &all, &new)?;
         self.visited = true;

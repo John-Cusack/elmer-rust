@@ -585,12 +585,16 @@ impl Simulation {
         if let Some(s) = crate::coupled::solver_for_mode(&slot.params, registry)? {
             slot.instance = Some(s);
         }
-        slot.active = (0..mesh.n_bulk() as u32)
+        // SetActiveElementsTable: bulk and boundary elements whose body runs
+        // the solver; a boundary element has a body only through its BC's
+        // `Body Id`.
+        let nb = mesh.n_bulk();
+        slot.active = (0..(nb + mesh.n_boundary()) as u32)
             .map(ElemId)
             .filter(|&e| {
-                self.model
-                    .body_of_tag(mesh.element(e).tag)
-                    .is_some_and(|b| self.model.solver_active_on_body(i + 1, b))
+                let tag = mesh.element(e).tag;
+                let body = if (e.0 as usize) < nb { self.model.body_of_tag(tag) } else { self.model.boundary_body(tag) };
+                body.is_some_and(|b| self.model.solver_active_on_body(i + 1, b))
             })
             .collect();
         if self.is_transient() {
