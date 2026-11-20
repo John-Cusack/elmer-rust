@@ -1574,7 +1574,11 @@ impl<'a> SolverCtx<'a> {
             .system
             .as_mut()
             .ok_or_else(|| SolverError::fatal("DefaultDirichletBCs", "call default_initialize first"))?;
-        backend.try_apply_dirichlet_rows(&mut sys.matrix, &mut sys.rhs, &rows, &fixed, &slot.params)?;
+        let bulk = match slot.asm.bulk.as_mut() {
+            Some((v, r)) => (Some(v.as_mut_slice()), Some(r.as_mut_slice())),
+            None => (None, None),
+        };
+        backend.try_apply_dirichlet_rows_bulk(&mut sys.matrix, &mut sys.rhs, bulk, &rows, &fixed, &slot.params)?;
         if let Some(m) = sys.mass.as_mut() {
             crate::eigen::dirichlet_mass(m, &fixed, &slot.params)?;
         }
@@ -1607,7 +1611,11 @@ impl<'a> SolverCtx<'a> {
             .system
             .as_mut()
             .ok_or_else(|| SolverError::fatal("DefaultDirichletBCs", "call default_initialize first"))?;
-        backend.try_apply_dirichlet_rows(&mut sys.matrix, &mut sys.rhs, rows, fixed, &slot.params)?;
+        let bulk = match slot.asm.bulk.as_mut() {
+            Some((v, r)) => (Some(v.as_mut_slice()), Some(r.as_mut_slice())),
+            None => (None, None),
+        };
+        backend.try_apply_dirichlet_rows_bulk(&mut sys.matrix, &mut sys.rhs, bulk, rows, fixed, &slot.params)?;
         slot.asm.constrained = fixed.to_vec();
         Ok(())
     }

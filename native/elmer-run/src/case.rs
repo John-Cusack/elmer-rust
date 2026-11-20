@@ -516,10 +516,12 @@ fn check_reloads(model: &Model, reloads: &[Model], registry: &SolverRegistry) ->
             return refuse(format!("Constants {key}"));
         }
         // The periodic projectors are built once, at setup
-        // (`periodic_assembly`): periodic_homogenize's second block changes
-        // `Periodic BC Offset` and would keep the old one.
+        // (`periodic_assembly`): a change of the periodic pairing itself
+        // (`Periodic BC`, `Periodic BC <var>`, ...) stays refused.
+        // `Periodic BC Offset <var>` is handed to the assembly after the
+        // reload (`reload_boundary_conditions`).
         for (i, bc) in block.boundary_conditions.iter().enumerate() {
-            if let Some(key) = bc.0.keys().find(|k| k.starts_with("periodic bc")) {
+            if let Some(key) = bc.0.keys().find(|k| k.starts_with("periodic bc") && !k.starts_with("periodic bc offset ")) {
                 return refuse(format!("Boundary Condition {} {key}", i + 1));
             }
         }
@@ -1122,6 +1124,11 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     for block in &reloads {
         sim.reload(block, mesh, &registry, log, comm)?;
         rebuild_changed(&mut sim, block, &registry)?;
+        // The Fortran reads `Periodic BC Offset` at every assembly, so a later
+        // block's offset applies from that block on (periodic_homogenize).
+        if let Some(assembly) = sim.backends.assembly.as_mut() {
+            assembly.reload_boundary_conditions(&sim.model.boundary_conditions);
+        }
         // `ReloadInputFile` sets `Mesh % SavesDone = 0` (ElmerSolver.F90:501):
         // each RUN block starts the Output File afresh.
         if let Some(writer) = crate::result_file::writer(&sim.model, &result_dir, rank, size, log) {
