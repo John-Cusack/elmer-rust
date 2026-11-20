@@ -74,6 +74,18 @@ impl SolverDofs for PSetup {
         PSetup::is_p_element(self, e)
     }
 
+    fn element_edges(&self, e: ElemId) -> Option<Vec<(u32, [u32; 2])>> {
+        let el = self.mesh.elements.get(e.0 as usize)?;
+        if el.edges.is_empty() {
+            return None;
+        }
+        Some(el.edges.iter().map(|&k| (k, self.mesh.edges[k as usize].nodes)).collect())
+    }
+
+    fn n_edges(&self) -> usize {
+        self.mesh.edges.len()
+    }
+
     /// The p basis of an active p element; for any other element (a
     /// boundary element without a p parent, say) `ElementInfo`'s nodal
     /// Lagrange basis, as Elmer evaluates it there.

@@ -117,6 +117,15 @@ pub fn prepare_vtu_output(
                 opts.unsupported.push("Eigen Vector Component other than re".into());
             }
         }
+        if opts.lagrange_degree > 0 {
+            // The displaced-coordinate, discontinuous and mode paths are not
+            // ported with Lagrange points.
+            if opts.discontinuous_galerkin || opts.discontinuous_bodies || mode_files || parallel || opts.fixed_mesh {
+                opts.unsupported.push(
+                    "lagrange element degree with discontinuous, mode-file, fixed-mesh or parallel output".into(),
+                );
+            }
+        }
         if !opts.unsupported.is_empty() {
             return Err(SolverError::Unsupported(format!("Solver {id}: VTU output: {}", opts.unsupported.join(", "))));
         }
@@ -435,15 +444,24 @@ impl Solver for VtuSolver {
         let name = naming.file_name(&opts.output_file_name, ".vtu", index, part, false);
         let path = self.out.dir.join(name);
         let mapped = MappedTags { mesh: ctx.mesh, model: &ctx.sim.model };
+        let lagrange = if opts.lagrange_degree > 0 {
+            Some(crate::lagrange::build(ctx.sim, &mapped, &ctx.sim.vars, &variables, opts)?)
+        } else {
+            None
+        };
+        let (mapped, variables): (&dyn MeshView, &dyn FieldSource) = match &lagrange {
+            Some((m, f)) => (m, f),
+            None => (&mapped, &variables),
+        };
         let Some(reference) = self.out.reference else {
-            elmer_vtu::write_vtu(&path, &mapped, &variables, opts)?;
+            elmer_vtu::write_vtu(&path, mapped, variables, opts)?;
             self.written.lock().unwrap().push(path);
             return Ok(());
         };
         // `AscBinInitNorm` at each visit, then the sums of what this visit
         // writes (no file when nothing is selected: all sums zero).
         let mut sums = [0.0; 6];
-        if let Some(bytes) = elmer_vtu::render_vtu(&mapped, &variables, opts, None)? {
+        if let Some(bytes) = elmer_vtu::render_vtu(mapped, variables, opts, None)? {
             std::fs::write(&path, &bytes)?;
             self.written.lock().unwrap().push(path);
             let params = &ctx.sim.model.solvers[self.out.index];

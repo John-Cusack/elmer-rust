@@ -338,7 +338,7 @@ pub fn render_vtu(
             invalid(format!("Not implemented for elementtype: {}", el.etype.0))
         })?;
         let n = if opts.save_linear { written_node_count(el.etype, true) } else { el.nodes.len() };
-        let order = if opts.save_linear { &[][..] } else { vtk_node_order(el.etype) };
+        let order = if opts.save_linear || opts.lagrange_degree > 0 { &[][..] } else { vtk_node_order(el.etype) };
         for j in 0..n {
             let local = if order.is_empty() { j } else { order[j] };
             let node = *el.nodes.get(local).ok_or_else(|| {
