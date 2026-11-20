@@ -404,10 +404,11 @@ fn check_body(mat: Option<&ParamMap>, _bf: Option<&ParamMap>) -> Result<(), Solv
                 )));
             }
             // Fatal in the pristine solver ("Parameter > Basis < is required").
-            for key in ["nominal shear rate", "yasuda exponent"] {
-                if m.get(key).is_some() {
-                    return Err(unsupported(format!("{key} of a Viscosity Model")));
-                }
+            if m.get("yasuda exponent").is_some() {
+                return Err(unsupported("yasuda exponent of a Viscosity Model"));
+            }
+            if v != "power law" && m.get("nominal shear rate").is_some() {
+                return Err(unsupported(format!("nominal shear rate of Viscosity Model = {v}")));
             }
         } else if m.get("viscosity model").is_some() {
             return Err(unsupported("Viscosity Model given as other than a string"));
@@ -464,6 +465,10 @@ fn viscosity_model(ctx: &SolverCtx<'_>, m: &ParamMap, e: ElemId) -> Result<Optio
             exponent: c("viscosity exponent")?,
             critical: match m.get("critical shear rate") {
                 Some(_) => Some(c("critical shear rate")?),
+                None => None,
+            },
+            nominal: match m.get("nominal shear rate") {
+                Some(_) => Some(c("nominal shear rate")?),
                 None => None,
             },
         },

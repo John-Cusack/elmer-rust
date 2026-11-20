@@ -53,7 +53,11 @@ element integrals) with no mass flux.
 - Transient runs: the mass matrix (Galerkin plus the PSPG/SUPG time terms)
   goes through `Default1stOrderTime`; `Stokes Flow` has none, as in Fortran.
 - Elmer's 1e-6 start value for an `Equation = Navier-Stokes` variable.
-- `Viscosity Model = power law` (`Critical Shear Rate`), `carreau`, `cross`,
+- `Relative Integration Order` / `Bulk Relative Integration Order` of the
+  bulk rule (`GaussPointsAdapt`): `GaussPoints0` / `GaussPoints2` of nodal
+  elements, `(NINT(n**(1/dim)) + order)**dim` points on p lines,
+  quadrilaterals (not serendipity) and bricks; a point count still wins.
+- `Viscosity Model = power law` (`Critical Shear Rate`, `Nominal Shear Rate`), `carreau`, `cross`,
   `powell eyring`, `glen` (`Set Arrhenius Factor`, or the Arrhenius law of a
   `Relative Temperature` with `Glen Enhancement Factor`), as in
   `EffectiveViscosityVec`: the viscosity at the points from the previous
@@ -78,7 +82,9 @@ cylindric coordinates, `Normal Slip Coefficient`, friction / `Wall Law` /
 FSSA / normal-tangential boundaries, `Pressure 1..3` (the Fortran itself asks
 for `Surface Traction`), `Implicit Friction
 Coefficient`, Schur operators and `Create Schur Matrix Approximation`, `Nonlinear System
-Linesearch`, relative and adaptive integration orders, density that varies
+Linesearch`, adaptive integration and `Element Relative Integration Order`,
+`Relative Integration Order` on p simplices, pyramids, prisms and serendipity
+quadrilaterals, density that varies
 within an element, the `power law too` and turbulence viscosity models.
 
 ## Wiring (for the integrator)

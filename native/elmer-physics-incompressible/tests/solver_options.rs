@@ -122,3 +122,16 @@ fn defaults_follow_init0_and_init() {
     assert_eq!(r.string("element"), Some("p:1 -tri b:1 -tetra b:1 -quad b:3 -brick b:4 -prism b:4 -pyramid b:4"));
     assert_eq!(r.string("element integration points"), Some("-tetra 24 -prism 85"));
 }
+
+/// `Nominal Shear Rate` of the power law divides the viscosity and, with
+/// Newton, its derivative by `Nominal Shear Rate ** (n - 1)`
+/// (`EffectiveViscosityVec`).
+#[test]
+fn nominal_shear_rate_scales_the_power_law() {
+    use elmer_physics_incompressible::ViscosityModel;
+    let m = |nominal| ViscosityModel::PowerLaw { exponent: 0.3, critical: Some(1e-8), nominal };
+    let s = 3.0f64.powf(0.3 - 1.0);
+    assert_eq!(m(Some(3.0)).viscosity(2.0, 0.5), m(None).viscosity(2.0, 0.5) / s);
+    assert_eq!(m(Some(3.0)).derivative(2.0, 0.5), m(None).derivative(2.0, 0.5) / s);
+    assert_ne!(m(Some(3.0)).viscosity(2.0, 0.5), m(None).viscosity(2.0, 0.5));
+}

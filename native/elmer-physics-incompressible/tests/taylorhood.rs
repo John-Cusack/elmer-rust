@@ -196,12 +196,32 @@ fn taylorhood_quad_full_matches_elmer() {
     run_case_with("taylorhood_quad_full", 2, step, simulation, &p2(), 1720, 0.04394492021142661, 2);
 }
 
-/// `Relative Integration Order` (`GaussPointsAdapt`) is not ported: refused.
+/// `Relative Integration Order` on serendipity p quadrilaterals (their
+/// economic rules) is not ported: refused.
 #[test]
-fn relative_integration_order_is_refused() {
+fn relative_integration_order_on_serendipity_quads_is_refused() {
     let extra = [("Element", st("p:2")), ("Relative Integration Order", ints(&[1]))];
     let err = run("taylorhood_quad", 2, step, steady("Cartesian 2D"), &extra).err().expect("refused");
     assert!(err.to_string().contains("Relative Integration Order"), "{err}");
+}
+
+/// `Relative Integration Order = 1` on full p:2 quadrilaterals: the element
+/// rule of 9 points becomes `(NINT(SQRT(9)) + 1)**2 = 16`
+/// (`GaussPoints(Element, RelOrder)`), the solution of `Number of
+/// Integration Points = 16`.
+#[test]
+fn relative_integration_order_on_full_p_quads() {
+    let mut simulation = steady("Cartesian 2D");
+    simulation.insert("Serendipity P Elements", Value::Logical(false));
+    let solve = |extra: &[(&str, Value)]| {
+        let mut keys = vec![("Element", st("p:2"))];
+        keys.extend(extra.iter().cloned());
+        let sim = run("taylorhood_quad_full", 2, step, simulation.clone(), &keys).unwrap();
+        sim.vars.get("flow solution").unwrap().values.to_vec()
+    };
+    let plus = solve(&[("Relative Integration Order", ints(&[1]))]);
+    assert_eq!(plus, solve(&[("Number of Integration Points", ints(&[16]))]));
+    assert_ne!(plus, solve(&[]));
 }
 
 /// `StokesStabilized/quad.sif` and `tri.sif` without `Pressure
