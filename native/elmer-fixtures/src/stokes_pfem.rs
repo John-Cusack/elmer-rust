@@ -14,7 +14,7 @@
 use elmer_core::{BasisEval, ElemId, ElementBasis, ElementType, LocalSystem, ParamMap, Params, QuadPoint};
 use elmer_solver::{Solver, SolverCtx, SolverError};
 
-use crate::hooks::{check_element_definitions, nodal};
+use crate::hooks::nodal;
 
 const CALLER: &str = "StokesSolve";
 
@@ -128,7 +128,6 @@ pub fn factory(_params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
 
 impl Solver for StokesSolver {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
-        check_element_definitions(ctx)?;
         let dim = crate::hooks::coordinate_system(ctx)?.dim;
         if ctx.primary().is_none_or(|v| v.dofs != dim + 1) {
             return Err(SolverError::Unsupported(format!("Stokes1 StokesSolver: a Variable of {} dofs", dim + 1)));

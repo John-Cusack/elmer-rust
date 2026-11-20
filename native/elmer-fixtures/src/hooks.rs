@@ -24,29 +24,6 @@ pub(crate) fn coordinate_system(ctx: &SolverCtx<'_>) -> Result<CoordinateSystem,
     })
 }
 
-/// Refuses element definitions the solver's dof layout does not see: an
-/// `Element` in an Equation section, or a Body's `Solver <id>: Element`.
-/// `elmer-pdofs` lays out a solver from its own section only, so with those
-/// a plugin would run on nodal elements where Elmer uses p elements.
-pub(crate) fn check_element_definitions(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
-    let model = &ctx.sim.model;
-    if let Some(i) = model.equations.iter().position(|q| q.get("element").is_some()) {
-        return Err(SolverError::Unsupported(format!(
-            "Equation {}: Element (element definitions outside the solver section)",
-            i + 1
-        )));
-    }
-    let key = format!("solver {}: element", ctx.solver_id());
-    if let Some(i) = model.bodies.iter().position(|b| b.get(&key).is_some()) {
-        return Err(SolverError::Unsupported(format!(
-            "Body {}: Solver {}: Element (body-wise element definitions)",
-            i + 1,
-            ctx.solver_id()
-        )));
-    }
-    Ok(())
-}
-
 /// `GetElementNodes`: the element's node coordinates in Elmer order.
 pub(crate) fn element_nodes(mesh: &dyn MeshView, e: ElemId) -> Vec<[f64; 3]> {
     mesh.element(e).nodes.iter().map(|&n| mesh.coord(n)).collect()
