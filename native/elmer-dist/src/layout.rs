@@ -219,13 +219,29 @@ impl DofLayout {
     /// In `ExchangeSourceVec` (SParIterComm.F90:3620) every holder sends its
     /// value to every other holder, and each holder adds what it receives to
     /// its own value, neighbours in ascending rank order. With three or more
-    /// holders the copies of one dof can therefore differ in the last bit.
-    /// The owner here sees every holder's value, so it forms each holder's
-    /// sum in that holder's order (`own + others ascending`) and hands each
-    /// copy its own.
+    /// holders the copies of one dof can therefore differ in the last bit,
+    /// so each copy gets its own holder's sum ([`DofLayout::reduce_shared`]).
     pub fn sum_shared(&self, comm: &dyn Exchange, local: &mut [f64]) {
-        // Every holder's value at each owned position: own first, then the
-        // copies by rank.
+        self.reduce_shared(comm, local, |h, me| {
+            let own = h.iter().find(|&&(r, _)| r == me).map_or(0.0, |&(_, v)| v);
+            h.iter()
+                .filter(|&&(r, _)| r != me)
+                .fold(own, |s, &(_, v)| s + v)
+        });
+    }
+
+    /// Every copy of a shared dof gets `combine(holders, rank)`: `holders`
+    /// are `(rank, value)` of every holder of the dof in ascending rank
+    /// order, `rank` the holder the result is for. Elmer's exchanges send
+    /// each holder's value to all other holders, which then combine in
+    /// their own order; the owner here sees every holder's value, forms
+    /// each holder's result and hands each copy its own. Collective.
+    pub fn reduce_shared(
+        &self,
+        comm: &dyn Exchange,
+        local: &mut [f64],
+        combine: impl Fn(&[(usize, f64)], usize) -> f64,
+    ) {
         let send: Vec<(usize, Vec<f64>)> = self
             .copies_in
             .iter()
@@ -250,16 +266,10 @@ impl DofLayout {
         for h in holders.iter_mut() {
             h.sort_by_key(|&(r, _)| r);
         }
-        let sum_for = |h: &[(usize, f64)], me: usize| {
-            let own = h.iter().find(|&&(r, _)| r == me).map_or(0.0, |&(_, v)| v);
-            h.iter()
-                .filter(|&&(r, _)| r != me)
-                .fold(own, |s, &(_, v)| s + v)
-        };
         for (p, &i) in self.owned.iter().enumerate() {
-            local[i as usize] = sum_for(&holders[p], self.rank);
+            local[i as usize] = combine(&holders[p], self.rank);
         }
-        // Each copy's own sum back to it.
+        // Each copy's own result back to it.
         let send: Vec<(usize, Vec<f64>)> = self
             .copies_out
             .iter()
@@ -267,7 +277,7 @@ impl DofLayout {
                 (
                     *r,
                     pos.iter()
-                        .map(|&p| sum_for(&holders[p as usize], *r))
+                        .map(|&p| combine(&holders[p as usize], *r))
                         .collect(),
                 )
             })

@@ -360,3 +360,19 @@ fn interface_rows_sum_in_global_column_order() {
     assert_eq!(y[0], vec![0.0]);
     assert_eq!(y[1], vec![0.0; 3]);
 }
+
+/// `reduce_shared` hands every holder the result formed for it, from all
+/// holders' values in rank order.
+#[test]
+fn reduce_shared_gives_each_holder_its_result() {
+    let got = ThreadComm::run(3, |c| {
+        let l = DofLayout::new(c, vec![5], vec![1]).expect("layout");
+        let mut x = vec![10.0 * c.rank() as f64];
+        l.reduce_shared(c, &mut x, |h, me| {
+            assert_eq!(h.iter().map(|&(r, _)| r).collect::<Vec<_>>(), vec![0, 1, 2]);
+            h.iter().map(|&(_, v)| v).sum::<f64>() + me as f64
+        });
+        x[0]
+    });
+    assert_eq!(got, vec![30.0, 31.0, 32.0]);
+}
