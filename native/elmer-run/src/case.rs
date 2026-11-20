@@ -1347,6 +1347,10 @@ fn run_case_meshes(
     let discont_perm = discont_perm.map(Arc::new);
     for slot in &mut sim.slots {
         let params = &sim.model.solvers[slot.id - 1];
+        if crate::openfoam::is_section(params) {
+            slot.set_instance(Box::new(crate::openfoam::Elmer2OpenFoamWrite { case_dir: case_dir.to_path_buf() }));
+            continue;
+        }
         if crate::gmsh_reader::is_section(params) {
             slot.set_instance(Box::new(crate::gmsh_reader::GmshOutputReader { case_dir: case_dir.to_path_buf() }));
             continue;

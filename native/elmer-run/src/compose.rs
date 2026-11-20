@@ -38,6 +38,7 @@ pub fn solver_registry() -> SolverRegistry {
     crate::elec_force::register(&mut reg);
     crate::saveprojection::register(&mut reg);
     crate::gmsh_reader::register(&mut reg);
+    crate::openfoam::register(&mut reg);
     crate::energy_release::register(&mut reg);
     elmer_pdofs::mixed_poisson::register(&mut reg);
     crate::find_optimum::register(&mut reg);
