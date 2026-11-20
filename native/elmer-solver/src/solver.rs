@@ -1761,8 +1761,16 @@ impl<'a> SolverCtx<'a> {
     pub fn default_dirichlet_after(&mut self, first: &[(u32, f64)]) -> Result<(), SolverError> {
         self.default_finish_boundary_assembly()?;
         self.periodic_jump_weights()?;
+        // DefUtils.F90:6289: the soft limiter, after what the solver set and
+        // before the boundary conditions.
+        let limited = if self.params().logical("apply limiter") == Some(true) {
+            self.determine_soft_limiter()?
+        } else {
+            Vec::new()
+        };
         let (values, rows) = self.dirichlet_values_with_rows()?;
         let mut fixed: BTreeMap<u32, f64> = first.iter().copied().collect();
+        fixed.extend(limited);
         fixed.extend(values);
         self.passive_values(&mut fixed)?;
         crate::constraint_modes::set_boundaries(self, &mut fixed)?;
@@ -2010,7 +2018,6 @@ impl<'a> SolverCtx<'a> {
             "nonlinear system acceleration",
             "nonlinear system compute change in scaled system",
             "linear system normalize guess",
-            "apply limiter",
         ] {
             if p.logical(k) == Some(true) {
                 return Err(SolverError::Unsupported(format!("SolveLinearSystem option {k}")));

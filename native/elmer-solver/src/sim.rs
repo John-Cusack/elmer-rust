@@ -221,6 +221,8 @@ pub struct SolverSlot {
     pub(crate) cmodes: Option<crate::constraint_modes::Modes>,
     /// The CutFEM state of a `CutFEM` solver (`CutFEMUtils` module data).
     pub(crate) cutfem: Option<Box<crate::cutfem::CutFemRun>>,
+    /// `Var % Upper/LowerLimitActive` of `Apply Limiter`.
+    pub(crate) limiter: Option<crate::limiter::LimiterState>,
     /// `Solver % LocalSystem` of `Local Matrix Storage`.
     pub local_store: Option<LocalStore>,
     /// The child solvers' systems (`CreateChildSolver`).
@@ -280,6 +282,7 @@ impl SolverSlot {
             mg_meshes: None,
             cmodes: None,
             cutfem: None,
+            limiter: None,
             local_store: None,
             children: Vec::new(),
             nt: None,
