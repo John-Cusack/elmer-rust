@@ -1381,6 +1381,11 @@ impl<'a> SolverCtx<'a> {
             }
             _ => None,
         };
+        // SolveCore.F90:6059-6070 (SkipConstraints): the change of the
+        // collection solution is skipped and taken over the first n entries
+        // once the solution is picked (:6223-6226).
+        let skip_constraints = p.logical("nonlinear system convergence without constraints") == Some(true)
+            || p.logical("nonlinear system consistent norm") == Some(true);
         let var = sim.vars.by_id_mut(id);
         let n = sys.matrix.nrows;
         // SolveSystem's RestrictionMode: SolveWithLinearRestriction solves
@@ -1519,7 +1524,9 @@ impl<'a> SolverCtx<'a> {
             // CalculateLoads with the original matrix (BulkMatrix =
             // StiffMatrix) on the first n entries.
             sim.calculate_loads(slot_ix, n, true, mesh, log)?;
-            sim.compute_change(slot_ix, false, Some(nc), true, mesh, log, comm)?;
+            if !skip_constraints {
+                sim.compute_change(slot_ix, false, Some(nc), true, mesh, log, comm)?;
+            }
             sim.calculate_loads(slot_ix, n, false, mesh, log)?;
             log.info("SolveWithLinearRestriction", "Picking solution from collection solution", 10);
             let var = sim.vars.by_id_mut(id);
@@ -1545,6 +1552,9 @@ impl<'a> SolverCtx<'a> {
                     };
                 }
                 mv.values_changed = true;
+            }
+            if skip_constraints {
+                sim.compute_change(slot_ix, false, Some(n), true, mesh, log, comm)?;
             }
             log.info("SolveWithLinearRestriction", "All done", 10);
         } else {
