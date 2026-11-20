@@ -445,14 +445,26 @@ impl PreambleVar {
         }
         let mut out = Vec::new();
         if let (Some(open), Some(close)) = (self.name.find('['), self.name.rfind(']')) {
-            for comp in self.name[open + 1..close].split_whitespace() {
-                let (c, n) = comp.rsplit_once(':')?;
+            // Component names may hold spaces (`potential re:1`): words
+            // gather until one carries the `:n` count.
+            let mut words: Vec<&str> = Vec::new();
+            for word in self.name[open + 1..close].split_whitespace() {
+                let Some((last, n)) = word.rsplit_once(':') else {
+                    words.push(word);
+                    continue;
+                };
+                words.push(last);
+                let c = words.join(" ").to_lowercase();
+                words.clear();
                 let n: usize = n.parse().ok()?;
                 if n == 1 {
-                    out.push(c.to_lowercase());
+                    out.push(c);
                 } else {
-                    out.extend((1..=n).map(|k| format!("{} {k}", c.to_lowercase())));
+                    out.extend((1..=n).map(|k| format!("{c} {k}")));
                 }
+            }
+            if !words.is_empty() {
+                return None;
             }
         } else {
             out.extend((1..=self.dofs).map(|k| format!("{} {k}", self.base_name())));

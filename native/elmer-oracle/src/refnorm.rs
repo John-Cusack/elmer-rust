@@ -256,8 +256,9 @@ fn solver_variable(keys: &[(String, String)]) -> Result<String, String> {
         .trim()
         .trim_matches('"')
         .trim();
-    // A bracketed vector is named by its part before the bracket.
-    let lower = v.split('[').next().unwrap_or("").to_lowercase();
+    // A bracketed vector is named by its part before the bracket; quotes
+    // may also follow `-dofs N` (`-dofs 3 "Displacement"`).
+    let lower = v.replace('"', " ").split('[').next().unwrap_or("").to_lowercase();
     let mut parts = lower.split_whitespace().peekable();
     let mut name = Vec::new();
     while let Some(p) = parts.next() {
@@ -388,6 +389,8 @@ mod tests {
         assert_eq!(s[2].equation.as_deref(), Some("heat equation"));
         assert_eq!(s[3].variable.as_deref(), Ok("flow"));
         assert_eq!(s[4].variable.as_deref(), Ok("displacement"));
+        let quoted = reference_solvers("Solver 1\n Variable = -dofs 3 \"Displacement\"\n Reference Norm = 1\nEnd\n").unwrap();
+        assert_eq!(quoted[0].variable.as_deref(), Ok("displacement"));
         assert_eq!(solver_equations(sif), vec![(1, "heat".into()), (3, "heat equation".into())]);
     }
 
@@ -475,6 +478,9 @@ mod tests {
         let opts = NormOpts { norm_dofs: Some(2), ..NormOpts::default() };
         assert_eq!(v, compute_norm(&[4.0, 5.0, 6.0, 1.0, 2.0, 3.0], None, 3, 2, &opts).unwrap());
         assert_ne!(v, n);
+        let complex = pv("potential[potential re:1 potential im:1]", 4, 2, 2, "mgharm");
+        assert_eq!(complex.components().unwrap(), ["potential re", "potential im"]);
+        assert_eq!(complex.base_name(), "potential");
         let plain = [pv("displacement", 6, 2, 3, "stress analysis")];
         assert_eq!(plain[0].components().unwrap(), ["displacement 1", "displacement 2", "displacement 3"]);
         // A missing component is out of class, not a partial norm.
