@@ -316,7 +316,7 @@ pub(crate) fn solve_controlled(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverErr
                 simulation: &sim.model.simulation,
                 schur: schur.as_ref(),
                 multigrid: None,
-                precond: None,
+                precond: None, prec_values: None
             };
             solve_linear(&sim.backends.linear, &env, &slot.params, &mut sys.matrix, &mut b, &mut dx, bnorm, false, log, comm)?;
         }

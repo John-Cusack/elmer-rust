@@ -23,6 +23,10 @@ pub(crate) struct AssemblyState {
     pub boundary_touched: bool,
     /// The Dirichlet dofs of this assembly (`A % ConstrainedDOF`).
     pub constrained: Vec<(u32, f64)>,
+    /// `A % PrecValues`: a separate matrix on the system's pattern that the
+    /// preconditioner is built from (`DefaultUpdatePrec`). The Dirichlet
+    /// conditions do not touch it.
+    pub prec: Option<Vec<f64>>,
 }
 
 /// Whether `DefaultFinishBulkAssembly` keeps the bulk system: `Calculate

@@ -118,6 +118,11 @@ impl Solver for HelmholtzSolver {
         if ctx.params().get("linear system complex").is_none() {
             ctx.params_mut().insert("Linear System Complex", Value::Logical(true));
         }
+        if ctx.params().0.keys().any(|k| k.starts_with("linear system preconditioning damp coefficient"))
+            && ctx.params().get("allocate preconditioning matrix").is_none()
+        {
+            ctx.params_mut().insert("Allocate Preconditioning Matrix", Value::Logical(true));
+        }
         check_supported(ctx)?;
         axisymmetric(ctx)?;
         let dofs = ctx.primary().map(|v| v.dofs);
@@ -146,32 +151,25 @@ impl Solver for HelmholtzSolver {
             "res: Frequency",
             Value::real(omega / (2.0 * std::f64::consts::PI)),
         );
-        if (flag(
-            ctx.params(),
-            "linear system preconditioning damp coefficient",
-        ) || ctx
-            .params()
-            .get("linear system preconditioning damp coefficient")
-            .is_some()
-            || ctx
-                .params()
-                .get("linear system preconditioning damp coefficient im")
-                .is_some())
-            && ctx
-                .params()
-                .string("linear system solver")
-                .map(str::to_ascii_lowercase)
-                .as_deref()
-                == Some("iterative")
+        // HelmholtzSolve.F90:268-280: the damped preconditioning matrix of an
+        // iterative solve, `ShiftCoeff = Damp Coefficient + i Damp
+        // Coefficient Im`.
+        let (re, im) = (
+            ctx.params().real("linear system preconditioning damp coefficient"),
+            ctx.params().real("linear system preconditioning damp coefficient im"),
+        );
+        let mut prec_shift = (re.is_some() || im.is_some()).then(|| Complex64::new(re.unwrap_or(0.0), im.unwrap_or(0.0)));
+        if prec_shift.is_some()
+            && ctx.params().string("linear system solver").map(str::to_ascii_lowercase).as_deref() != Some("iterative")
         {
-            ctx.warn(
-                CALLER,
-                "Damped preconditioning matrix is not built; the solution is unaffected, the iteration may differ",
-            );
+            ctx.warn(CALLER, "Damped preconditioning makes sence only for iterative methods, canceling!");
+            prec_shift = None;
         }
 
         let mut cfg = HelmholtzConfig::new(dim, omega);
         cfg.axisymmetric = axi;
+        cfg.prec_shift = prec_shift;
+        let mut prec_local = LocalSystem::zeros(0);
         let maxiter = ctx
             .params()
             .integer("nonlinear system max iterations")
@@ -223,6 +221,10 @@ impl Solver for HelmholtzSolver {
                 )?;
                 self.complex.to_real(&mut self.local);
                 ctx.default_update(&self.local, e)?;
+                if cfg.prec_shift.is_some() {
+                    self.complex.prec_to_real(&mut prec_local);
+                    ctx.default_update_prec(&prec_local, e)?;
+                }
             }
 
             for &e in &bnd {
@@ -277,6 +279,10 @@ impl Solver for HelmholtzSolver {
                 )?;
                 self.complex.to_real(&mut self.local);
                 ctx.default_update(&self.local, e)?;
+                if cfg.prec_shift.is_some() {
+                    self.complex.prec_to_real(&mut prec_local);
+                    ctx.default_update_prec(&prec_local, e)?;
+                }
             }
 
             ctx.default_dirichlet()?;

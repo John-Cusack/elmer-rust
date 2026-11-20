@@ -660,7 +660,7 @@ pub(crate) fn solve(ctx: &mut SolverCtx<'_>) -> Result<f64, SolverError> {
                     let mut a2 = a.clone();
                     let mut bb = b.to_vec();
                     let bnorm = bb.iter().map(|v| v * v).sum::<f64>().sqrt();
-                    let env = BlockEnv { dofs, ndeg: dofs, simulation, schur: None, multigrid: None, alias: None, precond: None };
+                    let env = BlockEnv { dofs, ndeg: dofs, simulation, schur: None, multigrid: None, alias: None, precond: None , prec_values: None};
                     solve_linear(linear, &env, &q, &mut a2, &mut bb, x, bnorm, false, log, comm).map(|_| ())
                 }
             }
