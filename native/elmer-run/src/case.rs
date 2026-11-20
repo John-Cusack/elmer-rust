@@ -716,8 +716,10 @@ pub fn native_element(params: &ParamMap) -> bool {
     }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
-    const P_DOFS: [(&str, &str); 27] = [
+    const P_DOFS: [(&str, &str); 28] = [
         ("advreactdg_p", "advectionreactionsolver"),
+        // p elements: the classic LocalMatrix with the p dofs' coordinates.
+        ("meshsolve", "meshsolver"),
         ("benchmarkshell", "shellsolver"),
         ("elasticsolve", "elasticsolver"),
         ("filmflowsolver", "filmflowsolver"),

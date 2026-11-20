@@ -219,10 +219,6 @@ pub struct SolverSlot {
     pub(crate) mg_meshes: Option<Vec<Box<dyn MeshView>>>,
     /// The constraint modes `DefaultDirichletBCs` set up.
     pub(crate) cmodes: Option<crate::constraint_modes::Modes>,
-    /// The coordinates of p dof slots beyond the nodes (`Mesh % Nodes` of a
-    /// p mesh past `NumberOfNodes`, zero unless set), fitted to a curved
-    /// boundary by `Follow P Curvature` ([`crate::follow_p::follow_p_curvature`]).
-    pub p_geometry: Option<std::collections::BTreeMap<u32, [f64; 3]>>,
     /// The CutFEM state of a `CutFEM` solver (`CutFEMUtils` module data).
     pub(crate) cutfem: Option<Box<crate::cutfem::CutFemRun>>,
     /// `Var % Upper/LowerLimitActive` of `Apply Limiter`.
@@ -291,7 +287,6 @@ impl SolverSlot {
             lin_converged: true,
             mg_meshes: None,
             cmodes: None,
-            p_geometry: None,
             cutfem: None,
             limiter: None,
             local_store: None,
@@ -439,6 +434,12 @@ pub struct Simulation {
     /// `Element % DGIndexes` of the mesh, once a DG variable asked for them
     /// ([`crate::exported::DgIndexes`]).
     pub dg_indexes: Option<crate::exported::DgIndexes>,
+    /// `Mesh % Nodes` of a p mesh past `NumberOfNodes`: the coordinates of
+    /// the p dofs by their global index (`mGetElementDOFs`), zero unless
+    /// set (`EnlargeCoordinates`). `Follow P Curvature` fits them to a
+    /// curved boundary ([`crate::follow_p::follow_p_curvature`]) and a p
+    /// MeshSolve adds its displacement to them (`DisplaceMesh`).
+    pub p_coords: Option<Vec<[f64; 3]>>,
     /// The mesh-wide p dofs of the p solvers ([`SolverDofs::ndeg_parts`],
     /// their maxima): what makes a nodal solver's `Ndeg` exceed the nodes.
     pub(crate) p_ndeg_parts: Option<(usize, usize)>,
@@ -535,6 +536,7 @@ impl Simulation {
             backends: Backends::default(),
             reference: ReferenceTally::default(),
             dg_indexes: None,
+            p_coords: None,
             prev_sizes: vec![0.0; 5],
             pred_corr: (0.0, 0.0, 1.0),
             live: None,

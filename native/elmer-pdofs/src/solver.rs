@@ -148,6 +148,9 @@ impl SolverDofs for PSetup {
     fn local_bubbles(&self, e: ElemId) -> usize {
         PSetup::local_bubbles(self, e)
     }
+    fn element_bdofs(&self, e: ElemId) -> usize {
+        self.mesh.elements.get(e.0 as usize).map_or(0, |el| el.bdofs)
+    }
 }
 
 /// MATC for `p:%function` degrees: evaluates the command (`function(cx)`)

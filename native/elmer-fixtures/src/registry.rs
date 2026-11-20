@@ -66,6 +66,12 @@ fn source_case(case: &str) -> &str {
 /// `(case, library, entry, builder)`. Library and entry are the strings the
 /// case's `Procedure` keyword uses.
 const FIXTURES: &[(&str, &str, &str, Build)] = &[
+    // `CurvedBndryPFEM2/Poisson.f90`'s `CircX` / `CircY`: the displacement
+    // that takes a point radially onto the circle of radius sqrt(2).
+    ("CurvedBndryPFEM2", "./Poisson", "CircX", |_| Udf::Const(Arc::new(curved_bndry_pfem::circ_x))),
+    ("CurvedBndryPFEM2", "./Poisson", "CircY", |_| Udf::Const(Arc::new(curved_bndry_pfem::circ_y))),
+    ("SD_CurvedBndryPFEM2", "./Poisson", "CircX", |_| Udf::Const(Arc::new(curved_bndry_pfem::circ_x))),
+    ("SD_CurvedBndryPFEM2", "./Poisson", "CircY", |_| Udf::Const(Arc::new(curved_bndry_pfem::circ_y))),
     ("ConstantParamFunc", "MySource", "MySource", |_| Udf::Node(my_source_fn())),
     ("AdvDiffFCT", "InitDist", "InitDist", |m| Udf::Node(init_dist_fn(m))),
     // `Source.F90` of the 2D mixed Poisson tests: zero, and the source of
@@ -223,6 +229,10 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     // `CurvedBndryPFEM/Poisson.f90`: the mesh moved onto a circle first.
     ("CurvedBndryPFEM", "./Poisson", "PoissonSolver", Hook::Solver(curved_bndry_pfem::factory)),
     ("SD_CurvedBndryPFEM", "./Poisson", "PoissonSolver", Hook::Solver(curved_bndry_pfem::factory)),
+    // `CurvedBndryPFEM2/Poisson.f90`: the plain p Poisson on the mesh a p
+    // MeshSolve has curved.
+    ("CurvedBndryPFEM2", "./Poisson", "PoissonSolver", Hook::Solver(curved_bndry_pfem::factory2)),
+    ("SD_CurvedBndryPFEM2", "./Poisson", "PoissonSolver", Hook::Solver(curved_bndry_pfem::factory2)),
     // The same source up to blank lines.
     ("SD_PoissonPFEM", "Poisson", "PoissonSolver", Hook::Solver(elmer_pdofs::solver::poisson_pfem)),
     // The same `Poisson.f90` as SD_PoissonPFEM's, on solver-specific meshes.

@@ -336,7 +336,8 @@ impl Solver for StatElecSolver {
                         // `Follow P Curvature`: the dofs past the nodes carry
                         // coordinates (`GetElementNodes` fills them), so the
                         // element maps with all its functions.
-                        let curved = ctx.p_geometry().map(|g| {
+                        let geometry = ctx.p_geometry();
+                        let curved = geometry.as_ref().map(|g| {
                             let mut slots = Vec::new();
                             d.element_slots(e, &mut slots);
                             let mut ext = xyz.clone();

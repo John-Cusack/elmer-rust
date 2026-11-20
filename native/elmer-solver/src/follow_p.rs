@@ -20,7 +20,7 @@ const CALLER: &str = "SetCurvedBoundary";
 
 /// `LUDecomp` (LinearAlgebra.F90:191), column-major `a[i + j*n]`, the
 /// diagonal replaced by its reciprocal.
-fn lu_decomp(a: &mut [f64], n: usize, pivot: &mut [usize]) -> bool {
+pub(crate) fn lu_decomp(a: &mut [f64], n: usize, pivot: &mut [usize]) -> bool {
     let ix = |i: usize, j: usize| i + j * n;
     for i in 0..n {
         let mut j = i;
@@ -61,7 +61,7 @@ fn lu_decomp(a: &mut [f64], n: usize, pivot: &mut [usize]) -> bool {
 }
 
 /// `LUSolve(n, A, x, pivot)` (LinearAlgebra.F90:132).
-fn lu_solve(a: &[f64], n: usize, x: &mut [f64], pivot: &[usize]) {
+pub(crate) fn lu_solve(a: &[f64], n: usize, x: &mut [f64], pivot: &[usize]) {
     let ix = |i: usize, j: usize| i + j * n;
     for i in 0..n {
         let mut s = x[i];
@@ -92,7 +92,9 @@ pub fn follow_p_curvature(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
     }
     let Some(d) = ctx.solver_dofs() else { return Ok(()) };
     let dim = ctx.mesh.dim().max(2);
-    let mut geometry: BTreeMap<u32, [f64; 3]> = ctx.sim.slots[ctx.slot].p_geometry.clone().unwrap_or_default();
+    // `Mesh % Nodes % x(Indexes(n+1:nd)) = x(n+1:nd)`: set by slot here,
+    // stored by global index below.
+    let mut geometry: BTreeMap<u32, [f64; 3]> = BTreeMap::new();
     let nb = ctx.mesh.n_bulk();
     for (b, bc) in model.boundary_conditions.iter().enumerate() {
         if bc.logical("follow circle boundary") != Some(true) {
@@ -173,6 +175,15 @@ pub fn follow_p_curvature(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         }
     }
     ctx.info(CALLER, &format!("p-dof coordinates set: {}", geometry.len()), 10);
-    ctx.sim.slots[ctx.slot].p_geometry = Some(geometry);
+    let perm = d.perm().perm.clone();
+    let coords = ctx.sim.p_coords.get_or_insert_with(Vec::new);
+    if coords.len() < perm.len() {
+        coords.resize(perm.len(), [0.0; 3]);
+    }
+    for (g, &s) in perm.iter().enumerate() {
+        if let Some(c) = geometry.get(&s) {
+            coords[g] = *c;
+        }
+    }
     Ok(())
 }
