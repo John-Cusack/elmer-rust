@@ -252,7 +252,15 @@ pub fn expand_includes(text: &str, bases: &[&std::path::Path]) -> Result<String,
         }
         if in_section {
             in_section = lower != "end";
-        } else if !(lower.is_empty() || lower.starts_with('$') || lower.contains("::") || lower == "run") {
+        } else if !(lower.is_empty()
+            || lower.starts_with('$')
+            || lower.contains("::")
+            || lower == "run"
+            || lower == "stop"
+            || lower.starts_with("echo ")
+            || lower.starts_with("check "))
+        {
+            // One-line directives (`Check Keywords "Warn"`) open no section.
             in_section = true;
         }
         out.push_str(raw);
@@ -505,7 +513,7 @@ mod tests {
         std::fs::write(dir.join("params.sif"), "! constants\n$ h = 0.1\n\n").unwrap();
         std::fs::write(dir.join("m/mesh.names"), "$ wall = 3\n").unwrap();
         std::fs::write(dir.join("bad.sif"), "Solver 1\n Variable = T\nEnd\n").unwrap();
-        let sif = "include params.sif\nINCLUDE m/mesh.names\nHeader\n  Include Path \"\"\nEnd\nSolver 1\n Variable = T\n Reference Norm = 1\nEnd\n";
+        let sif = "Check Keywords \"Warn\"\ninclude params.sif\nINCLUDE m/mesh.names\nHeader\n  Include Path \"\"\nEnd\nSolver 1\n Variable = T\n Reference Norm = 1\nEnd\n";
         let e = expand_includes(sif, &[&dir]).unwrap();
         assert!(e.contains("$ h = 0.1") && e.contains("$ wall = 3") && e.contains("Include Path"));
         assert_eq!(reference_solvers(&e).unwrap().len(), 1);
