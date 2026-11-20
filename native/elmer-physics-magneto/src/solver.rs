@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use elmer_core::{ElemId, MeshView, ParamMap, Value, NO_DOF};
+use elmer_core::{ElemId, MeshView, ParamMap, Params, Value, NO_DOF};
 use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
 use crate::case::Case;
@@ -39,6 +39,47 @@ pub fn calc_fields_factory(_params: &ParamMap) -> Result<Box<dyn Solver>, Solver
     Ok(Box::new(CalcFields))
 }
 
+/// Whether `params` runs `WhitneyAVSolver` (`Some(false)`) or
+/// `WhitneyAVHarmonicSolver` (`Some(true)`).
+pub fn whitney_kind(params: &ParamMap) -> Option<bool> {
+    let (lib, entry) = elmer_solver::solver::procedure_of(params)?;
+    if !lib.eq_ignore_ascii_case(STEADY.0) {
+        return None;
+    }
+    if entry.eq_ignore_ascii_case(HARMONIC.1) {
+        Some(true)
+    } else if entry.eq_ignore_ascii_case(STEADY.1) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// The `Element` of `WhitneyAVSolver_Init0` / `WhitneyAVHarmonicSolver_Init0`
+/// for the lowest-order (non-Piola) Whitney basis when the section gives
+/// none: `n:1 e:1`, or `n:0 e:1` in steady state without `Static
+/// Conductivity` (explicit, else set by a velocity body force or an
+/// `Electric Current Density` BC). Sections with the options that pick
+/// other bases are left alone (the solvers refuse them).
+pub fn whitney_init_section(params: &mut ParamMap, body_forces: &[ParamMap], bcs: &[ParamMap]) {
+    let Some(harmonic) = whitney_kind(params) else { return };
+    if params.get("element").is_some() {
+        return;
+    }
+    for k in ["use piola transform", "quadratic approximation", "second kind basis", "use tree gauge"] {
+        if params.logical(k) == Some(true) {
+            return;
+        }
+    }
+    let prefix = |s: &ParamMap, p: &str| s.0.keys().any(|k| k.starts_with(p));
+    let static_cond = params.logical("static conductivity").unwrap_or_else(|| {
+        body_forces.iter().any(|b| prefix(b, "angular velocity") || prefix(b, "lorentz velocity"))
+            || bcs.iter().any(|b| prefix(b, "electric current density"))
+    });
+    let e = if harmonic || static_cond { "n:1 e:1" } else { "n:0 e:1" };
+    params.insert("Element", Value::Str(e.into()));
+}
+
 pub fn steady_factory(_params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     Ok(Box::new(WhitneyAv { harmonic: false }))
 }
@@ -56,6 +97,42 @@ impl From<MagnetoError> for SolverError {
             MagnetoError::Linalg(e) => SolverError::Linalg(e),
         }
     }
+}
+
+/// Layout slot -> Elmer slot: each active element's `AvLayout` DOFs (nodal
+/// V, then its edges) against `GetElementDOFs` of the framework layout.
+fn elmer_order(case: &Case, id: usize, harmonic: bool, d: &dyn elmer_solver::SolverDofs) -> Result<Vec<u32>, SolverError> {
+    let sp = case.solver(id).ok_or_else(|| SolverError::fatal("WhitneyAVSolver", "no solver section"))?;
+    let with_v = harmonic || crate::steady::static_conductivity(case, sp);
+    let lay = crate::layout::AvLayout::build(case, id, with_v)?;
+    let refuse = |what: &str| SolverError::Unsupported(format!("WhitneyAVSolver: Elmer's DOF layout {what}"));
+    if d.perm().n_slots != lay.n() {
+        return Err(refuse("has another number of DOFs"));
+    }
+    let mut order = vec![u32::MAX; lay.n()];
+    let mut slots = Vec::new();
+    for (k, &e) in lay.active.iter().enumerate() {
+        d.element_slots(ElemId(e as u32), &mut slots);
+        let own = &lay.elem_dofs[k];
+        if slots.len() != own.len() {
+            return Err(refuse("has another element DOF count"));
+        }
+        for (&a, &f) in own.iter().zip(&slots) {
+            if f == NO_DOF {
+                return Err(refuse("lacks an element DOF"));
+            }
+            let o = &mut order[a as usize];
+            if *o == u32::MAX {
+                *o = f;
+            } else if *o != f {
+                return Err(refuse("numbers the element DOFs differently"));
+            }
+        }
+    }
+    if order.contains(&u32::MAX) {
+        return Err(refuse("leaves a DOF unnumbered"));
+    }
+    Ok(order)
 }
 
 pub struct WhitneyAv {
@@ -126,20 +203,44 @@ impl Solver for WhitneyAv {
         }
         let case = Case::from_view(ctx.mesh, &ctx.sim.model);
         let id = ctx.solver_id();
+        // With `Element = n:1 e:1` (or `n:0 e:1`) from elmer-run, the
+        // framework holds Elmer's Perm of the solver (InitialPermutation +
+        // OptimizeBandwidth over nodes and mesh edges): the system is solved
+        // and stored in that slot order.
+        let order = match ctx.solver_dofs() {
+            Some(d) => Some(elmer_order(&case, id, self.harmonic, d)?),
+            None => None,
+        };
         let (values, node_slot, n_nodal, n_edges, dofs) = if self.harmonic {
-            let s = crate::solve_harmonic(&case, id)?;
+            let s = crate::harmonic::solve_harmonic_ordered(&case, id, order.as_deref())?;
             let v = s.values.iter().flat_map(|z| [z.re, z.im]).collect();
             (v, s.node_slot, s.n_nodal, s.n_edges, 2)
         } else {
-            let s = crate::solve_steady(&case, id)?;
+            let s = crate::steady::solve_steady_ordered(&case, id, order.as_deref())?;
             (s.values, s.node_slot, s.n_nodal, s.n_edges, 1)
         };
         let n_nodes = node_slot.len();
-        let perm: Arc<[u32]> = node_slot
-            .iter()
-            .copied()
-            .chain((0..n_edges as u32).map(|e| n_nodal as u32 + e))
-            .collect();
+        let (values, perm): (Vec<f64>, Option<Arc<[u32]>>) = match &order {
+            Some(order) => {
+                let mut v = vec![0.0; values.len()];
+                for (i, &o) in order.iter().enumerate() {
+                    for k in 0..dofs {
+                        v[dofs * o as usize + k] = values[dofs * i + k];
+                    }
+                }
+                (v, None)
+            }
+            None => (
+                values,
+                Some(
+                    node_slot
+                        .iter()
+                        .copied()
+                        .chain((0..n_edges as u32).map(|e| n_nodal as u32 + e))
+                        .collect(),
+                ),
+            ),
+        };
         let ix = ctx
             .sim
             .slots
@@ -156,7 +257,9 @@ impl Solver for WhitneyAv {
                 format!("variable '{}' has {} components, the solver needs {dofs}", var.name, var.dofs),
             ));
         }
-        var.perm = Some(perm.clone());
+        if let Some(p) = &perm {
+            var.perm = Some(p.clone());
+        }
         var.values = values;
         var.values_changed = true;
         if !self.harmonic && n_nodal == 0 {
@@ -165,7 +268,9 @@ impl Solver for WhitneyAv {
             var.output = false;
         }
         let slot = &mut ctx.sim.slots[ix];
-        slot.perm = Some(perm);
+        if let Some(p) = perm {
+            slot.perm = Some(p);
+        }
         if !self.harmonic {
             slot.params.insert("Norm Permutation", Value::Integer(vec![n_nodes as i32 + 1]));
         }

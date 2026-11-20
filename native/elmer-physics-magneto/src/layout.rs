@@ -142,3 +142,42 @@ pub fn geometry(case: &Case, nodes: &[u32]) -> (Vec<[f64; 3]>, Vec<i64>) {
     let gindex = nodes.iter().map(|&i| i as i64 + 1).collect();
     (xyz, gindex)
 }
+
+/// `a` renumbered: row and column `i` become `order[i]` (Elmer's slot of
+/// layout slot `i`), columns sorted, entries unchanged.
+pub fn permute_matrix<T: Scalar>(a: &CsrMatrix<T>, order: &[u32]) -> CsrMatrix<T> {
+    let n = a.nrows;
+    let mut src = vec![0usize; n];
+    for (i, &o) in order.iter().enumerate() {
+        src[o as usize] = i;
+    }
+    let mut row_ptr = vec![0];
+    let mut col_idx = Vec::with_capacity(a.col_idx.len());
+    let mut values = Vec::with_capacity(a.values.len());
+    let mut diag = Vec::with_capacity(n);
+    for (r, &i) in src.iter().enumerate() {
+        let mut row: Vec<(u32, T)> = (a.row_ptr[i]..a.row_ptr[i + 1]).map(|k| (order[a.col_idx[k] as usize], a.values[k])).collect();
+        row.sort_unstable_by_key(|&(c, _)| c);
+        diag.push(col_idx.len() + row.iter().position(|&(c, _)| c as usize == r).expect("diagonal"));
+        for (c, v) in row {
+            col_idx.push(c);
+            values.push(v);
+        }
+        row_ptr.push(col_idx.len());
+    }
+    CsrMatrix { nrows: n, ncols: n, values, row_ptr, col_idx, diag: Some(diag) }
+}
+
+/// `out[order[i]] = v[i]`.
+pub fn to_order<T: Clone>(v: &[T], order: &[u32]) -> Vec<T> {
+    let mut out = v.to_vec();
+    for (i, x) in v.iter().enumerate() {
+        out[order[i] as usize] = x.clone();
+    }
+    out
+}
+
+/// `out[i] = v[order[i]]`, the inverse of [`to_order`].
+pub fn from_order<T: Clone>(v: &[T], order: &[u32]) -> Vec<T> {
+    order.iter().map(|&o| v[o as usize].clone()).collect()
+}

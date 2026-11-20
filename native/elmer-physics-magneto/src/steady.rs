@@ -78,7 +78,11 @@ fn check_solver(case: &Case, sp: &ParamMap) -> Result<(), MagnetoError> {
             Some(_) => return Err(MagnetoError::unsupported(format!("WhitneyAVSolver option '{k}'"))),
         }
     }
-    if sp.get("element").is_some() {
+    // `_Init0`'s own `n:1 e:1` / `n:0 e:1` (elmer-run sets it) for the
+    // layout `Static Conductivity` picks.
+    let element = sp.string("element").map(|e| e.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase());
+    let own = if static_conductivity(case, sp) { "n:1 e:1" } else { "n:0 e:1" };
+    if element.is_some_and(|e| e != own) {
         return Err(MagnetoError::unsupported("an explicit 'Element' definition"));
     }
     let sim_type = case.simulation.string("simulation type").unwrap_or("steady state");
@@ -133,6 +137,12 @@ fn jfix(case: &Case, sp: &ParamMap) -> bool {
 
 /// Steady-state `WhitneyAVSolver` for solver section `solver_id`.
 pub fn solve_steady(case: &Case, solver_id: usize) -> Result<AvSolution, MagnetoError> {
+    solve_steady_ordered(case, solver_id, None)
+}
+
+/// [`solve_steady`] solved in Elmer's slot order (see
+/// [`crate::harmonic::solve_harmonic_ordered`]); values in layout order.
+pub fn solve_steady_ordered(case: &Case, solver_id: usize, order: Option<&[u32]>) -> Result<AvSolution, MagnetoError> {
     let sp = case
         .solver(solver_id)
         .ok_or_else(|| MagnetoError::Input(format!("no Solver {solver_id}")))?;
@@ -262,6 +272,12 @@ pub fn solve_steady(case: &Case, solver_id: usize) -> Result<AvSolution, Magneto
         }
     }
 
+    if let Some(order) = order {
+        a = crate::layout::permute_matrix(&a, order);
+        rhs = crate::layout::to_order(&rhs, order);
+        fixed = crate::layout::to_order(&fixed, order);
+    }
+
     // ConstrainUnused: rows with a zero diagonal (e.g. the potential
     // outside conductors) become identity rows.
     let diag = a.diag.clone().expect("diagonal");
@@ -288,6 +304,9 @@ pub fn solve_steady(case: &Case, solver_id: usize) -> Result<AvSolution, Magneto
         x[r as usize] = v;
     }
     solve_linear(sp, &mut a, &mut rhs, &mut x)?;
+    if let Some(order) = order {
+        x = crate::layout::from_order(&x, order);
+    }
 
     let edge_vals = &x[n_nodal..];
     let norm = if edge_vals.is_empty() {
