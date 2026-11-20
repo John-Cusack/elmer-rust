@@ -63,7 +63,8 @@ pub fn legacy_procedure(equation: &str) -> Option<(&'static str, &'static str)> 
 /// `Post Solvers`, their `Nonlinear` forms, `Slave Solvers`): they run
 /// whatever their own `Exec Solver` says.
 fn slave_solvers(model: &Model) -> Vec<usize> {
-    const KEYS: [&str; 5] = ["pre solvers", "post solvers", "nonlinear pre solvers", "nonlinear post solvers", "slave solvers"];
+    const KEYS: [&str; 6] =
+        ["pre solvers", "post solvers", "nonlinear pre solvers", "nonlinear post solvers", "slave solvers", "assembly solvers"];
     let mut ids = Vec::new();
     for p in &model.solvers {
         for key in KEYS {

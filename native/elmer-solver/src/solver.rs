@@ -509,7 +509,10 @@ impl<'a> SolverCtx<'a> {
         if let Some(m) = sys.mass.as_mut() {
             m.values.iter_mut().for_each(|v| *v = 0.0);
         }
-        self.setup_normal_tangential()
+        self.setup_normal_tangential()?;
+        // DefUtils.F90:3973: solvers that contribute to this assembly.
+        let (mesh, log, comm) = (self.mesh, self.log, self.comm);
+        self.sim.run_slave_solvers(self.slot, "Assembly Solvers", mesh, log, comm)
     }
 
     /// DefaultInitialize (DefUtils.F90:3910-3943): a vector variable with a
