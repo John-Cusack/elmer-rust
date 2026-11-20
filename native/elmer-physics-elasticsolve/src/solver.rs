@@ -910,7 +910,7 @@ impl ElasticSolver {
         }
 
         let mut projector = post::Projector::new(ctx, &mass)?;
-        let comm = ctx.comm;
+        let (comm, log) = (ctx.comm, ctx.log);
         let mut project = |f: &[f64]| -> Result<Vec<f64>, SolverError> {
             let mut out = vec![0.0; nslots * ncomp];
             let mut b = vec![0.0; nslots];
@@ -919,7 +919,7 @@ impl ElasticSolver {
                 for s in 0..nslots {
                     b[s] = f[ncomp * s + k];
                 }
-                projector.solve(comm, &b, &mut x)?;
+                projector.solve(log, comm, &b, &mut x)?;
                 for s in 0..nslots {
                     out[ncomp * s + k] = x[s];
                 }

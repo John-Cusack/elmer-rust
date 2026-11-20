@@ -157,6 +157,11 @@ impl<'a> SolverCtx<'a> {
     }
 
     /// 1-based Elmer solver id.
+    /// `Solver % TimesVisited` (this visit counted).
+    pub fn times_visited(&self) -> usize {
+        self.sim.slots[self.slot].times_visited
+    }
+
     pub fn solver_id(&self) -> usize {
         self.sim.slots[self.slot].id
     }
@@ -1802,6 +1807,17 @@ impl<'a> SolverCtx<'a> {
             .variable
             .ok_or_else(|| SolverError::fatal("DefaultSolve", "solver has no variable"))?;
         let p = &slot.params;
+        // The preconditioner of a matrix's first solve is computed whatever
+        // `Linear System Precondition Recompute` and friends say; a later
+        // solve would reuse it, which the preconditioner factory refuses.
+        let first_solve;
+        let p = if slot.linear_solves == 0 && crate::linsys::precond_reuse(p) {
+            first_solve = crate::linsys::without_precond_reuse(p);
+            &first_solve
+        } else {
+            p
+        };
+        slot.linear_solves += 1;
         for k in [
             "nonlinear system acceleration",
             "nonlinear system compute change in scaled system",
@@ -2377,6 +2393,33 @@ pub(crate) fn eliminate_dirichlet(
         x[i] = if new[i] == usize::MAX { b[i] / a.values[diag[i]] } else { u[new[i]] };
     }
     Ok(converged)
+}
+
+/// `DefaultSolve` of a one-dof matrix a solver keeps besides its own
+/// (`NodalProjectorSolve`'s `PSolver`, Stress.F90): from `x = 0`,
+/// SolveSystem's zero right-hand side test, the scaling and the linear solve
+/// of the section `p`. Returns whether the linear solver converged.
+#[allow(clippy::too_many_arguments)]
+pub fn solve_other_matrix(
+    linear: &crate::LinearSolverRegistry,
+    simulation: &ParamMap,
+    p: &ParamMap,
+    matrix: &mut elmer_core::CsrMatrix<f64>,
+    b: &mut [f64],
+    x: &mut [f64],
+    log: &dyn Logger,
+    comm: &dyn Communicator,
+) -> Result<bool, SolverError> {
+    x.iter_mut().for_each(|v| *v = 0.0);
+    let mut bb = [b.iter().fold(0.0, |s, b| s + b * b)];
+    comm.sum_f64(&mut bb);
+    let bnorm = bb[0].sqrt();
+    if bnorm <= f64::MIN_POSITIVE && p.logical("skip zero rhs test") != Some(true) {
+        log.info("SolveLinearSystem", "Solution trivially zero!", 5);
+        return Ok(true);
+    }
+    let env = BlockEnv { dofs: 1, ndeg: 1, simulation, schur: None, multigrid: None, alias: None };
+    solve_linear(linear, &env, p, matrix, b, x, bnorm, false, log, comm)
 }
 
 #[allow(clippy::too_many_arguments)]

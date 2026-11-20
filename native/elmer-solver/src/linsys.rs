@@ -209,16 +209,32 @@ fn direct(p: &ParamMap) -> Result<Box<dyn DirectSolver<f64> + Send>, SolverError
     })
 }
 
+/// `No Precondition Recompute`, `Linear System Precondition Recompute > 1`
+/// or `Linear System Refactorize = False`: the preconditioner (or the
+/// factorization) of a matrix is kept for its later solves.
+pub fn precond_reuse(p: &ParamMap) -> bool {
+    p.logical("no precondition recompute") == Some(true)
+        || p.integer("linear system precondition recompute").is_some_and(|n| n > 1)
+        || p.logical("linear system refactorize") == Some(false)
+}
+
+/// `p` without the [`precond_reuse`] keywords: for the first solve of a
+/// matrix, whose preconditioner is computed whatever they say.
+pub fn without_precond_reuse(p: &ParamMap) -> ParamMap {
+    let mut q = p.clone();
+    for k in ["no precondition recompute", "linear system precondition recompute", "linear system refactorize"] {
+        q.0.remove(k);
+    }
+    q
+}
+
 /// IterSolve.F90:1050-1100 for the CRS preconditioners: `diagonal`,
 /// `ilut` (`Linear System ILUT Tolerance`), `ilu[n]` (`Linear System ILU
 /// Order` first, else the digit in the name, out of 0..9 -> 0), and incomplete
 /// Cholesky with `Linear System Symmetric ILU`. Recomputed every solve, as
 /// Elmer's default; reuse options and `Linear System ILU Factor` are refused.
 fn precond(p: &ParamMap, a: &CsrMatrix<f64>) -> Result<Box<dyn Preconditioner<f64> + Send>, SolverError> {
-    if p.logical("no precondition recompute") == Some(true)
-        || p.integer("linear system precondition recompute").is_some_and(|n| n > 1)
-        || p.logical("linear system refactorize") == Some(false)
-    {
+    if precond_reuse(p) {
         return Err(SolverError::Unsupported("preconditioner reuse across solves".into()));
     }
     if p.real("linear system ilu factor").is_some_and(|f| f > f64::EPSILON) {

@@ -346,7 +346,7 @@ pub type PrecondFactory =
 /// `Linear System Iterative Method` (`bicgstab`, `cg`, `gmres`, ...),
 /// `Linear System Direct Method` (`umfpack`, `mumps`, `banded`, ...) and
 /// `Linear System Preconditioning` (`ilu0`, `diagonal`, `none`, ...).
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct LinearSolverRegistry {
     iterative: BTreeMap<String, IterativeFactory>,
     iterative_matrix: BTreeMap<String, IterativeMatrixFactory>,

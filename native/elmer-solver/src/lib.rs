@@ -84,5 +84,5 @@ pub use norm::{compute_norm, NormSpec};
 pub use reference::{compare_to_reference, finalize_reference, ReferenceTally};
 pub use time::ElmerTime;
 pub use sim::{ExecWhen, LinearSystem, RunReport, SaveCurrent, Simulation, SolverSlot};
-pub use solver::{AssemblyFactory, ElementAssembly, Solver, SolverCtx, SolverFactory, SolverRegistry};
+pub use solver::{solve_other_matrix, AssemblyFactory, ElementAssembly, Solver, SolverCtx, SolverFactory, SolverRegistry};
 pub use variable::{FieldMut, Strided, StridedMut, VarHandle, VarId, Variable, VariableStore};
