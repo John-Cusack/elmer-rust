@@ -35,6 +35,7 @@ pub mod calcfields2d;
 pub mod case;
 pub mod error;
 pub mod harmonic;
+pub mod helmholtz_bem;
 pub mod layout;
 pub mod local;
 pub mod material;
@@ -45,6 +46,7 @@ pub mod solver;
 pub mod statmag;
 pub mod steady;
 pub mod topology;
+pub mod zlapack;
 pub mod vhnodal;
 
 pub use calcfields::{calc_fields, CalcFieldsResult, Potential};
