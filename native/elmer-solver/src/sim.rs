@@ -175,6 +175,8 @@ pub struct SolverSlot {
     pub(crate) cmodes: Option<crate::constraint_modes::Modes>,
     /// The child solvers' systems (`CreateChildSolver`).
     pub(crate) children: Vec<crate::child::ChildSystem>,
+    /// `Solver % NormalTangential`, set up by `DefaultInitialize`.
+    pub(crate) nt: Option<crate::nt::NtSystem>,
     /// `ASSOCIATED(Solver % BlockMatrix)`: a block solve of this solver ran
     /// ([`crate::block_alias`]).
     pub(crate) block_matrix: bool,
@@ -222,6 +224,7 @@ impl SolverSlot {
             mg_meshes: None,
             cmodes: None,
             children: Vec::new(),
+            nt: None,
             block_matrix: false,
             conforming_flip: false,
         })
@@ -800,8 +803,9 @@ impl Simulation {
     /// the initial condition there; for a transient second-order solver
     /// `<name> Velocity` and `<name> Acceleration` seed its `PrevValues`
     /// columns 1 and 2 (and 6). Elements go in mesh order, variables in
-    /// list order, so a later element wins at a shared node. Normal-tangential
-    /// conditions are refused; global variables are skipped.
+    /// list order, so a later element wins at a shared node. A component of a
+    /// vector on a normal-tangential boundary sets the vector's normal
+    /// (tangential) projection; global variables are skipped.
     pub fn initialize_dirichlet(&mut self, mesh: &dyn MeshView) -> Result<(), SolverError> {
         if self.model.simulation.logical("initialize dirichlet conditions") == Some(false) {
             return Ok(());
@@ -844,15 +848,53 @@ impl Simulation {
                     }
                     continue;
                 }
-                if el.etype.family() != 1 && comp.is_some() {
-                    let base = name.rsplit_once(' ').map_or(name.as_str(), |(b, _)| b);
-                    if bc.logical(&format!("normal-tangential {base}")) == Some(true) {
-                        return Err(SolverError::Unsupported(format!(
-                            "Initialize Dirichlet Conditions with Normal-Tangential {base}"
-                        )));
+                // ElmerSolver.F90:1899-1993: component `vect_dof` of a vector
+                // field on a normal-tangential boundary sets the projection of
+                // the nodal vector on the element's normal (tangent) instead.
+                let nt_dir = match (el.etype.family() != 1, comp, name.rsplit_once(' ')) {
+                    (true, Some(c), Some((base, digit))) => {
+                        let vect_dof: usize = digit.parse().unwrap_or(0);
+                        let dim = mesh.dim();
+                        if (1..=3).contains(&vect_dof)
+                            && bc.logical(&format!("normal-tangential {base}")) == Some(true)
+                            && dofs >= dim
+                            && c + 1 >= vect_dof
+                        {
+                            let nrm = crate::nt::boundary_normal(mesh, &self.model, e, [0.0, 0.0])?;
+                            let vec = match (vect_dof, el.etype.family()) {
+                                (1, _) => nrm,
+                                (2, 2) => [nrm[1], -nrm[0], 0.0],
+                                (k, _) => {
+                                    let (t1, t2) = crate::nt::tangent_directions(nrm);
+                                    if k == 2 { t1 } else { t2 }
+                                }
+                            };
+                            Some((vec, c + 1 - vect_dof, dim))
+                        } else {
+                            None
+                        }
                     }
-                }
+                    _ => None,
+                };
                 let xs = crate::expr::eval_at_nodes_with(val, el.nodes, &fields, b.matc.as_deref(), &b.udfs)?;
+                if let Some((vec, first, dim)) = nt_dir {
+                    let v = self.vars.by_id_mut(id);
+                    for (j, &n) in el.nodes.iter().enumerate() {
+                        let Some(s) = v.slot(n) else { continue };
+                        let mut tmp = [0.0; 3];
+                        for (l, t) in tmp.iter_mut().enumerate().take(dim) {
+                            *t = v.values[dofs * s + l + first];
+                        }
+                        let udot = (0..dim).fold(0.0, |acc, l| acc + vec[l] * tmp[l]);
+                        for l in 0..dim {
+                            tmp[l] += (xs[j] - udot) * vec[l];
+                        }
+                        for (l, t) in tmp.iter().enumerate().take(dim) {
+                            v.values[dofs * s + l + first] = *t;
+                        }
+                    }
+                    continue;
+                }
                 let second = transient
                     && self
                         .slots

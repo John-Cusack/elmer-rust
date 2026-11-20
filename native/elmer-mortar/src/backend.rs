@@ -179,6 +179,17 @@ impl AssemblyBackend for PeriodicAssembly {
         fixed: &[(u32, f64)],
         params: &ParamMap,
     ) -> Result<(), SolverError> {
+        self.try_apply_dirichlet_rows(a, rhs, &[], fixed, params)
+    }
+
+    fn try_apply_dirichlet_rows(
+        &self,
+        a: &mut CsrMatrix<f64>,
+        rhs: &mut [f64],
+        rows: &[elmer_solver::backend::DirectRow],
+        fixed: &[(u32, f64)],
+        params: &ParamMap,
+    ) -> Result<(), SolverError> {
         if let Some(var) = params.string("variable") {
             let spec = parse_variable_spec(var, params.integer("variable dofs"))?;
             let names = if spec.components.is_empty() {
@@ -225,6 +236,24 @@ impl AssemblyBackend for PeriodicAssembly {
                 }
             }
         }
+        elmer_solver::backend::set_direct_rows(a, rhs, rows)?;
         self.inner.try_apply_dirichlet(a, rhs, fixed, params)
+    }
+
+    fn nodal_periodic_projectors(&self) -> Vec<elmer_solver::backend::NodalProjectorView> {
+        self.projectors
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| {
+                let p = p.as_ref().filter(|p| !p.galerkin)?;
+                Some(elmer_solver::backend::NodalProjectorView {
+                    bc: i + 1,
+                    inv_perm: p.inv_perm.clone(),
+                    rows: p.rows.clone(),
+                    cols: p.cols.clone(),
+                    values: p.values.clone(),
+                })
+            })
+            .collect()
     }
 }

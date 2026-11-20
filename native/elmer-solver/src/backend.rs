@@ -110,6 +110,47 @@ pub trait DofsBackend: Send + Sync {
     }
 }
 
+/// A matrix row set as a whole: `ZeroRow(A, row)`, then each `(col,
+/// value)`, and the right-hand side `rhs`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DirectRow {
+    pub row: u32,
+    pub entries: Vec<(u32, f64)>,
+    pub rhs: f64,
+}
+
+/// One nodal periodic projector: rows on the boundary of BC `bc`
+/// (1-based), `inv_perm[i]` the mesh node of row `i`, `cols` mesh nodes
+/// (0-based, [`elmer_core::NO_DOF`] for none) in CSR `rows`.
+#[derive(Clone, Debug, Default)]
+pub struct NodalProjectorView {
+    pub bc: usize,
+    pub inv_perm: Vec<u32>,
+    pub rows: Vec<usize>,
+    pub cols: Vec<u32>,
+    pub values: Vec<f64>,
+}
+
+/// Sets each [`DirectRow`] (`ZeroRow` + `SetMatrixElement`); a column off
+/// the row's pattern is an error.
+pub fn set_direct_rows(a: &mut CsrMatrix<f64>, rhs: &mut [f64], rows: &[DirectRow]) -> Result<(), SolverError> {
+    for r in rows {
+        let row = r.row as usize;
+        let span = a.row_ptr[row]..a.row_ptr[row + 1];
+        a.values[span.clone()].iter_mut().for_each(|v| *v = 0.0);
+        for &(col, v) in &r.entries {
+            let at = span
+                .clone()
+                .find(|&k| a.col_idx[k] == col)
+                .ok_or_else(|| SolverError::fatal("SetMatrixElement", format!("no entry ({row}, {col}) in the matrix")))?;
+            a.values[at] = v;
+        }
+        rhs[row] = 0.0;
+        rhs[row] += r.rhs;
+    }
+    Ok(())
+}
+
 /// Matrix structure and assembly (Elmer `CreateMatrix`, `DefaultUpdate*`,
 /// `DefaultDirichletBCs`). [`crate::assembly::ElmerAssembly`] implements it
 /// with `elmer-assembly` and is installed by default.
@@ -163,6 +204,30 @@ pub trait AssemblyBackend: Send + Sync {
     /// Fixes each `(row, value)` with Elmer's Dirichlet semantics, read from
     /// the solver section (`Linear System Symmetric`, Dirichlet scaling).
     fn apply_dirichlet(&self, a: &mut CsrMatrix<f64>, rhs: &mut [f64], fixed: &[(u32, f64)], params: &ParamMap);
+
+    /// [`try_apply_dirichlet`](Self::try_apply_dirichlet) with whole rows
+    /// set first (`rows`: the normal-tangential rows `SetElementValues`
+    /// writes directly, BoundaryConditionUtils.F90:1782-1802), after any
+    /// pass of the backend's own (the periodic dependencies) and before the
+    /// Dirichlet values.
+    fn try_apply_dirichlet_rows(
+        &self,
+        a: &mut CsrMatrix<f64>,
+        rhs: &mut [f64],
+        rows: &[DirectRow],
+        fixed: &[(u32, f64)],
+        params: &ParamMap,
+    ) -> Result<(), SolverError> {
+        set_direct_rows(a, rhs, rows)?;
+        self.try_apply_dirichlet(a, rhs, fixed, params)
+    }
+
+    /// The nodal periodic projectors (`Model % BCs(i) % PMatrix` of
+    /// `PROJECTOR_TYPE_NODAL`) the backend applies, for the normal averaging
+    /// of normal-tangential systems. None by default.
+    fn nodal_periodic_projectors(&self) -> Vec<NodalProjectorView> {
+        Vec::new()
+    }
 
     /// Fallible [`apply_dirichlet`](Self::apply_dirichlet).
     fn try_apply_dirichlet(

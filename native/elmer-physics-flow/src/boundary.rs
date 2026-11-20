@@ -31,6 +31,10 @@ pub struct FlowBoundaryInput<'a> {
     /// normal outward (`CheckNormalDirection`).
     pub parent_center: Option<[f64; 3]>,
     pub np: Option<usize>,
+    /// `Normal-Tangential Velocity`: the forces and slip coefficients are
+    /// given in normal-tangential components (the normal force adds to the
+    /// first), assembled through the element normal and tangents.
+    pub normal_tangential: bool,
 }
 
 /// The mean of the element nodes: the reference-element centre of a linear
@@ -92,6 +96,22 @@ pub fn outward_normal(
     Ok(if d > 0.0 { nrm.map(|x| -x) } else { nrm })
 }
 
+/// `TangentDirections(Normal, Tangent1, Tangent2)`.
+fn tangent_directions(n: [f64; 3]) -> ([f64; 3], [f64; 3]) {
+    let (n1, n2, n3) = (n[0].abs(), n[1].abs(), n[2].abs());
+    let mut t1 = if n1 <= n3 && n2 <= n3 { [0.0, -n[2], n[1]] } else { [-n[1], n[0], 0.0] };
+    let s = (t1[0] * t1[0] + t1[1] * t1[1] + t1[2] * t1[2]).sqrt();
+    t1 = t1.map(|x| x / s);
+    let mut t2 = [
+        n[1] * t1[2] - n[2] * t1[1],
+        n[2] * t1[0] - n[0] * t1[2],
+        n[0] * t1[1] - n[1] * t1[0],
+    ];
+    let s = (t2[0] * t2[0] + t2[1] * t2[1] + t2[2] * t2[2]).sqrt();
+    t2 = t2.map(|x| x / s);
+    (t1, t2)
+}
+
 /// The local boundary matrix and force vector of one boundary element.
 /// `out` is resized to `n * (dim + 1)`; there is no mass matrix.
 pub fn flow_boundary_local(
@@ -119,7 +139,8 @@ pub fn flow_boundary_local(
 
     let has_normal_force = inp.ext_pressure.iter().any(|&p| p != 0.0);
     let has_slip = inp.slip.iter().any(|s| s.iter().any(|&x| x != 0.0));
-    let parent_center = match (has_normal_force, inp.parent_center) {
+    let nt = inp.normal_tangential;
+    let parent_center = match (has_normal_force || nt, inp.parent_center) {
         (true, None) => {
             return Err(FlowError::Unsupported(
                 "a normal force on a boundary element with no parent (normal orientation)".into(),
@@ -144,16 +165,43 @@ pub fn flow_boundary_local(
         for (i, f) in force.iter_mut().enumerate().take(dim) {
             *f = (0..n).map(|k| inp.traction[k][i] * phi[k]).sum();
         }
-        if let Some(pc) = parent_center.filter(|_| has_normal_force) {
+        // NavierStokesBoundary: the normal, and in n-t form the tangents.
+        let mut vects = [[0.0; 3]; 3];
+        if let Some(pc) = parent_center.filter(|_| has_normal_force || nt) {
             let normal = outward_normal(inp.etype, inp.xyz, qp.uvw, pc)?;
             let alpha: f64 = (0..n).map(|k| inp.ext_pressure[k] * phi[k]).sum();
-            for i in 0..dim {
-                force[i] += alpha * normal[i];
+            if nt {
+                force[0] += alpha;
+            } else {
+                for i in 0..dim {
+                    force[i] += alpha * normal[i];
+                }
+            }
+            vects[0] = normal;
+            if inp.etype.family() == 2 {
+                vects[1] = [normal[1], -normal[0], 0.0];
+            } else {
+                let (t1, t2) = tangent_directions(normal);
+                vects[1] = t1;
+                vects[2] = t2;
             }
         }
         let mass_flux: f64 = (0..n).map(|k| inp.mass_flux[k] * phi[k]).sum();
 
-        if has_slip {
+        if has_slip && nt {
+            for p in 0..n {
+                for q in 0..n {
+                    for (i, vect) in vects.iter().enumerate().take(dim) {
+                        let slip: f64 = (0..n).map(|k| inp.slip[k][i] * phi[k]).sum();
+                        for j in 0..dim {
+                            for k in 0..dim {
+                                out.stiff[(p * c + j) * nd + q * c + k] += s * slip * phi[q] * phi[p] * vect[j] * vect[k];
+                            }
+                        }
+                    }
+                }
+            }
+        } else if has_slip {
             for i in 0..dim {
                 let slip: f64 = (0..n).map(|k| inp.slip[k][i] * phi[k]).sum();
                 for p in 0..n {
@@ -165,7 +213,13 @@ pub fn flow_boundary_local(
         }
         for q in 0..n {
             for (i, f) in force.iter().enumerate().take(dim) {
-                out.force[q * c + i] += s * phi[q] * f;
+                if nt {
+                    for j in 0..dim {
+                        out.force[q * c + j] += s * phi[q] * f * vects[i][j];
+                    }
+                } else {
+                    out.force[q * c + i] += s * phi[q] * f;
+                }
             }
             out.force[q * c + dim] += s * mass_flux * phi[q];
         }

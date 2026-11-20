@@ -63,6 +63,7 @@ pub fn incompressible_boundary_local(
         slip: inp.slip,
         parent_center: inp.parent_center,
         np: inp.np,
+        normal_tangential: false,
     };
     flow_boundary_local(basis, quad, &f, out).map_err(convert)
 }

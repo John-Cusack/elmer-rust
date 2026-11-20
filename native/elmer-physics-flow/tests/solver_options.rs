@@ -40,10 +40,6 @@ fn refuses_unported_options() {
     gas.insert("Compressibility Model", st("Perfect Gas"));
     assert_unsupported(stokes(std::slice::from_ref(&it), gas, vec![]), "compressibility");
     assert_unsupported(
-        stokes(std::slice::from_ref(&it), water(), vec![("Normal-Tangential Velocity", logical(true))]),
-        "normal-tangential",
-    );
-    assert_unsupported(
         stokes(std::slice::from_ref(&it), water(), vec![("Surface Tension Coefficient", real(1.0))]),
         "surface tension",
     );
