@@ -116,17 +116,13 @@ impl EigenConfig {
     }
 
     /// Read a solver section. `symmetric` is the matrix flag the caller
-    /// assembled with. The damped (`Eigen System Damped`) and stability
-    /// (`Stability Analysis`) branches of `ArpackEigenSolve` are refused.
+    /// assembled with. The damped branch of `ArpackEigenSolve` (`Eigen
+    /// System Damped`) is refused; `Stability Analysis` is the caller's
+    /// (elmer-solver's `ArpackStabEigenSolve`).
     pub fn from_params(p: &dyn Params, symmetric: bool) -> Result<Self, LinalgError> {
         if p.logical("eigen system damped") == Some(true) {
             return Err(LinalgError::Unsupported(
                 "Eigen System Damped (ArpackDampedEigenSolve)".into(),
-            ));
-        }
-        if p.logical("stability analysis") == Some(true) {
-            return Err(LinalgError::Unsupported(
-                "Stability Analysis (ArpackStabEigenSolve)".into(),
             ));
         }
         let nev = match p.integer("eigen system values") {
@@ -248,14 +244,13 @@ mod tests {
             EigenConfig::from_params(&damped, true),
             Err(LinalgError::Unsupported(_))
         ));
+        // Stability analysis is read as any other eigen system; the caller
+        // runs ArpackStabEigenSolve.
         let stab = map(&[
             ("Eigen System Values", Value::Integer(vec![2])),
             ("Stability Analysis", Value::Logical(true)),
         ]);
-        assert!(matches!(
-            EigenConfig::from_params(&stab, true),
-            Err(LinalgError::Unsupported(_))
-        ));
+        assert!(EigenConfig::from_params(&stab, true).is_ok());
         assert!(EigenConfig::from_params(&ParamMap::default(), true).is_err());
     }
 

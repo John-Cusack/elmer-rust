@@ -114,7 +114,6 @@ fn reorder(values: Vec<f64>, mesh_nodes: &[u32], nodes: &[u32]) -> Vec<f64> {
 fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
     for (key, what) in [
         ("large deflection", "large deflection"),
-        ("stability analysis", "stability analysis"),
         ("calculate pangle", "principal angle postprocessing"),
         ("update reference displacement", "staged construction"),
         ("legacy assembly", "legacy assembly"),
@@ -821,7 +820,17 @@ impl Solver for StressSolver {
         // delegates to): two passes, a static solve with the eigen analysis
         // switched off, then the eigen analysis with the geometric stiffness
         // of the first pass's displacement added to the stiffness.
-        let geometric = flag(Some(ctx.params()), "geometric stiffness");
+        let stability = flag(Some(ctx.params()), "stability analysis");
+        let geometric_stiffness = flag(Some(ctx.params()), "geometric stiffness");
+        if stability && geometric_stiffness {
+            return Err(SolverError::fatal(
+                CALLER,
+                "\"Stability Analysis\" and \"Geometric Stiffness\" are the same term in different matrices and cannot both be active",
+            ));
+        }
+        // "Stability Analysis": the same two passes, the term (negated) in the
+        // mass slot instead of the density mass.
+        let geometric = geometric_stiffness || stability;
         if geometric {
             if axi {
                 return Err(SolverError::fatal(
@@ -906,10 +915,10 @@ impl Solver for StressSolver {
                     gpa: d.gpa.as_deref(),
                     temperature: d.temperature.as_deref(),
                     heat_expansion: d.heat_expansion.as_deref(),
-                    want_mass: transient || eigen,
+                    want_mass: transient || (eigen && !stability),
                     np: None,
                     ip: d.ip.as_ref(),
-                    geometric: nodal_u.as_deref().map(|u| crate::bulk::Geometric { displacement: u, stability: false }),
+                    geometric: nodal_u.as_deref().map(|u| crate::bulk::Geometric { displacement: u, stability }),
                     incompressible: flag(Some(ctx.params()), "incompressible"),
                 };
                 let mut local = LocalSystem::zeros(0);
