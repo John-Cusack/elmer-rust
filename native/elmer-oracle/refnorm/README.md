@@ -61,6 +61,19 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
   view-factor nodes added at load), and a Perm beyond the mesh nodes
   (edge, p or DG unknowns), because the partition files give the owners
   of mesh nodes only.
+- **Several meshes.** When the variable is in several result files, the
+  grader picks the solver's own:
+  - the directory of its solver-level `Mesh` (multimesh,
+    OtherMeshResults);
+  - after adaptive refinement, the last refined mesh, `RefinedMesh<N>`
+    with the highest N;
+  - for a CutFEM solver, its cut mesh `<mesh>-cutfem` (CutFEMPoisson1:
+    Elmer's 0.374375920 is the norm there, 0.234 on the background mesh);
+  - otherwise the `Mesh DB` mesh.
+
+  The rerun creates each `RefinedMesh<N>/` it needs, as `capture` does.
+  A CutFEM solver whose cut mesh is not saved (the library CutFEM of
+  `ModelPDE`) stays out of class.
 - **Replayed tests (custom `runtest.cmake`).** These run through
   `cmake -P` with the arm's recorded registration, as `capture` does, with
   the overrides in the startinfo sif. A script that runs further sifs
@@ -81,11 +94,11 @@ and single-`RUN`, and the grader can rebuild the solver's `Values`:
 
 | Verdict | Tests |
 |---|---:|
-| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **367** (474 solver checks) |
+| **bitwise:** Elmer accepts the grader's norm at tolerance 0 | **380** (487 solver checks) |
 | grader gap: the solver sets its own norm (FluxSolver, VectorHelmholtzNodal, WhitneyAVSolver) | 7 |
 | grader gap: DG field (PoissonDG) | 1 |
 | unexplained mismatch (PhaseChange3, solver 3 `PhaseSurface`) | 1 |
-| out of the validated class | 106 |
+| out of the validated class | 93 |
 
 Before this widening the class held 223 tests (238 solvers). All 223 are
 still bitwise, each with at least as many solvers as before.
@@ -117,7 +130,6 @@ Each test is listed under the first reason in its row.
 | Reason | Tests |
 |---|---:|
 | `Show Norm` / `Show Norm Index` (a SaveScalars value is the norm) | 28 |
-| variable in several result files (several meshes, adaptive refinement) | 15 |
 | no `Variable`: several saved variables of its equation | 10 |
 | no `Variable`: no saved variable of its equation | 10 |
 | variable not in any result file (global, or not output) | 9 |
@@ -126,12 +138,13 @@ Each test is listed under the first reason in its row.
 | MPI: local mesh changed after load (extruded, refined, view factors) | 6 |
 | no `Variable`: coupled solver | 5 |
 | several `RUN` blocks with `Output Intervals = 0` | 3 |
+| CutFEM: the cut-mesh solution is not saved (library CutFEM) | 2 |
 | other (`-nooutput`, several solver runs, a multi-RUN sif with no field solver, an MPI variable in two per-rank result sets) | 4 |
 | non-nodal unknowns | 1 |
 
 So item 4 is **not** done for every captured test. The validated class
-covers 367 of the 482 quick tests. Widening it further means the
-SaveScalars-style norms, per-mesh result files, and parallel ownership of
+covers 380 of the 482 quick tests. Widening it further means the
+SaveScalars-style norms, and parallel ownership of
 non-nodal unknowns and of meshes Elmer changes after loading.
 
 ## Reproduce
