@@ -25,6 +25,9 @@ pub struct VtuOutput {
     pub index: usize,
     opts: VtuOptions,
     dir: PathBuf,
+    /// `Reference Values` (first column): the visit's norm is then
+    /// `AscBinCompareNorm` of the written piece against them.
+    reference: Option<[f64; 6]>,
 }
 
 pub fn is_result_output(params: &ParamMap) -> bool {
@@ -80,10 +83,21 @@ pub fn prepare_vtu_output(
         }
         // ResultOutputSolver.F90:349: the solver's norm becomes
         // `AscBinCompareNorm(Reference Values)`, a pseudonorm of the written
-        // data that `elmer-vtu` does not accumulate.
-        if params.get("reference values").is_some() {
-            opts.unsupported.push("Reference Values (AscBinCompareNorm pseudonorm of the written file)".into());
-        }
+        // data ([`asc_bin_sums`]), reproduced for one binary serial piece.
+        let reference = match params.get("reference values") {
+            None => None,
+            Some(v) => match reference_values(v) {
+                Some(r) if !opts.ascii && !parallel => Some(r),
+                Some(_) => {
+                    opts.unsupported.push("Reference Values with ASCII or parallel output".into());
+                    None
+                }
+                None => {
+                    opts.unsupported.push("Reference Values with fewer than 6 values".into());
+                    None
+                }
+            },
+        };
         if !opts.unsupported.is_empty() {
             return Err(SolverError::Unsupported(format!("Solver {id}: VTU output: {}", opts.unsupported.join(", "))));
         }
@@ -100,7 +114,7 @@ pub fn prepare_vtu_output(
             Some(d) => case_dir.join(d),
             None => mesh_dir.to_path_buf(),
         };
-        outputs.push(VtuOutput { index, opts, dir });
+        outputs.push(VtuOutput { index, opts, dir, reference });
     }
     Ok(outputs)
 }
@@ -247,10 +261,135 @@ impl Solver for VtuSolver {
         let name = naming.file_name(&opts.output_file_name, ".vtu", index, part, false);
         let path = self.out.dir.join(name);
         let mapped = MappedTags { mesh: ctx.mesh, model: &ctx.sim.model };
-        elmer_vtu::write_vtu(&path, &mapped, &variables, opts)?;
-        self.written.lock().unwrap().push(path);
+        let Some(reference) = self.out.reference else {
+            elmer_vtu::write_vtu(&path, &mapped, &variables, opts)?;
+            self.written.lock().unwrap().push(path);
+            return Ok(());
+        };
+        // `AscBinInitNorm` at each visit, then the sums of what this visit
+        // writes (no file when nothing is selected: all sums zero).
+        let mut sums = [0.0; 6];
+        if let Some(bytes) = elmer_vtu::render_vtu(&mapped, &variables, opts, None)? {
+            std::fs::write(&path, &bytes)?;
+            self.written.lock().unwrap().push(path);
+            let params = &ctx.sim.model.solvers[self.out.index];
+            let buffer = match params.integer("binary output buffer size") {
+                Some(b) if b > 0 => b as usize,
+                _ => ctx.mesh.n_nodes().max(1000),
+            };
+            sums = asc_bin_sums(&bytes, buffer)
+                .ok_or_else(|| SolverError::fatal("ResultOutputSolver", "written VTU piece is not binary appended"))?;
+        }
+        // `Solver % Variable % Norm = Nrm`: the Post File hack's
+        // `vtu_internal_dummy`, or the null variable of a section without one.
+        let nrm = asc_bin_compare_norm(&reference, &sums);
+        let id = ctx.solver_id();
+        if let Some(slot) = ctx.sim.slots.iter_mut().find(|s| s.id == id) {
+            match slot.variable {
+                Some(v) => ctx.sim.vars.by_id_mut(v).conv.norm = nrm,
+                None => slot.null_norm = nrm,
+            }
+        }
+        ctx.info("ResultOutputSolver", &format!("Calculate Pseudonorm:{}", elmer_solver::fortran_fmt::es(nrm, 15, 6)), 4);
         Ok(())
     }
+}
+
+/// The first column of `Reference Values` (`RefResults(:,1)`); `None` with
+/// fewer than the six entries `AscBinCompareNorm` reads.
+fn reference_values(v: &elmer_core::Value) -> Option<[f64; 6]> {
+    let col: Vec<f64> = match v {
+        elmer_core::Value::Real { cols, data, .. } => data.iter().step_by((*cols).max(1)).copied().collect(),
+        elmer_core::Value::Integer(v) => v.iter().map(|&i| f64::from(i)).collect(),
+        _ => return None,
+    };
+    col.get(..6)?.try_into().ok()
+}
+
+/// The `AscBinOutputUtils` checksums (GeneralUtils.F90:2810-3051) of one
+/// binary VTU piece written by `elmer-vtu`, whose bytes are Fortran's:
+/// `[scount, icount, rcount, ssum, isum, rsum]`. `buffer` is `BufferSize`
+/// (`Binary Output Buffer Size`, else `MAX(1000, Mesh % NumberOfNodes)`).
+///
+/// * Strings: one `AscBinStrWrite` per XML line, except a `DataArray` tag,
+///   which is two calls, three when it has both a `Name` and
+///   `NumberOfComponents`; then `</AppendedData>`, `</VTKFile>` and the
+///   empty `' '`. `ssum` is their length, every XML byte but the `_`.
+/// * Data arrays go through a buffer of `buffer` values flushed when full
+///   and at the end of each array: every integer flush adds one to `icount`
+///   and its sum to `isum`; every real flush adds its count to `rcount` and
+///   *sets* `rsum` to its sum (`Rsum = SUM(...)`), so `rsum` is the sum of
+///   the last real flush.
+///
+/// `None` when `bytes` is not a binary appended piece.
+pub fn asc_bin_sums(bytes: &[u8], buffer: usize) -> Option<[f64; 6]> {
+    const HEAD: &[u8] = b"<AppendedData encoding=\"raw\">\n";
+    let head = bytes.windows(HEAD.len()).position(|w| w == HEAD)?;
+    let xml = std::str::from_utf8(&bytes[..head + HEAD.len()]).ok()?;
+    let data = bytes.get(head + HEAD.len() + 1..)?;
+    let attr = |tag: &str, key: &str| -> Option<String> {
+        let at = tag.find(&format!(" {key}=\""))? + key.len() + 3;
+        Some(tag[at..].split('"').next()?.to_string())
+    };
+    let buffer = buffer.max(1);
+    let (mut scount, mut icount, mut rcount) = (0usize, 0usize, 0usize);
+    let (mut isum, mut rsum) = (0i64, 0.0f64);
+    for line in xml.split_inclusive('\n') {
+        if !line.trim_start().starts_with("<DataArray") {
+            scount += 1;
+            continue;
+        }
+        scount += if line.contains(" Name=\"") && line.contains(" NumberOfComponents=\"") { 3 } else { 2 };
+        let offset: usize = attr(line, "offset")?.parse().ok()?;
+        let len = u32::from_le_bytes(data.get(offset..offset + 4)?.try_into().ok()?) as usize;
+        let raw = data.get(offset + 4..offset + 4 + len)?;
+        match attr(line, "type")?.as_str() {
+            "Int32" => {
+                for chunk in raw.chunks(4 * buffer) {
+                    icount += 1;
+                    isum += chunk.chunks_exact(4).map(|b| i64::from(i32::from_le_bytes(b.try_into().unwrap()))).sum::<i64>();
+                }
+            }
+            "Float64" => {
+                for chunk in raw.chunks(8 * buffer) {
+                    rcount += chunk.len() / 8;
+                    rsum = chunk.chunks_exact(8).fold(0.0, |s, b| s + f64::from_le_bytes(b.try_into().unwrap()));
+                }
+            }
+            "Float32" => {
+                for chunk in raw.chunks(4 * buffer) {
+                    rcount += chunk.len() / 4;
+                    rsum = f64::from(chunk.chunks_exact(4).fold(0.0f32, |s, b| s + f32::from_le_bytes(b.try_into().unwrap())));
+                }
+            }
+            _ => return None,
+        }
+    }
+    const TAIL: &str = "\n</AppendedData>\n</VTKFile>\n";
+    scount += 3;
+    let ssum = xml.len() + TAIL.len();
+    Some([scount as f64, icount as f64, rcount as f64, ssum as f64, isum as f64, rsum])
+}
+
+/// `AscBinCompareNorm` (GeneralUtils.F90:3053): the mean over the six
+/// checksums of `max(c, 1/c)` with `c` this over the reference (`1 + |this|`
+/// where the reference is zero); one when they agree.
+pub fn asc_bin_compare_norm(reference: &[f64; 6], this: &[f64; 6]) -> f64 {
+    let mut norm = 0.0;
+    for (&r, &t) in reference.iter().zip(this) {
+        let c = if r.abs() > f64::EPSILON {
+            let c = t / r;
+            if t.abs() > f64::EPSILON {
+                c.max(1.0 / c)
+            } else {
+                c
+            }
+        } else {
+            1.0 + t.abs()
+        };
+        norm += c;
+    }
+    norm / 6.0
 }
 
 /// [`VtuOutput::select_fields`]'s lists: `(Scalar Field n, Vector Field n)`.
@@ -408,6 +547,36 @@ mod tests {
         let fields = variables.fields();
         let potential = fields.iter().find(|f| f.name == "potential").unwrap();
         assert_eq!(potential.values, [10.0, 20.0]);
+    }
+
+    /// Buffers of 2: reals flush [1, 2] then [4] (`rsum` is the last flush,
+    /// 4), integers [1, 2] then [3] (two flushes, sum 6).
+    #[test]
+    fn asc_bin_sums_follow_the_buffered_writes() {
+        let mut xml = String::new();
+        xml.push_str("<?xml version=\"1.0\"?>\n");
+        xml.push_str("<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n");
+        xml.push_str("        <DataArray type=\"Float64\" Name=\"t\" NumberOfComponents=\"1\" format=\"appended\" offset=\"0\"/>\n");
+        xml.push_str("        <DataArray type=\"Int32\" Name=\"connectivity\" format=\"appended\" offset=\"28\"/>\n");
+        xml.push_str("<AppendedData encoding=\"raw\">\n");
+        let mut bytes = xml.clone().into_bytes();
+        bytes.push(b'_');
+        bytes.extend_from_slice(&24u32.to_le_bytes());
+        for x in [1.0f64, 2.0, 4.0] {
+            bytes.extend_from_slice(&x.to_le_bytes());
+        }
+        bytes.extend_from_slice(&12u32.to_le_bytes());
+        for i in [1i32, 2, 3] {
+            bytes.extend_from_slice(&i.to_le_bytes());
+        }
+        bytes.extend_from_slice(b"\n</AppendedData>\n</VTKFile>\n");
+        let sums = asc_bin_sums(&bytes, 2).unwrap();
+        assert_eq!(sums, [11.0, 2.0, 3.0, (xml.len() + 28) as f64, 6.0, 4.0]);
+        assert_eq!(asc_bin_compare_norm(&sums, &sums), 1.0);
+        let mut off = sums;
+        off[1] = 4.0;
+        assert_eq!(asc_bin_compare_norm(&sums, &off), (5.0 + 2.0) / 6.0);
+        assert_eq!(asc_bin_sums(b"<VTKFile/>", 2), None);
     }
 
     #[test]

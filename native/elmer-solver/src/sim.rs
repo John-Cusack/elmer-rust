@@ -126,6 +126,11 @@ pub struct SolverSlot {
     pub params: ParamMap,
     pub exec_when: ExecWhen,
     pub variable: Option<VarId>,
+    /// `Norm` of the nameless null variable `AddEquationBasics` gives a
+    /// solver without `Variable` (MainUtils.F90:1504): what
+    /// `CompareToReferenceSolution` reads for it. A procedure may set it, as
+    /// `ResultOutputSolver` does with its `Reference Values` pseudonorm.
+    pub null_norm: f64,
     /// Shared with the variable.
     pub perm: Option<Arc<[u32]>>,
     /// Bulk elements on bodies whose equation activates this solver.
@@ -174,6 +179,7 @@ impl SolverSlot {
             params,
             exec_when,
             variable: None,
+            null_norm: 0.0,
             perm: None,
             active: Vec::new(),
             time_order: 0,

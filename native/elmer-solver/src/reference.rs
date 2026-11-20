@@ -42,7 +42,8 @@ pub fn compare_to_reference(
             continue;
         }
         // A solver without `Variable` has AddEquationBasics' nameless null
-        // variable (MainUtils.F90:1504): no values, norm 0.
+        // variable (MainUtils.F90:1504): no values, norm 0 unless the
+        // procedure set it (`SolverSlot::null_norm`).
         let null = slot.variable.is_none() && p.get("variable").is_none() && !compare_solution;
         let var = match slot.variable {
             Some(id) => Some(sim.vars.by_id(id)),
@@ -61,7 +62,7 @@ pub fn compare_to_reference(
 
         if let Some(ref_norm) = ref_norm {
             let tol = p.real("reference norm tolerance").unwrap_or(1.0e-5);
-            let norm = var.map_or(0.0, |v| v.conv.norm);
+            let norm = var.map_or(slot.null_norm, |v| v.conv.norm);
             let mut absolute = p.logical("reference norm absolute").unwrap_or(false);
             let mut err = (norm - ref_norm).abs();
             if !absolute {
