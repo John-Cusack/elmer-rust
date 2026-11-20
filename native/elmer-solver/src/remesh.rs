@@ -41,6 +41,21 @@ pub struct MeshChange {
     pub name: String,
 }
 
+/// How the variables go to the new mesh. The default interpolates every
+/// nodal field (RefineMesh's `VariableGet( NewMesh % Variables, Name,
+/// .FALSE. )`).
+#[derive(Clone, Default, Debug)]
+pub struct MeshTransfer {
+    /// Fields left zero on the new mesh (`VariableGet(..., ThisOnly)`):
+    /// `PrevNorm` takes the old norm.
+    pub zero: Vec<String>,
+    /// Fields not carried (their solver makes them on the new mesh).
+    pub skip: Vec<String>,
+    /// `Adaptive Interpolate = False`: the other single-dof fields are new
+    /// zero fields (`VariableAddVector`, output on), `PrevNorm` the old norm.
+    pub no_scalar_interp: bool,
+}
+
 /// Wraps a new mesh before the run moves to it (the runner's movable
 /// coordinates, so that `Displace Mesh` and the mesh mappers move the
 /// current mesh).
@@ -102,6 +117,7 @@ pub struct AdaptiveMeshes {
     pub(crate) depth: usize,
     pub(crate) writer: Option<MeshWriterFactory>,
     pub(crate) wrapper: Option<MeshWrapper>,
+    pub(crate) transfer: MeshTransfer,
     pub(crate) loader: Option<MeshLoader>,
     /// Name of the current mesh, empty for the run's first mesh.
     pub(crate) name: String,
@@ -220,8 +236,17 @@ impl Simulation {
 
         // The new store keeps the globals; the slots rebuild their fields.
         let old_vars = std::mem::replace(&mut self.vars, VariableStore::new());
+        // A solver's own global variable (e.g. an output section's
+        // `vtu_internal_dummy`) comes back with its slot; its value is
+        // carried after the rebuild.
+        let slot_owned: Vec<String> = self
+            .slots
+            .iter()
+            .filter_map(|s| s.variable)
+            .map(|id| old_vars.by_id(id).name.clone())
+            .collect();
         for (id, v) in old_vars.iter() {
-            if v.kind == FieldKind::Global {
+            if v.kind == FieldKind::Global && !slot_owned.contains(&v.name) {
                 let comps = old_vars.component_names(id);
                 self.vars.add_with_components(v.clone(), &comps)?;
             }
@@ -248,10 +273,49 @@ impl Simulation {
             self.slots.push(s);
         }
 
+        for name in &slot_owned {
+            let Some(old) = old_vars.get(name) else { continue };
+            if old.kind != FieldKind::Global {
+                continue;
+            }
+            match self.vars.id(name) {
+                Some(nid) => {
+                    let nv = self.vars.by_id_mut(nid);
+                    if nv.values.len() == old.values.len() {
+                        nv.values.copy_from_slice(&old.values);
+                    }
+                }
+                None => {
+                    let comps = old_vars.component_names(old_vars.id(name).expect("present"));
+                    self.vars.add_with_components(old.clone(), &comps)?;
+                }
+            }
+        }
         // Every old nodal field onto the new mesh, component by component.
         let n_new = new.n_nodes();
+        let transfer = std::mem::take(&mut self.adaptive.transfer);
+        let named = |list: &[String], n: &str| list.iter().any(|x| x.eq_ignore_ascii_case(n));
         for (id, ov) in old_vars.iter() {
             if ov.kind != FieldKind::Nodal || ov.values.len() == ov.dofs {
+                continue;
+            }
+            if named(&transfer.skip, &ov.name) || ov.name.starts_with("coordinate ") {
+                continue;
+            }
+            let zero = named(&transfer.zero, &ov.name);
+            if zero || (transfer.no_scalar_interp && ov.dofs == 1) {
+                // A zero field on the new mesh, `PrevNorm` the old norm.
+                if self.vars.id(&ov.name).is_none() {
+                    let comps = old_vars.component_names(id);
+                    let mut v = Variable::new(&ov.name, FieldKind::Nodal, ov.dofs, None, vec![0.0; n_new * ov.dofs]);
+                    v.output = if zero { ov.output } else { true };
+                    v.secondary = ov.secondary;
+                    self.vars.add_with_components(v, &comps)?;
+                }
+                let nid = self.vars.id(&ov.name).expect("added");
+                let nv = self.vars.by_id_mut(nid);
+                nv.values.iter_mut().for_each(|x| *x = 0.0);
+                nv.conv.prev_norm = ov.conv.norm;
                 continue;
             }
             if self.vars.id(&ov.name).is_none() {
@@ -347,7 +411,7 @@ impl Simulation {
         for ix in 0..self.slots.len() {
             if let Some(id) = self.slots[ix].variable {
                 let v = self.vars.by_id(id);
-                if v.kind != FieldKind::Nodal {
+                if v.kind != FieldKind::Nodal && v.kind != FieldKind::Global {
                     return Err(unsupported("a solver whose variable is not nodal"));
                 }
             }

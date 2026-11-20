@@ -330,6 +330,8 @@ version = "0.1.0"
 dependencies = [
  "elmer-core",
  "elmer-fe",
+ "elmer-fe-hp",
+ "elmer-pdofs",
  "elmer-solver",
 ]
 

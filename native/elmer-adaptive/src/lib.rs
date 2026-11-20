@@ -16,6 +16,7 @@
 pub mod diffusion;
 pub mod elasticity;
 pub mod mesh;
+mod recovery;
 pub mod remesh;
 mod split;
 
@@ -91,8 +92,6 @@ fn unsupported(what: &str) -> SolverError {
 /// The keywords of RefineMesh this port does not follow.
 pub fn check_params(p: &ParamMap) -> Result<(), SolverError> {
     for k in [
-        "flux recovery",
-        "adaptive error histogram",
     ] {
         if p.logical(k) == Some(true) {
             return Err(unsupported(k));
@@ -251,13 +250,21 @@ pub fn refine_mesh(
     }
     ctx.set_adaptive_finished(false);
     let adaptive_output = p.logical("adaptive output").unwrap_or(false);
-    let (ei, max_error) = compute_error(ctx, est)?;
+    // `Flux Recovery`: FluxRecovery's indicator instead of ComputeError's.
+    let with_recovery = p.logical("flux recovery") == Some(true);
+    let (ei, max_error) = if with_recovery {
+        let mut ei = vec![0.0; ctx.mesh.n_bulk()];
+        let m = recovery::flux_recovery(ctx, &mut ei)?;
+        (ei, m)
+    } else {
+        compute_error(ctx, est)?
+    };
     let n = ei.len();
     let mut s = 0.0;
     for x in &ei {
         s += x.powi(2);
     }
-    let error_estimate = (s / n as f64).sqrt();
+    let error_estimate = if with_recovery { s.sqrt() } else { (s / n as f64).sqrt() };
     let nn = ctx.mesh.n_nodes();
     let nb = ctx.mesh.n_bulk();
 
@@ -281,6 +288,9 @@ pub fn refine_mesh(
             hvalue[k] /= referenced[k] as f64;
         }
     }
+    // `Hvalue` is the variable's storage: it keeps these diameters when the
+    // refinement stops below (`GOTO 10` skips `Hvalue = PrevHValue`).
+    store(ctx, "hvalue", hvalue.clone());
     let created = field(ctx, "hconvergence", adaptive_output, 1.0)?;
     let mut hconv = values(ctx, "hconvergence");
     if init && !created {
@@ -334,14 +344,20 @@ pub fn refine_mesh(
     store(ctx, "href", href.clone());
     store(ctx, &err_name, nodal.clone());
 
-    let error_limit = p.real("adaptive error limit").unwrap_or(0.5);
+    let mut error_limit = p.real("adaptive error limit").unwrap_or(0.5);
+    // With recovery the estimate is compared with the limit, then the limit
+    // is spread over the elements.
+    let recovery_conv = with_recovery.then(|| error_estimate < error_limit);
+    if with_recovery {
+        error_limit /= (n as f64).sqrt();
+    }
     let max_scale = p.real("adaptive max error scale").unwrap_or(1.0);
     let ave_scale = p.real("adaptive average error scale").unwrap_or(1.0);
     let (max_frac, out_frac) = (1.0, 0.0);
     let mut limit = error_limit;
     let mut converged = false;
     if depth as i64 > min_depth {
-        let conv = error_estimate < ave_scale * error_limit;
+        let conv = recovery_conv.unwrap_or(error_estimate < ave_scale * error_limit);
         if max_error < max_scale * error_limit && conv && out_frac < max_frac {
             match p.real("adaptive final refinement") {
                 Some(f) => {
@@ -438,6 +454,20 @@ pub fn refine_mesh(
             mesh::write_mesh_to_disk(&m, &std::path::Path::new(&base_dir).join(&name), &|t| t)
                 .map_err(|e| SolverError::fatal("WriteMeshToDisk", e.to_string()))?;
         }
+        // RefineMesh's variable transfer: with recovery the solver's variable
+        // and its loads come to the new mesh empty and RTFlux is its own
+        // solver's; `Adaptive Interpolate = False` leaves the scalars empty.
+        let mut transfer = elmer_solver::remesh::MeshTransfer {
+            no_scalar_interp: p.logical("adaptive interpolate") == Some(false),
+            ..Default::default()
+        };
+        if with_recovery {
+            if let Some(v) = ctx.primary().map(|f| f.name.to_string()) {
+                transfer.zero = vec![v.clone(), format!("{v} loads")];
+            }
+            transfer.skip = vec!["rtflux".into()];
+        }
+        ctx.set_mesh_transfer(transfer);
         ctx.request_mesh_change(MeshChange {
             mesh: Arc::new(m),
             name,

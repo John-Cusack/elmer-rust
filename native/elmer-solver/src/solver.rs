@@ -1905,6 +1905,17 @@ impl<'a> SolverCtx<'a> {
         Ok(Some(w))
     }
 
+    /// How the variables go to the mesh of the next [`request_mesh_change`](Self::request_mesh_change).
+    pub fn set_mesh_transfer(&mut self, t: crate::remesh::MeshTransfer) {
+        self.sim.adaptive.transfer = t;
+    }
+
+    /// The rows of `A % ConstrainedDOF`: the Dirichlet dofs of the
+    /// solver's last assembly.
+    pub fn constrained_rows(&self) -> Vec<u32> {
+        self.sim.slots[self.slot].asm.constrained.iter().map(|&(r, _)| r).collect()
+    }
+
     /// `DefaultDirichletBCs` + `EnforceDirichletConditions`.
     pub fn default_dirichlet(&mut self) -> Result<(), SolverError> {
         self.default_dirichlet_after(&[])
