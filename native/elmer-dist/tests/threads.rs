@@ -317,3 +317,46 @@ fn partitions_cover_the_mesh() {
     let m = PartitionMesh::read(&data("sq"), 0, 1).expect("read");
     assert_eq!((m.n_nodes(), m.n_bulk()), (81, 64));
 }
+
+/// `ExchangeSourceVec` order: each holder of a dof shared by three ranks
+/// adds the others' values to its own, in ascending rank order, so the
+/// copies may round differently. Values chosen so that they do.
+#[test]
+fn sum_shared_keeps_each_holders_order() {
+    let v = [1e16f64, -1e16, 1.0];
+    let elmer = |h: usize| (0..3).filter(|&g| g != h).fold(v[h], |s, g| s + v[g]);
+    assert_ne!(elmer(0), elmer(2), "the values must make the order visible");
+    let got = ThreadComm::run(3, |c| {
+        let l = DofLayout::new(c, vec![7], vec![0]).expect("layout");
+        let mut x = vec![v[c.rank()]];
+        l.sum_shared(c, &mut x);
+        x[0]
+    });
+    for (h, x) in got.iter().enumerate() {
+        assert_eq!(*x, elmer(h), "rank {h}");
+    }
+}
+
+/// Interface partial sums in `CombineCRSMatIndices` order: one row owned by
+/// rank 0, three columns owned by rank 1 whose local order reverses their
+/// global ids. Both ranks contribute, so Elmer sorts the row by global id:
+/// `((1 + 1e16) - 1e16) = 0`, where local order would give `1`.
+#[test]
+fn interface_rows_sum_in_global_column_order() {
+    let y = ThreadComm::run(2, |c| {
+        let l = DofLayout::new(c, vec![100, 3, 2, 1], vec![0, 1, 1, 1]).expect("layout");
+        let ents: Vec<(usize, u32, f64)> = if c.rank() == 0 {
+            vec![(0, 3, 0.5)]
+        } else {
+            vec![(0, 1, -1e16), (0, 2, 1e16), (0, 3, 0.5)]
+        };
+        let a = elmer_sparse::from_triplets(4, 4, ents);
+        let m = DistCsr::from_local(c, &l, &a).expect("split");
+        let x = vec![1.0; l.n_owned()];
+        let mut y = vec![f64::NAN; l.n_owned()];
+        m.matvec(c, &x, &mut y);
+        y
+    });
+    assert_eq!(y[0], vec![0.0]);
+    assert_eq!(y[1], vec![0.0; 3]);
+}

@@ -366,7 +366,8 @@ fn itermethod_solve(
     let stats = solver.solve(&m.operator(ex), prec.as_ref(), &b_own, &mut x_own, comm)?;
     layout.owned_to_local(ex, &x_own, x);
     for (xi, di) in x.iter_mut().zip(&d) {
-        *xi *= di * rhs_scaling;
+        // BackScaleLinearSystem: x * Diag * RhsScaling, left to right.
+        *xi = *xi * di * rhs_scaling;
     }
     Ok(stats)
 }
