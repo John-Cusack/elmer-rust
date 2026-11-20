@@ -1,8 +1,9 @@
 //! `MagnetoDynamicsCalcFields` (CalcFields.F90) when its target is a nodal
 //! 2D potential (`MagnetoDynamics2D`, `MagnetoDynamics2DHarmonic`): the
 //! magnetic flux density `B = curl(A e_z)` (with the `A/r` term in axial
-//! symmetry), the magnetic vector potential, the electric field, the
-//! current density and the Joule heating, real or complex (`re`/`im`),
+//! symmetry), the magnetic field strength (constant scalar reluctivity), the
+//! magnetic vector potential, the electric field, the current density and
+//! the Joule heating, real or complex (`re`/`im`),
 //! as nodal fields (one L2 projection per component with the section's
 //! linear solver, `GlobalSol`) and as elemental DG fields (the element mass
 //! matrix inverted locally, `LocalSol`).
@@ -102,13 +103,10 @@ fn has_prefix(p: &ParamMap, prefix: &str) -> bool {
 }
 
 /// `MagnetoDynamicsCalcFields_Init0` and `_Init` for solver section `i`
-/// when its target is a nodal 2D potential; edge-element targets keep the
-/// section as it is. `dim` is `CoordinateSystemDimension()`.
+/// (nothing when Init0 finds no target: the solve then fails as Elmer's
+/// Init0 does). `dim` is `CoordinateSystemDimension()`.
 pub fn init_section(model: &mut Model, i: usize, dim: usize) {
     let Ok(t) = target(&model.solvers, &model.solvers[i]) else { return };
-    if t.hcurl {
-        return;
-    }
     let transient = model.simulation.string("simulation type").is_some_and(|s| s.trim().eq_ignore_ascii_case("transient"));
     let lorentz = model.body_forces.iter().any(|b| has_prefix(b, "angular velocity") || has_prefix(b, "lorentz velocity"));
     let layer_bc = model.boundary_conditions.iter().any(|b| b.get("layer electric conductivity").is_some());
@@ -453,11 +451,27 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         Some(s) if s == "axi symmetric" || s == "cylindric symmetric" => true,
         Some(s) => return Err(unsupported(format!("Coordinate System = {s}"))),
     };
-    if ctx.mesh.dim() != 2 {
+    let dim = ctx.mesh.dim();
+    if t.hcurl && dim != 3 {
+        return Err(SolverError::fatal(CALLER, "an edge-element target needs a 3D mesh"));
+    }
+    if !t.hcurl && dim != 2 {
         return Err(unsupported("a nodal target on a mesh that is not 2D"));
     }
-    let dim = 2;
-    let vdofs = t.vdofs;
+    // The target potential.
+    let pvar = ctx
+        .sim
+        .slots
+        .iter()
+        .find(|s| s.id == t.index)
+        .and_then(|s| s.variable)
+        .ok_or_else(|| SolverError::fatal(CALLER, "the target solver has no variable"))?;
+    // `vDOFs = pSolver % Variable % DOFs` (Init0's count only decides the
+    // exported names).
+    let vdofs = ctx.sim.vars.by_id(pvar).dofs;
+    if !(1..=2).contains(&vdofs) {
+        return Err(unsupported(format!("a target variable of {vdofs} components")));
+    }
     let real = vdofs == 1;
     let fdim = if logical(&sp, "2d result fields") == Some(true) { dim } else { 3 };
     let norm_index = sp.integer("show norm index").map_or(0, |i| i.max(0) as usize);
@@ -467,7 +481,6 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
     let vars = &ctx.sim.vars;
     let get = |n: &str| vars.id(n);
     for n in [
-        "magnetic field strength",
         "jxb",
         "winding voltage",
         "relative permeability",
@@ -486,6 +499,7 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
     }
     let field = |n: &str, m: usize| Field { nodal: get(n), elem: get(&format!("{n} e")), m };
     let mfd = field("magnetic flux density", fdim * vdofs);
+    let mfs = field("magnetic field strength", fdim * vdofs);
     let vp = field("magnetic vector potential", 3 * vdofs);
     let ef = if real {
         Field { nodal: None, elem: None, m: 3 }
@@ -494,7 +508,13 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
     };
     let cd = field("current density", 3 * vdofs);
     let jh = field("joule heating", 1);
-    let fields = [&mfd, &vp, &ef, &cd, &jh];
+    let fields = [&mfd, &mfs, &vp, &ef, &cd, &jh];
+    if mfs.any() {
+        let m = &ctx.sim.model;
+        if m.body_forces.iter().chain(&m.materials).any(|b| has_prefix(b, "magnetization")) {
+            return Err(unsupported("Magnetic Field Strength with a magnetization"));
+        }
+    }
     let ncol: usize = fields.iter().filter(|f| f.any()).map(|f| f.m).sum();
     let nodal_fields = fields.iter().any(|f| f.nodal.is_some());
     let elemental_fields = fields.iter().any(|f| f.elem.is_some());
@@ -522,20 +542,41 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         }
     }
 
-    // The target potential.
-    let pvar = ctx
-        .sim
-        .slots
-        .iter()
-        .find(|s| s.id == t.index)
-        .and_then(|s| s.variable)
-        .ok_or_else(|| SolverError::fatal(CALLER, "the target solver has no variable"))?;
-    if ctx.sim.vars.by_id(pvar).dofs != vdofs {
-        return Err(SolverError::fatal(CALLER, "the target variable has an unexpected number of components"));
-    }
     let impose_bf_current = match logical(&sp, "impose body force current") {
         Some(b) => b,
         None => ctx.sim.model.body_forces.iter().any(|b| has_prefix(b, "current density")),
+    };
+
+    // An edge-element target: its DOF layout (`WhitneyAV*` keep their own,
+    // nodal V first, then the edges).
+    let edge = if t.hcurl {
+        if axi {
+            return Err(unsupported("an edge-element target in axial symmetry"));
+        }
+        for k in ["use piola transform", "quadratic approximation"] {
+            if logical(&psp, k) == Some(true) {
+                return Err(unsupported(format!("an edge-element target with '{k}'")));
+            }
+        }
+        let bf_potential = match logical(&sp, "impose body force potential") {
+            Some(b) => b,
+            None => ctx.sim.model.body_forces.iter().any(|b| b.get("electric potential").is_some()),
+        };
+        if bf_potential {
+            return Err(unsupported("'Impose Body Force Potential'"));
+        }
+        if impose_bf_current && cd.any() {
+            return Err(unsupported("body-force current density in the current density of an edge-element target"));
+        }
+        let case = crate::Case::from_view(ctx.mesh, &ctx.sim.model);
+        let with_v = vdofs == 2 || crate::steady::static_conductivity(&case, &psp);
+        let lay = crate::layout::AvLayout::build(&case, t.index, with_v)?;
+        if ctx.sim.vars.by_id(pvar).values.len() != vdofs * lay.n() {
+            return Err(SolverError::fatal(CALLER, "the potential has not been solved on the edge layout yet"));
+        }
+        Some((case, lay))
+    } else {
+        None
     };
 
     ctx.default_initialize()?;
@@ -553,13 +594,6 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         let n = nodes.len();
         let xyz: Vec<[f64; 3]> = nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
         let eq_n = n;
-        // GetVectorLocalSolution(SOL, Pname, uSolver=pSolver).
-        let sol: Vec<Vec<f64>> = {
-            let pv = ctx.sim.vars.by_id(pvar);
-            (0..vdofs)
-                .map(|k| nodes.iter().map(|&nd| pv.slot(nd).map_or(0.0, |s| pv.values[vdofs * s + k])).collect())
-                .collect()
-        };
         let bp = ctx.body_params(e);
         let material = bp.as_ref().and_then(|b| b.material).cloned();
         let body_force = bp.as_ref().and_then(|b| b.body_force).cloned();
@@ -586,35 +620,21 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
             None => (vec![0.0; n], vec![0.0; n]),
         };
 
-        let def = elmer_fe::element_type(etype.0).map_err(|err| SolverError::fatal(CALLER, err.to_string()))?;
-        let rule = elmer_fe::quadrature::gauss_points(etype, None).map_err(|err| SolverError::fatal(CALLER, err.to_string()))?;
         let mut mass = vec![0.0; eq_n * eq_n];
         let mut force = vec![vec![0.0; eq_n]; ncol.max(1)];
-        let xs: Vec<f64> = xyz.iter().map(|c| c[0]).collect();
-        for j in 0..rule.len() {
-            let mut be = BasisEval::default();
-            elmer_fe::info::element_info(def, &xyz, [rule.u[j], rule.v[j], rule.w[j]], 2, &mut status, &mut be)
-                .map_err(|err| SolverError::fatal(CALLER, err.to_string()))?;
-            let basis = &be.basis[..n];
-            let db: Vec<[f64; 3]> = be.dbasis_dx[..n].to_vec();
-            let dbx: Vec<f64> = db.iter().map(|d| d[0]).collect();
-            let dby: Vec<f64> = db.iter().map(|d| d[1]).collect();
-            let mut s = rule.s[j] * be.det_j;
-            let mut xcoord = 0.0;
-            if axi {
-                xcoord = dot(basis, &xs);
-                s *= xcoord;
-            }
-            let mut b = [[0.0f64; 3]; 2];
-            for k in 0..vdofs {
-                if axi {
-                    b[k][0] = -dot(&sol[k], &dby);
-                    b[k][1] = dot(&sol[k], &dbx) + dot(&sol[k], basis) / xcoord;
-                } else {
-                    b[k][0] = dot(&sol[k], &dby);
-                    b[k][1] = -dot(&sol[k], &dbx);
-                }
-            }
+        // GetReluctivity: a constant scalar (`Nu = diag(R_ip)`).
+        let nu = match (&material, mfs.any()) {
+            (Some(mt), true) => crate::material::reluctivity(mt, ctx.constants())?,
+            (None, true) => return Err(SolverError::fatal(CALLER, format!("element {} has no material", e.0))),
+            _ => 0.0,
+        };
+        let nu_nodes = vec![nu; n];
+        let (ips, np) = match &edge {
+            None => (nodal_points(ctx, pvar, vdofs, &nodes, &xyz, etype, axi, omega, &mut status)?, n),
+            Some((case, lay)) => edge_points(ctx, pvar, vdofs, case, lay, e, omega, &mut status)?,
+        };
+        for ip in &ips {
+            let (s, basis, b, ev, vp_ip) = (ip.s, &ip.basis[..n], ip.b, ip.e, ip.vp);
             let mut cmat_re = [[0.0f64; 3]; 3];
             let mut cmat_im = [[0.0f64; 3]; 3];
             let c_re_ip = dot(&c_re, basis);
@@ -624,18 +644,17 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
                 cmat_im[k][k] = c_im_ip;
             }
             let bf_ip = if impose_bf_current { [dot(&bf_cd.0, basis), dot(&bf_cd.1, basis)] } else { [0.0, 0.0] };
-            let mut ev = [[0.0f64; 3]; 2];
-            if !real {
-                ev[0][2] = omega * dot(&sol[1], basis);
-                ev[1][2] = -omega * dot(&sol[0], basis);
-            } else {
-                // -SUM(PSOL * Basis) with PSOL = 0 outside transient runs.
-                ev[0][2] = -dot(&vec![0.0; n], basis);
+            // JatIp (the circuit term CC_J is zero without circuits).
+            let mut jat = [[0.0f64; 3]; 2];
+            for l in 0..3 {
+                if real {
+                    jat[0][l] = dot(&cmat_re[l], &ev[0]) + 0.0 + bf_re(l, bf_ip);
+                } else {
+                    jat[0][l] = dot(&cmat_re[l], &ev[0]) - dot(&cmat_im[l], &ev[1]) + bf_re(l, bf_ip);
+                    jat[1][l] = dot(&cmat_im[l], &ev[0]) + dot(&cmat_re[l], &ev[1]) + bf_im(l, bf_ip);
+                }
             }
-            let mut vp_ip = [[0.0f64; 3]; 2];
-            for l in 0..vdofs {
-                vp_ip[l][2] = dot(&sol[l], basis);
-            }
+            let joule_from_current = np == 0;
             for p in 0..eq_n {
                 for q in 0..eq_n {
                     mass[q * eq_n + p] += s * basis[p] * basis[q];
@@ -663,6 +682,30 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
                         k += fdim;
                     }
                 }
+                if mfs.any() {
+                    // MATMUL(REAL(Nu), B) - MATMUL(AIMAG(Nu), B_im) - REAL(MG_ip),
+                    // and the imaginary part, with Nu real and MG = 0.
+                    let r_ip = dot(basis, &nu_nodes);
+                    let nmv = |d: f64, x: &[f64; 3], c: usize| {
+                        let mut v = 0.0;
+                        for (l, xl) in x[..fdim].iter().enumerate() {
+                            v += if l == c { d } else { 0.0 } * xl;
+                        }
+                        v
+                    };
+                    for c in 0..fdim {
+                        let h = if real { nmv(r_ip, &b[0], c) - 0.0 } else { nmv(r_ip, &b[0], c) - nmv(0.0, &b[1], c) - 0.0 };
+                        force[k + c][p] += s * h * basis[p];
+                    }
+                    k += fdim;
+                    if !real {
+                        for c in 0..fdim {
+                            let h = nmv(0.0, &b[0], c) + nmv(r_ip, &b[1], c) - 0.0;
+                            force[k + c][p] += s * h * basis[p];
+                        }
+                        k += fdim;
+                    }
+                }
                 if vp.any() {
                     for vl in &vp_ip[..vdofs] {
                         for c in 0..3 {
@@ -680,26 +723,23 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
                     }
                 }
                 if cd.any() {
-                    if real {
+                    for jl in &jat[..vdofs] {
                         for l in 0..3 {
-                            let j1 = dot(&cmat_re[l], &ev[0]) + 0.0 + bf_re(l, bf_ip);
-                            force[k + l][p] += s * j1 * basis[p];
-                        }
-                        k += 3;
-                    } else {
-                        for l in 0..3 {
-                            let j1 = dot(&cmat_re[l], &ev[0]) - dot(&cmat_im[l], &ev[1]) + bf_re(l, bf_ip);
-                            force[k + l][p] += s * j1 * basis[p];
-                        }
-                        k += 3;
-                        for l in 0..3 {
-                            let j2 = dot(&cmat_im[l], &ev[0]) + dot(&cmat_re[l], &ev[1]) + bf_im(l, bf_ip);
-                            force[k + l][p] += s * j2 * basis[p];
+                            force[k + l][p] += s * jl[l] * basis[p];
                         }
                         k += 3;
                     }
                 }
-                let coeff = if real {
+                let coeff = if real && joule_from_current && cd.any() {
+                    // J.J / sigma.
+                    let mut c = 0.0;
+                    for l in 0..3 {
+                        if cmat_re[l][l] > f64::EPSILON {
+                            c += jat[0][l] * jat[0][l] / cmat_re[l][l] * basis[p] * s;
+                        }
+                    }
+                    c
+                } else if real {
                     quad(&cmat_re, &ev[0], &ev[0]) * basis[p] * s
                 } else {
                     harm_power
@@ -817,6 +857,166 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         ctx.sim.vars.by_id_mut(hr).conv.norm = save_norm;
     }
     Ok(())
+}
+
+/// One integration point of the element loop: `s = IP % s * detJ` (times
+/// `x` in axial symmetry), the nodal basis, and `B`, `E` and the vector
+/// potential, real and imaginary parts.
+struct Ip {
+    s: f64,
+    basis: Vec<f64>,
+    b: [[f64; 3]; 2],
+    e: [[f64; 3]; 2],
+    vp: [[f64; 3]; 2],
+}
+
+/// The 2D nodal kernel: `GaussPoints(Element)`, `B = curl(A e_z)`, the
+/// harmonic `E_z = (Omega A_im, -Omega A_re)`; a real steady target has
+/// `E = -dA/dt = 0`.
+#[allow(clippy::too_many_arguments)]
+fn nodal_points(
+    ctx: &SolverCtx<'_>,
+    pvar: elmer_solver::VarId,
+    vdofs: usize,
+    nodes: &[u32],
+    xyz: &[[f64; 3]],
+    etype: elmer_core::ElementType,
+    axi: bool,
+    omega: f64,
+    status: &mut MetricStatus,
+) -> Result<Vec<Ip>, SolverError> {
+    let n = nodes.len();
+    // GetVectorLocalSolution(SOL, Pname, uSolver=pSolver).
+    let sol: Vec<Vec<f64>> = {
+        let pv = ctx.sim.vars.by_id(pvar);
+        (0..vdofs)
+            .map(|k| nodes.iter().map(|&nd| pv.slot(nd).map_or(0.0, |s| pv.values[vdofs * s + k])).collect())
+            .collect()
+    };
+    let def = elmer_fe::element_type(etype.0).map_err(|err| SolverError::fatal(CALLER, err.to_string()))?;
+    let rule = elmer_fe::quadrature::gauss_points(etype, None).map_err(|err| SolverError::fatal(CALLER, err.to_string()))?;
+    let xs: Vec<f64> = xyz.iter().map(|c| c[0]).collect();
+    let mut out = Vec::with_capacity(rule.len());
+    for j in 0..rule.len() {
+        let mut be = BasisEval::default();
+        elmer_fe::info::element_info(def, xyz, [rule.u[j], rule.v[j], rule.w[j]], 2, status, &mut be)
+            .map_err(|err| SolverError::fatal(CALLER, err.to_string()))?;
+        let basis = &be.basis[..n];
+        let dbx: Vec<f64> = be.dbasis_dx[..n].iter().map(|d| d[0]).collect();
+        let dby: Vec<f64> = be.dbasis_dx[..n].iter().map(|d| d[1]).collect();
+        let mut s = rule.s[j] * be.det_j;
+        let mut xcoord = 0.0;
+        if axi {
+            xcoord = dot(basis, &xs);
+            s *= xcoord;
+        }
+        let mut b = [[0.0f64; 3]; 2];
+        for k in 0..vdofs {
+            if axi {
+                b[k][0] = -dot(&sol[k], &dby);
+                b[k][1] = dot(&sol[k], &dbx) + dot(&sol[k], basis) / xcoord;
+            } else {
+                b[k][0] = dot(&sol[k], &dby);
+                b[k][1] = -dot(&sol[k], &dbx);
+            }
+        }
+        let mut e = [[0.0f64; 3]; 2];
+        if vdofs == 2 {
+            e[0][2] = omega * dot(&sol[1], basis);
+            e[1][2] = -omega * dot(&sol[0], basis);
+        } else {
+            // -SUM(PSOL * Basis) with PSOL = 0 outside transient runs.
+            e[0][2] = -dot(&vec![0.0; n], basis);
+        }
+        let mut vp = [[0.0f64; 3]; 2];
+        for l in 0..vdofs {
+            vp[l][2] = dot(&sol[l], basis);
+        }
+        out.push(Ip { s, basis: basis.to_vec(), b, e, vp });
+    }
+    Ok(out)
+}
+
+/// The edge-element kernel (lowest-order Whitney basis): `GaussPoints(
+/// Element, EdgeBasis=.TRUE.)`, `B = MATMUL(SOL(np+1:nd), RotWBasis)`, the
+/// harmonic `E = (Omega A_im, -Omega A_re) - grad V`, the real steady
+/// `E = -grad V` (zero without the nodal V, `np = 0`). Returns the points
+/// and `np`.
+#[allow(clippy::too_many_arguments)]
+fn edge_points(
+    ctx: &SolverCtx<'_>,
+    pvar: elmer_solver::VarId,
+    vdofs: usize,
+    case: &crate::Case,
+    lay: &crate::layout::AvLayout,
+    e: ElemId,
+    omega: f64,
+    status: &mut MetricStatus,
+) -> Result<(Vec<Ip>, usize), SolverError> {
+    let el = &case.mesh.bulk[e.0 as usize];
+    let n = el.nodes.len();
+    let eids = lay
+        .edges
+        .of_element(el.code, &el.nodes)
+        .ok_or_else(|| SolverError::fatal(CALLER, "a CalcFields element outside the potential's elements"))?;
+    let np = if lay.with_v { n } else { 0 };
+    let pv = ctx.sim.vars.by_id(pvar);
+    let mut solv = vec![vec![0.0; np]; vdofs];
+    let mut sole = vec![vec![0.0; eids.len()]; vdofs];
+    for k in 0..vdofs {
+        for (i, &nd) in el.nodes.iter().take(np).enumerate() {
+            let slot = lay.node_slot[nd as usize];
+            if slot != u32::MAX {
+                solv[k][i] = pv.values[vdofs * slot as usize + k];
+            }
+        }
+        for (j, &ed) in eids.iter().enumerate() {
+            sole[k][j] = pv.values[vdofs * (lay.n_nodal + ed as usize) + k];
+        }
+    }
+    let (xyz, gindex) = crate::layout::geometry(case, &el.nodes);
+    let rule = crate::local::edge_rule(el.code)?;
+    let mut out = Vec::with_capacity(rule.len());
+    // MATMUL(x(1:m), M(1:m, :)).
+    let mv = |x: &[f64], m: &[[f64; 3]]| {
+        let mut r = [0.0; 3];
+        for (c, rc) in r.iter_mut().enumerate() {
+            let mut acc = 0.0;
+            for (xi, mi) in x.iter().zip(m) {
+                acc += xi * mi[c];
+            }
+            *rc = acc;
+        }
+        r
+    };
+    for t in 0..rule.len() {
+        let pt = crate::local::eval_point(el.code, &xyz, &gindex, [rule.u[t], rule.v[t], rule.w[t]], status)?;
+        let s = rule.s[t] * pt.det_j;
+        let mut b = [[0.0f64; 3]; 2];
+        let mut vp = [[0.0f64; 3]; 2];
+        for k in 0..vdofs {
+            b[k] = mv(&sole[k], &pt.curl);
+            vp[k] = mv(&sole[k], &pt.w);
+        }
+        let mut ef = [[0.0f64; 3]; 2];
+        if vdofs == 2 {
+            let a_im = mv(&sole[1], &pt.w);
+            let a_re = mv(&sole[0], &pt.w);
+            let g_re = mv(&solv[0], &pt.dbasis[..np]);
+            let g_im = mv(&solv[1], &pt.dbasis[..np]);
+            for c in 0..3 {
+                ef[0][c] = omega * a_im[c] - g_re[c];
+                ef[1][c] = -omega * a_re[c] - g_im[c];
+            }
+        } else if np > 0 {
+            let g = mv(&solv[0], &pt.dbasis[..np]);
+            for c in 0..3 {
+                ef[0][c] = -g[c];
+            }
+        }
+        out.push(Ip { s, basis: pt.basis[..n].to_vec(), b, e: ef, vp });
+    }
+    Ok((out, np))
 }
 
 fn bf_re(l: usize, bf: [f64; 2]) -> f64 {

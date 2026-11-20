@@ -12,8 +12,8 @@
 
 use std::sync::Arc;
 
-use elmer_core::{ElemId, FieldKind, MeshView, ParamMap, Value, NO_DOF};
-use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry, Variable, VariableStore};
+use elmer_core::{ElemId, MeshView, ParamMap, Value, NO_DOF};
+use elmer_solver::{Solver, SolverCtx, SolverError, SolverRegistry};
 
 use crate::case::Case;
 use crate::error::MagnetoError;
@@ -182,106 +182,11 @@ impl Solver for WhitneyAv {
 /// component solved, whose norm `ComputeChange` then reports.
 pub struct CalcFields;
 
-/// Adds or overwrites a nodal variable.
-fn upsert(
-    vars: &mut VariableStore,
-    name: &str,
-    dofs: usize,
-    perm: &Arc<[u32]>,
-    values: Vec<f64>,
-    output: bool,
-) -> Result<elmer_solver::VarId, SolverError> {
-    if let Some(v) = vars.get_mut(name) {
-        if v.dofs != dofs {
-            return Err(SolverError::fatal(
-                "MagnetoDynamicsCalcFields",
-                format!("variable '{name}' exists with {} components", v.dofs),
-            ));
-        }
-        v.perm = Some(perm.clone());
-        v.values = values;
-        v.values_changed = true;
-        return Ok(vars.id(name).expect("just found"));
-    }
-    let mut v = Variable::new(name, FieldKind::Nodal, dofs, Some(perm.clone()), values);
-    v.output = output;
-    vars.add(v)
-}
-
 impl Solver for CalcFields {
+    /// `MagnetoDynamicsCalcFields` (`calcfields2d`): the target solver as
+    /// `_Init0` finds it, nodal 2D or edge-element 3D.
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, transient: bool) -> Result<(), SolverError> {
-        // A nodal 2D target (MagnetoDynamics2D, MagnetoDynamics2DHarmonic).
-        if let Ok(t) = crate::calcfields2d::target(&ctx.sim.model.solvers, ctx.params()) {
-            if !t.hcurl {
-                return crate::calcfields2d::solve(ctx, t, transient);
-            }
-        }
-        if transient {
-            return Err(SolverError::Unsupported("transient MagnetoDynamicsCalcFields".into()));
-        }
-        let case = Case::from_view(ctx.mesh, &ctx.sim.model);
-        let id = ctx.solver_id();
-        let sp = case
-            .solver(id)
-            .ok_or_else(|| SolverError::fatal("MagnetoDynamicsCalcFields", "no solver section"))?;
-        let (pot_id, harmonic) = crate::calcfields::target_solver(&case, sp)?;
-        if harmonic {
-            return Err(SolverError::Unsupported("CalcFields of a harmonic potential".into()));
-        }
-        let psp = case.solver(pot_id).expect("target solver exists");
-        let layout = crate::layout::AvLayout::build(&case, pot_id, crate::steady::static_conductivity(&case, psp))?;
-        let pot_var = ctx
-            .sim
-            .slots
-            .iter()
-            .find(|s| s.id == pot_id)
-            .and_then(|s| s.variable)
-            .ok_or_else(|| SolverError::fatal("MagnetoDynamicsCalcFields", "potential variable not found"))?;
-        let res = {
-            let pv = ctx.sim.vars.by_id(pot_var);
-            if pv.values.len() != layout.n() || pv.dofs != 1 {
-                return Err(SolverError::fatal(
-                    "MagnetoDynamicsCalcFields",
-                    "the potential has not been solved on the edge layout yet",
-                ));
-            }
-            let pot = crate::Potential {
-                edges: &layout.edges,
-                n_nodal: layout.n_nodal,
-                dofs: 1,
-                values: &pv.values,
-            };
-            crate::calc_fields(&case, id, &pot)?
-        };
-        let perm: Arc<[u32]> = res.node_slot.iter().copied().collect();
-        // `hr_dummy` keeps the last component solved, or the one `Show Norm
-        // Index` (1-based over all components) names.
-        let total = 3 * res.fields.len();
-        let pick = match sp.0.get("show norm index") {
-            Some(Value::Integer(i)) => i.first().copied().filter(|&k| k > 0).map(|k| k as usize),
-            _ => None,
-        }
-        .unwrap_or(total);
-        let mut last = vec![0.0; res.n];
-        for (fi, f) in res.fields.iter().enumerate() {
-            upsert(&mut ctx.sim.vars, f.name, 3, &perm, f.values.clone(), true)?;
-            if pick > 3 * fi && pick <= 3 * fi + 3 {
-                let c = pick - 3 * fi - 1;
-                for (i, l) in last.iter_mut().enumerate() {
-                    *l = f.values[3 * i + c];
-                }
-            }
-        }
-        let dummy = upsert(&mut ctx.sim.vars, "hr_dummy", 1, &perm, last, false)?;
-        let slot = ctx
-            .sim
-            .slots
-            .iter_mut()
-            .find(|s| s.id == id)
-            .ok_or_else(|| SolverError::fatal("MagnetoDynamicsCalcFields", "solver slot not found"))?;
-        slot.variable = Some(dummy);
-        slot.perm = Some(perm);
-        ctx.nonlinear_change()?;
-        Ok(())
+        let t = crate::calcfields2d::target(&ctx.sim.model.solvers, ctx.params())?;
+        crate::calcfields2d::solve(ctx, t, transient)
     }
 }
