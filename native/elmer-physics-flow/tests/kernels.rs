@@ -40,6 +40,8 @@ fn input<'a>(
     let stab = StabParams { hk, mk };
     FlowBulkInput {
         power_law: None,
+        bubbles: false,
+        porous: None,
         etype: et,
         xyz,
         dim: 2,
