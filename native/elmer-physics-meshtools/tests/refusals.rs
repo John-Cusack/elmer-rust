@@ -50,8 +50,10 @@ fn rigid_mapper_refuses_rotor_mode_and_mesh_velocity() {
     }
 }
 
+/// A mask (`Mapping Mask Name` of a body force keyword) with a mesh velocity
+/// variable, which Elmer would number over the mask.
 #[test]
-fn structured_mapper_refuses_masks() {
+fn structured_mapper_refuses_a_masked_mesh_velocity() {
     let m = model(
         &[
             (
@@ -59,7 +61,8 @@ fn structured_mapper_refuses_masks() {
                 st("\"StructuredMeshMapper\" \"StructuredMeshMapper\""),
             ),
             ("Active Coordinate", ints(&[2])),
-            ("Mapping Mask Variable", st("TempB")),
+            ("Mapping Mask Name", st("Heat Source")),
+            ("Mesh Velocity Variable", st("MeshV")),
         ],
         &[("Heat Source", Value::real(0.0))],
     );

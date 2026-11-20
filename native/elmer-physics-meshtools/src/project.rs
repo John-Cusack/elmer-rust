@@ -171,10 +171,8 @@ impl Solver for StructuredProjectToPlane {
         ctx.info(CALLER, "Performing projection on a structured mesh ", 4);
         ctx.info(CALLER, "------------------------------------------", 4);
         let params = ctx.params().clone();
-        for k in ["mapping coordinate transformation"] {
-            if params.get(k).is_some() {
-                return Err(unsupported(k));
-            }
+        if params.get("mapping coordinate transformation").is_some() {
+            return Err(unsupported("mapping coordinate transformation"));
         }
         let nnodes = ctx.mesh.n_nodes();
         if self.init.is_none() {
