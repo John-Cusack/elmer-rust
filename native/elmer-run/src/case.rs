@@ -149,7 +149,10 @@ fn reynolds_init(params: &mut ParamMap, cdim: usize) {
     }
 }
 
-fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
+/// The solver sections' `_init` defaults (variables, exported fields and
+/// keywords a procedure's `_init` adds), applied before setup; the
+/// partitioned runner applies them too.
+pub fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
     let cdim = coords.dim;
     let transient = model.simulation.string("simulation type").is_some_and(|t| t.eq_ignore_ascii_case("transient"));
     let serendipity = model.simulation.logical("serendipity p elements").unwrap_or(true);

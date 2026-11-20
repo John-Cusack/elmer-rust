@@ -16,10 +16,13 @@
 //! `CFix Diffusion`, `Electric Conductivity Name`, `Use Unity
 //! Conductivity`, `Calculate Coil Current` and `Save Coil Set`.
 //!
+//! In a partitioned run the coil centre and inertia, the fixing sets
+//! (`ParallelSumVectorInt` max and min over the holders of a node), the
+//! end currents (owned nodes) and the counts are reduced across ranks.
+//!
 //! Refused: `Single Coil Cut` / `Test Coil Cut`, elemental
 //! current fields (`Calculate Elemental Fields`, `Fix Input Current
-//! Density`), `Use Wall Distance`, `Coil Helicity`, `Save Coil Index` and
-//! more than one partition.
+//! Density`), `Use Wall Distance`, `Coil Helicity` and `Save Coil Index`.
 #![forbid(unsafe_code)]
 // The ports index several parallel arrays with the Fortran loop variables.
 #![allow(clippy::needless_range_loop)]

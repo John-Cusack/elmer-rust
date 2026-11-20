@@ -527,6 +527,12 @@ pub trait NodeInterface: Send + Sync {
     /// `CalculateBodyAverage`, MeshBasics.F90). `v` has one value per local
     /// mesh node. Collective.
     fn sum_shared(&self, v: &mut [f64]) -> Result<(), SolverError>;
+    /// Every copy of a shared node takes the least of all holders' values
+    /// (`ExchangeSourceVecInt` with `op = 1`). Collective.
+    fn min_shared(&self, v: &mut [f64]) -> Result<(), SolverError>;
+    /// Every copy of a shared node takes the greatest of all holders'
+    /// values (`op = 2`). Collective.
+    fn max_shared(&self, v: &mut [f64]) -> Result<(), SolverError>;
 }
 
 /// The three places the library calls into mortar contact during a

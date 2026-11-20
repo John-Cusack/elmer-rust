@@ -396,16 +396,49 @@ impl Simulation {
         }
         let Some(sys) = slot.system.as_ref() else { return Ok(()) };
         let x = &self.vars.by_id(id).values[..n];
-        let r = if from_bulk {
+        let (values, rhs) = if from_bulk {
             let (values, rhs) = slot
                 .asm
                 .bulk
                 .as_ref()
                 .ok_or_else(|| SolverError::fatal("CalculateLoads", "\"BulkValues\" are not associated!"))?;
-            residual(&sys.matrix, values, x, &rhs[..n])
+            (&values[..], &rhs[..n])
         } else {
-            residual(&sys.matrix, &sys.matrix.values, x, &sys.rhs[..n])
+            (&sys.matrix.values[..], &sys.rhs[..n])
         };
+        let mut r = residual(&sys.matrix, values, x, rhs);
+        // In a partitioned run (a solver numbered by nodes): the product of
+        // the summed matrix less the owner's own rhs on owned rows, zero on
+        // the others, then summed, so every copy has the owner's load
+        // (ParallelMatrixVector, ParallelSumVector).
+        if let (Some(nodes), Some(owned), Some(perm), None) =
+            (&self.backends.nodes, self.node_owned(), slot.perm.as_deref(), slot.solver_dofs())
+        {
+            let dofs = self.vars.by_id(id).dofs;
+            let zero = vec![0.0; n];
+            let mut y = residual(&sys.matrix, values, x, &zero);
+            let mut v = vec![0.0; perm.len()];
+            let mut each_dof = |y: &mut [f64], f: &dyn Fn(usize, f64) -> f64| -> Result<(), SolverError> {
+                for k in 0..dofs {
+                    for (node, &j) in perm.iter().enumerate() {
+                        v[node] = if j == elmer_core::NO_DOF { 0.0 } else { f(node, y[dofs * j as usize + k]) };
+                    }
+                    nodes.sum_shared(&mut v)?;
+                    for (node, &j) in perm.iter().enumerate() {
+                        if j != elmer_core::NO_DOF {
+                            y[dofs * j as usize + k] = v[node];
+                        }
+                    }
+                }
+                Ok(())
+            };
+            each_dof(&mut y, &|_, a| a)?;
+            for (i, yi) in y.iter_mut().enumerate() {
+                *yi -= rhs[i];
+            }
+            each_dof(&mut y, &|node, a| if owned[node] { a } else { 0.0 })?;
+            r = y;
+        }
         let loads = self.vars.by_id_mut(lid);
         let m = loads.values.len().min(r.len());
         loads.values[..m].copy_from_slice(&r[..m]);

@@ -128,6 +128,10 @@ pub(crate) fn coil_center(
             }
         }
     }
+    let mut tmp = [center[0], center[1], center[2], volume];
+    ctx.comm.sum_f64(&mut tmp);
+    center = [tmp[0], tmp[1], tmp[2]];
+    volume = tmp[3];
     if volume < f64::EPSILON {
         return Err(SolverError::fatal(
             "DefineCoilCenter",
@@ -206,6 +210,7 @@ pub(crate) fn coil_axes(
             }
         }
     }
+    ctx.comm.sum_f64(&mut im);
     let mut s = 0.0;
     for x in im {
         s += x;

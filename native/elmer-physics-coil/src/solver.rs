@@ -340,9 +340,6 @@ impl Solver for CoilSolver {
         if !cs.starts_with("cartesian") {
             return Err(unsupported("non-Cartesian coordinates"));
         }
-        if ctx.comm.size() > 1 {
-            return Err(unsupported("more than one partition"));
-        }
         Ok(())
     }
 
@@ -453,8 +450,20 @@ impl Solver for CoilSolver {
         }
         ctx.info(CALLER, "Coil system consists of 1 coils", 7);
         for (k, set) in [&set_a, &set_b].into_iter().take(parts).enumerate() {
-            let nplus = set.iter().filter(|&&s| s > 0).count();
-            let nminus = set.iter().filter(|&&s| s < 0).count();
+            // CountFixingNodes: in parallel the owned nodes, summed.
+            let mut n = [0.0f64; 2];
+            for (i, &j) in perm.iter().enumerate() {
+                if j == NO_DOF || ctx.node_owned().is_some_and(|o| !o[i]) {
+                    continue;
+                }
+                match set[j as usize] {
+                    s if s > 0 => n[0] += 1.0,
+                    s if s < 0 => n[1] += 1.0,
+                    _ => {}
+                }
+            }
+            ctx.comm.sum_f64(&mut n);
+            let (nplus, nminus) = (n[0] as usize, n[1] as usize);
             ctx.info(
                 CALLER,
                 &format!("Set{} : {nplus} +nodes and {nminus} -nodes", k + 1),
@@ -594,6 +603,12 @@ impl Solver for CoilSolver {
                     cur.values[slot * dim + dimi] = *v;
                 }
             }
+            if ctx.comm.size() > 1 {
+                let mut neg = min_curr.map(|x| -x);
+                ctx.comm.max_f64(&mut neg);
+                min_curr = neg.map(|x| -x);
+                ctx.comm.max_f64(&mut max_curr);
+            }
             ctx.info(
                 CALLER,
                 &format!("Minimum current components: {min_curr:?}"),
@@ -732,6 +747,22 @@ fn choose_fixed_bulk_nodes(
             }
         }
     }
+    if ctx.comm.size() > 1 {
+        // The holders of a node agree on the value of greatest magnitude,
+        // the positive one on a tie (`ParallelSumVectorInt` max and min).
+        let of_nodes = |set: &[i32]| -> Vec<f64> {
+            perm.iter().map(|&j| if j == NO_DOF { 0.0 } else { f64::from(set[j as usize]) }).collect()
+        };
+        let mut max = of_nodes(set);
+        let mut min = max.clone();
+        ctx.nodes_max(&mut max)?;
+        ctx.nodes_min(&mut min)?;
+        for (i, &j) in perm.iter().enumerate() {
+            if j != NO_DOF {
+                set[j as usize] = if min[i].abs() > max[i] { min[i] } else { max[i] } as i32;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -767,6 +798,9 @@ fn cut_interface_connections(ctx: &mut SolverCtx<'_>, set: &[i32]) -> Result<(),
             }
         }
     }
+    let mut c = [cnt as f64];
+    ctx.comm.sum_f64(&mut c);
+    let cnt = c[0] as usize;
     ctx.info(
         "CutInterfaceConnections",
         &format!("Number of connections cut: {cnt}"),
@@ -790,8 +824,9 @@ fn scale_potential(
             .perm
             .ok_or_else(|| SolverError::fatal(CALLER, "loads without Perm"))?;
         let (mut possum, mut negsum) = (0.0, 0.0);
-        for &j in lperm {
-            if j == NO_DOF {
+        let owned = ctx.node_owned();
+        for (i, &j) in lperm.iter().enumerate() {
+            if j == NO_DOF || owned.is_some_and(|o| !o[i]) {
                 continue;
             }
             let sgn = set[j as usize];
@@ -804,7 +839,11 @@ fn scale_potential(
                 negsum += lv.values[j as usize];
             }
         }
-        (possum, negsum)
+        let mut s = [possum, negsum];
+        if ctx.comm.size() > 1 {
+            ctx.comm.sum_f64(&mut s);
+        }
+        (s[0], s[1])
     };
     let mut ok = true;
     if possum.abs() < f64::EPSILON {
