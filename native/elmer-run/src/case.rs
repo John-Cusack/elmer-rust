@@ -391,7 +391,7 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
 /// StatCurrentSolve, StatElecSolve, and their Vec versions) into
 /// constraint-mode lumping, before the variables and permutations exist
 /// ([`elmer_solver::lumping_init`]).
-fn lumped_matrix_inits(model: &mut Model) {
+pub fn lumped_matrix_inits(model: &mut Model) {
     for i in 0..model.solvers.len() {
         let Some((lib, entry)) = procedure_of(&model.solvers[i]) else { continue };
         let (lib, entry) = (lib.to_ascii_lowercase(), entry.to_ascii_lowercase());

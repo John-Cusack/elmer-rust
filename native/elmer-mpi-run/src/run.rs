@@ -429,6 +429,9 @@ pub fn run_partitioned(sif: &Path, ex: Box<dyn Exchange>, log: &dyn Logger) -> R
     }
 
     elmer_run::elmer_fixtures::registry::init_sections(&fixture_case, &mut model);
+    // The lumped-matrix flags' `_init` expansion (constraint modes, `Optimize
+    // Bandwidth = False`) before the permutations exist.
+    elmer_run::lumped_matrix_inits(&mut model);
     let mut sim = Simulation::new(model);
     sim.set_matc(Rc::new(SifMatc));
     sim.backends.assembly = Some(Box::new(ParAssembly));
