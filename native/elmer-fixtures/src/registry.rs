@@ -32,6 +32,7 @@ use crate::model_pde_splitted;
 use crate::poisson_ml;
 use crate::poisson_solver;
 use crate::compute_error;
+use crate::face_fe_interpolation;
 use crate::count_solver;
 use crate::single_edge_elements;
 use crate::single_elements;
@@ -191,6 +192,8 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("RaviartThomas2D", "ComputeError", "IntegrateError", Hook::Solver(compute_error::factory)),
     ("BDM2D", "ComputeError", "IntegrateError", Hook::Solver(compute_error::factory)),
     ("RaviartThomas3D", "ComputeError", "IntegrateError", Hook::Solver(compute_error::factory_3d)),
+    ("FaceElement2D_BCs", "FaceFEInterpolationTest", "BestApproximationSolver", Hook::Solver(face_fe_interpolation::factory)),
+    ("FaceElement3D_BCs", "FaceFEInterpolationTest", "BestApproximationSolver", Hook::Solver(face_fe_interpolation::factory)),
     // `PoissonPFEM/Poisson.f90` on p-elements, ported in `elmer-pdofs`.
     ("PoissonPFEM", "Poisson", "PoissonSolver", Hook::Solver(elmer_pdofs::solver::poisson_pfem)),
     // The same source up to blank lines.

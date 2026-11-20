@@ -42,6 +42,7 @@ pub mod defs;
 pub mod dg;
 pub mod dirichlet;
 pub mod dofs;
+pub mod face_element;
 pub mod mixed_poisson;
 pub mod perm;
 pub mod pmesh;
