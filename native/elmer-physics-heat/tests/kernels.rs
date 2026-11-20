@@ -4,8 +4,9 @@ mod support;
 
 use elmer_core::{ElementType, LocalSystem};
 use elmer_physics_heat::{
-    heat_boundary_local, heat_bulk_local, Conductivity, HeatBcAtNodes, HeatBoundaryConfig,
-    HeatBulkConfig, HeatError, HeatMaterialAtNodes, Stabilization,
+    heat_boundary_local, heat_bulk_local, CompressModel, Compressibility, Conductivity,
+    HeatBcAtNodes, HeatBoundaryConfig, HeatBulkConfig, HeatError, HeatMaterialAtNodes,
+    Stabilization,
 };
 use support::{TestBasis, TestQuadrature};
 
@@ -328,4 +329,158 @@ fn boundary_axisymmetric_flux_is_weighted_by_radius() {
     let out = bnd(&xyz, &bc, &cfg);
     close(out.force[0], 5.0 / 3.0);
     close(out.force[1], 7.0 / 3.0);
+}
+
+/// A convected triangle with uniform properties and velocity `(2, 1)`.
+fn convected(rho: f64, compressibility: Option<Compressibility>) -> HeatMaterialAtNodes {
+    HeatMaterialAtNodes {
+        conductivity: Some(Conductivity::Scalar(vec![0.5; 3])),
+        density: Some(vec![rho; 3]),
+        heat_capacity: Some(vec![4.0; 3]),
+        heat_source: Some(vec![1.5; 3]),
+        convection_velocity: Some(vec![[2.0, 1.0, 0.0]; 3]),
+        compressibility,
+        ..Default::default()
+    }
+}
+
+fn supg_cfg(transient: bool) -> HeatBulkConfig {
+    let mut cfg = HeatBulkConfig::new(2);
+    cfg.transient = transient;
+    cfg.stabilization = Stabilization::Supg {
+        h_k: 0.7,
+        m_k: 1.0 / 3.0,
+    };
+    cfg
+}
+
+fn same(a: &[f64], b: &[f64]) {
+    assert_eq!(a.len(), b.len());
+    for (x, y) in a.iter().zip(b) {
+        close(*x, *y);
+    }
+}
+
+#[test]
+fn thermal_compressibility_scales_the_density_everywhere_it_is_used() {
+    // rho (1 - beta (T - Tref)) = 2 (1 - 0.25 (3 - 1)) = 1: every term,
+    // SUPG and mass included, sees density 1. Without the flow pressure
+    // there is no pressure work.
+    let thermal = Compressibility {
+        model: CompressModel::Thermal {
+            heat_expansion: Some(vec![0.25; 3]),
+            reference_temperature: Some(vec![1.0; 3]),
+        },
+        temperature: vec![3.0; 3],
+        pressure: None,
+        prev_pressure: None,
+    };
+    let got = bulk(
+        TRI,
+        &unit_tri(),
+        &convected(2.0, Some(thermal)),
+        &supg_cfg(true),
+    );
+    let want = bulk(TRI, &unit_tri(), &convected(1.0, None), &supg_cfg(true));
+    same(&got.stiff, &want.stiff);
+    same(&got.force, &want.force);
+    same(got.mass.as_ref().unwrap(), want.mass.as_ref().unwrap());
+}
+
+#[test]
+fn perfect_gas_density_and_pressure_work() {
+    // p = 1 + x + 2y at the nodes, p0 = 3, gamma = 1.4, cp = 4, T = 2.
+    let pressure = vec![1.0, 2.0, 3.0];
+    let gas = |prev: Option<(Vec<f64>, f64)>| Compressibility {
+        model: CompressModel::PerfectGas {
+            specific_heat_ratio: Some(vec![1.4; 3]),
+            reference_pressure: Some(vec![3.0; 3]),
+        },
+        temperature: vec![2.0; 3],
+        pressure: Some(pressure.clone()),
+        prev_pressure: prev,
+    };
+    let cfg = HeatBulkConfig::new(2);
+    let got = bulk(TRI, &unit_tri(), &convected(9.0, Some(gas(None))), &cfg);
+
+    // The density at each point is (p + p0) / (R T) with R = (gamma-1)/gamma
+    // cp: linear in p, so the stiffness is that of the incompressible
+    // element with the density interpolated from its nodal values.
+    let r_t = (1.4 - 1.0) / 1.4 * 4.0 * 2.0;
+    let rho_nodes: Vec<f64> = pressure.iter().map(|p| (p + 3.0) / r_t).collect();
+    let mut want_mat = convected(0.0, None);
+    want_mat.density = Some(rho_nodes.clone());
+    let want = bulk(TRI, &unit_tri(), &want_mat, &cfg);
+    same(&got.stiff, &want.stiff);
+
+    // Force: the heat source times rho, plus Pcoeff = 1 times
+    // v.grad p = 2*1 + 1*2 = 4 against each basis function (area/3 each).
+    let mut want_force = want.force.clone();
+    want_force.iter_mut().for_each(|f| *f += 4.0 / 6.0);
+    same(&got.force, &want_force);
+
+    // Transient: dp/dt = (p - p_prev)/dt = 0.5 everywhere adds 0.5/6 more.
+    let prev: Vec<f64> = pressure.iter().map(|p| p - 1.0).collect();
+    let mut tcfg = HeatBulkConfig::new(2);
+    tcfg.transient = true;
+    let got_t = bulk(
+        TRI,
+        &unit_tri(),
+        &convected(9.0, Some(gas(Some((prev, 2.0))))),
+        &tcfg,
+    );
+    let mut want_t = want_force.clone();
+    want_t.iter_mut().for_each(|f| *f += 0.5 / 6.0);
+    same(&got_t.force, &want_t);
+}
+
+#[test]
+fn thermal_pressure_work_coefficient() {
+    // Pcoeff = T beta / (1 - beta (T - Tref)) = 3 * 0.25 / 0.5 = 1.5 and
+    // v.grad p = 4: the pressure work adds 6 / 6 to each node.
+    let with = |pressure: Option<Vec<f64>>| Compressibility {
+        model: CompressModel::Thermal {
+            heat_expansion: Some(vec![0.25; 3]),
+            reference_temperature: Some(vec![1.0; 3]),
+        },
+        temperature: vec![3.0; 3],
+        pressure,
+        prev_pressure: None,
+    };
+    let cfg = HeatBulkConfig::new(2);
+    let got = bulk(
+        TRI,
+        &unit_tri(),
+        &convected(2.0, Some(with(Some(vec![1.0, 2.0, 3.0])))),
+        &cfg,
+    );
+    let base = bulk(TRI, &unit_tri(), &convected(2.0, Some(with(None))), &cfg);
+    same(&got.stiff, &base.stiff);
+    let want: Vec<f64> = base.force.iter().map(|f| f + 1.0).collect();
+    same(&got.force, &want);
+}
+
+#[test]
+fn perfect_gas_without_the_flow_pressure_is_an_error() {
+    let gas = Compressibility {
+        model: CompressModel::PerfectGas {
+            specific_heat_ratio: None,
+            reference_pressure: None,
+        },
+        temperature: vec![2.0; 3],
+        pressure: None,
+        prev_pressure: None,
+    };
+    let mut out = LocalSystem::zeros(0);
+    let err = heat_bulk_local(
+        &TestBasis,
+        &TestQuadrature,
+        TRI,
+        &unit_tri(),
+        &convected(1.0, Some(gas)),
+        &HeatBulkConfig::new(2),
+        &mut out,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("computed convection"), "{err}");
 }

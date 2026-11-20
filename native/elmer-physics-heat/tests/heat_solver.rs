@@ -156,15 +156,28 @@ fn unsupported_cases_are_refused_at_setup() {
     m.boundary_conditions[1].insert("Radiation", st("Idealized"));
     assert!(try_model(m).contains("Radiation"));
 
-    // Reading the flow solution is refused when the solver runs, not at
-    // setup: Elmer's own init accepts it, and `Exec Solver = Never` skips it.
+    // Computed convection needs the flow field; without one the solve (not
+    // the setup: `Exec Solver = Never` skips it) fails.
     let mut m = minimal_model();
     m.equations[0].insert("Convection", st("Computed"));
     m.solvers[0].insert("Stabilize", Value::Logical(true));
     let err = run(m, &mesh).err().expect("refused").to_string();
-    assert!(err.contains("Convection = Computed"), "{err}");
+    assert!(err.contains("Flow Solution"), "{err}");
+
+    // A Perfect Gas density reads the flow pressure.
+    let mut m = minimal_model();
+    m.materials[0].insert("Compressibility Model", st("Perfect Gas"));
+    let err = run(m, &mesh).err().expect("refused").to_string();
+    assert!(err.contains("requires computed convection"), "{err}");
 
     let mut m = minimal_model();
+    m.materials[0].insert("Compressibility Model", st("User Defined"));
+    let err = run(m, &mesh).err().expect("refused").to_string();
+    assert!(err.contains("User Defined"), "{err}");
+
+    // HeatSolveLegacy's compressible path is not ported.
+    let mut m = minimal_model();
+    m.solvers[0].insert("Legacy Assembly", Value::Logical(true));
     m.materials[0].insert("Compressibility Model", st("Thermal"));
     let err = run(m, &mesh).err().expect("refused").to_string();
     assert!(err.contains("Compressibility Model"), "{err}");

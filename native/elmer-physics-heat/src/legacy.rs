@@ -238,7 +238,7 @@ impl HeatSolver {
                 let el = ctx.mesh.element(e);
                 let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
                 let n = xyz.len();
-                let mat = bulk_inputs(ctx, e, n, true)?;
+                let mat = bulk_inputs(ctx, e, n, true, None)?;
                 bulk_cfg.stabilization = if supg && mat.convection_velocity.is_some() {
                     let (m_k, h_k) = elmer_fe::stab_param(el.etype, &xyz, dim, long_edge)
                         .map_err(|err| SolverError::fatal(CALLER, err.to_string()))?;
