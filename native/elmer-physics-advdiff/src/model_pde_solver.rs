@@ -92,7 +92,7 @@ fn p_element(d: &dyn SolverDofs, e: ElemId, np: Option<usize>) -> Result<PElemen
     };
     Ok(PElement {
         basis: d
-            .element_basis(e)
+            .element_basis_scalar(e)
             .map_err(|m| dofs_error("ElementInfo", m))?,
         rule: rule.map_err(|m| dofs_error("GaussPoints", m))?,
         nodes: d.element_nodes(e),

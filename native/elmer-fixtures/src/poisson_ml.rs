@@ -212,7 +212,7 @@ impl Solver for PoissonMl {
             let nd = slots.len();
             let order = d.element_nodes(e);
             let xyz: Vec<[f64; 3]> = order.iter().map(|&n| ctx.mesh.coord(n)).collect();
-            let basis = d.element_basis(e).map_err(fatal)?;
+            let basis = d.element_basis_scalar(e).map_err(fatal)?;
             let rule = d.element_rule(e).map_err(fatal)?;
             let (stiff, force) = if bulk {
                 let nb = d.local_bubbles(e);

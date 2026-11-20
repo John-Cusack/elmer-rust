@@ -49,8 +49,8 @@ pub struct PElementSpec {
     pub scalar_face_order: bool,
     /// Evaluate as the scalar `ElementInfo` does (PElementBase.F90 and
     /// `ElementMetric`) instead of `ElementInfoVec` (H1Basis.F90 and
-    /// `ElementMetricVec`); see `scalar.rs`. Only triangles have the scalar
-    /// path so far; other elements ignore it.
+    /// `ElementMetricVec`); see `scalar.rs`. Triangles and full-scheme
+    /// quads have the scalar path so far; other elements ignore it.
     pub scalar_element_info: bool,
 }
 
@@ -291,9 +291,13 @@ pub fn h1_p_basis_spec(
             }
             if s.face_max() > 1 {
                 let mut extra = 0usize;
-                extra += (0..=fp[0] - 2).map(|_| (fp[0] - 1).max(0) as usize).sum::<usize>();
+                extra += (0..=fp[0] - 2)
+                    .map(|_| (fp[0] - 1).max(0) as usize)
+                    .sum::<usize>();
                 for &d in &fp[1..5] {
-                    extra += (0..=d - 3).map(|j| (d - j - 2).max(0) as usize).sum::<usize>();
+                    extra += (0..=d - 3)
+                        .map(|j| (d - j - 2).max(0) as usize)
+                        .sum::<usize>();
                 }
                 need(val.len().min(grad.len()), nbp + extra)?;
                 pyramid_face_p(u, v, w, fp, val, &mut nbp, fd);
@@ -321,11 +325,15 @@ pub fn h1_p_basis_spec(
             if s.face_max() > 1 {
                 let mut extra = 0usize;
                 for &d in &fp[..2] {
-                    extra += (0..=d - 3).map(|j| (d - j - 2).max(0) as usize).sum::<usize>();
+                    extra += (0..=d - 3)
+                        .map(|j| (d - j - 2).max(0) as usize)
+                        .sum::<usize>();
                 }
                 for &d in &fp[2..5] {
                     if sd {
-                        extra += (2..=d - 2).map(|j| (d - j - 1).max(0) as usize).sum::<usize>();
+                        extra += (2..=d - 2)
+                            .map(|j| (d - j - 1).max(0) as usize)
+                            .sum::<usize>();
                     } else {
                         extra += (0..=d - 2).map(|_| (d - 1).max(0) as usize).sum::<usize>();
                     }
@@ -471,11 +479,13 @@ impl PElementBasis {
 }
 
 impl PElementBasis {
-    /// The scalar `ElementInfo` of a triangle: nodal and edge functions from
-    /// PElementBase.F90 (H1Basis values kept for bubbles and edge degrees
-    /// above 5), geometry from `ElementMetric`.
-    fn eval_scalar_triangle(
+    /// The scalar `ElementInfo` of a triangle or a (full-scheme) quad: the
+    /// functions `scalar.rs` ports from PElementBase.F90, H1Basis values for
+    /// the rest, geometry from `ElementMetric`.
+    #[allow(clippy::too_many_arguments)]
+    fn eval_scalar_2d(
         &self,
+        ecode: u16,
         nodal_xyz: &[[f64; 3]],
         uvw: [f64; 3],
         mut val: Vec<f64>,
@@ -484,25 +494,60 @@ impl PElementBasis {
         out: &mut BasisEval,
     ) -> Result<(), String> {
         let (u, v) = (uvw[0], uvw[1]);
-        crate::scalar::triangle_nodal(u, v, &mut val, &mut grad);
+        let tri = ecode == 303;
+        // The nodal functions: the triangle's differ from H1Basis's; the
+        // quad's QuadNodalPBasisAll are H1Basis's QuadNodal already.
+        let nn = if tri { 3 } else { 4 };
+        if tri {
+            crate::scalar::triangle_nodal(u, v, &mut val, &mut grad);
+        }
         // Edge functions in H1Basis order: edge by edge, degree 2 up.
-        let mut q = 3;
-        for i in 0..3 {
-            // ElemInfo.F90:854-860: invert when the edge's first map node
-            // has the larger global index; edge_dir holds the map pair
-            // reordered by global index.
-            let map = [[1, 2], [2, 3], [3, 1]][i];
+        // ElemInfo.F90:854-860 / the 404 case: invert when the edge's first
+        // map node has the larger global index; edge_dir holds the map pair
+        // reordered by global index.
+        let maps: &[[usize; 2]] = if tri {
+            &[[1, 2], [2, 3], [3, 1]]
+        } else {
+            &[[1, 2], [2, 3], [4, 3], [1, 4]]
+        };
+        let mut q = nn;
+        for (i, map) in maps.iter().enumerate() {
             let invert = self.spec.edge_dir[i][0] != map[0];
             for k in 2..=self.spec.edge_degree[i].max(1) as usize {
-                if let Some((value, g)) = crate::scalar::triangle_edge(i + 1, k, u, v, invert) {
+                let f = if tri {
+                    crate::scalar::triangle_edge(i + 1, k, u, v, invert)
+                } else {
+                    crate::scalar::quad_edge(i + 1, k, u, v, invert)
+                };
+                if let Some((value, g)) = f {
                     val[q] = value;
                     grad[q] = [g[0], g[1], 0.0];
                 }
                 q += 1;
             }
         }
-        let cdim = if nodal_xyz[..3].iter().all(|x| x[2] == 0.0) { 2 } else { 3 };
-        let (det_j, l2g) = crate::scalar::element_metric(2, cdim, &nodal_xyz[..3], &grad[..nb])?;
+        // Quad interior bubbles, i (u) outer, j (v) inner, as `bubbles_quad`.
+        if !tri && self.spec.bubble_p > 0 && self.spec.bubble_face_dir.is_none() {
+            let bp = self.spec.bubble_p as usize;
+            'bubbles: for i in 0..=bp.saturating_sub(2) {
+                for j in 0..=bp.saturating_sub(2) {
+                    if q >= nb {
+                        break 'bubbles;
+                    }
+                    if let Some((value, g)) = crate::scalar::quad_bubble(i, j, u, v) {
+                        val[q] = value;
+                        grad[q] = [g[0], g[1], 0.0];
+                    }
+                    q += 1;
+                }
+            }
+        }
+        let cdim = if nodal_xyz[..nn].iter().all(|x| x[2] == 0.0) {
+            2
+        } else {
+            3
+        };
+        let (det_j, l2g) = crate::scalar::element_metric(2, cdim, &nodal_xyz[..nn], &grad[..nb])?;
         out.det_j = det_j;
         out.basis.clear();
         out.basis.extend_from_slice(&val[..nb]);
@@ -538,14 +583,19 @@ impl ElementBasis for PElementBasis {
         }
         let nn = n_nodes(etype.0)?;
         if nodal_xyz.len() < nn {
-            return Err(format!("{} nodal coordinates given, {nn} needed", nodal_xyz.len()));
+            return Err(format!(
+                "{} nodal coordinates given, {nn} needed",
+                nodal_xyz.len()
+            ));
         }
         let cap = self.spec.capacity();
         let mut val = vec![0.0; cap];
         let mut grad = vec![[0.0; 3]; cap];
         let nb = h1_p_basis_spec(&self.spec, uvw, &mut val, &mut grad)?;
-        if self.spec.scalar_element_info && etype.0 == 303 {
-            return self.eval_scalar_triangle(nodal_xyz, uvw, val, grad, nb, out);
+        if self.spec.scalar_element_info
+            && (etype.0 == 303 || (etype.0 == 404 && !self.spec.serendipity))
+        {
+            return self.eval_scalar_2d(etype.0, nodal_xyz, uvw, val, grad, nb, out);
         }
         let dim = match etype.family() {
             2 => 1,
@@ -588,7 +638,11 @@ impl ElementBasis for PElementBasis {
                 let s = 1.0 / d;
                 (
                     d,
-                    [[s * g[1][1], -s * g[0][1], 0.0], [-s * g[0][1], s * g[0][0], 0.0], [0.0; 3]],
+                    [
+                        [s * g[1][1], -s * g[0][1], 0.0],
+                        [-s * g[0][1], s * g[0][0], 0.0],
+                        [0.0; 3],
+                    ],
                 )
             }
             _ => {
