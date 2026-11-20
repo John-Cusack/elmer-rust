@@ -433,6 +433,13 @@ pub fn golden_norm(
     variable: &str,
     opts: impl Fn(usize) -> NormOpts,
 ) -> Result<f64, String> {
+    let (values, perm, dofs) = golden_values(file, vars, variable)?;
+    compute_norm(&values, Some(&perm), dofs, perm.len(), &opts(dofs)).map_err(|e| e.to_string())
+}
+
+/// The solver's `Values` (dof order), `Perm` and DOFs of `variable`,
+/// rebuilt from the last saved step of `file`.
+pub fn golden_values(file: &ResultFile, vars: &[PreambleVar], variable: &str) -> Result<(Vec<f64>, Vec<i32>, usize), String> {
     let entry = preamble_entry(vars, variable)?;
     let comps = entry
         .components()
@@ -480,8 +487,7 @@ pub fn golden_norm(
     if entry.size != values.len() {
         return Err(format!("{} values, {} saved (non-nodal unknowns)", entry.size, values.len()));
     }
-    let perm = perm.unwrap_or_default();
-    compute_norm(&values, Some(&perm), dofs, perm.len(), &opts(dofs)).map_err(|e| e.to_string())
+    Ok((values, perm.unwrap_or_default(), dofs))
 }
 
 #[cfg(test)]
