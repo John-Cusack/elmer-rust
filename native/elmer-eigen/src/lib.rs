@@ -19,6 +19,7 @@
 //! compare vectors sign-normalised.
 #![forbid(unsafe_code)]
 
+pub mod arpack;
 pub mod config;
 pub mod krylov;
 pub mod scale;
