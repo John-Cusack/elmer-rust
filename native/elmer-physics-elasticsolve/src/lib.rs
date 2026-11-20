@@ -34,6 +34,7 @@ pub mod neohooke;
 mod props;
 pub mod solver;
 pub mod tensor;
+pub mod umat;
 
 pub use boundary::{elastic_boundary_local, node_uvw, BoundaryInput, ParentInput};
 pub use bulk::{elastic_bulk_local, BulkInput};

@@ -81,7 +81,8 @@ pub struct StressPostLocal {
     pub stress: Vec<f64>,
 }
 
-fn add_tensor(force: &mut [f64], bas: &[f64], ncomp: usize, w: f64, t: &Tensor3) {
+/// `NodalProjectorTensor`: `w t_ij N_p` into the node-major right-hand side.
+pub fn add_tensor(force: &mut [f64], bas: &[f64], ncomp: usize, w: f64, t: &Tensor3) {
     for (p, b) in bas.iter().enumerate() {
         for i in 0..3 {
             for j in i..3 {
