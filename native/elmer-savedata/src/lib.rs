@@ -41,8 +41,7 @@
 //! naming the keyword: flux reconstruction (`diffusive flux`, `convective
 //! flux`, `Save Heat Flux`), material `Coefficient n`, `positive `/`negative `
 //! operators, polylines, circles, isocurves and axis lines, exact point
-//! coordinates, eigenvalue columns, MATC `Expression n`, run-dependent
-//! values (`cpu time`, `wall time`, `cpu memory`, `threads`), JSON output,
+//! coordinates, eigenvalue columns, MATC `Expression n`, JSON output,
 //! numbered file names, failed-strategy marker files and every MPI
 //! reduction (a run with more than one partition stops at the first visit).
 //! The sections' cross-field requirements - a nodal field, Cartesian or axi
@@ -78,6 +77,7 @@ mod materials;
 mod plan;
 mod reload;
 mod scalars;
+mod timing;
 mod view;
 
 use std::sync::OnceLock;
