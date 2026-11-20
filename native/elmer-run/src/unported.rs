@@ -80,20 +80,6 @@ fn runs(solver: &ParamMap) -> bool {
     !solver.0.is_empty() && !solver.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never"))
 }
 
-/// Solver variables and their components.
-fn variables(model: &Model) -> Vec<String> {
-    let mut primary = Vec::new();
-    for s in &model.solvers {
-        if let Some(v) = s.string("variable") {
-            if let Ok(spec) = parse_variable_spec(&v.replace('"', " "), s.integer("variable dofs")) {
-                primary.push(spec.name);
-                primary.extend(spec.components);
-            }
-        }
-    }
-    primary
-}
-
 /// Refuses the first unimplemented feature `model` names.
 pub fn check(model: &Model) -> Result<(), SolverError> {
     scan("Simulation", 1, &model.simulation, SIMULATION)?;
@@ -160,16 +146,6 @@ pub fn check(model: &Model) -> Result<(), SolverError> {
         }
     }
 
-    let primary = variables(model);
-    for var in &primary {
-        // SetDirichletBoundaries' body-force pass (Dirichlet values on bodies).
-        if let Some(i) = model.body_forces.iter().position(|b| b.0.contains_key(var)) {
-            return Err(SolverError::Unsupported(format!(
-                "Body Force {}: {var}: body-force Dirichlet values are not implemented",
-                i + 1
-            )));
-        }
-    }
     Ok(())
 }
 
@@ -269,10 +245,8 @@ mod tests {
             body_forces: vec![pm(&[(k, real.clone())])],
             ..Model::default()
         };
-        assert_eq!(
-            refusal(&bf("temperature")),
-            "Body Force 1: temperature: body-force Dirichlet values are not implemented"
-        );
+        // Body-force Dirichlet values are elmer-solver's (SetDirichletBoundaries).
+        assert!(check(&bf("temperature")).is_ok());
         assert!(check(&bf("heat source")).is_ok());
 
         let model = Model {
