@@ -605,9 +605,11 @@ fn p_element(ctx: &SolverCtx<'_>, e: ElemId) -> Result<Option<PElement>, SolverE
     }
     let mut slots = Vec::new();
     d.element_slots(e, &mut slots);
-    if slots.len() != ctx.mesh.element(e).nodes.len() {
+    // The edge DOFs of a 2D p element are fixed on Dirichlet boundaries by
+    // the framework; 3D face DOFs are not.
+    if slots.len() != ctx.mesh.element(e).nodes.len() && ctx.mesh.dim() == 3 {
         return Err(SolverError::Unsupported(
-            "HeatSolver: p elements beyond p:1 (edge and face dofs)".into(),
+            "HeatSolver: 3D p elements beyond p:1 (face dofs)".into(),
         ));
     }
     Ok(Some(PElement {
@@ -1147,6 +1149,17 @@ impl Solver for HeatSolver {
                 }
                 if bc.heat_flux.is_some() || bc.heat_transfer_coefficient.is_some() {
                     let el = ctx.mesh.element(e);
+                    // LocalMatrixBC spans the boundary's p DOFs, which this
+                    // nodal boundary assembly leaves out.
+                    if let (Some(d), Some(parent)) = (ctx.solver_dofs(), el.parents[0].or(el.parents[1])) {
+                        let mut ps = Vec::new();
+                        d.element_slots(parent, &mut ps);
+                        if d.dg_layout().is_none() && ps.len() > ctx.mesh.element(parent).nodes.len() {
+                            return Err(SolverError::Unsupported(
+                                "HeatSolver: a heat flux or transfer BC on a p element beyond p:1".into(),
+                            ));
+                        }
+                    }
                     let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
                     heat_boundary_local(
                         &*self.basis,
