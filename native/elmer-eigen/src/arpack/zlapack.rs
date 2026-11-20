@@ -1018,3 +1018,67 @@ pub fn ztrsen_nv(select: &[bool], n: usize, t: &mut [C], ldt: usize, q: &mut [C]
     }
     m
 }
+
+/// `ZTREVC('Right', 'Select', SELECT, N, T, LDT, VL, LDVL, VR, LDVR, MM,
+/// M, WORK, RWORK, INFO)`: the right eigenvectors of the upper triangular
+/// `T` for the selected eigenvalues, not back-transformed, in columns `1..M`
+/// of `VR` in increasing order of the selected index, each normalized to
+/// unit largest `|re| + |im|` and zero below its index. Returns `M`.
+pub fn ztrevc_rs(select: &[bool], n: usize, t: &mut [C], ldt: usize, vr: &mut [C], ldvr: usize) -> usize {
+    let m = select[..n].iter().filter(|&&s| s).count();
+    if n == 0 {
+        return m;
+    }
+    let unfl = SAFMIN;
+    let ulp = PREC;
+    let smlnum = unfl * (n as f64 / ulp);
+    let mut work = vec![ZERO; 2 * n];
+    let mut rwork = vec![0.0f64; n];
+    for i in 1..=n {
+        work[i + n - 1] = t[ix(i, i, ldt)];
+    }
+    rwork[0] = 0.0;
+    for j in 2..=n {
+        let col: Vec<C> = (1..j).map(|i| t[ix(i, j, ldt)]).collect();
+        rwork[j - 1] = super::zblas::dzasum(j - 1, &col);
+    }
+    let mut is = m;
+    for ki in (1..=n).rev() {
+        if !select[ki - 1] {
+            continue;
+        }
+        let smin = (ulp * cabs1(t[ix(ki, ki, ldt)])).max(smlnum);
+        work[0] = ONE;
+        for k in 1..ki {
+            work[k - 1] = -t[ix(k, ki, ldt)];
+        }
+        let tkk = t[ix(ki, ki, ldt)];
+        for k in 1..ki {
+            let p = ix(k, k, ldt);
+            t[p] -= tkk;
+            if cabs1(t[p]) < smin {
+                t[p] = C::new(smin, 0.0);
+            }
+        }
+        if ki > 1 {
+            let scale = zlatrs_unn(ki - 1, t, ldt, &mut work[..ki - 1], &mut rwork[..ki - 1]);
+            work[ki - 1] = C::new(scale, 0.0);
+        }
+        // Copy the vector x to VR and normalize.
+        let mut col: Vec<C> = work[..ki].to_vec();
+        let ii = super::zblas::izamax(ki, &col);
+        let remax = 1.0 / cabs1(col[ii - 1]);
+        zdscal(ki, remax, &mut col);
+        for k in 1..=ki {
+            vr[ix(k, is, ldvr)] = col[k - 1];
+        }
+        for k in ki + 1..=n {
+            vr[ix(k, is, ldvr)] = ZERO;
+        }
+        for k in 1..ki {
+            t[ix(k, k, ldt)] = work[k + n - 1];
+        }
+        is -= 1;
+    }
+    m
+}
