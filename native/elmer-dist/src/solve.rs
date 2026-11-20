@@ -36,6 +36,9 @@ pub struct DistSolveOptions {
     pub precond: DistPrecond,
     /// `Linear System Scaling` with the `diagonal` method (default on).
     pub scaling: bool,
+    /// The matrix's `A % ndeg`, which `SolveLinearSystem` hands to the split
+    /// inside matrix ([`DistCsr::with_ndeg`]); 0 keeps the default product.
+    pub ndeg: usize,
 }
 
 impl DistSolveOptions {
@@ -44,6 +47,7 @@ impl DistSolveOptions {
             huti,
             precond: DistPrecond::None,
             scaling: true,
+            ndeg: 0,
         }
     }
 
@@ -111,6 +115,7 @@ impl DistSolveOptions {
             huti,
             precond,
             scaling,
+            ndeg: 0,
         })
     }
 }
@@ -166,7 +171,7 @@ pub fn dist_solve(
         (vec![1.0; n], 1.0)
     };
 
-    let m = DistCsr::from_local(comm, layout, &a)?;
+    let m = DistCsr::from_local(comm, layout, &a)?.with_ndeg(opts.ndeg);
     let b_own = layout.sum_to_owned(comm, &b);
     let mut x_own = layout.gather_owned(x);
 

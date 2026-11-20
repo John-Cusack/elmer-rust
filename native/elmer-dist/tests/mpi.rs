@@ -203,6 +203,7 @@ fn worker(a: &[String]) {
                 huti,
                 precond,
                 scaling: true,
+                ndeg: 0,
             };
             let mut x = vec![0.0; p.layout.n_local()];
             let s = dist_solve(&comm, &p.layout, &p.a, &p.b, &mut x, &o, None).expect("solve");

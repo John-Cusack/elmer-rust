@@ -47,6 +47,8 @@ struct IfBlock {
 #[derive(Clone, Debug)]
 pub struct DistCsr {
     inside: CsrMatrix<f64>,
+    /// `InsideMatrix % ndeg` for the local product: 0 for the default loop.
+    ndeg: usize,
     send_if: Vec<IfBlock>,
     /// `(rank, owned positions)`: where the partial sums from `rank` land.
     recv_if: Vec<(usize, Vec<u32>)>,
@@ -209,9 +211,38 @@ impl DistCsr {
         agree(comm, bad.map_or(Ok(()), Err))?;
         Ok(DistCsr {
             inside,
+            ndeg: 0,
             send_if,
             recv_if,
         })
+    }
+
+    /// `InsideMatrix % ndeg = A % ndeg` (SolveCore.F90:1626-1629, the
+    /// iterative branch of `SolveLinearSystem`): the inside product
+    /// (`CRS_MatrixVectorMultiply`) then steps through each row a block of
+    /// `ndeg` at a time, one accumulator per block column. A matrix whose
+    /// inside rows are not whole blocks of consecutive columns keeps the
+    /// default loop, as [`elmer_sparse::spmv_blocked`] requires.
+    pub fn with_ndeg(mut self, ndeg: usize) -> Self {
+        let width = match ndeg {
+            5 | 10 => 5,
+            4 | 8 => 4,
+            3 | 6 => 3,
+            2 => 2,
+            _ => 0,
+        };
+        let a = &self.inside;
+        let whole = width > 0
+            && (0..a.nrows).all(|i| {
+                let (lo, hi) = (a.row_ptr[i], a.row_ptr[i + 1]);
+                (hi - lo) % ndeg == 0
+                    && (lo..hi).step_by(width).all(|j| {
+                        let c = a.col_idx[j];
+                        (1..width).all(|k| a.col_idx[j + k] == c + k as u32)
+                    })
+            });
+        self.ndeg = if whole { ndeg } else { 0 };
+        self
     }
 
     /// Owned rows by owned columns, with every contribution added up and a
@@ -253,7 +284,12 @@ impl DistCsr {
             .map(|(r, p)| (*r, vec![0.0; p.len()]))
             .collect();
         // The local product defines y; partial sums from neighbours add to it.
-        elmer_sparse::spmv(&self.inside, x, y);
+        if self.ndeg > 1 {
+            elmer_sparse::spmv_blocked(&self.inside, self.ndeg, x, y)
+                .expect("whole blocks were checked in with_ndeg");
+        } else {
+            elmer_sparse::spmv(&self.inside, x, y);
+        }
         comm.exchange_f64(&send, &mut recv);
         for ((_, pos), (_, vals)) in self.recv_if.iter().zip(&recv) {
             for (&p, &v) in pos.iter().zip(vals) {
@@ -286,5 +322,46 @@ impl LinearOperator<f64> for DistOperator<'_> {
 
     fn apply(&self, x: &[f64], y: &mut [f64]) {
         self.a.matvec(self.comm, x, y);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::exchange::ThreadComm;
+
+    /// One rank, one row of two 2-dof blocks: `[1e16, 1, -1e16, 1] x` with
+    /// `x = 1`. The default loop (four accumulators) gives
+    /// `((1e16 + 1) - 1e16) + 1 = 1`; the `ndeg = 2` loop sums the block
+    /// columns apart, `(1e16 - 1e16) + (1 + 1) = 2`.
+    #[test]
+    fn ndeg_two_sums_the_block_columns_apart() {
+        let out = ThreadComm::run(1, |c| {
+            let layout = DofLayout::new(c, vec![0, 1, 2, 3], vec![0; 4]).expect("layout");
+            let mut t: Vec<(usize, u32, f64)> = vec![(0, 0, 1e16), (0, 1, 1.0), (0, 2, -1e16), (0, 3, 1.0)];
+            t.extend((1..4).map(|i| (i, i as u32, 1.0)));
+            t.push((1, 0, 0.0));
+            t.push((2, 3, 0.0));
+            t.push((3, 2, 0.0));
+            let a = from_triplets(4, 4, t);
+            let m = DistCsr::from_local(c, &layout, &a).expect("split");
+            let x = [1.0; 4];
+            let mut y0 = [0.0; 4];
+            m.matvec(c, &x, &mut y0);
+            let mut y2 = [0.0; 4];
+            m.clone().with_ndeg(2).matvec(c, &x, &mut y2);
+            (y0[0], y2[0])
+        });
+        assert_eq!(out[0], (1.0, 2.0));
+    }
+
+    #[test]
+    fn ndeg_without_whole_blocks_keeps_the_default_loop() {
+        let out = ThreadComm::run(1, |c| {
+            let layout = DofLayout::new(c, vec![0, 1, 2], vec![0; 3]).expect("layout");
+            let a = from_triplets(3, 3, vec![(0, 0, 1e16), (0, 1, 1.0), (0, 2, -1e16), (1, 1, 1.0), (2, 2, 1.0)]);
+            DistCsr::from_local(c, &layout, &a).expect("split").with_ndeg(2).ndeg
+        });
+        assert_eq!(out[0], 0);
     }
 }
