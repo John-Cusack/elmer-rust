@@ -109,6 +109,7 @@ fn run(case: &str) -> Solution {
         solver: model.solvers.first().map(|s| s as &dyn Params),
         coord_dim: coords.dim,
         log: &NullLogger,
+        discont_perm: None,
     };
     let (projectors, stop) = generate_periodic_projectors(&env, &dir, 0).unwrap();
     assert!(!stop);

@@ -64,6 +64,7 @@ fn check_kind(name: &str, kind: Kind) {
         solver: case.solvers.first().map(|s| s as &dyn Params),
         coord_dim: mesh.dim(),
         log: &NullLogger,
+        discont_perm: None,
     };
     let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("elmer-mortar")

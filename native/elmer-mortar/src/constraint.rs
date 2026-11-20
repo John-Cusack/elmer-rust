@@ -161,7 +161,8 @@ pub fn generate_constraint_matrix(
         if !bc.logical(&format!("mortar bc {}", t.name)).unwrap_or(true) {
             continue;
         }
-        // MasterScale and SlaveScale keep their defaults (1).
+        // MasterScale and SlaveScale: 1 unless the projector is a
+        // Lagrange periodic constraint.
         let create_self = !p.galerkin;
         if summed && create_self {
             return Err(MortarError::Fatal(format!(
@@ -239,10 +240,12 @@ pub fn generate_constraint_matrix(
                     continue;
                 }
                 wsum += val;
-                rows[row].push((col2, val));
+                // A nodal projector's target side takes MasterScale.
+                let scale = if create_self { p.master_scale } else { 1.0 };
+                rows[row].push((col2, scale * val));
             }
             if create_self {
-                rows[row].push((kk as u32, wsum));
+                rows[row].push((kk as u32, p.slave_scale * wsum));
             }
         }
         if !summed {

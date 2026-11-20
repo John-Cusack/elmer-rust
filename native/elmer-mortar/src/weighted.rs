@@ -149,5 +149,7 @@ pub fn weighted_projector(
         inv_perm,
         projector_bc: 0,
         galerkin: true,
+        slave_scale: 1.0,
+        master_scale: 1.0,
     })
 }
