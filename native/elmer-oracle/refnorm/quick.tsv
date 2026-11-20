@@ -248,8 +248,8 @@ NormalTangentialDisplacement2	bitwise	1
 NormalizeBC	bitwise	1	
 NormalizeBF	bitwise	1	
 NormalizeMaterial	bitwise	1	
-OdeSolver1stOrder	out-of-class	0	solver 1: ode not in any result file
-OdeSolver2ndOrder	out-of-class	0	solver 1: ode not in any result file
+OdeSolver1stOrder	bitwise	1	
+OdeSolver2ndOrder	bitwise	1	
 OtherMeshResults	bitwise	1	solver 1: own file angle/case.result; solver 3: norm option show norm
 OtherMeshResults_np4	out-of-class	0	solver 1: temperature in 2 per-rank result sets; solver 3: norm option show norm
 Outlet2InletBCv2	bitwise	1	
@@ -323,7 +323,7 @@ Shell_PlateCase_Quad	bitwise	1	solver 1: deflection (default)
 Shell_with_Beam_Sections	bitwise	1	solver 1: deflection (default)
 ShoeboxStaticPlate	bitwise	1	solver 1: deflection (default)
 ShoeboxStaticShell	bitwise	1	solver 1: deflection (default)
-SlaveSolverSlots	out-of-class	0	solver 2: count not in any result file
+SlaveSolverSlots	bitwise	1	
 SlaveSolverSlotsScan	bitwise	1	solver 1: count not in any result file
 SolverSpecificMeshes	bitwise	1	
 StatCurr_adaptivity	bitwise	1	solver 1: own file RefinedMesh3/case.result
