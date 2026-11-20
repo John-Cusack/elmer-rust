@@ -74,6 +74,12 @@ pub trait IterativeSolver<T: Scalar = f64> {
         x: &mut [T],
         comm: &dyn Communicator,
     ) -> Result<SolveStats, LinalgError>;
+
+    /// Called with the system's own matrix after [`solve`](Self::solve). A
+    /// solver that scaled a copy of it (a partitioned run's
+    /// `ScaleLinearSystem`) leaves on it what `BackScaleLinearSystem` leaves
+    /// on Elmer's matrix, scaled and back in place. Default: nothing.
+    fn after_solve(&mut self, _a: &mut CsrMatrix<T>) {}
 }
 
 pub trait DirectSolver<T: Scalar = f64> {

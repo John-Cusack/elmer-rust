@@ -117,13 +117,6 @@ fn preflight(model: &Model, registry: &elmer_solver::SolverRegistry) -> Result<(
         if p.string("element").is_some_and(|e| normalize_key(e) != "n:1" && p_degree(e).is_none()) {
             return Err(unsupported(format!("Solver {id}: Element (bubble, edge or DG elements)")));
         }
-        // Serendipity p elements (the default): their partitioned systems
-        // equal Elmer's in pattern and global numbering but not yet to the
-        // last bit, and the one quick test (SD_CapacitanceMatrix3_np3)
-        // lands above its bar.
-        if p_solver(p).is_some() && sim.logical("serendipity p elements") != Some(false) {
-            return Err(unsupported(format!("Solver {id}: serendipity p elements in a partitioned run")));
-        }
         for key in ["linear system complex", "coupled solver", "block solver", "monolithic slave"] {
             if p.logical(key) == Some(true) {
                 return Err(unsupported(format!("Solver {id}: {key} in parallel")));

@@ -463,20 +463,16 @@ pub(crate) fn frozen_modes(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
 pub(crate) fn solve_modes(ctx: &mut SolverCtx<'_>, modes: Modes) -> Result<f64, SolverError> {
     const DRIVER: &str = "ConstraintModesDriver";
     ctx.info(DRIVER, &format!("Number of constraint modes is: {}", i2s(modes.count as i64)), 8);
-    let set_rhs = |ctx: &mut SolverCtx<'_>, m: i32, on: bool| -> Result<(), SolverError> {
+    // SolveCore.F90:4243: after a mode's solve its rhs entries are zero.
+    let zero_rhs = |ctx: &mut SolverCtx<'_>, m: i32| -> Result<(), SolverError> {
         let sys = ctx.sim.slots[ctx.slot]
             .system
             .as_mut()
             .ok_or_else(|| SolverError::fatal(DRIVER, "no assembled system"))?;
         for (r, &k) in modes.index.iter().enumerate() {
-            if k != m {
-                continue;
+            if k == m {
+                sys.rhs[r] = 0.0;
             }
-            let a = &sys.matrix;
-            let d = (a.row_ptr[r]..a.row_ptr[r + 1])
-                .find(|&p| a.col_idx[p] as usize == r)
-                .map_or(0.0, |p| a.values[p]);
-            sys.rhs[r] = if on { d } else { 0.0 };
         }
         Ok(())
     };
@@ -488,8 +484,30 @@ pub(crate) fn solve_modes(ctx: &mut SolverCtx<'_>, modes: Modes) -> Result<f64, 
     let mut norm = 0.0;
     let mut r = Ok(());
     for m in 1..=modes.count as i32 {
+        // SolveCore.F90:4123-4125: from the second mode on the solves keep
+        // the first one's preconditioner (left on the section, as Elmer
+        // does). Only the partitioned solve honours it so far; the serial
+        // preconditioner factory refuses reuse, so a serial run recomputes.
+        if m == 2 && ctx.comm.size() > 1 {
+            ctx.sim.slots[ctx.slot].params.insert("No Precondition Recompute", Value::Logical(true));
+        }
         ctx.info(DRIVER, &format!("Setting up constrained mode: {}", i2s(i64::from(m))), 6);
-        r = set_rhs(ctx, m, true).and_then(|_| ctx.solve_system().map(|n| norm = n));
+        // SolveCore.F90:4205-4213: the previous mode's dofs back to 0 and
+        // this mode's to 1 (`A % DValues`), then EnforceDirichletConditions
+        // over every constrained dof of the matrix as it now is: each
+        // constrained diagonal is set anew from the (summed) diagonal it
+        // holds, and its rhs to that times the value.
+        let fixed: Vec<(u32, f64)> = ctx.sim.slots[ctx.slot]
+            .asm
+            .constrained
+            .iter()
+            .map(|&(row, v)| match modes.index.get(row as usize).copied() {
+                Some(k) if k == m => (row, 1.0),
+                Some(k) if m > 1 && k == m - 1 => (row, 0.0),
+                _ => (row, v),
+            })
+            .collect();
+        r = ctx.apply_dirichlet_values(&fixed).and_then(|_| ctx.solve_system().map(|n| norm = n));
         if r.is_err() {
             break;
         }
@@ -502,7 +520,7 @@ pub(crate) fn solve_modes(ctx: &mut SolverCtx<'_>, modes: Modes) -> Result<f64, 
             v.constraint_modes[k - 1] = mode;
         }
         ctx.info(DRIVER, &format!("Mode {} computed, doing some postprocessing", i2s(i64::from(m))), 10);
-        r = set_rhs(ctx, m, false);
+        r = zero_rhs(ctx, m);
         if r.is_err() {
             break;
         }
