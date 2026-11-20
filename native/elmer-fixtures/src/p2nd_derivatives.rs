@@ -161,28 +161,25 @@ impl Solver for TestSolver {
                 }
             }
             // InvertMatrix (LinearAlgebra.F90): column-major, and the mass
-            // matrix is symmetric. Then one step of iterative refinement,
-            // X += X (I - S X): this crate's p basis (the H1Basis forms) gives
-            // the p:8 tetrahedron a worse-conditioned mass matrix than the
-            // Fortran's PElementBase functions, and the projected
-            // derivatives would miss the 1e-8 check by rounding alone
-            // (1.0e-8 against pristine's 5e-10). Not in the Fortran.
-            let mass = stiff.clone();
+            // matrix is symmetric. It is inverted with Jacobi scaling,
+            // D^-1/2 (D^-1/2 S D^-1/2)^-1 D^-1/2, the same inverse: this
+            // crate's p basis (the H1Basis forms) scales the p:8
+            // tetrahedron's functions apart more than the Fortran's
+            // PElementBase ones, and without the scaling the projected
+            // derivatives miss the 1e-8 check by rounding alone (1.0e-8
+            // against pristine's 5e-10). Not in the Fortran.
+            let sc: Vec<f64> = (0..nd).map(|i| 1.0 / stiff[i * nd + i].sqrt()).collect();
+            for i in 0..nd {
+                for j in 0..nd {
+                    stiff[i * nd + j] *= sc[i] * sc[j];
+                }
+            }
             elmer_fe::invert_matrix(&mut stiff, nd).ok_or_else(|| SolverError::fatal("InvertMatrix", "singular matrix"))?;
-            let mut resid = vec![0.0f64; nd * nd];
             for i in 0..nd {
                 for j in 0..nd {
-                    let sx = (0..nd).fold(0.0, |a, k| a + mass[i * nd + k] * stiff[k * nd + j]);
-                    resid[i * nd + j] = if i == j { 1.0 - sx } else { -sx };
+                    stiff[i * nd + j] *= sc[i] * sc[j];
                 }
             }
-            let mut refined = stiff.clone();
-            for i in 0..nd {
-                for j in 0..nd {
-                    refined[i * nd + j] += (0..nd).fold(0.0, |a, k| a + stiff[i * nd + k] * resid[k * nd + j]);
-                }
-            }
-            stiff = refined;
             let f: Vec<f64> = (0..nd).map(|i| (0..nd).fold(0.0, |a, j| a + stiff[i * nd + j] * force[j])).collect();
             // dx(i, :, c) = STIFF^-1 dNodal(i, :, c).
             let mut dxp = vec![[0.0f64; 3]; nd * nd];
