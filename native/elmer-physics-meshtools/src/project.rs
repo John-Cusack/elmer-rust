@@ -7,15 +7,19 @@
 //! `upper <op>` and `lower <op>` restrict the operator to one side of the
 //! `Mid Surface`.
 //!
-//! Not ported, and refused: the mask keywords (`Mapping Mask Variable`,
-//! `Mapping Mask Name`), `Mapping Coordinate Transformation`, the `error ...`
-//! operators and discontinuous Galerkin input variables.
+//! `Mapping Mask Variable` / `Mapping Mask Name` restrict the columns to the
+//! masked nodes, measured on the `Extruded Coordinate` variable; a DG input
+//! field is read through the node's DG index in the masked bulk elements
+//! (`InvDGPerm`, which must be a bijection).
+//!
+//! Not ported, and refused: `Mapping Coordinate Transformation`, the `error
+//! ...` operators, and `isosurface` with a mask.
 
 use elmer_core::{FieldKind, ParamMap, Params, NO_DOF};
 use elmer_solver::norm::{compute_norm, NormSpec};
 use elmer_solver::{Solver, SolverCtx, SolverError, Variable};
 
-use crate::structure::{detect_extruded_structure, Structure, Want};
+use crate::structure::{detect_extruded_structure, extruded_coordinate, mapping_mask, Mask, Structure, Want};
 use crate::util::{coords_of, slot_index};
 
 const CALLER: &str = "StructuredProjectToPlane";
@@ -43,6 +47,13 @@ struct Init {
     bot_perm: Vec<u32>,
     mid_perm: Option<Vec<u32>>,
     top_nodes: usize,
+    mask: Option<Mask>,
+}
+
+impl Init {
+    fn masked(&self, n: usize) -> bool {
+        self.mask.as_ref().is_none_or(|m| m.perm[n] != NO_DOF)
+    }
 }
 
 #[derive(Default)]
@@ -75,8 +86,10 @@ impl Input {
     }
 }
 
-/// `VariableGet(Model % Variables, name)`; `Coordinate k` is the mesh.
-fn input_variable(ctx: &SolverCtx<'_>, name: &str) -> Result<Input, SolverError> {
+/// `VariableGet(Model % Variables, name)`; `Coordinate k` is the mesh. A DG
+/// field gets the node's slot through the DG indexes of the (masked) bulk
+/// elements, `InvDGPerm` (StructuredProjectToPlane.F90:231-250).
+fn input_variable(ctx: &SolverCtx<'_>, name: &str, mask: Option<&Mask>) -> Result<Input, SolverError> {
     let key = elmer_core::normalize_key(name);
     if let Some(k) = key
         .strip_prefix("coordinate ")
@@ -95,6 +108,31 @@ fn input_variable(ctx: &SolverCtx<'_>, name: &str) -> Result<Input, SolverError>
         .vars
         .get(name)
         .ok_or_else(|| fatal(format!("Variable does not exist: {name}")))?;
+    if v.kind == FieldKind::Dg {
+        let ix = ctx
+            .sim
+            .dg_indexes
+            .as_ref()
+            .ok_or_else(|| fatal("a DG field without the mesh's DG indexes"))?;
+        let perm_in = v.perm.as_ref().ok_or_else(|| fatal("a DG field without a permutation"))?;
+        let mut inv = vec![NO_DOF; ctx.mesh.n_nodes()];
+        for t in 0..ctx.mesh.n_bulk() {
+            let nodes = ctx.mesh.element(elmer_core::ElemId(t as u32)).nodes;
+            if mask.is_some_and(|m| nodes.iter().any(|&n| m.perm[n as usize] == NO_DOF)) {
+                continue;
+            }
+            for (i, &k) in nodes.iter().enumerate() {
+                let d = ix.index[t][i];
+                let p = if d == NO_DOF { NO_DOF } else { perm_in[d as usize] };
+                if inv[k as usize] == NO_DOF {
+                    inv[k as usize] = p;
+                } else if inv[k as usize] != p {
+                    return Err(fatal("The DG field is not a bijection!"));
+                }
+            }
+        }
+        return Ok(Input { values: v.values.clone(), dofs: v.dofs, perm: Some(inv) });
+    }
     if v.kind != FieldKind::Nodal {
         return Err(unsupported("input variables that are not nodal"));
     }
@@ -133,14 +171,8 @@ impl Solver for StructuredProjectToPlane {
         ctx.info(CALLER, "Performing projection on a structured mesh ", 4);
         ctx.info(CALLER, "------------------------------------------", 4);
         let params = ctx.params().clone();
-        for k in [
-            "mapping mask variable",
-            "mapping mask name",
-            "mapping coordinate transformation",
-        ] {
-            if params.get(k).is_some() {
-                return Err(unsupported(k));
-            }
+        if params.get("mapping coordinate transformation").is_some() {
+            return Err(unsupported("mapping coordinate transformation"));
         }
         let nnodes = ctx.mesh.n_nodes();
         if self.init.is_none() {
@@ -154,7 +186,7 @@ impl Solver for StructuredProjectToPlane {
 }
 
 /// The first visit: structure and the top / bottom / middle numbering.
-fn initialize(ctx: &SolverCtx<'_>, params: &ParamMap) -> Result<Init, SolverError> {
+fn initialize(ctx: &mut SolverCtx<'_>, params: &ParamMap) -> Result<Init, SolverError> {
     let active = params
         .integer("active coordinate")
         .ok_or_else(|| fatal("Active Coordinate is missing"))?;
@@ -170,6 +202,10 @@ fn initialize(ctx: &SolverCtx<'_>, params: &ParamMap) -> Result<Init, SolverErro
     let eps = ctx
         .creal(params, "dot product tolerance")?
         .unwrap_or(1.0e-4);
+    let mask = mapping_mask(ctx, params)?;
+    if let Some(m) = &mask {
+        extruded_coordinate(ctx, m, active as usize - 1)?;
+    }
     let s = detect_extruded_structure(
         ctx.mesh,
         &ctx.sim.model,
@@ -179,14 +215,16 @@ fn initialize(ctx: &SolverCtx<'_>, params: &ParamMap) -> Result<Init, SolverErro
             layers: false,
             mid: true,
         },
+        mask.as_ref(),
     )?;
     let nnodes = ctx.mesh.n_nodes();
+    let masked = |n: usize| mask.as_ref().is_none_or(|m| m.perm[n] != NO_DOF);
 
     let number = |pointer: &[usize]| -> (Vec<u32>, usize) {
         let mut perm = vec![NO_DOF; nnodes];
         let mut n = 0;
         for i in 0..nnodes {
-            if pointer[i] == i {
+            if masked(i) && pointer[i] == i {
                 perm[i] = n as u32;
                 n += 1;
             }
@@ -200,7 +238,7 @@ fn initialize(ctx: &SolverCtx<'_>, params: &ParamMap) -> Result<Init, SolverErro
     if bot_nodes == 0 {
         return Err(fatal("Cannot continue with zero BotNodes!"));
     }
-    let no_layers = nnodes / bot_nodes;
+    let no_layers = (0..nnodes).filter(|&i| masked(i)).count() / bot_nodes;
     if no_layers < 2 {
         return Err(fatal(format!(
             "Solver does not makse sense with {no_layers} layers!"
@@ -228,6 +266,7 @@ fn initialize(ctx: &SolverCtx<'_>, params: &ParamMap) -> Result<Init, SolverErro
         bot_perm,
         mid_perm,
         top_nodes,
+        mask,
     })
 }
 
@@ -242,7 +281,16 @@ fn project(
         .integer("active coordinate")
         .expect("checked in initialize") as usize
         - 1;
-    let coord: Vec<f64> = coords_of(ctx.mesh).iter().map(|c| c[coord_dir]).collect();
+    // `Coord`: the `Extruded Coordinate` with a mask, the mesh otherwise.
+    let mut coord: Vec<f64> = coords_of(ctx.mesh).iter().map(|c| c[coord_dir]).collect();
+    if let (Some(m), Some(v)) = (&init.mask, ctx.sim.vars.get("extruded coordinate")) {
+        for (n, &sl) in m.perm.iter().enumerate() {
+            if sl != NO_DOF {
+                coord[n] = v.values[sl as usize];
+            }
+        }
+    }
+    let nsize = init.mask.as_ref().map_or(nnodes, |m| m.size);
     let norm_ind = params.integer("show norm index").unwrap_or(0);
     let mid_exists = s.mid.is_some();
 
@@ -262,7 +310,7 @@ fn project(
         let mut dofs_in = 1;
         let mut dofs = 1;
         if got_var {
-            let inp = input_variable(ctx, &var_name)?;
+            let inp = input_variable(ctx, &var_name, init.mask.as_ref())?;
             dofs_in = inp.dofs;
             dofs = inp.dofs;
             field_in = Some(inp);
@@ -362,6 +410,8 @@ fn project(
                 } else {
                     init.top_perm.clone()
                 }
+            } else if let Some(m) = &init.mask {
+                m.perm.clone()
             } else {
                 (0..nnodes as u32).collect()
             };
@@ -389,7 +439,7 @@ fn project(
         let mut layer = 0usize;
         if oper == "isosurface" {
             let inp = match params.string(&format!("isosurface variable {no_var}")) {
-                Some(n) => input_variable(ctx, n)?,
+                Some(n) => input_variable(ctx, n, init.mask.as_ref())?,
                 None => Input {
                     values: coord.clone(),
                     dofs: 1,
@@ -407,7 +457,13 @@ fn project(
                 as usize;
         }
 
+        if oper == "isosurface" && init.mask.is_some() {
+            return Err(unsupported("isosurface with a mapping mask"));
+        }
         let skip = |j: usize| -> bool {
+            if !init.masked(j) {
+                return true;
+            }
             let m = s.mid.as_ref();
             if upper {
                 coord[j] < coord[m.expect("checked")[j]]
@@ -463,7 +519,7 @@ fn project(
                 "top" => {
                     top_field.iter_mut().for_each(|v| *v = 0.0);
                     for i in 0..nnodes {
-                        if i == tmp_top[i] {
+                        if init.masked(i) && i == tmp_top[i] {
                             if let Some(x) = inp(i, dof) {
                                 top_field[tp(s.top[i])] = x;
                             }
@@ -477,7 +533,7 @@ fn project(
                         .as_ref()
                         .ok_or_else(|| fatal("Middle operator cannot exist without midlayer"))?;
                     for i in 0..nnodes {
-                        if i == mid[i] {
+                        if init.masked(i) && i == mid[i] {
                             if let Some(x) = inp(i, dof) {
                                 top_field[tp(s.top[i])] = x;
                             }
@@ -487,7 +543,7 @@ fn project(
                 "layer below top" => {
                     top_field.iter_mut().for_each(|v| *v = 0.0);
                     for i in 0..nnodes {
-                        if i == tmp_top[i] {
+                        if init.masked(i) && i == tmp_top[i] {
                             let mut l = i;
                             for _ in 0..layer {
                                 l = s.down[l];
@@ -584,7 +640,6 @@ fn project(
                             None => Some(l),
                         }
                     };
-                    let nsize = nnodes;
                     // Walks a column from its top downwards: `index` and `depth`.
                     let from_top = |field_out: &mut Vec<f64>, index: bool| {
                         for i in 0..nnodes {
@@ -594,6 +649,9 @@ fn project(
                             let mut l = i;
                             let mut depth = 0.0;
                             for k in 1..=nsize {
+                                if !init.masked(l) {
+                                    break;
+                                }
                                 if k > 1 {
                                     depth += (coord[s.up[l]] - coord[l]).abs();
                                 }
@@ -616,6 +674,9 @@ fn project(
                             let mut l = i;
                             let mut height = 0.0;
                             for k in 1..=nsize {
+                                if !init.masked(l) {
+                                    break;
+                                }
                                 if k > 1 {
                                     height += (coord[l] - coord[s.down[l]]).abs();
                                 }
@@ -650,6 +711,9 @@ fn project(
             // Copy the projected values to the target variable.
             if reduced {
                 for i in 0..nnodes {
+                    if !init.masked(i) {
+                        continue;
+                    }
                     let j = match &out_perm {
                         Some(p) => {
                             if p[i] == NO_DOF {
