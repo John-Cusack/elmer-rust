@@ -122,14 +122,6 @@ fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
             "harmonic mode",
             "the complex harmonic assembly is not ported",
         ),
-        (
-            "calculate conductivity matrix",
-            "Constraint Modes analysis is not ported",
-        ),
-        (
-            "constraint modes analysis",
-            "Constraint Modes analysis is not ported",
-        ),
         ("adaptive mesh refinement", "mesh refinement is not ported"),
         (
             "calculate elemental fields",
@@ -154,14 +146,6 @@ fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
                 "Boundary Condition \"Farfield Potential\"",
                 "needs NormalVector(Element, Nodes, u, v, check orientation), which the element basis lacks",
             ));
-        }
-        for key in ["conductivity body", "constraint mode potential"] {
-            if bc.get(key).is_some() {
-                return Err(unsupported(
-                    format!("Boundary Condition keyword \"{key}\""),
-                    "Constraint Modes analysis is not ported",
-                ));
-            }
         }
     }
     Ok(())
@@ -192,6 +176,9 @@ impl Solver for StatCurrentSolver {
     /// default, the exported postprocessing fields on the solver's
     /// permutation and `Time Derivative Order = 1`.
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        // StatCurrentSolve.F90:186: `Calculate Conductivity Matrix` is the
+        // library's constraint-mode lumping (`Conductivity Body` BCs).
+        elmer_solver::constraint_modes_lumping(ctx, "calculate conductivity matrix", "ConductivityMatrix.dat", "Constraint Mode Potential");
         check_supported(ctx)?;
         axisymmetric(ctx)?;
         let dim = ctx.mesh.dim();

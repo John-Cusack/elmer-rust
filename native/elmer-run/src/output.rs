@@ -28,6 +28,9 @@ pub struct VtuOutput {
     /// `Reference Values` (first column): the visit's norm is then
     /// `AscBinCompareNorm` of the written piece against them.
     reference: Option<[f64; 6]>,
+    /// `Eigen Analysis` / `Constraint Modes Analysis` of the section: one
+    /// piece per eigen or constraint mode ([`VtuSolver::write_mode_files`]).
+    mode_files: bool,
 }
 
 pub fn is_result_output(params: &ParamMap) -> bool {
@@ -98,6 +101,22 @@ pub fn prepare_vtu_output(
                 }
             },
         };
+        // VtuOutputSolver.F90:561: each mode to its own file. `Ignore
+        // Eigenmodes` turns it off (and the mode fields with it).
+        let ignore_modes = params.logical("ignore eigenmodes") == Some(true);
+        let mode_files = !ignore_modes
+            && (params.logical("eigen analysis") == Some(true) || params.logical("constraint modes analysis") == Some(true));
+        if mode_files || ignore_modes {
+            opts.unsupported.retain(|u| u != "eigen analysis" && u != "constraint modes analysis");
+        }
+        if mode_files {
+            if reference.is_some() || parallel {
+                opts.unsupported.push("eigen or constraint mode files with Reference Values or in parallel".into());
+            }
+            if params.string("eigen vector component").is_some_and(|c| !c.eq_ignore_ascii_case("re")) {
+                opts.unsupported.push("Eigen Vector Component other than re".into());
+            }
+        }
         if !opts.unsupported.is_empty() {
             return Err(SolverError::Unsupported(format!("Solver {id}: VTU output: {}", opts.unsupported.join(", "))));
         }
@@ -114,7 +133,7 @@ pub fn prepare_vtu_output(
             Some(d) => case_dir.join(d),
             None => mesh_dir.to_path_buf(),
         };
-        outputs.push(VtuOutput { index, opts, dir, reference });
+        outputs.push(VtuOutput { index, opts, dir, reference, mode_files });
     }
     Ok(outputs)
 }
@@ -233,8 +252,128 @@ impl VtuSolver {
     }
 }
 
+/// `MaxModes` of VtuOutputSolver (F90:506-528): the section's `Eigen System
+/// Values`, else the largest `Eigen System Values` / `Harmonic System
+/// Values` (or `Scanning Loops` with `Save Scanning Modes`) of any solver.
+fn max_modes(model: &Model, p: &ParamMap) -> usize {
+    if let Some(n) = p.integer("eigen system values") {
+        return n.max(0) as usize;
+    }
+    let mut m = 0;
+    for s in &model.solvers {
+        m = m.max(s.integer("eigen system values").unwrap_or(0));
+        m = m.max(s.integer("harmonic system values").unwrap_or(0));
+        if s.logical("save scanning modes") == Some(true) {
+            m = m.max(s.integer("scanning loops").unwrap_or(0));
+        }
+    }
+    m.max(0) as usize
+}
+
+/// `MaxModes2`: the largest `NumberOfConstraintModes` of a solver variable.
+fn max_constraint_modes(sim: &Simulation) -> usize {
+    sim.slots
+        .iter()
+        .filter_map(|s| s.variable)
+        .map(|id| sim.vars.by_id(id).constraint_modes.len())
+        .max()
+        .unwrap_or(0)
+}
+
+/// The primary variable a `Scalar Field` / `Vector Field` name saves.
+fn field_variable(store: &VariableStore, name: &str) -> Option<VarId> {
+    let of = |h: VarHandle| match h {
+        VarHandle::Primary(id) => id,
+        VarHandle::Component { parent, .. } => parent,
+    };
+    store.resolve(name).or_else(|| store.resolve(&format!("{name} 1"))).map(of)
+}
+
+impl VtuSolver {
+    /// `Eigen Analysis` / `Constraint Modes Analysis` output
+    /// (VtuOutputSolver.F90:561, :1028-1062): `FileIndex` 1 to `MaxModes`
+    /// holds eigenmode `FileIndex` of each saved variable that has
+    /// eigenvectors, the following `MaxModes2` files constraint mode
+    /// `FileIndex - MaxModes` of each one that has constraint modes, under
+    /// the variable's own name. A variable without such a mode is not in
+    /// that file; one with too few is left out with Elmer's warning.
+    fn write_mode_files(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        const CALLER: &str = "VtuOutputSolver";
+        ctx.info(CALLER, "Saving each mode to different file", 4);
+        let params = &ctx.sim.model.solvers[self.out.index];
+        let mm = max_modes(&ctx.sim.model, params);
+        let mm2 = max_constraint_modes(ctx.sim);
+        let opts = &self.out.opts;
+        let naming = VtuNaming { pes: 1, no_fileindex: opts.no_fileindex, parallel_base: opts.partition_numbering, ..VtuNaming::default() };
+        std::fs::create_dir_all(&self.out.dir)?;
+        let store = &ctx.sim.vars;
+        let mut warnings = Vec::new();
+        for file_index in 1..=mm + mm2 {
+            let mut over: std::collections::HashMap<VarId, Vec<f64>> = std::collections::HashMap::new();
+            let mut keep = |names: &[String]| -> Vec<String> {
+                names
+                    .iter()
+                    .filter(|name| {
+                        let Some(id) = field_variable(store, name) else { return false };
+                        if over.contains_key(&id) {
+                            return true;
+                        }
+                        let v = store.by_id(id);
+                        let (modes, ind, what): (Vec<Vec<f64>>, usize, &str) = if file_index <= mm {
+                            if v.eigen_vectors.is_empty() {
+                                return false;
+                            }
+                            (v.eigen_vectors.iter().map(|m| m.iter().map(|z| z.re).collect()).collect(), file_index, "eigenmodes")
+                        } else {
+                            if v.constraint_modes.is_empty() {
+                                return false;
+                            }
+                            (v.constraint_modes.clone(), file_index - mm, "constraint modes")
+                        };
+                        if ind > modes.len() {
+                            warnings.push(format!("Too few {what} ({ind},{}) in {name}", modes.len()));
+                            return false;
+                        }
+                        over.insert(id, modes[ind - 1].clone());
+                        true
+                    })
+                    .cloned()
+                    .collect()
+            };
+            let mut fopts = opts.clone();
+            fopts.scalar_fields = keep(&opts.scalar_fields);
+            fopts.vector_fields = keep(&opts.vector_fields);
+            let variables = ModeVariables::new(store, &over);
+            let path = self.out.dir.join(naming.file_name(&opts.output_file_name, ".vtu", file_index as i32, None, false));
+            let mapped = MappedTags { mesh: ctx.mesh, model: &ctx.sim.model };
+            elmer_vtu::write_vtu(&path, &mapped, &variables, &fopts)?;
+            self.written.lock().unwrap().push(path);
+        }
+        for w in warnings {
+            ctx.warn(CALLER, &w);
+        }
+        Ok(())
+    }
+}
+
 impl Solver for VtuSolver {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, _transient: bool) -> Result<(), SolverError> {
+        if self.out.mode_files {
+            return self.write_mode_files(ctx);
+        }
+        // Without `Eigen Analysis`, Elmer adds `<name> EigenMode<i>` /
+        // `ConstraintMode<i>` arrays to the one piece; not written here.
+        if !ctx.sim.model.solvers[self.out.index].logical("ignore eigenmodes").unwrap_or(false) {
+            let mm = max_modes(&ctx.sim.model, &ctx.sim.model.solvers[self.out.index]);
+            let has_modes = ctx.sim.vars.iter().any(|(_, v)| {
+                v.output && ((mm > 0 && !v.eigen_vectors.is_empty()) || !v.constraint_modes.is_empty())
+            });
+            if has_modes {
+                return Err(SolverError::Unsupported(
+                    "VTU output: eigen or constraint modes as extra fields of one piece (no Eigen Analysis in the output section)".into(),
+                ));
+            }
+        }
         let opts = &self.out.opts;
         let index = self.indexer.advance(opts);
         let naming = VtuNaming {
@@ -490,6 +629,61 @@ impl<'a> ElmerVariables<'a> {
     }
 }
 
+/// [`ElmerVariables`] for one mode file: only the variables in `over`, with
+/// the mode's values in place of their own (their components too).
+struct ModeVariables<'a> {
+    store: &'a VariableStore,
+    over: &'a std::collections::HashMap<VarId, Vec<f64>>,
+    components: Vec<(String, VarId, Vec<f64>)>,
+}
+
+impl<'a> ModeVariables<'a> {
+    fn new(store: &'a VariableStore, over: &'a std::collections::HashMap<VarId, Vec<f64>>) -> Self {
+        let components = store
+            .names_in_order()
+            .into_iter()
+            .filter_map(|(name, h)| match h {
+                VarHandle::Component { parent, component } => {
+                    let vals = over.get(&parent)?;
+                    let dofs = store.by_id(parent).dofs;
+                    Some((name, parent, vals.iter().skip(component).step_by(dofs).copied().collect()))
+                }
+                VarHandle::Primary(_) => None,
+            })
+            .collect();
+        ModeVariables { store, over, components }
+    }
+}
+
+impl FieldSource for ModeVariables<'_> {
+    fn fields(&self) -> Vec<FieldRef<'_>> {
+        let mut out = Vec::new();
+        for (id, v) in self.store.iter() {
+            let Some(vals) = self.over.get(&id) else { continue };
+            if !v.output {
+                continue;
+            }
+            out.push(FieldRef { values: vals, ..v.field_ref() });
+            out.extend(self.components.iter().filter(|(_, p, _)| *p == id).map(|(name, _, values)| FieldRef {
+                name,
+                kind: v.kind,
+                dofs: 1,
+                perm: v.perm.as_deref(),
+                values,
+            }));
+        }
+        out
+    }
+
+    fn time(&self) -> f64 {
+        Snapshot { store: self.store }.time()
+    }
+
+    fn step(&self) -> usize {
+        Snapshot { store: self.store }.step()
+    }
+}
+
 impl FieldSource for ElmerVariables<'_> {
     fn fields(&self) -> Vec<FieldRef<'_>> {
         let mut out = Vec::new();
@@ -547,6 +741,27 @@ mod tests {
         let fields = variables.fields();
         let potential = fields.iter().find(|f| f.name == "potential").unwrap();
         assert_eq!(potential.values, [10.0, 20.0]);
+    }
+
+    /// A mode file shows only the variables that have the mode, with the
+    /// mode's values under the variable's and its components' own names.
+    #[test]
+    fn mode_files_show_the_mode_values_under_the_field_names() {
+        let mut store = VariableStore::new();
+        let pot = store
+            .add_with_components(nodal("pot", 2, vec![1.0, 10.0, 2.0, 20.0]), &["temperature".into(), "potential".into()])
+            .unwrap();
+        store.add(nodal("other", 1, vec![7.0, 8.0])).unwrap();
+        assert_eq!(field_variable(&store, "potential"), Some(pot));
+        assert_eq!(field_variable(&store, "pot"), Some(pot));
+        let over = std::collections::HashMap::from([(pot, vec![5.0, 50.0, 6.0, 60.0])]);
+        let variables = ModeVariables::new(&store, &over);
+        let fields = variables.fields();
+        let names: Vec<&str> = fields.iter().map(|f| f.name).collect();
+        assert_eq!(names, ["pot", "temperature", "potential"]);
+        assert_eq!(fields[0].values, [5.0, 50.0, 6.0, 60.0]);
+        assert_eq!(fields[1].values, [5.0, 6.0]);
+        assert_eq!(fields[2].values, [50.0, 60.0]);
     }
 
     /// Buffers of 2: reals flush [1, 2] then [4] (`rsum` is the last flush,

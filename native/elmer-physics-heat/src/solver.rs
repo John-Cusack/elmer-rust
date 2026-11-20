@@ -594,6 +594,10 @@ impl Solver for HeatSolver {
     /// Refuses every keyword in the sections this solver reads that the
     /// kernels would otherwise ignore (see [`check_supported`]).
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        // HeatSolver_init (HeatSolve.F90:201): `Calculate Conductance
+        // Matrix` is the library's constraint-mode lumping, with the
+        // `Conductivity Body` of the BCs as the modes.
+        elmer_solver::constraint_modes_lumping(ctx, "calculate conductance matrix", "ThermalConductanceMatrix.dat", "Constraint Mode Temperature");
         axisymmetric(ctx)?;
         let elems: Vec<ElemId> = ctx.active_elements().collect();
         let mut bodies: Vec<usize> = Vec::new();
