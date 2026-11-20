@@ -5,10 +5,11 @@
 //! Youngs modulus.
 //!
 //! Ported: the large-deflection stress (`LameParameters`,
-//! `LargeDeflectionResidualStress`), which ElasticSolve uses by default.
-//! Refused: the small-strain `LocalStress` path (StressSolve), anisotropic
-//! or tensor moduli, transient runs, other coordinate systems and nodal
-//! `Stress 1..6` fields.
+//! `LargeDeflectionResidualStress`), which ElasticSolve uses by default, and
+//! the small-strain `LocalStress` of StressSolve (isotropic, compressible,
+//! no thermal strain: the estimators pass a zero temperature).
+//! Refused: anisotropic or tensor moduli, `Incompressible`, transient runs,
+//! other coordinate systems and nodal `Stress 1..6` fields.
 
 use elmer_core::{ElemId, ElementType, MeshView, ParamMap, Params};
 use elmer_solver::{SolverCtx, SolverError};
@@ -74,6 +75,104 @@ fn ld_stress(g: &M3, l1: f64, l2: f64, dim: usize) -> (M3, M3) {
                 s += defg * s2[k][j];
             }
             stress[i][j] = s;
+        }
+    }
+    (stress, strain)
+}
+
+/// `BuildIsotropicC` (Stress.F90) for Cartesian coordinates, with the
+/// out-of-plane row `C(4,1:2) = C(1,2)` LocalStress adds in plane strain.
+fn isotropic_c(young: f64, poisson: f64, dim: usize, plane_stress: bool) -> [[f64; 6]; 6] {
+    let mut c = [[0.0f64; 6]; 6];
+    let f = if dim == 2 && plane_stress {
+        c[0][0] = 1.0;
+        c[0][1] = poisson;
+        c[1][0] = poisson;
+        c[1][1] = 1.0;
+        c[2][2] = 0.5 * (1.0 - poisson);
+        1.0 - poisson * poisson
+    } else if dim == 2 {
+        c[0][0] = 1.0 - poisson;
+        c[0][1] = poisson;
+        c[1][0] = poisson;
+        c[1][1] = 1.0 - poisson;
+        c[2][2] = 0.5 - poisson;
+        (1.0 + poisson) * (1.0 - 2.0 * poisson)
+    } else {
+        for i in 0..3 {
+            for j in 0..3 {
+                c[i][j] = if i == j { 1.0 - poisson } else { poisson };
+            }
+            c[3 + i][3 + i] = 0.5 - poisson;
+        }
+        (1.0 + poisson) * (1.0 - 2.0 * poisson)
+    };
+    // `C = C * Young / ( ... )`.
+    for row in c.iter_mut() {
+        for x in row.iter_mut() {
+            *x = *x * young / f;
+        }
+    }
+    if dim == 2 && !plane_stress {
+        c[3][0] = c[0][1];
+        c[3][1] = c[0][1];
+    }
+    c
+}
+
+/// `LocalStress` (Stress.F90) of an isotropic compressible material at zero
+/// temperature in Cartesian coordinates: `(Stress, Strain)` from the
+/// gradient `LGrad(1:dim,1:dim)`.
+fn local_stress(g: &M3, young: f64, poisson: f64, plane_stress: bool, dim: usize) -> (M3, M3) {
+    let c = isotropic_c(young, poisson, dim, plane_stress);
+    let mut lg = [[0.0f64; 3]; 3];
+    for i in 0..dim {
+        for j in 0..dim {
+            lg[i][j] = g[i][j];
+        }
+    }
+    let mut strain = [[0.0f64; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            strain[i][j] = (lg[i][j] + lg[j][i]) / 2.0;
+        }
+    }
+    // `Strain2Stress`.
+    let (sv, map): (Vec<f64>, &[(usize, usize)]) = if dim == 2 {
+        (vec![strain[0][0], strain[1][1], strain[0][1] * 2.0], &[(0, 0), (1, 1), (0, 1)])
+    } else {
+        (
+            vec![
+                strain[0][0],
+                strain[1][1],
+                strain[2][2],
+                strain[0][1] * 2.0,
+                strain[1][2] * 2.0,
+                strain[0][2] * 2.0,
+            ],
+            &[(0, 0), (1, 1), (2, 2), (0, 1), (1, 2), (0, 2)],
+        )
+    };
+    let mut stress = [[0.0f64; 3]; 3];
+    for (i, &(p, q)) in map.iter().enumerate() {
+        let mut csum = 0.0;
+        for (j, x) in sv.iter().enumerate() {
+            csum += c[i][j] * x;
+        }
+        stress[p][q] = csum;
+        stress[q][p] = csum;
+    }
+    if dim == 2 {
+        if !plane_stress {
+            // `PlaneStrainStressZZ`.
+            let s = [strain[0][0], strain[1][1], 2.0 * strain[0][1]];
+            let mut szz = 0.0;
+            for j in 0..3 {
+                szz += c[3][j] * s[j];
+            }
+            stress[2][2] += szz;
+        } else {
+            strain[2][2] = -(poisson / (1.0 - poisson)) * (strain[0][0] + strain[1][1]);
         }
     }
     (stress, strain)
@@ -197,13 +296,14 @@ fn parent_uvw(p: &Parent, edge_nodes: &[u32], eb: &[f64]) -> [f64; 3] {
 impl ElasticityEstimator {
     /// The stress of `p` with `ev` (its basis at a point).
     fn stress(&self, p: &Parent, ev: &elmer_core::BasisEval, dim: usize) -> Result<(M3, M3), SolverError> {
-        if !self.large_deflection {
-            return Err(unsupported("the small-strain stress (LocalStress)"));
-        }
         let n = p.nodes.len();
         let b = &ev.basis[..n];
-        let (l1, l2) = lame(sum(&p.young, b), sum(&p.poisson, b), p.plane_stress);
         let g = grad(&p.disp, &ev.dbasis_dx[..n]);
+        if !self.large_deflection {
+            // `Poisson = SUM( Basis(1:n) * PoissonRatio(1:n) )`, likewise Young.
+            return Ok(local_stress(&g, sum(b, &p.young), sum(b, &p.poisson), p.plane_stress, dim));
+        }
+        let (l1, l2) = lame(sum(&p.young, b), sum(&p.poisson, b), p.plane_stress);
         Ok(ld_stress(&g, l1, l2, dim))
     }
 
@@ -216,6 +316,9 @@ impl ElasticityEstimator {
         }
         if sim.string("simulation type").is_some_and(|s| elmer_core::normalize_key(s) == "transient") {
             return Err(unsupported("transient runs"));
+        }
+        if ctx.params().logical("incompressible") == Some(true) {
+            return Err(unsupported("Incompressible"));
         }
         if ctx.sim.vars.get("stress 1").is_some() {
             return Err(unsupported("nodal Stress 1..6 fields"));

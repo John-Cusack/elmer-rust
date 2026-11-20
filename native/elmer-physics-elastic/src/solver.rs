@@ -45,7 +45,7 @@ fn factory(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     if FE.get().is_none() {
         return Err(SolverError::NotWired("element basis and quadrature (elmer-fe)".into()));
     }
-    Ok(Box::new(StressSolver { fe: None, ve_prev: None }))
+    Ok(Box::new(StressSolver { fe: None, ve_prev: None, refine: Default::default(), amr_shift: None }))
 }
 
 /// The linear elasticity solver.
@@ -54,12 +54,17 @@ pub struct StressSolver {
     /// `ve_stress % PrevValues(:,1)`: a Maxwell material's lag stress of the
     /// previous step.
     ve_prev: Option<Vec<f64>>,
+    /// RefineMesh's state (`Adaptive Mesh Refinement`).
+    refine: elmer_adaptive::RefineState,
+    /// The displacement (values, perm, dofs) of the mesh RefineMesh left:
+    /// StressSolve.F90:1110 moves the new mesh by it.
+    amr_shift: Option<(Vec<f64>, Vec<u32>, usize)>,
 }
 
 impl StressSolver {
     /// A solver that owns its basis and quadrature.
     pub fn new(fe: FeServices) -> Self {
-        Self { fe: Some(fe), ve_prev: None }
+        Self { fe: Some(fe), ve_prev: None, refine: Default::default(), amr_shift: None }
     }
 
     fn fe(&self) -> &FeServices {
@@ -836,7 +841,17 @@ impl Solver for StressSolver {
         let displace = ctx.params().logical("displace mesh").unwrap_or(
             !(flag(Some(ctx.params()), "eigen analysis") || flag(Some(ctx.params()), "harmonic analysis")),
         );
-        if crate::motion::allocations_done("StressSolver") && displace {
+        let done = crate::motion::allocations_done("StressSolver");
+        if let Some((u, perm, dofs)) = self.amr_shift.take() {
+            // StressSolve.F90:1110 after RefineMesh: `DisplaceMesh(Model % Mesh,
+            // Displacement, 1, DisplPerm, ...)` moves the new mesh's first
+            // nodes by the old mesh's displacement.
+            let dirs = if flag(Some(ctx.params()), "incompressible") { dofs - 1 } else { dofs };
+            let coords: Vec<[f64; 3]> = (0..ctx.mesh.n_nodes() as u32).map(|i| ctx.mesh.coord(i)).collect();
+            let n = coords.len().min(perm.len());
+            crate::motion::displace_mesh(&coords, &u, 1.0, &perm[..n], dofs, dirs);
+        }
+        if done && displace {
             Self::displace_mesh(ctx, -1.0)?;
         }
         // StressSolve.F90:1505: an eigen analysis adds the element mass to
@@ -1264,6 +1279,22 @@ impl Solver for StressSolver {
 
         if flags.any() {
             self.postprocess(ctx, flags, cdim, axi, &temp_ref)?;
+        }
+        // StressSolve.F90:1094: RefineMesh with the small-strain estimators.
+        let p = ctx.params();
+        if p.logical("adaptive mesh refinement") == Some(true) && p.logical("library adaptivity") != Some(true) {
+            elmer_adaptive::elasticity::ElasticityEstimator::check(ctx)?;
+            let mut est = elmer_adaptive::elasticity::ElasticityEstimator { large_deflection: false };
+            elmer_adaptive::refine_mesh(ctx, &mut self.refine, &mut est)?;
+            if displace && ctx.sim.has_pending_mesh() {
+                // The old mesh's displacement moves the new mesh at the
+                // next visit, before `DisplaceMesh(..., -1)` (the new mesh's
+                // interpolated displacement). The old mesh is dropped.
+                let f = ctx.primary().ok_or_else(|| SolverError::fatal(CALLER, "solver has no displacement variable"))?;
+                let perm = f.perm.map(|p| p.to_vec()).unwrap_or_default();
+                self.amr_shift = Some((f.values.to_vec(), perm, f.dofs));
+                return Ok(());
+            }
         }
         // StressSolve.F90:1108: the mesh follows the new displacement.
         if displace {
