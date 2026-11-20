@@ -2442,13 +2442,23 @@ impl<'a> SolverCtx<'a> {
                     Some(mid) => mid,
                     None => {
                         log.info("SolveWithLinearRestriction", "Creating variable for Lagrange multiplier", 8);
-                        sim.vars.add(crate::Variable::new(
-                            &name,
-                            elmer_core::FieldKind::Global,
-                            1,
-                            None,
-                            vec![0.0; m],
-                        ))?
+                        // A complex system's multipliers are a 2-component
+                        // vector (VariableAddVector, `<name> 1|2`).
+                        if slot.params.logical("linear system complex") == Some(true) {
+                            let comps = [format!("{name} 1"), format!("{name} 2")];
+                            sim.vars.add_with_components(
+                                crate::Variable::new(&name, elmer_core::FieldKind::Global, 2, None, vec![0.0; m]),
+                                &comps,
+                            )?
+                        } else {
+                            sim.vars.add(crate::Variable::new(
+                                &name,
+                                elmer_core::FieldKind::Global,
+                                1,
+                                None,
+                                vec![0.0; m],
+                            ))?
+                        }
                     }
                 };
                 let mv = sim.vars.by_id_mut(mid);
@@ -3104,7 +3114,18 @@ pub(crate) fn solve_linear(
             rhs_scaling: bnorm != 0.0,
         })
     };
-    if complex {
+    // DirectSolve.F90:`UMFPack_SolveSystem` factors the interleaved real
+    // system whatever `A % COMPLEX` says; the complex flag only changes the
+    // scaling (ScaleLinearSystem's pairwise diagonal). Without scaling an
+    // UMFPACK solve of a complex system is the real one; this also keeps a
+    // pair whose 2x2 block a single-component Dirichlet row broke.
+    let real_umfpack = complex
+        && !scale
+        && p.string("linear system solver").is_some_and(|s| elmer_core::normalize_key(s) == "direct")
+        && p
+            .string("linear system direct method")
+            .is_none_or(|m| matches!(elmer_core::normalize_key(m).as_str(), "umfpack" | "big umfpack"));
+    if complex && !real_umfpack {
         let mut ac = crate::linsys::to_complex(matrix)?;
         let mut bc = crate::linsys::pair_up(b);
         let mut xc = crate::linsys::pair_up(x);

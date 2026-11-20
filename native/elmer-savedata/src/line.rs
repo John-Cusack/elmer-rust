@@ -142,7 +142,7 @@ fn columns<'a>(ctx: &'a SolverCtx<'_>, plan: &LinePlan) -> Result<Vec<Column<'a>
                 ctx.warn("VariableGetN", &format!("Variable given but not found: {name}"));
                 break;
             }
-            Some(Resolved::Global(_)) => {
+            Some(Resolved::Global(_) | Resolved::GlobalComponent(..)) => {
                 return Err(SolverError::Unsupported(format!(
                     "{CALLER}: Variable {} is a global variable",
                     i + 1

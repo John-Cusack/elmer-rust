@@ -72,6 +72,10 @@ impl<'a> VarView<'a> {
 pub(crate) enum Resolved<'a> {
     /// A one-value (or one-vector) global; saved as it is.
     Global(VarId),
+    /// Component `k` of a global vector (`VariableAddVector`'s component
+    /// variable of a global, such as a complex Lagrange multiplier's
+    /// `<name> 1|2`): its value is `values[k]`.
+    GlobalComponent(VarId, usize),
     Field(VarView<'a>),
     /// `name` itself does not exist but `name 1`, `name 2`, .. do
     /// (`ComponentVar` of SaveScalars). The operators then see component 1
@@ -96,6 +100,9 @@ pub(crate) fn resolve<'a>(vars: &'a VariableStore, name: &str) -> Result<Option<
             }
             nodal(v, "SaveData")?;
             Ok(Some(Resolved::Field(VarView::of(v, 0, v.dofs))))
+        }
+        Some(VarHandle::Component { parent, component }) if vars.by_id(parent).kind == FieldKind::Global => {
+            Ok(Some(Resolved::GlobalComponent(parent, component)))
         }
         Some(VarHandle::Component { parent, component }) => {
             let v = vars.by_id(parent);

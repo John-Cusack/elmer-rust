@@ -153,6 +153,15 @@ impl Frontend for SifFrontend {
         // of the mesh path after its last `/` (ModelDescription.F90:3131-3155).
         let base = name.trim_end_matches('/').rsplit('/').next().unwrap_or(&name).to_string();
         model.header.insert("Mesh Name", elmer_core::Value::Str(base));
+        // `OutputPath` (ModelDescription.F90): the Header's `Results
+        // Directory`, where SaveData puts its files without an `Output
+        // Directory`.
+        if let Some(r) = first.header.results_dir.as_deref() {
+            let r = r.trim().trim_matches('"').trim();
+            if !r.is_empty() {
+                model.header.insert("Results Directory", elmer_core::Value::Str(r.to_string()));
+            }
+        }
         let intersection = first
             .bcs
             .iter()

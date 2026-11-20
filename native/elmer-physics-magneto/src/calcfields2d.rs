@@ -981,9 +981,17 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
             }
         }
     }
-    let _ = omega;
+    let surf_power = if vdofs == 2 && ctx.sim.model.boundary_conditions.iter().any(|b| b.get("layer electric conductivity").is_some()) {
+        Some(layer_surface_power(ctx, pvar, &psp, omega, harm_power, axi)?)
+    } else {
+        None
+    };
     ctx.info(CALLER, &format!("Eddy current power: {}", elmer_solver::fortran_fmt::es(power, 15, 6)), 4);
     elmer_solver::results::add_result(&mut ctx.sim.model.simulation, "res: Eddy current power", power);
+    if let Some(sp) = surf_power {
+        ctx.info(CALLER, &format!(" Surface current power (the Joule effect): {}", elmer_solver::fortran_fmt::es(sp, 15, 6)), 4);
+        elmer_solver::results::add_result(&mut ctx.sim.model.simulation, "res: Surface current power", sp);
+    }
     let em_energy = energy[0] + energy[1];
     if energy_known {
         ctx.info(
@@ -1488,4 +1496,86 @@ mod tests {
         let solvers = vec![s1, s2.clone()];
         assert_eq!(target(&solvers, &s2).unwrap(), Target { index: 1, vdofs: 2, hcurl: false });
     }
+}
+
+/// CalcFields.F90:2279-2400 (`LayerBC`, 2D time-harmonic): the Joule power
+/// of the `Layer Electric Conductivity` boundaries, `HarmPowerCoeff *
+/// REAL(1/Zs) * |E|^2` over each boundary element, with `E_z = omega
+/// (A_im, -A_re)` plus `omega` times the boundary's Lagrange multipliers
+/// when it has a `Flux Integral BC`, `Zs = (1+i)/(sigma delta)` and the
+/// skin depth `delta = SQRT(2/(sigma omega 4 pi 1e-7 mu_r))`.
+fn layer_surface_power(ctx: &SolverCtx<'_>, pvar: elmer_solver::VarId, psp: &ParamMap, omega: f64, harm_power: f64, axi: bool) -> Result<f64, SolverError> {
+    use elmer_itermethods::IterScalar;
+    use num_complex::Complex64;
+    let model = &ctx.sim.model;
+    // `MortarBCs(k) % rowoffset` of a Flux Integral BC: only the single
+    // constraint block is placed here.
+    let flux_bcs = model.boundary_conditions.iter().filter(|b| logical(b, "flux integral bc") == Some(true)).count();
+    let other_constraints = model.boundary_conditions.iter().chain(&model.body_forces).any(|b| {
+        logical(b, "integral bc") == Some(true) || b.get("mortar bc").is_some() || b.get("contact bc").is_some()
+    }) || model.body_forces.iter().any(|b| logical(b, "flux integral bc") == Some(true));
+    if flux_bcs > 1 || (flux_bcs == 1 && other_constraints) {
+        return Err(unsupported("surface current power with several constraint blocks (MortarBCs rowoffset)"));
+    }
+    let lname = elmer_core::normalize_key(&format!("lagrange multiplier {}", psp.string("equation").unwrap_or("")));
+    let lagrange = ctx.sim.vars.get(&lname).map(|v| v.values.to_vec());
+    let pv = ctx.sim.vars.by_id(pvar);
+    let mut total = 0.0;
+    let mut status = MetricStatus::default();
+    let nb = ctx.mesh.n_bulk();
+    for i in nb..nb + ctx.mesh.n_boundary() {
+        let e = ElemId(i as u32);
+        let Some(bc) = ctx.bc_params(e) else { continue };
+        let el = ctx.mesh.element(e);
+        // ActiveBoundaryElement: the potential is defined at its nodes.
+        let slots: Option<Vec<usize>> = el.nodes.iter().map(|&k| pv.slot(k)).collect();
+        let Some(slots) = slots else { continue };
+        let Some(c_ip) = ctx.creal(bc, "layer electric conductivity")? else { continue };
+        let mu_r = ctx.creal(bc, "layer relative permeability")?.unwrap_or(1.0);
+        let mut lm = [0.0f64; 2];
+        if let Some(l) = &lagrange {
+            if logical(bc, "flux integral bc") == Some(true) {
+                lm = [l.first().copied().unwrap_or(0.0), l.get(1).copied().unwrap_or(0.0)];
+            }
+        }
+        let etype = el.etype;
+        let n = el.nodes.len();
+        let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+        let sol: [Vec<f64>; 2] = std::array::from_fn(|c| slots.iter().map(|&s| pv.values[2 * s + c]).collect());
+        let def = elmer_fe::element_type(etype.0).map_err(|m| SolverError::fatal(CALLER, m.to_string()))?;
+        let rule = elmer_fe::quadrature::gauss_points(etype, None).map_err(|m| SolverError::fatal(CALLER, m.to_string()))?;
+        for t in 0..rule.len() {
+            let mut be = BasisEval::default();
+            elmer_fe::info::element_info(def, &xyz, [rule.u[t], rule.v[t], rule.w[t]], 2, &mut status, &mut be)
+                .map_err(|m| SolverError::fatal("ElementInfo", m.to_string()))?;
+            let b = &be.basis[..n];
+            let val = (2.0 / (c_ip * omega * 4.0 * std::f64::consts::PI * 1e-7 * mu_r)).sqrt();
+            let zs = Complex64::new(1.0, 1.0).fortran_div(Complex64::new(c_ip * val, 0.0));
+            let sum = |c: usize| {
+                let mut acc = 0.0;
+                for k in 0..n {
+                    acc += sol[c][k] * b[k];
+                }
+                acc
+            };
+            let mut e1 = omega * sum(1);
+            let mut e2 = -omega * sum(0);
+            e1 += omega * lm[0];
+            e2 += omega * lm[1];
+            let mut s = rule.s[t] * be.det_j;
+            if axi {
+                let mut x = 0.0;
+                for k in 0..n {
+                    x += b[k] * xyz[k][0];
+                }
+                s *= x;
+            }
+            let inv_zs = Complex64::new(1.0, 0.0).fortran_div(zs).re;
+            // SUM(E(1,:)**2) + SUM(E(2,:)**2), the x and y parts zero.
+            let e1sq = (0.0 + 0.0) + e1 * e1;
+            let e2sq = (0.0 + 0.0) + e2 * e2;
+            total += harm_power * inv_zs * (e1sq + e2sq) * s;
+        }
+    }
+    Ok(total)
 }

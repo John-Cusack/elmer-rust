@@ -298,6 +298,13 @@ impl SaveScalars {
                 // Existence only: an operator that needs a nodal field refuses
                 // an elemental or Gauss-point one when it resolves it.
                 match resolve_values(&ctx.sim.vars, &name)? {
+                    Some(Resolved::GlobalComponent(id, k)) => {
+                        old_var = Some(name.clone());
+                        old_variable_name = name.clone();
+                        let val = ctx.sim.vars.by_id(id).values.get(k).copied().unwrap_or(0.0);
+                        list.add(&plan, ctx, &format!("value: {name} scalar variable"), val, false)?;
+                        continue;
+                    }
                     Some(Resolved::Global(id)) => {
                         old_var = Some(name.clone());
                         old_variable_name = name.clone();
@@ -930,7 +937,10 @@ pub(crate) fn split_output_path(
     first_visit: bool,
 ) -> Result<(String, PathBuf), SolverError> {
     let found = solver_dir.or_else(|| ctx.simulation_params().string("output directory"));
-    let mut dir = found.unwrap_or(".").trim().to_string();
+    // `IF(.NOT. Found) OutputDirectory = TRIM(OutputPath)`: the Header's
+    // `Results Directory` ("." when not given).
+    let output_path = ctx.sim.model.header.string("results directory").map(str::trim).filter(|s| !s.is_empty()).unwrap_or(".");
+    let mut dir = found.unwrap_or(output_path).trim().to_string();
     let mut nd = if found.is_none() && dir == "." { 0 } else { dir.len() };
     let abs = filename.contains(':') || filename.starts_with('/') || filename.starts_with('\\');
     if nd > 0 && !abs {

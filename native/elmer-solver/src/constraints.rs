@@ -306,9 +306,6 @@ pub(crate) fn generate(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
     if !(dofs == 1 || dofs == dim || dofs == dim + 1) {
         return Err(SolverError::fatal(CALLER, format!("Invalid number of dofs for field: {}", i2s(dofs as i64))));
     }
-    if dofs != 1 && projectors.iter().flatten().any(|p| matches!(p, Proj::Robin(_))) {
-        return Err(SolverError::Unsupported(format!("Flux Integral BC for a field of {dofs} components")));
-    }
     let components: Vec<String> = if dofs == 1 { vec![name.clone()] } else { ctx.sim.vars.component_names(id) };
     if components.len() != dofs {
         return Err(SolverError::fatal(CALLER, format!("{name} has no names for its {dofs} components")));
@@ -334,24 +331,28 @@ pub(crate) fn generate(ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         let proj = match proj {
             Proj::Integral(p) => p,
             Proj::Robin(rows) => {
-                // AddScalarConstraint for a Robin projector: the row as it
-                // is, the diagonal entry -rsum at column `arows + j`
-                // (MortarBC % Diag = 1), no right-hand side, no InvPerm.
+                // AddScalarConstraint for a Robin projector (any number of
+                // components): the row as it is, then for each component j
+                // the entry `0 - Diag * rsum(j)` at column `arows + j`
+                // (MortarBC % Diag = 1), `rsum(j)` summing the row over the
+                // columns of component j; no right-hand side, no InvPerm.
                 ctx.info(CALLER, &format!("Adding flux constraint for BC: {}", i2s(bc as i64)), 8);
                 ctx.info(CALLER, &format!("Adding projector rows: {}", i2s(rows.len() as i64)), 12);
                 for row in rows {
                     let valsum = row.values().fold(0.0, |s, v: &f64| s + v.abs());
-                    let mut rsum = 0.0;
+                    let mut rsum = vec![0.0f64; dofs];
                     for (&col, &v) in row {
                         if v.abs() < eps * valsum {
                             continue;
                         }
-                        rsum += v;
+                        rsum[col as usize % dofs] += v;
                         c.matrix.col_idx.push(col);
                         c.matrix.values.push(v);
                     }
-                    c.matrix.col_idx.push(n as u32);
-                    c.matrix.values.push(-rsum);
+                    for (j, r) in rsum.iter().enumerate() {
+                        c.matrix.col_idx.push((n + j) as u32);
+                        c.matrix.values.push(0.0 - 1.0 * r);
+                    }
                     c.matrix.row_ptr.push(c.matrix.values.len());
                     c.matrix.nrows += 1;
                     c.rhs.push(0.0);
@@ -431,7 +432,6 @@ pub(crate) fn refuse_options(p: &ParamMap) -> Result<(), SolverError> {
         "use tree gauge",
         "restricted system norm",
         "restriction system residual mode",
-        "linear system complex",
         "linear system block mode",
         "nonlinear system aitken relaxation",
     ] {
@@ -475,18 +475,26 @@ pub(crate) fn collection(
     }
     let mut rows: Vec<BTreeMap<u32, f64>> = vec![BTreeMap::new(); n + m];
     let mut rhs = vec![0.0; n + m];
+    // A complex system keeps exact 2x2 blocks: every multiplier row gets
+    // its pair partner's entry, and no small entry is dropped.
+    let complex = p.logical("linear system complex") == Some(true);
     log.info(CALLER, "Adding ConstraintMatrix into CollectionMatrix", 10);
     let mut empty = 0;
     for i in (0..m).rev() {
         let k = n + i;
         rows[k].insert(k as u32, 0.0);
+        if complex {
+            // 1-based `MOD(k,2) == 0`: the partner is the row before.
+            let partner = if (k + 1) % 2 == 0 { k - 1 } else { k + 1 };
+            rows[k].entry(partner as u32).or_insert(0.0);
+        }
         let span = c.matrix.row_ptr[i]..c.matrix.row_ptr[i + 1];
         let rowsum = span.clone().rev().fold(0.0, |s, j| s + c.matrix.values[j].abs());
         let mut nonempty = false;
         if rowsum > f64::EPSILON {
             for j in span.rev() {
                 let (col, v) = (c.matrix.col_idx[j] as usize, c.matrix.values[j]);
-                if v.abs() < f64::EPSILON * rowsum {
+                if !complex && v.abs() < f64::EPSILON * rowsum {
                     continue;
                 }
                 match dval.get(col).copied().flatten() {

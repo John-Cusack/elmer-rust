@@ -60,7 +60,7 @@ fn has_prefix(p: &ParamMap, prefix: &str) -> bool {
 
 fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
     let p = ctx.params();
-    for k in ["electrodynamics model", "transient restart", "apply integral bcs", "calculate loads"] {
+    for k in ["electrodynamics model", "transient restart"] {
         if p.logical(k) == Some(true) {
             return Err(unsupported(format!("solver option '{k}'")));
         }
@@ -114,6 +114,31 @@ fn angular_frequency(ctx: &SolverCtx<'_>, e: ElemId) -> Result<f64, SolverError>
         }
     }
     Err(SolverError::fatal(CALLER, "Harmonic solution requires frequency!"))
+}
+
+/// [`reluctivity`] as MagnetoDynamics2DHarmonic's `GetReluctivity` reads
+/// it: through `GetCMPLXTensor` (MagnetoDynamicsUtils.F90), whose
+/// `CMPLX(REAL(TRe), TIm, KIND=dp)` takes the real part through a
+/// default-kind `REAL`, i.e. rounded to single precision.
+pub(crate) fn harmonic_reluctivity(ctx: &SolverCtx<'_>, material: &ParamMap, e: ElemId, mu0: f64) -> Result<Vec<f64>, SolverError> {
+    let single = |v: Vec<f64>| -> Vec<f64> { v.into_iter().map(|x| f64::from(x as f32)).collect() };
+    let inv = |a: f64| {
+        let det = a * a - 0.0 * 0.0;
+        1.0 / det * a
+    };
+    if let Some(mr) = ctx.real_at_nodes(material, "relative permeability", e)? {
+        return Ok(single(mr).iter().map(|m| inv(mu0 * m)).collect());
+    }
+    if let Some(mu) = ctx.real_at_nodes(material, "permeability", e)? {
+        return Ok(single(mu).iter().map(|&m| inv(m)).collect());
+    }
+    if let Some(nu) = ctx.real_at_nodes(material, "reluctivity", e)? {
+        return Ok(single(nu));
+    }
+    Err(SolverError::fatal(
+        "GetReluctivity",
+        "Could not get either > Reluctivity > or > Relative Permeability < !",
+    ))
 }
 
 /// `GetReluctivity` (MagnetoDynamics2D.F90:2790) for an isotropic scalar:
@@ -340,7 +365,7 @@ impl Solver for MagnetoDynamics2DHarmonic {
                     })
                 };
                 let c = Bulk {
-                    nu: reluctivity(ctx, material, e, mu0)?,
+                    nu: harmonic_reluctivity(ctx, material, e, mu0)?,
                     sigma: at(Some(material), "electric conductivity")?,
                     m1: at(Some(material), "magnetization 1")?,
                     m2: at(Some(material), "magnetization 2")?,
