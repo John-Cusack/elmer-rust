@@ -37,6 +37,7 @@ pub fn register(registry: &mut SolverRegistry) {
     crate::emwave::register(registry);
     crate::emport::register(registry);
     crate::helmholtz_bem::register(registry);
+    crate::poisson_bem::register(registry);
     crate::vhnodal::register(registry);
 }
 
