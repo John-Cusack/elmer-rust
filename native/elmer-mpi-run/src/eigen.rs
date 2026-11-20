@@ -160,9 +160,13 @@ fn arpack_eigen_solve(
     };
     // The split mass matrix (ParallelInitSolve), for MGmv.
     let m = DistCsr::from_local(ex, layout, mass).map_err(dist_err)?;
+    let m = if std::env::var_os("ELMER_RS_EIGNDEG").is_some() { m.with_ndeg(RankContext::current().map_or(0, |c| c.dofs_of(k))) } else { m };
     // The inner solves: ParallelIter, no scaling.
     let mut opts = dist_options(params)?;
     opts.scaling = false;
+    if std::env::var_os("ELMER_RS_EIGNDEG").is_some() {
+        opts.ndeg = RankContext::current().map_or(0, |c| c.dofs_of(k));
+    }
     let itermethod = if ITERMETHODS.contains(&method_of(params).as_str()) {
         Some(IterMethodsConfig::from_params(params)?)
     } else {
