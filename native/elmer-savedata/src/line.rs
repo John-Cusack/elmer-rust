@@ -68,6 +68,70 @@ impl SaveLine {
     }
 }
 
+/// `CreateListForSaving(Model, Params, .TRUE., UseGenericKeyword=.TRUE.)`
+/// (Lists.F90) when the section names no `Variable 1`: every output field of
+/// the mesh's variable list in order, a multi-dof variable through its
+/// components unless it is `Displacement` or `Mesh Update`, and component
+/// variables (`velocity 2`) through their vector.
+pub(crate) fn default_variables(store: &elmer_solver::VariableStore, dim: usize) -> Vec<String> {
+    let exists = |name: &str| store.resolve(name).is_some();
+    let displacement_v = store.get("displacement").is_some();
+    // ElmerVariables' order: each variable, then its components.
+    let mut fields: Vec<(String, usize, usize, elmer_core::FieldKind)> = Vec::new();
+    for (id, v) in store.iter() {
+        if !v.output {
+            continue;
+        }
+        fields.push((v.name.clone(), v.dofs, v.values.len(), v.kind));
+        for c in store.component_names(id) {
+            fields.push((c, 1, v.values.len() / v.dofs.max(1), v.kind));
+        }
+    }
+    let mut out = Vec::new();
+    for (fname, dofs, len, kind) in &fields {
+        if *kind == elmer_core::FieldKind::Global || *len == *dofs {
+            continue;
+        }
+        let mut name = fname.clone();
+        let set = match fname.as_str() {
+            "coordinate 1" | "coordinate 2" | "coordinate 3" => false,
+            "mesh update 1" | "mesh update 2" | "mesh update 3" => false,
+            "mesh update" | "displacement" => true,
+            _ if *dofs > 1 => false,
+            _ => {
+                let mut set = true;
+                let mut is_vector = false;
+                let index = fname.rsplit_once(' ').filter(|(_, t)| t.bytes().all(|b| b.is_ascii_digit()));
+                let comp = index.and_then(|(_, t)| t.parse::<usize>().ok()).unwrap_or(0);
+                let base = index.map_or(fname.as_str(), |(b, _)| b);
+                let parent = index.and_then(|(b, _)| store.resolve(b)).map(|_| store.get(base));
+                if let Some(parent) = parent {
+                    let pd = parent.map_or(1, |v| v.dofs);
+                    is_vector = pd == dim || pd == 3;
+                    set = comp == 1 || !is_vector;
+                } else if comp == 1 {
+                    if exists(&format!("{base} {dim}")) {
+                        is_vector = !exists(&format!("{base} 4"));
+                    }
+                } else if (comp == 2 || comp == 3) && exists(&format!("{base} 1")) {
+                    set = exists(&format!("{base} 4"));
+                    if !set && comp == 2 && dim == 3 {
+                        set = !exists(&format!("{base} {dim}"));
+                    }
+                }
+                if set && is_vector {
+                    name = base.to_string();
+                }
+                set && !(name == "displacement" && displacement_v)
+            }
+        };
+        if set {
+            out.push(name);
+        }
+    }
+    out
+}
+
 /// `VariableGetN` for every `Variable n` up to the first one that does not
 /// resolve, then the columns they add.
 fn columns<'a>(ctx: &'a SolverCtx<'_>, plan: &LinePlan) -> Result<Vec<Column<'a>>, SolverError> {
@@ -239,14 +303,28 @@ fn polyline_rows(
     let dim = ctx.mesh.dim();
     let eps = 1.0e-5;
     let mask_perm = ctx.primary().and_then(|f| f.perm.map(<[u32]>::to_vec));
+    // `Var % Solver` of each column when it has p elements: the slot whose
+    // primary variable has the column's permutation.
+    let mut psolver: Vec<Option<std::sync::Arc<dyn elmer_solver::SolverDofs>>> = Vec::with_capacity(cols.len());
     for c in cols {
-        if c.view.elemental || c.view.dg || c.view.n_perm() > ctx.mesh.n_nodes() {
+        let owner = c.view.perm.and_then(|cp| {
+            (0..ctx.sim.slots.len()).find_map(|ix| {
+                let d = ctx.sim.slot_dofs(ix)?;
+                let v = ctx.sim.slots[ix].variable?;
+                let vp = ctx.sim.vars.by_id(v).perm.as_deref()?;
+                (std::ptr::eq(vp, cp)).then_some(d)
+            })
+        });
+        if c.view.elemental || c.view.dg || (owner.is_none() && c.view.n_perm() > ctx.mesh.n_nodes()) {
             return Err(SolverError::Unsupported(format!(
                 "{CALLER}: polyline values of the non-nodal field '{}'",
                 c.name
             )));
         }
+        psolver.push(owner);
     }
+    let mut pslots = Vec::new();
+    let mut peval = elmer_core::BasisEval::default();
     let mut rows = Vec::new();
     let mut count = 0usize;
     let mut basis = vec![0.0; 27];
@@ -323,7 +401,37 @@ fn polyline_rows(
                     }
                     values.push(acc);
                 }
-                for c in cols {
+                for (c, ps) in cols.iter().zip(&psolver) {
+                    // A p field (`pElem`): the p basis at the point in the p
+                    // reference element (`ConvertToPReference`), over the
+                    // element's dofs, 0 unless all of them have a value.
+                    if let Some(d) = ps.as_ref().filter(|d| d.is_p_element(e)) {
+                        d.element_slots(e, &mut pslots);
+                        if pslots.contains(&elmer_core::NO_DOF) {
+                            values.push(0.0);
+                            continue;
+                        }
+                        let mut uvw = probe.uvw;
+                        if el.etype.0 / 100 == 3 {
+                            uvw[0] = 2.0 * uvw[0] + uvw[1] - 1.0;
+                            uvw[1] *= 3.0f64.sqrt();
+                        } else if el.etype.0 / 100 != 4 {
+                            return Err(SolverError::Unsupported(format!(
+                                "{CALLER}: polyline values of a p field on element type {}",
+                                el.etype.0
+                            )));
+                        }
+                        let pxyz: Vec<[f64; 3]> = d.element_nodes(e).iter().map(|&k| ctx.mesh.coord(k)).collect();
+                        d.element_basis_scalar(e)
+                            .and_then(|b| b.eval(el.etype, &pxyz, uvw, &mut peval))
+                            .map_err(|m| SolverError::fatal("ElementInfo", m))?;
+                        let mut acc = 0.0;
+                        for (k, &sl) in pslots.iter().enumerate() {
+                            acc += peval.basis[k] * c.view.at(sl as usize, 0);
+                        }
+                        values.push(acc);
+                        continue;
+                    }
                     let slots: Option<Vec<usize>> = el.nodes.iter().map(|&k| c.view.slot(k as usize)).collect();
                     values.push(match slots {
                         Some(sl) => {
@@ -368,6 +476,11 @@ impl Solver for SaveLine {
     fn solve(&mut self, ctx: &mut SolverCtx<'_>, _dt: f64, transient: bool) -> Result<(), SolverError> {
         if ctx.comm.size() > 1 {
             return Err(SolverError::Unsupported("SaveLine: MPI reductions".into()));
+        }
+        // SaveLine.F90:262: the default list, on the first visit only.
+        let first = ctx.sim.slots.iter().find(|s| s.id == ctx.solver_id()).is_some_and(|s| s.times_visited == 0);
+        if first && self.plan.variables.is_empty() {
+            self.plan.variables = default_variables(&ctx.sim.vars, ctx.mesh.dim());
         }
         let plan = self.plan.clone();
         ctx.info(CALLER, "-----------------------------------------", 4);
@@ -511,5 +624,33 @@ impl Solver for SaveLine {
         }
         ctx.info(CALLER, "All done", 3);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod default_list_tests {
+    use super::default_variables;
+    use elmer_core::FieldKind;
+    use elmer_solver::{Variable, VariableStore};
+
+    /// `CreateListForSaving` with the generic keyword: `Displacement` whole,
+    /// other multi-dof variables through their components, no globals.
+    #[test]
+    fn stress_solve_fields() {
+        let mut s = VariableStore::new();
+        let comps = |n: &str, c: &[&str]| c.iter().map(|k| format!("{n}{k}")).collect::<Vec<_>>();
+        s.add_with_components(
+            Variable::new("displacement", FieldKind::Nodal, 2, None, vec![0.0; 8]),
+            &comps("displacement", &[" 1", " 2"]),
+        )
+        .unwrap();
+        s.add_with_components(
+            Variable::new("stress", FieldKind::Nodal, 2, None, vec![0.0; 8]),
+            &comps("stress", &["_xx", "_yy"]),
+        )
+        .unwrap();
+        s.add(Variable::new("vonmises", FieldKind::Nodal, 1, None, vec![0.0; 4])).unwrap();
+        s.add(Variable::global("time", 0.0)).unwrap();
+        assert_eq!(default_variables(&s, 2), ["displacement", "stress_xx", "stress_yy", "vonmises"]);
     }
 }

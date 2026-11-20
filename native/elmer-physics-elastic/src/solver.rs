@@ -45,18 +45,21 @@ fn factory(_: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     if FE.get().is_none() {
         return Err(SolverError::NotWired("element basis and quadrature (elmer-fe)".into()));
     }
-    Ok(Box::new(StressSolver { fe: None }))
+    Ok(Box::new(StressSolver { fe: None, allocations_done: false }))
 }
 
 /// The linear elasticity solver.
 pub struct StressSolver {
     fe: Option<FeServices>,
+    /// `AllocationsDone`: the mesh carries this solver's displacement from
+    /// the previous call.
+    allocations_done: bool,
 }
 
 impl StressSolver {
     /// A solver that owns its basis and quadrature.
     pub fn new(fe: FeServices) -> Self {
-        Self { fe: Some(fe) }
+        Self { fe: Some(fe), allocations_done: false }
     }
 
     fn fe(&self) -> &FeServices {
@@ -182,6 +185,16 @@ fn field_specs(cdim: usize, f: PostFlags) -> Vec<VarSpec> {
         }
     }
     out
+}
+
+/// The linear solver of a p-element stress projection.
+enum ProjectorSolve {
+    Direct(Box<dyn elmer_core::DirectSolver<f64> + Send>),
+    Iterative(
+        Box<dyn elmer_core::IterativeSolver<f64> + Send>,
+        Box<dyn elmer_core::Preconditioner<f64> + Send>,
+        elmer_core::CsrMatrix<f64>,
+    ),
 }
 
 struct ElementData {
@@ -517,6 +530,17 @@ impl StressSolver {
             .and_then(|f| f.perm.map(|p| (p.to_vec(), f.values.to_vec())))
     }
 
+    /// `DisplaceMesh(Mesh, Displacement, sgn, DisplPerm, STDOFs)` through the
+    /// runner's node mover (nothing without one).
+    fn displace_mesh(ctx: &mut SolverCtx<'_>, sgn: f64) -> Result<(), SolverError> {
+        let f = ctx.primary().ok_or_else(|| SolverError::fatal(CALLER, "solver has no displacement variable"))?;
+        let Some(perm) = f.perm else { return Ok(()) };
+        let n = ctx.mesh.n_nodes().min(perm.len());
+        let coords: Vec<[f64; 3]> = (0..ctx.mesh.n_nodes() as u32).map(|i| ctx.mesh.coord(i)).collect();
+        crate::motion::displace_mesh(&coords, f.values, sgn, &perm[..n], f.dofs);
+        Ok(())
+    }
+
     /// `ComputeStressAndStrain`: L2 projection of the elastic strain and stress
     /// onto the displacement's nodes, then von Mises and the principal values.
     fn postprocess(
@@ -555,16 +579,35 @@ impl StressSolver {
             }
             let plane_stress = flag(body.as_ref().and_then(|b| b.equation), "plane stress");
             let el = ctx.mesh.element(e);
-            let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
-            let d = self.element_data(ctx, e, cdim, axi, temp_ref)?;
-            let disp: Vec<[f64; 3]> = el
-                .nodes
+            let pe = match ctx.solver_dofs() {
+                Some(d) => Some(p_element(d, e)?),
+                None => None,
+            };
+            let nodes = pe.as_ref().map_or(el.nodes, |p| &p.nodes[..]);
+            let xyz: Vec<[f64; 3]> = nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
+            let d = self.element_data(ctx, e, cdim, axi, temp_ref)?.reordered(el.nodes, nodes);
+            if pe.is_some() && d.ip.is_some() {
+                return Err(unsupported("material values at integration points in p-element stress postprocessing"));
+            }
+            // The dof slots: the nodes' through the permutation, or the p
+            // element's (`GetElementDOFs`, `GetVectorLocalSolution`).
+            let slots: Vec<Option<usize>> = match ctx.solver_dofs() {
+                Some(dd) => {
+                    let mut s = Vec::new();
+                    dd.element_slots(e, &mut s);
+                    s.into_iter().map(|s| (s != elmer_core::NO_DOF).then_some(s as usize)).collect()
+                }
+                None => el
+                    .nodes
+                    .iter()
+                    .map(|&n| disp_perm.get(n as usize).copied().filter(|&s| s != elmer_core::NO_DOF).map(|s| s as usize))
+                    .collect(),
+            };
+            let disp: Vec<[f64; 3]> = slots
                 .iter()
-                .map(|&n| match disp_perm.get(n as usize) {
-                    Some(&s) if s != elmer_core::NO_DOF => {
-                        std::array::from_fn(|a| if a < dofs.min(3) { disp_vals[s as usize * dofs + a] } else { 0.0 })
-                    }
-                    _ => [0.0; 3],
+                .map(|s| match s {
+                    Some(s) => std::array::from_fn(|a| if a < dofs.min(3) { disp_vals[s * dofs + a] } else { 0.0 }),
+                    None => [0.0; 3],
                 })
                 .collect();
             let inp = StressPostInput {
@@ -584,12 +627,11 @@ impl StressSolver {
                 large_deflection: false,
                 neo_hookean: false,
             };
-            let loc = stress_strain_local(&*fe.basis, &*fe.quad, &inp).map_err(|x| SolverError::fatal(CALLER, x.to_string()))?;
-            let slots: Vec<Option<usize>> = el
-                .nodes
-                .iter()
-                .map(|&n| disp_perm.get(n as usize).copied().filter(|&s| s != elmer_core::NO_DOF).map(|s| s as usize))
-                .collect();
+            let loc = match &pe {
+                Some(p) => post::stress_strain_local_p(&*p.basis, &p.rule, p.nd, &inp),
+                None => stress_strain_local(&*fe.basis, &*fe.quad, &inp),
+            }
+            .map_err(|x| SolverError::fatal(CALLER, x.to_string()))?;
             mass.add(&slots, &loc.mass);
             for (p, s) in slots.iter().enumerate() {
                 let Some(s) = s else { continue };
@@ -604,7 +646,30 @@ impl StressSolver {
             }
         }
 
-        let project = |f: &[f64]| -> Result<Vec<f64>, SolverError> {
+        // On p elements the projection is solved as `NodalProjectorSolve`
+        // does, with the section's own linear system (its `StressTemp`
+        // solver); the nodal one keeps its conjugate gradients.
+        let mut linsys = None;
+        if ctx.solver_dofs().is_some() {
+            let a = mass.to_csr();
+            let params = ctx.params().clone();
+            let choice = ctx.sim.backends.linear.select_for(&params, &a, ctx.log)?;
+            linsys = Some(match choice {
+                elmer_solver::backend::LinearSolverChoice::Direct(mut d) => {
+                    d.factor(&a).map_err(|e| SolverError::fatal(CALLER, e.to_string()))?;
+                    ProjectorSolve::Direct(d)
+                }
+                elmer_solver::backend::LinearSolverChoice::Iterative { solver, precond } => {
+                    let m: Box<dyn elmer_core::Preconditioner<f64> + Send> = match precond {
+                        Some(f) => f(&params, &a)?,
+                        None => Box::new(elmer_core::IdentityPrecond),
+                    };
+                    ProjectorSolve::Iterative(solver, m, a)
+                }
+            });
+        }
+        let comm = ctx.comm;
+        let mut project = |f: &[f64]| -> Result<Vec<f64>, SolverError> {
             let mut out = vec![0.0; nslots * ncomp];
             let mut b = vec![0.0; nslots];
             let mut x = vec![0.0; nslots];
@@ -612,7 +677,19 @@ impl StressSolver {
                 for s in 0..nslots {
                     b[s] = f[ncomp * s + k];
                 }
-                mass.solve(&b, &mut x).map_err(|e| SolverError::fatal(CALLER, e.to_string()))?;
+                match linsys.as_mut() {
+                    Some(ProjectorSolve::Direct(d)) => {
+                        x.copy_from_slice(&b);
+                        d.solve_in_place(&mut x).map_err(|e| SolverError::fatal(CALLER, e.to_string()))?;
+                    }
+                    Some(ProjectorSolve::Iterative(s, m, a)) => {
+                        x.iter_mut().for_each(|v| *v = 0.0);
+                        s.solve(&*a, &**m, &b, &mut x, comm).map_err(SolverError::from)?;
+                    }
+                    None => {
+                        mass.solve(&b, &mut x).map_err(|e| SolverError::fatal(CALLER, e.to_string()))?;
+                    }
+                }
                 for s in 0..nslots {
                     out[ncomp * s + k] = x[s];
                 }
@@ -734,9 +811,16 @@ impl Solver for StressSolver {
         });
 
         let flags = post_flags(ctx);
-        if ctx.solver_dofs().is_some() && flags.any() {
-            return Err(unsupported("stress postprocessing (Calculate Stresses) on p elements"));
+        // StressSolve.F90:600-612: `Displace Mesh` (default: not in an eigen
+        // or harmonic analysis) moves the mesh back from the previous call's
+        // displacement before anything else reads it.
+        let displace = ctx.params().logical("displace mesh").unwrap_or(
+            !(flag(Some(ctx.params()), "eigen analysis") || flag(Some(ctx.params()), "harmonic analysis")),
+        );
+        if self.allocations_done && displace {
+            Self::displace_mesh(ctx, -1.0)?;
         }
+        self.allocations_done = true;
         // StressSolve.F90:1505: an eigen analysis adds the element mass to
         // `MassValues` (DefaultUpdateMass) instead of a time scheme.
         let eigen = ctx.nof_eigen() > 0 && ctx.params().logical("eigen analysis") == Some(true);
@@ -1066,6 +1150,10 @@ impl Solver for StressSolver {
 
         if flags.any() {
             self.postprocess(ctx, flags, cdim, axi, &temp_ref)?;
+        }
+        // StressSolve.F90:1108: the mesh follows the new displacement.
+        if displace {
+            Self::displace_mesh(ctx, 1.0)?;
         }
         Ok(())
     }
