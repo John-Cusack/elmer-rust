@@ -322,6 +322,55 @@ pub fn parallel_norm(parts: &[Vec<f64>], dofs: usize, opts: &NormOpts, order: Re
     })
 }
 
+/// The `Nonlinear System Consistent Norm` branch of the parallel
+/// `ComputeNorm`: each rank sums only the rows it owns (`NeighbourList(j)
+/// % Neighbours(1) == MyPE`), skipping passive dofs (`norm_dofs`), and the
+/// sums and counts are reduced. `parts` are `(Values, owned per value)` in
+/// rank order.
+pub fn consistent_norm(parts: &[(Vec<f64>, Vec<bool>)], dofs: usize, opts: &NormOpts, order: ReduceOrder) -> Result<f64> {
+    if dofs == 0 || opts.components.is_some() || opts.nodal || opts.perm_start.is_some() {
+        return Err(OracleError::Unsupported(String::from("consistent norm with these options")));
+    }
+    let norm_dofs = opts.norm_dofs.unwrap_or(dofs);
+    if norm_dofs == 0 || norm_dofs > dofs {
+        return Err(OracleError::Parse(format!("norm dofs {norm_dofs} out of range for dofs {dofs}")));
+    }
+    let mut local = Vec::with_capacity(parts.len());
+    let mut totn = 0usize;
+    for (x, owned) in parts {
+        if owned.len() != x.len() {
+            return Err(OracleError::Parse(String::from("ownership mask length differs from Values")));
+        }
+        let mut acc = 0.0f64;
+        for (j, (&v, &own)) in x.iter().zip(owned).enumerate() {
+            if j % dofs >= norm_dofs || !own {
+                continue;
+            }
+            acc = match opts.degree {
+                0 => acc.max(v.abs()),
+                1 => acc + v.abs(),
+                2 => acc + v * v,
+                d => acc + v.powi(d),
+            };
+            totn += 1;
+        }
+        local.push(acc);
+    }
+    if totn == 0 {
+        return Ok(0.0);
+    }
+    if opts.degree == 0 {
+        return Ok(local.iter().fold(0.0f64, |m, &v| m.max(v)));
+    }
+    let total = reduce_sum(&local, order);
+    let nscale = totn as f64;
+    Ok(match opts.degree {
+        1 => total / nscale,
+        2 => (total / nscale).sqrt(),
+        d => (total / nscale).powf(1.0 / d as f64),
+    })
+}
+
 /// Verdict replicating `CompareToReferenceSolution` for one solver:
 /// absolute error when `absolute` is set (or the reference is sub-tiny),
 /// relative error otherwise; NaN always fails.
@@ -435,6 +484,14 @@ mod tests {
         let parts = vec![vec![1.0, 2.0], vec![2.0, 3.0]];
         let n = parallel_norm(&parts, 1, &NormOpts::default(), ReduceOrder::Sequential).unwrap();
         assert_eq!(n, ((1.0f64 + 4.0) + (4.0 + 9.0)) .sqrt() / 2.0);
+    }
+
+    #[test]
+    fn consistent_norm_counts_owned_rows_once() {
+        // Node with value 2 is shared: owned by rank 0 only.
+        let parts = vec![(vec![1.0, 2.0], vec![true, true]), (vec![2.0, 3.0], vec![false, true])];
+        let n = consistent_norm(&parts, 1, &NormOpts::default(), ReduceOrder::Sequential).unwrap();
+        assert_eq!(n, (((1.0f64 + 4.0) + 9.0) / 3.0).sqrt());
     }
 
     #[test]
