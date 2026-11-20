@@ -511,6 +511,27 @@ pub struct Backends {
     /// with `Apply Conforming BCs` numbers its dofs by; `elmer-mortar`
     /// builds it.
     pub conforming: Option<Arc<crate::conforming::ConformingMap>>,
+    /// Mortar contact for solvers with `Apply Contact BCs`
+    /// (`elmer-mortar`'s `DetermineContact`).
+    pub contact: Option<Arc<dyn ContactBackend>>,
+}
+
+/// The three places the library calls into mortar contact during a
+/// solver's nonlinear iteration (DefUtils.F90). The backend keeps its own
+/// per-solver state.
+pub trait ContactBackend: Send + Sync {
+    /// `DefaultInitialize` (DefUtils.F90:3924-3952): the `Mortar BC
+    /// Nonlinear` projectors, generated on the mesh displaced by the
+    /// current solution.
+    fn initialize(&self, ctx: &mut crate::SolverCtx<'_>) -> Result<(), SolverError>;
+    /// `DefaultFinishBoundaryAssembly` (DefUtils.F90:7933-7937):
+    /// `DetermineContact` on the assembled system, before the Dirichlet
+    /// conditions.
+    fn finish_boundary(&self, ctx: &mut crate::SolverCtx<'_>) -> Result<(), SolverError>;
+    /// `DefaultSolve` (DefUtils.F90:4543): `GenerateConstraintMatrix` from
+    /// the contact projectors, set with
+    /// [`crate::SolverCtx::set_generated_constraints`].
+    fn before_solve(&self, ctx: &mut crate::SolverCtx<'_>) -> Result<(), SolverError>;
 }
 
 /// `ElementInfo` and `GaussPoints` for the framework's own integrals.
@@ -530,6 +551,7 @@ impl Default for Backends {
             fe: None,
             dofs: None,
             conforming: None,
+            contact: None,
         }
     }
 }

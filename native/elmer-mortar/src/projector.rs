@@ -518,11 +518,10 @@ pub fn generate_mortar_projectors(
     let solver = env
         .solver
         .ok_or_else(|| MortarError::Fatal(format!("{CALLER}: no solver")))?;
-    if flag(solver, "apply contact bcs") {
-        return Err(MortarError::Unsupported("Apply Contact BCs".into()));
-    }
+    // `Apply Contact BCs` gates the projectors too; the contact itself is
+    // [`crate::contact`]'s.
     let integral = flag(solver, "apply integral bcs");
-    if !flag(solver, "apply mortar bcs") && !integral {
+    if !flag(solver, "apply mortar bcs") && !integral && !flag(solver, "apply contact bcs") {
         return Ok(None);
     }
     if solver.get("mortar bc master solver").is_some() {

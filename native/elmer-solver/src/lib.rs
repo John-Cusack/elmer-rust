@@ -72,7 +72,7 @@ pub use restart::{load_restart, restart};
 /// solver crates that depend on this one only.
 pub use elmer_eigen;
 pub use backend::{
-    AssemblyBackend, Backends, DofsBackend, FeBackend, LinearSolverRegistry, Perm, SolverDofs, TimeBackend, TimeTerms,
+    AssemblyBackend, Backends, ContactBackend, DofsBackend, FeBackend, LinearSolverRegistry, Perm, SolverDofs, TimeBackend, TimeTerms,
 };
 pub use coupled::{AssemblySolver, CoupledSystem};
 pub use constraint_modes::{constraint_modes_lumping, lumping_init, Lumping, CAPACITANCE, CONDUCTANCE, CONDUCTIVITY};

@@ -646,6 +646,9 @@ impl<'a> SolverCtx<'a> {
             d.values.iter_mut().for_each(|v| *v = 0.0);
         }
         self.setup_normal_tangential()?;
+        if let Some(c) = self.contact_backend()? {
+            c.initialize(self)?;
+        }
         // DefUtils.F90:3973: solvers that contribute to this assembly.
         let (mesh, log, comm) = (self.mesh, self.log, self.comm);
         self.sim.run_slave_solvers(self.slot, "Assembly Solvers", mesh, log, comm)
@@ -1121,8 +1124,30 @@ impl<'a> SolverCtx<'a> {
                     slot.saved_bulk = Some((sys.matrix.values.clone(), sys.rhs.clone()));
                 }
             }
+            // DefUtils.F90:7935: the contact conditions from this system.
+            if let Some(c) = self.contact_backend()? {
+                c.finish_boundary(self)?;
+            }
         }
         Ok(())
+    }
+
+    /// The contact backend of a solver with `Apply Contact BCs`.
+    fn contact_backend(&self) -> Result<Option<Arc<dyn crate::backend::ContactBackend>>, SolverError> {
+        if self.params().logical("apply contact bcs") != Some(true) {
+            return Ok(None);
+        }
+        match &self.sim.backends.contact {
+            Some(c) => Ok(Some(c.clone())),
+            None => Err(SolverError::NotWired("mortar contact (Apply Contact BCs)".into())),
+        }
+    }
+
+    /// The constraint rows a library feature generates for the next solve
+    /// (`A % ConstraintMatrix` of `GenerateConstraintMatrix`), replaced at
+    /// each solve.
+    pub fn set_generated_constraints(&mut self, c: Option<crate::constraints::ConstraintMatrix>) {
+        self.sim.slots[self.slot].constraints = c;
     }
 
     /// DefaultFinishAssembly's `Use Global Mass Matrix` branch: in a
@@ -1742,7 +1767,7 @@ impl<'a> SolverCtx<'a> {
     /// constraint, complex and nonlinear post-solver paths are refused.
     fn default_solve_trialing(&mut self, mut ns: i64) -> Result<f64, SolverError> {
         let p = self.params();
-        for k in ["apply source control", "monolithic slave", "linear system complex", "harmonic mode"] {
+        for k in ["apply source control", "monolithic slave", "linear system complex", "harmonic mode", "apply contact bcs"] {
             if p.logical(k) == Some(true) {
                 return Err(SolverError::Unsupported(format!("Linear System Trialing with {k}")));
             }
@@ -1799,6 +1824,9 @@ impl<'a> SolverCtx<'a> {
 
     fn default_solve_in_namespace(&mut self) -> Result<f64, SolverError> {
         crate::constraints::generate(self)?;
+        if let Some(c) = self.contact_backend()? {
+            c.before_solve(self)?;
+        }
         let slot = &self.sim.slots[self.slot];
         if (slot.constraints.is_some() || slot.own_constraints.is_some())
             && ["apply source control", "monolithic slave"]
