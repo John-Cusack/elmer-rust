@@ -134,8 +134,8 @@ pub fn prepare_vtu_output(
             opts.unsupported.retain(|u| u != "eigen analysis" && u != "constraint modes analysis");
         }
         if mode_files {
-            if reference.is_some() || parallel {
-                opts.unsupported.push("eigen or constraint mode files with Reference Values or in parallel".into());
+            if reference.is_some() {
+                opts.unsupported.push("eigen or constraint mode files with Reference Values".into());
             }
             if params.string("eigen vector component").is_some_and(|c| !c.eq_ignore_ascii_case("re")) {
                 opts.unsupported.push("Eigen Vector Component other than re".into());
@@ -404,7 +404,8 @@ impl VtuSolver {
         let mm = max_modes(&ctx.sim.model, params);
         let mm2 = max_constraint_modes(ctx.sim);
         let opts = &self.out.opts;
-        let naming = VtuNaming { pes: 1, no_fileindex: opts.no_fileindex, parallel_base: opts.partition_numbering, ..VtuNaming::default() };
+        let naming =
+            VtuNaming { pes: self.parts, no_fileindex: opts.no_fileindex, parallel_base: opts.partition_numbering, ..VtuNaming::default() };
         std::fs::create_dir_all(&self.out.dir)?;
         let store = &ctx.sim.vars;
         let mut warnings = Vec::new();
@@ -444,7 +445,22 @@ impl VtuSolver {
             fopts.scalar_fields = keep(&opts.scalar_fields);
             fopts.vector_fields = keep(&opts.vector_fields);
             let variables = ModeVariables::new(store, &over);
-            let path = self.out.dir.join(naming.file_name(&opts.output_file_name, ".vtu", file_index as i32, None, false));
+            // VtuOutputSolver.F90:633-646: in parallel rank 0's .pvtu, then
+            // each rank's piece.
+            let part = if self.parts > 1 {
+                if self.part == 0 {
+                    let fi = file_index as i32;
+                    let pvtu = self.out.dir.join(naming.file_name(&opts.output_file_name, ".pvtu", fi, None, false));
+                    let pieces: Vec<String> =
+                        (1..=self.parts).map(|p| naming.file_name(&opts.output_file_name, ".vtu", fi, Some(p), true)).collect();
+                    elmer_vtu::write_pvtu(&pvtu, &variables, &fopts, &pieces)?;
+                    self.written.lock().unwrap().push(pvtu);
+                }
+                Some(self.part + 1)
+            } else {
+                None
+            };
+            let path = self.out.dir.join(naming.file_name(&opts.output_file_name, ".vtu", file_index as i32, part, false));
             let mapped = MappedTags { mesh: ctx.mesh, model: &ctx.sim.model };
             elmer_vtu::write_vtu(&path, &mapped, &variables, &fopts)?;
             self.written.lock().unwrap().push(path);
