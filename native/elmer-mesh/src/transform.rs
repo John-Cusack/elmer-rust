@@ -560,9 +560,74 @@ fn create_intersection_bcs(mesh: &mut Mesh, model: &Model) -> Result<(), MeshErr
         return Ok(());
     }
     if mesh.dim == 3 {
-        return Err(fatal(
-            "3D intersection BCs need face tables (later lane)".to_string(),
-        ));
+        if rows.iter().any(|r| r.body_mode) {
+            return Err(fatal("3D Intersection Body needs face tables (later lane)".to_string()));
+        }
+        // `CreateIntersection3D`: an edge shared by two boundary faces of
+        // the two parent BCs becomes a line element (once per edge over all
+        // rows), with the edge's nodes as `Mesh % Edges` has them and the
+        // two faces as its parents.
+        if mesh.edges.is_none() {
+            mesh.find_edges();
+        }
+        let n_edges = mesh.n_edges();
+        let mut first: Vec<Option<(u32, u32)>> = vec![None; n_edges];
+        for b in &mesh.bulk {
+            let def = crate::elements::linear_edges(b.code).unwrap_or(&[]);
+            for (k, &eid) in b.edges.iter().enumerate() {
+                let e = eid as usize;
+                if first[e].is_none() {
+                    if let Some(&(a, c)) = def.get(k) {
+                        first[e] = Some((b.nodes[a], b.nodes[c]));
+                    }
+                }
+            }
+        }
+        let nbc = mesh.boundary.len();
+        let mut owner_of = vec![0i32; nbc];
+        for (t, e) in mesh.boundary.iter().enumerate() {
+            if e.code < 300 {
+                continue;
+            }
+            let Some(i) = model.bcs.iter().position(|bc| e.constraint == bc.id as i32) else { continue };
+            let owner = i as i32 + 1;
+            if rows.iter().any(|r| r.pa == owner || r.pb == owner) {
+                owner_of[t] = owner;
+            }
+        }
+        let mut done = vec![false; n_edges];
+        let mut new3d: Vec<BoundElem> = Vec::new();
+        for row in &rows {
+            for t in 0..nbc {
+                let j = owner_of[t];
+                if j == 0 || (j != row.pa && j != row.pb) {
+                    continue;
+                }
+                for t2 in t + 1..nbc {
+                    let j2 = owner_of[t2];
+                    if j2 == 0 || j2 == j || (j2 != row.pa && j2 != row.pb) {
+                        continue;
+                    }
+                    let (a, b) = (&mesh.boundary[t], &mesh.boundary[t2]);
+                    if a.nodes.iter().filter(|n| b.nodes.contains(n)).count() < 2 {
+                        continue;
+                    }
+                    let Some(&e) = a.edges.iter().find(|e| !done[**e as usize] && b.edges.contains(e)) else { continue };
+                    done[e as usize] = true;
+                    let (n1, n2) = first[e as usize].unwrap_or(mesh.edges.as_ref().expect("found").edges[e as usize]);
+                    new3d.push(BoundElem {
+                        code: 202,
+                        constraint: row.new_tag,
+                        parents: [Some(mesh.bulk.len() + t), Some(mesh.bulk.len() + t2)],
+                        nodes: vec![n1, n2],
+                        tag: 0,
+                        edges: Vec::new(),
+                    });
+                }
+            }
+        }
+        mesh.boundary.extend(new3d);
+        return Ok(());
     }
     if mesh.dim != 2 {
         return Ok(());
