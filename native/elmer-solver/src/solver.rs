@@ -1106,9 +1106,82 @@ impl<'a> SolverCtx<'a> {
         Some(out)
     }
 
+    /// `CalculateNodalWeights(Solver, .TRUE., Perm, 'Periodic BC
+    /// Coefficient '//Name, WeightVar)` of SetPeriodicBoundariesPass1/2: the
+    /// boundary integral of each basis function over the boundaries that
+    /// give the coefficient, kept as the variable of that name (on the
+    /// solver's Perm) and handed to the backend for the jump rows.
+    fn periodic_jump_weights(&mut self) -> Result<(), SolverError> {
+        const CALLER: &str = "CalculateNodalWeights";
+        let Some(id) = self.sim.slots[self.slot].variable else { return Ok(()) };
+        let var = self.sim.vars.by_id(id);
+        let key = normalize_key(&format!("periodic bc coefficient {}", var.name));
+        let model = &self.sim.model;
+        let periodic = |bc: &ParamMap| {
+            let n = &var.name;
+            bc.logical(&format!("periodic bc {n}")) == Some(true)
+                || bc.logical(&format!("anti periodic bc {n}")) == Some(true)
+                || bc.get(&format!("periodic bc scale {n}")).is_some()
+        };
+        if !model.boundary_conditions.iter().any(|bc| bc.get(&key).is_some() && periodic(bc)) {
+            return Ok(());
+        }
+        if var.dofs != 1 {
+            return Err(SolverError::Unsupported("Periodic BC Coefficient on a multi-component field".into()));
+        }
+        let cs = model.simulation.string("coordinate system").unwrap_or("cartesian").to_ascii_lowercase();
+        if !cs.starts_with("cartesian") {
+            return Err(SolverError::Unsupported("Periodic BC Coefficient weights in non-Cartesian coordinates".into()));
+        }
+        let Some(perm) = var.perm.clone() else {
+            return Err(SolverError::fatal("SetPeriodicBoundariesPass1", "Nodal weights needed for setting jumps!"));
+        };
+        let fe = self
+            .sim
+            .backends
+            .fe
+            .as_ref()
+            .ok_or_else(|| SolverError::NotWired("basis and quadrature for nodal weights (elmer-fe)".into()))?;
+        let n = perm.iter().filter(|&&p| p != NO_DOF).map(|&p| p as usize + 1).max().unwrap_or(0);
+        let mut w = vec![0.0; n];
+        let mesh = self.mesh;
+        let nb = mesh.n_bulk();
+        let mut ev = elmer_core::BasisEval::default();
+        for e in (nb..nb + mesh.n_boundary()).map(|e| ElemId(e as u32)) {
+            let el = mesh.element(e);
+            if el.nodes.iter().any(|&k| perm[k as usize] == NO_DOF) {
+                continue;
+            }
+            let Some(bc) = model.bc_of_tag(el.tag).and_then(|b| model.boundary_conditions.get(b - 1)) else {
+                continue;
+            };
+            if bc.get(&key).is_none() {
+                continue;
+            }
+            let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| mesh.coord(k)).collect();
+            for qp in fe.quadrature.gauss_points(el.etype, None) {
+                fe.basis.eval(el.etype, &xyz, qp.uvw, &mut ev).map_err(|m| SolverError::fatal(CALLER, m))?;
+                for (j, &k) in el.nodes.iter().enumerate() {
+                    w[perm[k as usize] as usize] += qp.weight * ev.det_j * ev.basis[j];
+                }
+            }
+        }
+        if let Some(backend) = self.sim.backends.assembly.as_ref() {
+            backend.set_periodic_jump_weights(&self.sim.vars.by_id(id).name, &w);
+        }
+        match self.sim.vars.id(&key) {
+            Some(wid) => self.sim.vars.by_id_mut(wid).values = w,
+            None => {
+                self.sim.vars.add(crate::Variable::new(&key, elmer_core::FieldKind::Nodal, 1, Some(perm), w))?;
+            }
+        }
+        Ok(())
+    }
+
     /// `DefaultDirichletBCs` + `EnforceDirichletConditions`.
     pub fn default_dirichlet(&mut self) -> Result<(), SolverError> {
         self.default_finish_boundary_assembly()?;
+        self.periodic_jump_weights()?;
         let (values, rows) = self.dirichlet_values_with_rows()?;
         let mut fixed: BTreeMap<u32, f64> = values.into_iter().collect();
         self.passive_values(&mut fixed)?;
@@ -1147,6 +1220,7 @@ impl<'a> SolverCtx<'a> {
         fixed: &[(u32, f64)],
         rows: &[crate::backend::DirectRow],
     ) -> Result<(), SolverError> {
+        self.periodic_jump_weights()?;
         let sim = &mut *self.sim;
         let backend = sim
             .backends
@@ -1164,6 +1238,7 @@ impl<'a> SolverCtx<'a> {
     }
 
     pub fn apply_dirichlet_values(&mut self, fixed: &[(u32, f64)]) -> Result<(), SolverError> {
+        self.periodic_jump_weights()?;
         let sim = &mut *self.sim;
         let backend = sim
             .backends

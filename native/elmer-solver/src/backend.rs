@@ -229,6 +229,11 @@ pub trait AssemblyBackend: Send + Sync {
         Vec::new()
     }
 
+    /// The nodal weights of `Periodic BC Coefficient <name>`
+    /// (`CalculateNodalWeights`, by permutation slot) for the jump rows of
+    /// the periodic passes. Ignored by default.
+    fn set_periodic_jump_weights(&self, _name: &str, _weights: &[f64]) {}
+
     /// Fallible [`apply_dirichlet`](Self::apply_dirichlet).
     fn try_apply_dirichlet(
         &self,
