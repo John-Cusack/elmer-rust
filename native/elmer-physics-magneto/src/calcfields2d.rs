@@ -559,11 +559,10 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         if axi {
             return Err(unsupported("an edge-element target in axial symmetry"));
         }
-        for k in ["use piola transform", "quadratic approximation"] {
-            if logical(&psp, k) == Some(true) {
-                return Err(unsupported(format!("an edge-element target with '{k}'")));
-            }
+        if logical(&psp, "second kind basis") == Some(true) {
+            return Err(unsupported("an edge-element target with 'second kind basis'"));
         }
+        let piola = crate::piola::is_piola(&psp);
         let bf_potential = match logical(&sp, "impose body force potential") {
             Some(b) => b,
             None => ctx.sim.model.body_forces.iter().any(|b| b.get("electric potential").is_some()),
@@ -574,13 +573,21 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         if impose_bf_current && cd.any() {
             return Err(unsupported("body-force current density in the current density of an edge-element target"));
         }
-        let case = crate::Case::from_view(ctx.mesh, &ctx.sim.model);
-        let with_v = vdofs == 2 || crate::steady::static_conductivity(&case, &psp);
-        let lay = crate::layout::AvLayout::build(&case, t.index, with_v)?;
-        if ctx.sim.vars.by_id(pvar).values.len() != vdofs * lay.n() {
-            return Err(SolverError::fatal(CALLER, "the potential has not been solved on the edge layout yet"));
+        if piola {
+            if vdofs != 1 {
+                return Err(unsupported("a harmonic Piola edge-element target"));
+            }
+            let degree = if logical(&psp, "quadratic approximation") == Some(true) { 2 } else { 1 };
+            Some(EdgeTarget::Piola(degree))
+        } else {
+            let case = crate::Case::from_view(ctx.mesh, &ctx.sim.model);
+            let with_v = vdofs == 2 || crate::steady::static_conductivity(&case, &psp);
+            let lay = crate::layout::AvLayout::build(&case, t.index, with_v)?;
+            if ctx.sim.vars.by_id(pvar).values.len() != vdofs * lay.n() {
+                return Err(SolverError::fatal(CALLER, "the potential has not been solved on the edge layout yet"));
+            }
+            Some(EdgeTarget::Whitney(Box::new(case), lay))
         }
-        Some((case, lay))
     } else {
         None
     };
@@ -655,7 +662,8 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
         };
         let (ips, np) = match &edge {
             None => (nodal_points(ctx, pvar, vdofs, &nodes, &xyz, etype, axi, omega, &mut status)?, n),
-            Some((case, lay)) => edge_points(ctx, pvar, vdofs, case, lay, e, omega, &mut status)?,
+            Some(EdgeTarget::Whitney(case, lay)) => edge_points(ctx, pvar, vdofs, case, lay, e, omega, &mut status)?,
+            Some(EdgeTarget::Piola(degree)) => piola_points(ctx, pvar, e, *degree)?,
         };
         for ip in &ips {
             let (s, basis, b, ev, vp_ip) = (ip.s, &ip.basis[..n], ip.b, ip.e, ip.vp);
@@ -942,6 +950,14 @@ pub fn solve(ctx: &mut SolverCtx<'_>, t: Target, transient: bool) -> Result<(), 
 /// One integration point of the element loop: `s = IP % s * detJ` (times
 /// `x` in axial symmetry), the nodal basis, and `B`, `E` and the vector
 /// potential, real and imaginary parts.
+/// The potential of an edge-element target: the lowest-order Whitney
+/// basis (with its own edge numbering) or the Piola basis of degree 1 or 2
+/// on the framework layout.
+enum EdgeTarget {
+    Whitney(Box<crate::Case>, crate::layout::AvLayout),
+    Piola(u8),
+}
+
 struct Ip {
     s: f64,
     basis: Vec<f64>,
@@ -1107,6 +1123,88 @@ fn edge_points(
             }
         }
         out.push(Ip { s, basis: pt.basis[..n].to_vec(), b, e: ef, vp });
+    }
+    Ok((out, np))
+}
+
+/// `GaussPointsPBrick(3,3,3)`: the 3-point Gauss rule in each direction,
+/// `u` outermost, `s = (W_i W_j) W_k`.
+fn p_brick_27() -> Result<elmer_fe::quadrature::GaussRule, SolverError> {
+    let g = elmer_fe::quadrature::gauss_points(elmer_core::ElementType(202), Some(3))
+        .map_err(|e| SolverError::fatal(CALLER, e.to_string()))?;
+    let mut r = elmer_fe::quadrature::GaussRule { u: Vec::new(), v: Vec::new(), w: Vec::new(), s: Vec::new() };
+    for i in 0..3 {
+        for j in 0..3 {
+            for k in 0..3 {
+                r.u.push(g.u[i]);
+                r.v.push(g.u[j]);
+                r.w.push(g.u[k]);
+                r.s.push(g.s[i] * g.s[j] * g.s[k]);
+            }
+        }
+    }
+    Ok(r)
+}
+
+/// The edge-element kernel of a steady Piola target (bricks):
+/// `GaussPoints(Element, EdgeBasis=.TRUE., PReferenceElement=.TRUE.,
+/// EdgeBasisDegree)` (`EdgeElementGaussPoints`: `GaussPointsPBrick(3,3,3)`),
+/// `ElementInfo(..., EdgeBasis, RotBasis, USolver=pSolver)` through
+/// [`crate::piola::edge_info`], `B = MATMUL(SOL(np+1:nd), RotWBasis)`,
+/// `E = -grad V` (zero without the nodal V). The target's DOFs are its
+/// framework layout's.
+fn piola_points(ctx: &SolverCtx<'_>, pvar: elmer_solver::VarId, e: ElemId, degree: u8) -> Result<(Vec<Ip>, usize), SolverError> {
+    let el = ctx.mesh.element(e);
+    if el.etype.0 / 100 != 8 {
+        return Err(unsupported(format!("a Piola edge-element target on element type {}", el.etype.0)));
+    }
+    let n = el.nodes.len();
+    let target = ctx.sim.slots.iter().position(|s| s.variable == Some(pvar)).and_then(|ix| ctx.sim.slot_dofs(ix));
+    let Some(d) = target else {
+        return Err(SolverError::fatal(CALLER, "the Piola potential has no DOF layout"));
+    };
+    let mut slots = Vec::new();
+    d.element_slots(e, &mut slots);
+    if slots.contains(&elmer_core::NO_DOF) {
+        return Err(SolverError::fatal(CALLER, "a CalcFields element outside the potential's elements"));
+    }
+    let pv = ctx.sim.vars.by_id(pvar);
+    let sol: Vec<f64> = slots.iter().map(|&s| pv.values[s as usize]).collect();
+    let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+    let gindex: Vec<i64> = el.nodes.iter().map(|&k| k as i64 + 1).collect();
+    let rule = p_brick_27()?;
+    let mv = |x: &[f64], m: &[[f64; 3]]| {
+        let mut r = [0.0; 3];
+        for (c, rc) in r.iter_mut().enumerate() {
+            let mut acc = 0.0;
+            for (xi, mi) in x.iter().zip(m) {
+                acc += xi * mi[c];
+            }
+            *rc = acc;
+        }
+        r
+    };
+    let mut out = Vec::with_capacity(rule.len());
+    let mut np = 0;
+    for t in 0..rule.len() {
+        let (ev, basis, dbasis) = crate::piola::edge_info(el.etype, &xyz, &gindex, [rule.u[t], rule.v[t], rule.w[t]], degree)?;
+        np = match sol.len().checked_sub(ev.dofs) {
+            Some(p) if p == 0 || p == n => p,
+            _ => return Err(SolverError::fatal(CALLER, "the potential's element DOFs do not match its basis")),
+        };
+        let s = rule.s[t] * ev.det;
+        let mut b = [[0.0f64; 3]; 2];
+        let mut vp = [[0.0f64; 3]; 2];
+        b[0] = mv(&sol[np..], &ev.curl);
+        vp[0] = mv(&sol[np..], &ev.edge);
+        let mut ef = [[0.0f64; 3]; 2];
+        if np > 0 {
+            let g = mv(&sol[..np], &dbasis[..np]);
+            for c in 0..3 {
+                ef[0][c] = -g[c];
+            }
+        }
+        out.push(Ip { s, basis, b, e: ef, vp });
     }
     Ok((out, np))
 }

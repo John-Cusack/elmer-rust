@@ -191,6 +191,9 @@ fn local_matrix(ctx: &SolverCtx<'_>, e: ElemId, nd: usize, degree: u8) -> Result
     Ok((loc, np))
 }
 
+/// The edge basis, nodal `Basis` and `dBasisdx` at a point.
+pub(crate) type EdgeInfo = (elmer_fe_hp::edge::EdgeEval, Vec<f64>, Vec<[f64; 3]>);
+
 /// `ElementInfo(..., EdgeBasis, RotBasis, dBasisdx, USolver)` with the Piola
 /// basis: `EdgeElementInfo`, whose nodal basis is the p-reference brick's
 /// for 8 nodes and `NodalBasisFunctions3D` / `NodalFirstDerivatives` for
@@ -201,7 +204,7 @@ pub(crate) fn edge_info(
     gindex: &[i64],
     uvw: [f64; 3],
     degree: u8,
-) -> Result<(elmer_fe_hp::edge::EdgeEval, Vec<f64>, Vec<[f64; 3]>), SolverError> {
+) -> Result<EdgeInfo, SolverError> {
     let fatal = |m: String| SolverError::fatal(CALLER, m);
     match etype.0 {
         827 => {
