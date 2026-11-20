@@ -18,6 +18,12 @@
 
 use elmer_core::{CsrMatrix, LinalgError, LinearOperator};
 
+/// `CRS_MatrixVectorMultiply( A, u, v )`: `v = A u` with Elmer's product
+/// for a matrix of `A % ndeg = ndeg`.
+pub fn crs_matrix_vector_multiply(a: &CsrMatrix<f64>, ndeg: usize, u: &[f64], v: &mut [f64]) {
+    ElmerMatvec::new(a, ndeg).apply(u, v);
+}
+
 /// `A` with Elmer's product. `ndeg` is the matrix's `A % ndeg` (0 when it
 /// has none).
 pub(crate) struct ElmerMatvec<'a> {

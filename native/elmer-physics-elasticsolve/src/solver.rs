@@ -145,10 +145,6 @@ fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
         ("harmonic analysis", "harmonic analysis"),
         ("harmonic mode", "harmonic analysis"),
         ("calculate pangle", "principal angle postprocessing"),
-        ("constant bulk system", "constant bulk system"),
-        ("constant bulk matrix", "constant bulk matrix"),
-        ("constant system", "constant system"),
-        ("model lumping", "model lumping"),
         ("geometric stiffness", "geometric stiffness"),
         ("quasi stationary", "quasi stationary"),
         ("local matrix storage", "local matrix storage"),
@@ -750,8 +746,45 @@ impl Solver for ElasticSolver {
             ctx.warn(CALLER, "'Displace Mesh' is not applied: the mesh stays undisplaced for the solvers that follow");
         }
 
-        let max_iter = ctx.params().integer("nonlinear system max iterations").unwrap_or(1).max(1);
-        let min_iter = ctx.params().integer("nonlinear system min iterations").unwrap_or(0);
+        let mut max_iter = ctx.params().integer("nonlinear system max iterations").unwrap_or(1).max(1);
+        let mut min_iter = ctx.params().integer("nonlinear system min iterations").unwrap_or(0);
+
+        // Model lumping (ElasticSolve.F90:1160): six load cases on the
+        // nonlinear counter, sharing one bulk system.
+        let lumping = flag(Some(ctx.params()), "model lumping");
+        if lumping {
+            if cdim != 3 {
+                return Err(fatal("Model lumping is implemented in 3D only"));
+            }
+            max_iter = 6;
+            min_iter = 6;
+            let id = ctx.solver_id();
+            let ix = ctx.sim.slots.iter().position(|s| s.id == id).expect("running solver has a slot");
+            ctx.sim.slots[ix].params.insert("Constant Bulk System", Value::Logical(true));
+        }
+        // "Constant System", "Constant Bulk System", "Constant Bulk Matrix" (:1541).
+        let cs = flag(Some(ctx.params()), "constant system");
+        let cbs = flag(Some(ctx.params()), "constant bulk system");
+        let cbm = flag(Some(ctx.params()), "constant bulk matrix");
+        if cs || cbs || cbm {
+            if transient {
+                return Err(fatal("The \"Constant ...\" keywords are applicable to steady cases only here"));
+            }
+            if model.neo_hookean || model.large {
+                return Err(fatal(
+                    "The \"Constant ...\" keywords need a linear material: set \"Large Deflection = False\" and use neither a UMAT nor a neo-Hookean material",
+                ));
+            }
+            if cs && (cbs || cbm) {
+                ctx.warn(CALLER, "\"Constant System\" is superseded by the narrower \"Constant Bulk System\"/\"Constant Bulk Matrix\" given beside it");
+            }
+        }
+        let mut lump = if lumping {
+            let fe = self.fe();
+            Some(crate::lumping::Lump::init(ctx, &*fe.basis, &*fe.quad)?)
+        } else {
+            None
+        };
         let global_pseudo = flag(Some(ctx.params()), "pseudo-traction");
 
         // Snapshot the temperature field (read-only) before the mutable assembly.
@@ -767,6 +800,15 @@ impl Solver for ElasticSolver {
         for iter in 1..=max_iter {
             ctx.info(CALLER, &format!("ELASTICITY ITERATION {iter}"), 4);
             ctx.default_initialize()?;
+            // Reuse what an earlier pass saved (:1636-1680): the matrix, and
+            // the bulk load unless only the matrix is constant.
+            let cbm_in_use = cbm && ctx.saved_bulk().is_some();
+            let (mut skip_bulk, mut skip_all) = (false, false);
+            if (cs || cbs || cbm) && ctx.saved_bulk().is_some() {
+                ctx.restore_saved_bulk(cbs || cs);
+                skip_bulk = cbs;
+                skip_all = cs;
+            }
             let disp_field = {
                 let f = ctx.primary().ok_or_else(|| fatal("solver has no displacement variable"))?;
                 (f.perm.map(<[u32]>::to_vec), f.values.to_vec(), f.dofs)
@@ -779,7 +821,7 @@ impl Solver for ElasticSolver {
                 values: &disp_field.1,
             };
 
-            let elems: Vec<ElemId> = ctx.active_elements().collect();
+            let elems: Vec<ElemId> = if skip_all || skip_bulk { Vec::new() } else { ctx.active_elements().collect() };
             for e in elems {
                 let el = ctx.mesh.element(e);
                 let xyz: Vec<[f64; 3]> = el.nodes.iter().map(|&n| ctx.mesh.coord(n)).collect();
@@ -863,10 +905,19 @@ impl Solver for ElasticSolver {
                         ctx.default_first_order_time(&mut local, e, dt)?;
                     }
                 }
+                if cbm_in_use {
+                    // DefaultUpdateForce: the matrix was restored wholesale.
+                    local.stiff.iter_mut().for_each(|v| *v = 0.0);
+                }
                 ctx.default_update(&local, e)?;
             }
+            if skip_all || skip_bulk {
+                ctx.reuse_bulk_assembly(skip_all);
+            } else {
+                ctx.default_finish_bulk_assembly()?;
+            }
 
-            let belems: Vec<ElemId> = ctx.boundary_elements().collect();
+            let belems: Vec<ElemId> = if skip_all { Vec::new() } else { ctx.boundary_elements().collect() };
             for e in belems {
                 let el = ctx.mesh.element(e);
                 let n = el.nodes.len();
@@ -876,7 +927,6 @@ impl Solver for ElasticSolver {
                 }
                 for (prefix, what) in [
                     ("stress load", "boundary 'Stress Load'"),
-                    ("model lumping", "model lumping boundary"),
                     ("normal-tangential", "normal-tangential displacement"),
                     ("force 1 im", "imaginary boundary load"),
                     ("force 2 im", "imaginary boundary load"),
@@ -901,6 +951,15 @@ impl Solver for ElasticSolver {
                         }
                         got = true;
                         break;
+                    }
+                }
+                // A lumping load case given as a pure force or moment replaces
+                // the surface load (ModelLumpingLoads).
+                if let Some(l) = lump.as_ref().filter(|l| !l.fix_displacement) {
+                    if bc.logical("model lumping boundary") == Some(true) {
+                        let exyz: Vec<[f64; 3]> = el.nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+                        traction = l.loads(iter as usize, &exyz);
+                        got = true;
                     }
                 }
                 let mut beta = nodal("normal surface traction")?;
@@ -1014,8 +1073,18 @@ impl Solver for ElasticSolver {
                 ctx.default_update(&local, e)?;
             }
 
-            ctx.default_dirichlet()?;
+            // A lumping case given as a displacement of the lumping boundary,
+            // before the sif's own conditions (ModelLumpingDisplacements).
+            let first = match lump.as_ref() {
+                Some(l) if l.fix_displacement => l.displacements(ctx, iter as usize)?,
+                _ => Vec::new(),
+            };
+            ctx.default_dirichlet_after(&first)?;
             ctx.default_solve()?;
+            if let Some(l) = lump.as_mut() {
+                let fe = self.fe();
+                l.springs(ctx, &*fe.basis, &*fe.quad, iter as usize)?;
+            }
 
             if (ctx.default_converged() || iter == max_iter) && iter >= min_iter {
                 break;
