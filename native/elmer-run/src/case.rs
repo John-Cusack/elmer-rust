@@ -708,6 +708,12 @@ pub fn native_element(params: &ParamMap) -> bool {
     if normalize_key(e) == "n:1" {
         return true;
     }
+    // A Block Solver assembled by `Bulk Assembly Procedure ij` routines:
+    // BlockSystemAssembly lays the blocks out from elmer-pdofs, and a
+    // routine that is not ported stops at "Assembly routine not found".
+    if params.logical("block solver") == Some(true) && params.0.keys().any(|k| k.starts_with("bulk assembly procedure")) {
+        return true;
+    }
     let Some((lib, entry)) = procedure_of(params) else { return false };
     let lib = lib.trim_start_matches("./");
     const P_DOFS: [(&str, &str); 27] = [

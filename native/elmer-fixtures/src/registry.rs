@@ -25,6 +25,7 @@ use elmer_solver::{ElementAssembly, Model, Simulation, SolverFactory, SolverRegi
 
 use crate::adv_react_dg_p;
 use crate::benchmark_shell;
+use crate::block_lin_elast;
 use crate::bentonite;
 use crate::edge_element_test;
 use crate::edge_fe_interpolation;
@@ -179,6 +180,8 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     // The same source as `CountSolver2.F90`.
     ("SlaveSolverSlotsScan", "CountSolver2", "CountSolver", Hook::Solver(count_solver::factory)),
     ("AdvReactDG_P", "AdvReactDG_P", "AdvectionReactionSolver", Hook::Solver(adv_react_dg_p::factory)),
+    ("BlockLinElast1", "BlockLinElast", "BulkAssembly", Hook::Assembly(|| Box::new(block_lin_elast::BlockLinElastBulk))),
+    ("SD_BlockLinElast1", "BlockLinElast", "BulkAssembly", Hook::Assembly(|| Box::new(block_lin_elast::BlockLinElastBulk))),
     // One `BenchmarkShell.F90` in all five shell cases.
     ("p-FEM_two_solvers", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
     ("SD_p-FEM_two_solvers", "BenchmarkShell", "ShellSolver", Hook::Solver(benchmark_shell::factory)),
