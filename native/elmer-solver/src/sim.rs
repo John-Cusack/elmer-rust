@@ -219,6 +219,8 @@ pub struct SolverSlot {
     pub(crate) mg_meshes: Option<Vec<Box<dyn MeshView>>>,
     /// The constraint modes `DefaultDirichletBCs` set up.
     pub(crate) cmodes: Option<crate::constraint_modes::Modes>,
+    /// The CutFEM state of a `CutFEM` solver (`CutFEMUtils` module data).
+    pub(crate) cutfem: Option<Box<crate::cutfem::CutFemRun>>,
     /// `Solver % LocalSystem` of `Local Matrix Storage`.
     pub local_store: Option<LocalStore>,
     /// The child solvers' systems (`CreateChildSolver`).
@@ -277,6 +279,7 @@ impl SolverSlot {
             lin_converged: true,
             mg_meshes: None,
             cmodes: None,
+            cutfem: None,
             local_store: None,
             children: Vec::new(),
             nt: None,
@@ -408,6 +411,9 @@ pub struct Simulation {
     pub(crate) arpack: elmer_eigen::arpack::saupd::Arpack,
     /// The `SAVE`d state of ARPACK's complex routines, for the process.
     pub(crate) zarpack: elmer_eigen::arpack::znaupd::ZArpack,
+    /// Meshes a CutFEM solver adds to the output for the step (the
+    /// isoline mesh, the cut mesh), saved after the run's own.
+    pub extra_meshes: Vec<crate::cutfem::ExtraMesh>,
     /// The solver BlockSolve.F90's `TotMatrix` points at
     /// ([`crate::block_alias`]).
     pub(crate) block_tot: Option<crate::block_alias::BlockOwner>,
@@ -520,6 +526,7 @@ impl Simulation {
             node_owned: None,
             arpack: Default::default(),
             zarpack: Default::default(),
+            extra_meshes: Vec::new(),
             p_ndeg_parts: None,
             p_element_nodes: None,
             adaptive: Default::default(),

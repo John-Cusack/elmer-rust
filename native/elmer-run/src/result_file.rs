@@ -319,7 +319,45 @@ impl SaveCurrent for ResultWriter {
         }
         let step = sim.vars.scalar("timestep").unwrap_or(0.0).round() as i32;
         let over = zeroed.as_ref().map(|(id, z)| (*id, &z[..]));
-        self.save_one(sim, mesh, log, step, over)
+        self.save_one(sim, mesh, log, step, over)?;
+        self.save_extra_meshes(sim, step, log)
+    }
+}
+
+impl ResultWriter {
+    /// The meshes a CutFEM solver added for the step (`Mesh % Next`, ...):
+    /// each was allocated for it, so `SaveResult` starts its file afresh,
+    /// `<mesh directory><suffix>/<Output File>` beside the run's own: the
+    /// header for the mesh's nodes and one save of its fields, each with
+    /// the identity Perm of `VariableAddVector`.
+    fn save_extra_meshes(&self, sim: &Simulation, step: i32, log: &dyn Logger) -> Result<(), SolverError> {
+        let (Some(dir), Some(file)) = (self.path.parent(), self.path.file_name()) else { return Ok(()) };
+        let Some(base) = dir.file_name().and_then(|n| n.to_str()) else { return Ok(()) };
+        for m in &sim.extra_meshes {
+            let path = dir.with_file_name(format!("{base}{}", m.suffix)).join(file);
+            let mut w = ResultWriter { path, save_global: false, binary: self.binary, save_coordinates: false, rank: self.rank, saves_done: 0 };
+            let perms: Vec<Arc<[u32]>> = m.fields.iter().map(|_| (0..m.n_nodes as u32).collect()).collect();
+            let list: Vec<Entry<'_>> = m
+                .fields
+                .iter()
+                .zip(&perms)
+                .map(|((name, values, eq), perm)| Entry {
+                    name: name.clone(),
+                    header_name: name.clone(),
+                    dofs: 1,
+                    size: values.len(),
+                    perm: Some(perm),
+                    values,
+                    offset: 0,
+                    stride: 1,
+                    kind: FieldKind::Nodal,
+                    output: true,
+                    equation: eq.clone(),
+                })
+                .collect();
+            w.write_list(sim, &list, m.n_nodes, step, log)?;
+        }
+        Ok(())
     }
 }
 
@@ -333,23 +371,28 @@ impl ResultWriter {
         step: i32,
         over: Option<(VarId, &[f64])>,
     ) -> Result<(), SolverError> {
-        let io = |e: std::io::Error| SolverError::fatal(CALLER, format!("{}: {e}", self.path.display()));
         log.info(CALLER, "-----------------------------------------", 5);
         log.info(CALLER, &format!("Saving results to file: {}", self.path.display()), 4);
         let (first, last) = self.extras(sim, mesh);
         let list = entries(sim, over, &first, &last);
+        self.write_list(sim, &list, mesh.n_nodes(), step, log)
+    }
+
+    /// Writes one save point of `list` (the header first on a fresh file).
+    fn write_list(&mut self, sim: &Simulation, list: &[Entry<'_>], n_nodes: usize, step: i32, log: &dyn Logger) -> Result<(), SolverError> {
+        let io = |e: std::io::Error| SolverError::fatal(CALLER, format!("{}: {e}", self.path.display()));
         let pos_path = PathBuf::from(format!("{}.pos", self.path.display()));
         let (mut data, mut pos, base) = if self.saves_done == 0 {
-            let (d, p) = self.header(&list, mesh.n_nodes());
+            let (d, p) = self.header(list, n_nodes);
             (d, p, 0usize)
         } else {
             let len = std::fs::metadata(&self.path).map_err(io)?.len() as usize;
             (Vec::new(), Vec::new(), len)
         };
         if self.binary {
-            self.binary_step(sim, &list, step, base, &mut data, &mut pos);
+            self.binary_step(sim, list, step, base, &mut data, &mut pos);
         } else {
-            self.text_step(sim, &list, step, &mut data);
+            self.text_step(sim, list, step, &mut data);
         }
         let open = |p: &PathBuf, fresh: bool| {
             if fresh {
