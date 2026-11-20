@@ -306,7 +306,10 @@ impl IterativeSolver<f64> for DistIterative {
             }
         }
         let stats = match &self.itermethod {
-            None => dist_solve(&*ctx.ex, &layout, &self.a, b, x, &self.opts, None).map_err(to_linalg)?,
+            None => {
+                let sink: Option<elmer_krylov::OutputSink> = std::env::var_os("ELMER_RS_DUMP").map(|_| Box::new(|l: &str| eprintln!("HUTI {l}")) as elmer_krylov::OutputSink);
+                dist_solve(&*ctx.ex, &layout, &self.a, b, x, &self.opts, sink).map_err(to_linalg)?
+            }
             Some(cfg) => itermethod_solve(&*ctx.ex, &layout, &self.a, b, x, &self.opts, cfg)?,
         };
         // IterSolve.F90:1652-1659.
