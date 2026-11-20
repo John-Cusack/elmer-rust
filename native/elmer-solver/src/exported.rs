@@ -124,6 +124,8 @@ pub(crate) fn ip_perm(
         }
     }
     let np = slot.params.integer("number of integration points").filter(|&n| n > 0).map(|n| n as usize);
+    // `PDefs % Serendipity` of p elements.
+    let serendipity = sim.model.simulation.logical("serendipity p elements").unwrap_or(true);
     let family_np = match slot.params.string("element integration points") {
         Some(def) => parse_elemental_gauss_rules(def)?,
         None => [0; 9],
@@ -153,6 +155,11 @@ pub(crate) fn ip_perm(
                 Some(&k) if k > 0 => Some(k),
                 _ => np,
             };
+            if let (None, Some(d)) = (n_ip, slot.dofs.as_deref()) {
+                count += p_rule_len(d, ElemId(t as u32), etype, np, rel, serendipity)? as u32;
+                offsets[t + 1] = count;
+                continue;
+            }
             count += match (n_ip, np) {
                 (Some(k), _) => k as u32,
                 (None, Some(_)) => fe.quadrature.gauss_points(etype, np).len() as u32,
@@ -171,6 +178,57 @@ pub(crate) fn ip_perm(
         offsets[t + 1] = count;
     }
     Ok(offsets)
+}
+
+/// The point count `GaussPointsAdapt` gives p element `e` of the solver's
+/// dofs: `np` points, else its own rule, offset by `GaussPoints(Element,
+/// RelOrder = rel)`: `(NINT(n ** (1/dim)) + rel) ** dim` points of the
+/// tensor families, a serendipity quadrilateral's then mapped to its
+/// economic count.
+fn p_rule_len(
+    d: &dyn crate::SolverDofs,
+    e: ElemId,
+    etype: elmer_core::ElementType,
+    np: Option<usize>,
+    rel: i32,
+    serendipity: bool,
+) -> Result<usize, SolverError> {
+    let gauss = |m: String| SolverError::fatal("GaussPoints", m);
+    if let Some(np) = np {
+        return Ok(d.element_rule_np(e, np).map_err(gauss)?.len());
+    }
+    let own = d.element_rule(e).map_err(gauss)?.len();
+    if rel == 0 {
+        return Ok(own);
+    }
+    let dim = match etype.family() {
+        2 => 1,
+        4 => 2,
+        8 => 3,
+        f => {
+            return Err(SolverError::Unsupported(format!(
+                "IP variables with Relative Integration Order on p elements of family {f}"
+            )))
+        }
+    };
+    let p1d = (own as f64).powf(1.0 / dim as f64).round() as i32 + rel;
+    if p1d < 1 {
+        return Err(SolverError::fatal("GaussPoints", "Number of integration points must remain positive!"));
+    }
+    let mut n = (p1d as usize).pow(dim);
+    if serendipity && etype.family() == 4 {
+        n = match n {
+            9 => 8,
+            16 => 12,
+            25 => 20,
+            36 => 25,
+            49 => 36,
+            64 => 45,
+            81 => 60,
+            n => n,
+        };
+    }
+    Ok(d.element_rule_np(e, n).map_err(gauss)?.len())
 }
 
 /// `ParseElementalGaussRules`: the count after `-line`, `-tri`, `-quad`,
