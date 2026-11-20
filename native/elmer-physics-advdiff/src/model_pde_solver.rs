@@ -143,6 +143,9 @@ impl Solver for ModelPdeSolver {
     ) -> Result<(), SolverError> {
         // `DefaultStart` (ModelPDE.F90): `Pre Solvers` and friends.
         ctx.default_start()?;
+        if ctx.params().logical("cutfem") == Some(true) {
+            return solve_cutfem(&mut self.local, ctx, dt, transient);
+        }
         let dim = ctx.mesh.dim();
         let basis = LagrangeBasis::new(dim);
         let quad = ElmerQuadrature;
@@ -281,4 +284,124 @@ impl Solver for ModelPdeSolver {
         // `DefaultFinish` (ModelPDE.F90): `Post Solvers`, explicit control.
         ctx.default_finish()
     }
+}
+
+/// `TotArea` / `TotSrc` of `LocalMatrix` (`res: integ total area/src`):
+/// the integration weights and the source at each point, added point by
+/// point.
+fn add_totals(fe: &Fe<'_>, etype: elmer_core::ElementType, xyz: &[[f64; 3]], load: &[f64], area: &mut f64, src: &mut f64) -> Result<(), SolverError> {
+    let mut be = elmer_core::BasisEval::default();
+    for qp in fe.quad.gauss_points(etype, None) {
+        fe.basis.eval(etype, xyz, qp.uvw, &mut be).map_err(|m| SolverError::fatal("ElementInfo", m))?;
+        let l = crate::error::interp(&be.basis[..xyz.len()], load);
+        let w = qp.weight * be.det_j;
+        *area += w;
+        *src += w * l;
+    }
+    Ok(())
+}
+
+/// `TotLen` of `LocalMatrixBC`.
+fn add_length(fe: &Fe<'_>, etype: elmer_core::ElementType, xyz: &[[f64; 3]], len: &mut f64) -> Result<(), SolverError> {
+    let mut be = elmer_core::BasisEval::default();
+    for qp in fe.quad.gauss_points(etype, None) {
+        fe.basis.eval(etype, xyz, qp.uvw, &mut be).map_err(|m| SolverError::fatal("ElementInfo", m))?;
+        *len += qp.weight * be.det_j;
+    }
+    Ok(())
+}
+
+/// ModelPDE.F90 with `CutFEM`: in each nonlinear iteration the unsplit
+/// active elements and the mesh's boundary elements, then
+/// (`DefaultCutFEM` swapping to the add mesh, `GOTO 1`) the pieces of the
+/// split elements and the interface elements, each piece and unsplit
+/// element with its CutFEM body; the totals `res: integ total area`,
+/// `len` and `src` after `DefaultFinish`. Boundary elements count when all
+/// their nodes are cut dofs and their condition exists
+/// (`ActiveBoundaryElement`, `GetBC`).
+fn solve_cutfem(local: &mut LocalSystem, ctx: &mut SolverCtx<'_>, dt: f64, transient: bool) -> Result<(), SolverError> {
+    if ctx.solver_dofs().is_some() {
+        return Err(SolverError::Unsupported("CutFEM with p elements".into()));
+    }
+    let dim = ctx.mesh.dim();
+    let basis = LagrangeBasis::new(dim);
+    let quad = ElmerQuadrature;
+    let fe = Fe::new(&basis, &quad);
+    let maxiter = ctx.params().integer("nonlinear system max iterations").map_or(1, |n| n.max(1));
+    let lib = ctx.cutfem_library_mesh()?;
+    let interface = ctx.cutfem_interface_bc().cloned();
+    let nb = ctx.mesh.n_bulk();
+    let bnd: Vec<ElemId> = (nb..nb + ctx.mesh.n_boundary()).map(|i| ElemId(i as u32)).collect();
+    let (mut area, mut len, mut src) = (0.0f64, 0.0f64, 0.0f64);
+    let mut dofs = Vec::new();
+    for _ in 0..maxiter {
+        ctx.default_initialize()?;
+        (area, len, src) = (0.0, 0.0, 0.0);
+        // The original mesh: unsplit elements.
+        for &e in &lib.unsplit {
+            let el = ctx.mesh.element(e);
+            let (etype, nodes) = (el.etype, el.nodes.to_vec());
+            let xyz: Vec<[f64; 3]> = nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+            let body = ctx.cutfem_body(e)?;
+            let nod = crate::model_pde_cutfem::nodal(ctx, body, Some(e), nodes.len())?;
+            model_pde_bulk_local(&fe, etype, &xyz, &nod, dim, None, local)?;
+            add_totals(&fe, etype, &xyz, &nod.source, &mut area, &mut src)?;
+            if transient {
+                ctx.default_first_order_time(local, e, dt)?;
+            }
+            local.mass = None;
+            ctx.default_update(local, e)?;
+        }
+        ctx.default_finish_bulk_assembly()?;
+        for &e in &bnd {
+            ctx.element_dofs(e, &mut dofs);
+            if dofs.contains(&NO_DOF) {
+                continue;
+            }
+            let Some(p) = ctx.bc_params(e).cloned() else { continue };
+            let el = ctx.mesh.element(e);
+            let (etype, nodes) = (el.etype, el.nodes.to_vec());
+            let xyz: Vec<[f64; 3]> = nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
+            let bc = crate::model_pde_cutfem::bc_nodal(ctx, Some(&p), Some(e), nodes.len())?;
+            model_pde_boundary_local(&fe, etype, &xyz, &bc, local)?;
+            add_length(&fe, etype, &xyz, &mut len)?;
+            ctx.default_update(local, e)?;
+        }
+        // DefaultCutFEM: the add mesh.
+        for sub in &lib.pieces {
+            let xyz = ctx.cutfem_xyz(&sub.nodes)?;
+            let etype = elmer_core::ElementType(sub.code);
+            let nod = crate::model_pde_cutfem::nodal(ctx, sub.body, None, sub.nodes.len())?;
+            model_pde_bulk_local(&fe, etype, &xyz, &nod, dim, None, local)?;
+            add_totals(&fe, etype, &xyz, &nod.source, &mut area, &mut src)?;
+            let mass = local.mass.take();
+            if transient {
+                if let Some(m) = mass {
+                    ctx.cutfem_update_mass(&m, &sub.nodes)?;
+                }
+            }
+            ctx.cutfem_update(local, &sub.nodes)?;
+        }
+        ctx.default_finish_bulk_assembly()?;
+        for ie in &lib.interface {
+            let xyz = ctx.cutfem_xyz(ie)?;
+            let etype = elmer_core::ElementType(202);
+            let bc = crate::model_pde_cutfem::bc_nodal(ctx, interface.as_ref(), None, 2)?;
+            model_pde_boundary_local(&fe, etype, &xyz, &bc, local)?;
+            add_length(&fe, etype, &xyz, &mut len)?;
+            ctx.cutfem_update(local, ie)?;
+        }
+        ctx.default_finish_boundary_assembly()?;
+        ctx.default_dirichlet()?;
+        ctx.default_solve()?;
+        if ctx.default_converged() {
+            break;
+        }
+    }
+    ctx.default_finish()?;
+    let sim = &mut ctx.sim.model.simulation;
+    sim.insert("res: integ total area", elmer_core::Value::real(area));
+    sim.insert("res: integ total len", elmer_core::Value::real(len));
+    sim.insert("res: integ total src", elmer_core::Value::real(src));
+    Ok(())
 }

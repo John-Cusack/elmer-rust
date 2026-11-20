@@ -139,7 +139,6 @@ pub fn check_advdiff_supported(
 }
 
 const MODEL_PDE_SOLVER: &[Rule] = &[
-    flag("CutFEM", "cut finite elements are not implemented"),
     flag(
         "Integ Test",
         "the integration test totals are not implemented",

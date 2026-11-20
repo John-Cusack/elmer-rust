@@ -882,6 +882,19 @@ pub struct CutFemRun {
     saved: Option<Saved>,
     opts: PermOptions,
     dofs: usize,
+    /// `CreateCutFEMAddMesh` of a library solver (no `CutFEM Solver`).
+    lib: Option<LibraryMesh>,
+}
+
+/// What `CreateCutFEMAddMesh` gives a library solver for the step: the
+/// unsplit active elements it assembles first (`UnsplitActiveElements`),
+/// then, on the add mesh, the pieces of the split elements and the
+/// interface elements.
+#[derive(Clone, Debug, Default)]
+pub struct LibraryMesh {
+    pub unsplit: Vec<ElemId>,
+    pub pieces: Vec<SubElement>,
+    pub interface: Vec<[u32; 2]>,
 }
 
 fn cut_err(msg: impl Into<String>) -> SolverError {
@@ -903,9 +916,6 @@ impl SolverCtx<'_> {
     /// fresh zero system on the cut pattern (with a global mass matrix).
     pub(crate) fn cutfem_start(&mut self) -> Result<(), SolverError> {
         let p = self.params().clone();
-        if p.logical("cutfem solver") != Some(true) {
-            return Err(SolverError::Unsupported("CutFEM in a library solver (CreateCutFEMAddMesh mesh swapping)".into()));
-        }
         for k in ["cutfem extrapolate", "cutfem bodyfitted"] {
             if p.logical(k) == Some(true) {
                 return Err(SolverError::Unsupported(format!("CutFEM option {k}")));
@@ -959,6 +969,7 @@ impl SolverCtx<'_> {
                 saved: None,
                 opts,
                 dofs,
+                lib: None,
             }));
         }
         let mesh_view = self.mesh;
@@ -1031,7 +1042,70 @@ impl SolverCtx<'_> {
         run.saved = Some(saved);
         run.phi = phi;
         run.state = Some(st);
+        run.lib = None;
+        if p.logical("cutfem solver") != Some(true) {
+            let lib = self.cutfem_add_mesh()?;
+            let run = self.sim.slots[self.slot].cutfem.as_deref_mut().expect("created above");
+            run.lib = Some(lib);
+        }
         Ok(())
+    }
+
+    /// `CreateCutFEMAddMesh`: the unsplit active elements, then
+    /// `CreateCutFEMMesh(..., AddMeshMode = .TRUE.)`'s two sweeps over the
+    /// split elements' pieces and interface elements whose nodes are all
+    /// cut dofs (the second sweep's are kept).
+    fn cutfem_add_mesh(&mut self) -> Result<LibraryMesh, SolverError> {
+        let nb = self.mesh.n_bulk();
+        let mut lib = LibraryMesh::default();
+        {
+            let run = self.cut()?;
+            let st = self.cut_state()?;
+            for t in 0..nb {
+                if run.mesh.nodes[t].iter().any(|&k| run.phi[k as usize].is_none()) {
+                    continue;
+                }
+                let (is_cut, is_active) = interface_check(st, &run.mesh, &run.edges, t, &st.cut_perm);
+                if is_active && !is_cut {
+                    lib.unsplit.push(ElemId(t as u32));
+                }
+            }
+        }
+        for sweep in 0..2 {
+            for t in 0..nb {
+                let e = ElemId(t as u32);
+                let (is_cut, _) = self.cutfem_check(e)?;
+                if !is_cut {
+                    continue;
+                }
+                loop {
+                    let sub = self.cutfem_bulk(e)?;
+                    if sweep == 1 && self.cutfem_in_perm(&sub.nodes)? {
+                        lib.pieces.push(sub.clone());
+                    }
+                    if !sub.more {
+                        break;
+                    }
+                }
+            }
+            for t in 0..nb {
+                let e = ElemId(t as u32);
+                while let Some(ie) = self.cutfem_interface(e)? {
+                    if sweep == 1 && self.cutfem_in_perm(&ie.nodes)? {
+                        lib.interface.push(ie.nodes);
+                    }
+                    if !ie.more {
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(lib)
+    }
+
+    /// The library solver's elements for the step ([`LibraryMesh`]).
+    pub fn cutfem_library_mesh(&self) -> Result<LibraryMesh, SolverError> {
+        self.cut()?.lib.clone().ok_or_else(|| cut_err("no CutFEM add mesh (a CutFEM Solver?)"))
     }
 
     /// `CutInterfaceCheck(Element, IsCut, IsActive)` against the variable's
@@ -1195,15 +1269,18 @@ impl SolverCtx<'_> {
             }
             (iso, x, y)
         };
+        // CreateCutFEMMesh counts in a first sweep and fills in a second.
         let mut elems = Vec::new();
-        for t in 0..self.mesh.n_bulk() {
-            let e = ElemId(t as u32);
-            while let Some(ie) = self.cutfem_interface(e)? {
-                if self.cutfem_in_perm(&ie.nodes)? {
-                    elems.push([iso[ie.nodes[0] as usize] as usize - 1, iso[ie.nodes[1] as usize] as usize - 1]);
-                }
-                if !ie.more {
-                    break;
+        for sweep in 0..2 {
+            for t in 0..self.mesh.n_bulk() {
+                let e = ElemId(t as u32);
+                while let Some(ie) = self.cutfem_interface(e)? {
+                    if sweep == 1 && self.cutfem_in_perm(&ie.nodes)? {
+                        elems.push([iso[ie.nodes[0] as usize] as usize - 1, iso[ie.nodes[1] as usize] as usize - 1]);
+                    }
+                    if !ie.more {
+                        break;
+                    }
                 }
             }
         }
@@ -1215,6 +1292,13 @@ impl SolverCtx<'_> {
     /// mesh: their pieces only go to the VTU output, which is not written,
     /// but the split counters move as the Fortran's do.
     fn cutfem_cut_mesh_loops(&mut self) -> Result<(), SolverError> {
+        for _sweep in 0..2 {
+            self.cutfem_cut_mesh_sweep()?;
+        }
+        Ok(())
+    }
+
+    fn cutfem_cut_mesh_sweep(&mut self) -> Result<(), SolverError> {
         for t in 0..self.mesh.n_bulk() {
             let e = ElemId(t as u32);
             let (is_cut, _) = self.cutfem_check(e)?;

@@ -60,7 +60,7 @@ fn constant(p: Option<&ParamMap>, key: &str, n: usize) -> Result<Vec<f64>, Solve
 /// The coefficients of `LocalMatrix` from the body `body` (its material
 /// and body force): at the nodes of mesh element `e`, or constants for a
 /// piece of a split element.
-fn nodal(ctx: &SolverCtx<'_>, body: i32, e: Option<ElemId>, n: usize) -> Result<ModelPdeNodal, SolverError> {
+pub(crate) fn nodal(ctx: &SolverCtx<'_>, body: i32, e: Option<ElemId>, n: usize) -> Result<ModelPdeNodal, SolverError> {
     let bp = usize::try_from(body).ok().and_then(|b| ctx.sim.model.body_params(b));
     let (m, bf) = (bp.as_ref().and_then(|b| b.material), bp.as_ref().and_then(|b| b.body_force));
     let get = |p: Option<&ParamMap>, key: &str| -> Result<Vec<f64>, SolverError> {
@@ -87,7 +87,7 @@ fn nodal(ctx: &SolverCtx<'_>, body: i32, e: Option<ElemId>, n: usize) -> Result<
     })
 }
 
-fn bc_nodal(ctx: &SolverCtx<'_>, p: Option<&ParamMap>, e: Option<ElemId>, n: usize) -> Result<ModelPdeBcNodal, SolverError> {
+pub(crate) fn bc_nodal(ctx: &SolverCtx<'_>, p: Option<&ParamMap>, e: Option<ElemId>, n: usize) -> Result<ModelPdeBcNodal, SolverError> {
     let get = |key: &str| -> Result<Vec<f64>, SolverError> {
         match (e, p) {
             (Some(e), Some(p)) => Ok(ctx.real_at_nodes(p, key, e)?.unwrap_or_else(|| vec![0.0; n])),

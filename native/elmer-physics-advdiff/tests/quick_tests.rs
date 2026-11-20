@@ -664,8 +664,8 @@ fn unsupported_model_pde_cases_are_refused_at_setup() {
     assert!(setup_error(m, &mesh).contains("Element"));
 
     let mut m = model_pde_model(false);
-    m.solvers[0].insert("CutFEM", Value::Logical(true));
-    assert!(setup_error(m, &mesh).contains("CutFEM"));
+    m.solvers[0].insert("Integ Test", Value::Logical(true));
+    assert!(setup_error(m, &mesh).contains("Integ Test"));
 
     let mut m = model_pde_model(false);
     m.solvers[0].insert("Relative Integration Order", ints(&[1]));
