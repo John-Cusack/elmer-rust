@@ -120,7 +120,7 @@ fn pos_index_matches_step_offsets() {
 #[test]
 fn rejects_old_versions_and_garbage() {
     assert!(matches!(
-        ResultFile::from_bytes(b" ASCII 2\n"),
+        ResultFile::from_bytes(b" ASCII 1\n"),
         Err(elmer_saveio::SaveIoError::Unsupported(_))
     ));
     assert!(ResultFile::from_bytes(b"hello\n").is_err());
@@ -147,4 +147,41 @@ fn read_result_from_path() {
     let rf = read_result(&p).unwrap();
     assert_eq!(rf.header.n_nodes, 441);
     assert!(read_result(&p.with_extension("nope")).is_err());
+}
+
+/// A format-version 2 binary file (big-endian, as `reload`'s `flow.dat`
+/// from 2007): `name dofs :equation` header lines, sizes from the mesh.
+#[test]
+fn reads_version_2_binary() {
+    let mut b = b" BINARY 2.B\n!File started at: 2007/08/08 12:43:59\n Degrees of freedom: \n flow solution 2  :fs\n velocity 1 1  :fs\n velocity 2 1  :fs\n Total DOFs:  2\n Number Of Nodes:  2\n\0".to_vec();
+    b.extend(b"Time:\0");
+    b.extend(1i32.to_be_bytes());
+    b.extend(4i32.to_be_bytes());
+    b.extend(2.5f64.to_be_bytes());
+    let table_at = b.len() as i64 + 11;
+    b.extend(b"velocity 1\0");
+    for i in [2i32, 2, 1, 2, 2, 1] {
+        b.extend(i.to_be_bytes());
+    }
+    b.extend(0.5f64.to_be_bytes());
+    b.extend((-1.0f64).to_be_bytes());
+    b.extend(b"velocity 2\0");
+    b.extend((-1i32).to_be_bytes());
+    b.extend(table_at.to_be_bytes());
+    b.extend(3.0f64.to_be_bytes());
+    b.extend(4.0f64.to_be_bytes());
+    let rf = ResultFile::from_bytes(&b).unwrap();
+    let names: Vec<(&str, usize, usize, usize, &str)> = rf
+        .header
+        .vars
+        .iter()
+        .map(|v| (v.name.as_str(), v.field_size, v.perm_size, v.dofs, v.equation.as_str()))
+        .collect();
+    assert_eq!(
+        names,
+        [("flow solution", 2, 2, 2, "fs"), ("velocity 1", 2, 2, 1, "fs"), ("velocity 2", 2, 2, 1, "fs")]
+    );
+    assert_eq!((rf.steps[0].saved_count, rf.steps[0].timestep, rf.steps[0].time), (1, 4, 2.5));
+    let f = rf.restart_field(0, "velocity 2").unwrap().unwrap();
+    assert_eq!((f.node, f.slot, f.values), (vec![0, 1], vec![1, 0], vec![3.0, 4.0]));
 }

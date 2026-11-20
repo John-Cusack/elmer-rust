@@ -76,6 +76,7 @@ mod integrals;
 mod line;
 mod materials;
 mod plan;
+mod reload;
 mod scalars;
 mod view;
 
@@ -131,8 +132,10 @@ fn names_meta() -> fn() -> NamesMeta {
 }
 
 /// Registers `("SaveData", "SaveScalars")`, `("SaveData", "SaveLine")`,
-/// `("SaveData", "SaveMaterials")` and `("SaveData", "SaveDependence")`.
+/// `("SaveData", "SaveMaterials")`, `("SaveData", "SaveDependence")` and
+/// `("ReloadData", "ReloadSolution")`.
 pub fn register(registry: &mut SolverRegistry) {
+    registry.register("ReloadData", "ReloadSolution", reload_factory);
     registry.register(SAVE_SCALARS.0, SAVE_SCALARS.1, scalars_factory);
     registry.register(SAVE_LINE.0, SAVE_LINE.1, line_factory);
     registry.register(SAVE_MATERIALS.0, SAVE_MATERIALS.1, materials_factory);
@@ -155,6 +158,12 @@ pub fn line_factory(params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
 /// [`SolverFactory`](elmer_solver::SolverFactory) for [`SaveMaterials`].
 pub fn materials_factory(params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
     Ok(Box::new(SaveMaterials::from_params(params)?))
+}
+
+/// [`SolverFactory`](elmer_solver::SolverFactory) for `ReloadSolution`
+/// (`ReloadData` module): one stored step of a `.result` file per visit.
+pub fn reload_factory(params: &ParamMap) -> Result<Box<dyn Solver>, SolverError> {
+    Ok(Box::new(reload::ReloadSolution::from_params(params)?))
 }
 
 /// [`SolverFactory`](elmer_solver::SolverFactory) for [`SaveDependence`].

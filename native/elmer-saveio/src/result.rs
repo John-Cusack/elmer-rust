@@ -495,11 +495,18 @@ fn parse(bytes: &[u8]) -> Result<ResultFile> {
     } else {
         return format_err(format!("could not determine file format from '{first}'"));
     };
-    if version != "3" {
-        return Err(SaveIoError::Unsupported(format!(
-            "result file version '{version}' (only 3)"
-        )));
-    }
+    // Format version 2 (before Elmer 6) differs in the variable lines only:
+    // `name dofs :equation`, every field and perm of the mesh's size
+    // (`FmtVersion < 3` in LoadRestartFile, ModelDescription.F90).
+    let v2 = match version.as_str() {
+        "3" => false,
+        "2" => true,
+        _ => {
+            return Err(SaveIoError::Unsupported(format!(
+                "result file version '{version}' (only 2 and 3)"
+            )))
+        }
+    };
 
     // The text header ends at "Number Of Nodes" (and, for binary, a NUL).
     let (text_end, body_start) = match format {
@@ -563,7 +570,17 @@ fn parse(bytes: &[u8]) -> Result<ResultFile> {
         if total_dofs.is_some() {
             continue;
         }
-        vars.push(parse_var_line(&line)?);
+        vars.push(if v2 {
+            parse_var_line_v2(&line)?
+        } else {
+            parse_var_line(&line)?
+        });
+    }
+    if v2 {
+        for v in &mut vars {
+            v.field_size = n_nodes;
+            v.perm_size = n_nodes;
+        }
     }
     let header = ResultHeader {
         format,
@@ -610,6 +627,31 @@ fn parse_var_line(line: &str) -> Result<VarHeader> {
         name: name.to_string(),
         field_size,
         perm_size,
+        dofs,
+        equation: eq.trim().to_string(),
+    })
+}
+
+/// Version 2: `name[...] dofs :equation`; the dofs are the last word before
+/// the last `:`. The sizes are the mesh's, set by the caller.
+fn parse_var_line_v2(line: &str) -> Result<VarHeader> {
+    let bad = || SaveIoError::Format(format!("cannot read variable line '{line}'"));
+    let from = line.find(']').map_or(0, |j| j + 1);
+    let k = from + line[from..].rfind(':').ok_or_else(bad)?;
+    let (left, eq) = (line[..k].trim_end(), &line[k + 1..]);
+    let (name, dofs) = left.rsplit_once(' ').ok_or_else(bad)?;
+    let dofs: usize = dofs.parse().map_err(|_| bad())?;
+    if dofs < 1 {
+        return Err(bad());
+    }
+    let name = match name.find('[') {
+        Some(j) => &name[..j],
+        None => name,
+    };
+    Ok(VarHeader {
+        name: name.trim().to_string(),
+        field_size: 0,
+        perm_size: 0,
         dofs,
         equation: eq.trim().to_string(),
     })

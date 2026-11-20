@@ -58,6 +58,8 @@ pub mod time;
 pub mod variable;
 
 pub use assembly::ElmerAssembly;
+/// Elmer's file formats and Fortran edit descriptors, for the run's writers.
+pub use elmer_saveio;
 pub use backend::{
     AssemblyBackend, Backends, DofsBackend, FeBackend, LinearSolverRegistry, Perm, SolverDofs, TimeBackend, TimeTerms,
 };

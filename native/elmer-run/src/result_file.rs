@@ -9,7 +9,12 @@
 //! of an identical previous Perm, or `0` for none) and its values in Perm
 //! order, native-endian.
 //!
-//! Only the plain variant is written: one mesh, binary. In parallel each
+//! With `Binary Output = False` the same records are text (`ASCII 3`, no
+//! `.pos`): `Time:` with `(a,i7,i7,ES17.8E3)`, `Perm: NULL`, `Perm: use
+//! previous` or `Perm:` with `(A,i12," ",i12)` and `(2i11)` pairs, and one
+//! list-directed value per line.
+//!
+//! Only the plain variant is written: one mesh. In parallel each
 //! rank writes its own piece, `<Output File>.<rank>` (ModelDescription.F90:3894).
 //! Other settings leave the file unwritten with a warning, as before.
 
@@ -28,9 +33,6 @@ const CALLER: &str = "SaveResult";
 fn unsupported(model: &Model) -> Option<String> {
     let sim = &model.simulation;
     let flag = |k: &str| sim.logical(k) == Some(true);
-    if sim.logical("binary output") != Some(true) {
-        return Some("ASCII output (Binary Output = False)".into());
-    }
     for k in [
         "output file final only",
         "separate results files",
@@ -80,6 +82,7 @@ pub fn writer(model: &Model, mesh_dir: &std::path::Path, rank: usize, ranks: usi
     Some(ResultWriter {
         path: mesh_dir.join(name),
         save_global: model.simulation.logical("output global variables") == Some(true),
+        binary: model.simulation.logical("binary output") == Some(true),
         saves_done: 0,
     })
 }
@@ -88,6 +91,8 @@ pub fn writer(model: &Model, mesh_dir: &std::path::Path, rank: usize, ranks: usi
 pub struct ResultWriter {
     path: PathBuf,
     save_global: bool,
+    /// `Binary Output`; text otherwise.
+    binary: bool,
     saves_done: i32,
 }
 
@@ -192,7 +197,7 @@ impl ResultWriter {
     /// `InitializeFile` and the header part; returns the `.pos` header.
     fn header(&self, list: &[Entry<'_>], n_nodes: usize) -> (Vec<u8>, Vec<u8>) {
         let marker = if cfg!(target_endian = "little") { 'L' } else { 'B' };
-        let mut out = format!(" BINARY 3.{marker}\n");
+        let mut out = if self.binary { format!(" BINARY 3.{marker}\n") } else { " ASCII 3\n".to_string() };
         out.push_str(&format!("!File started at: {}\n", elmer_cli::version::format_date(std::time::SystemTime::now())));
         out.push_str(" Degrees of freedom: \n");
         let mut dofs = 0i32;
@@ -221,7 +226,9 @@ impl ResultWriter {
         out.push_str(&format!(" Total DOFs: {dofs:>12}\n"));
         out.push_str(&format!(" Number Of Nodes: {n_nodes:>12}\n"));
         let mut bytes = out.into_bytes();
-        bytes.push(0);
+        if self.binary {
+            bytes.push(0);
+        }
         let mut pos = vec![marker as u8];
         pos.extend_from_slice(&dofs.to_ne_bytes());
         pos.extend_from_slice(&pos_names);
@@ -285,15 +292,45 @@ impl ResultWriter {
             let len = std::fs::metadata(&self.path).map_err(io)?.len() as usize;
             (Vec::new(), Vec::new(), len)
         };
+        if self.binary {
+            self.binary_step(sim, &list, step, base, &mut data, &mut pos);
+        } else {
+            self.text_step(sim, &list, step, &mut data);
+        }
+        let open = |p: &PathBuf, fresh: bool| {
+            if fresh {
+                std::fs::File::create(p)
+            } else {
+                OpenOptions::new().append(true).open(p)
+            }
+        };
+        let fresh = self.saves_done == 0;
+        if fresh {
+            if let Some(d) = self.path.parent() {
+                std::fs::create_dir_all(d).map_err(io)?;
+            }
+        }
+        open(&self.path, fresh).and_then(|mut f| f.write_all(&data)).map_err(io)?;
+        if self.binary {
+            open(&pos_path, fresh).and_then(|mut f| f.write_all(&pos)).map_err(io)?;
+        }
+        self.saves_done += 1;
+        log.info(CALLER, "Done writing results file", 5);
+        log.info(CALLER, "-----------------------------------------", 5);
+        Ok(())
+    }
+
+    /// One `Time:` block of the binary file, and its `.pos` offsets.
+    fn binary_step(&self, sim: &Simulation, list: &[Entry<'_>], step: i32, base: usize, data: &mut Vec<u8>, pos: &mut Vec<u8>) {
         let at = |data: &Vec<u8>| (base + data.len()) as i64;
-        pos.extend_from_slice(&at(&data).to_ne_bytes());
+        pos.extend_from_slice(&at(data).to_ne_bytes());
         data.extend_from_slice(b"Time:\0");
         data.extend_from_slice(&(self.saves_done + 1).to_ne_bytes());
         data.extend_from_slice(&step.to_ne_bytes());
         data.extend_from_slice(&sim.vars.scalar("time").unwrap_or(0.0).to_ne_bytes());
         let mut prev: Option<(&Arc<[u32]>, i64)> = None;
         for e in list.iter().filter(|e| self.saves(e)) {
-            pos.extend_from_slice(&at(&data).to_ne_bytes());
+            pos.extend_from_slice(&at(data).to_ne_bytes());
             data.extend_from_slice(e.name.as_bytes());
             data.push(0);
             match e.perm {
@@ -303,7 +340,7 @@ impl ResultWriter {
                     data.extend_from_slice(&prev.unwrap().1.to_ne_bytes());
                 }
                 Some(p) => {
-                    prev = Some((p, at(&data)));
+                    prev = Some((p, at(data)));
                     let nnz = p.iter().filter(|&&k| k != NO_DOF).count();
                     data.extend_from_slice(&(p.len() as i32).to_ne_bytes());
                     data.extend_from_slice(&(nnz as i32).to_ne_bytes());
@@ -327,25 +364,47 @@ impl ResultWriter {
                 }
             }
         }
-        let open = |p: &PathBuf, fresh: bool| {
-            if fresh {
-                std::fs::File::create(p)
-            } else {
-                OpenOptions::new().append(true).open(p)
+    }
+
+    /// One `Time:` block of the text file (`Binary Output = False`).
+    fn text_step(&self, sim: &Simulation, list: &[Entry<'_>], step: i32, data: &mut Vec<u8>) {
+        use elmer_solver::elmer_saveio::fortran::{fortran_es_e, fortran_i, list_real};
+        let time = sim.vars.scalar("time").unwrap_or(0.0);
+        let mut t = format!(
+            "Time: {}{}{}\n",
+            fortran_i(i64::from(self.saves_done + 1), 7),
+            fortran_i(i64::from(step), 7),
+            fortran_es_e(time, 17, 8, Some(3))
+        );
+        let mut prev: Option<&Arc<[u32]>> = None;
+        for e in list.iter().filter(|e| self.saves(e)) {
+            t.push_str(&e.name);
+            t.push('\n');
+            match e.perm {
+                None => t.push_str("Perm: NULL\n"),
+                Some(p) if prev.is_some_and(|q| Arc::ptr_eq(p, q) || **p == **q) => t.push_str("Perm: use previous\n"),
+                Some(p) => {
+                    prev = Some(p);
+                    let nnz = p.iter().filter(|&&k| k != NO_DOF).count();
+                    t.push_str(&format!("Perm: {} {}\n", fortran_i(p.len() as i64, 12), fortran_i(nnz as i64, 12)));
+                    for (i, &k) in p.iter().enumerate().filter(|(_, &k)| k != NO_DOF) {
+                        t.push_str(&fortran_i(i as i64 + 1, 11));
+                        t.push_str(&fortran_i(i64::from(k) + 1, 11));
+                        t.push('\n');
+                    }
+                }
             }
-        };
-        let fresh = self.saves_done == 0;
-        if fresh {
-            if let Some(d) = self.path.parent() {
-                std::fs::create_dir_all(d).map_err(io)?;
+            let mut put = |x: f64| {
+                t.push_str(&list_real(x));
+                t.push('\n');
+            };
+            let value = |k: usize| e.values[e.offset + e.stride * k];
+            match e.perm {
+                Some(p) => p.iter().filter(|&&k| k != NO_DOF).for_each(|&k| put(value(k as usize))),
+                None => (0..e.size).for_each(|k| put(value(k))),
             }
         }
-        open(&self.path, fresh).and_then(|mut f| f.write_all(&data)).map_err(io)?;
-        open(&pos_path, fresh).and_then(|mut f| f.write_all(&pos)).map_err(io)?;
-        self.saves_done += 1;
-        log.info(CALLER, "Done writing results file", 5);
-        log.info(CALLER, "-----------------------------------------", 5);
-        Ok(())
+        data.extend_from_slice(t.as_bytes());
     }
 }
 
@@ -417,6 +476,63 @@ mod tests {
         want.extend_from_slice(&((nul + 1) as i64).to_le_bytes());
         want.extend_from_slice(&((nul + 1 + 22) as i64).to_le_bytes());
         assert_eq!(pos, want);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `Binary Output = False`: the text layout of `reload`'s
+    /// `Step/ad-trans.dat` (pristine Release), with no `.pos`, read back by
+    /// `elmer-saveio`.
+    #[test]
+    fn ascii_output_matches_pristine_layout() {
+        let dir = std::env::temp_dir().join(format!("elmer-run-ascii-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut model = Model::default();
+        model.simulation.insert("Output File", Value::Str("case.dat".into()));
+        let mut sim = Simulation::new(model);
+        let perm: Arc<[u32]> = Arc::from(vec![1u32, 0]);
+        sim.vars.add(Variable::new("Species", FieldKind::Nodal, 1, Some(perm.clone()), vec![0.1, 1.0])).unwrap();
+        sim.vars.add(Variable::new("Zeta", FieldKind::Nodal, 1, Some(perm), vec![0.0, -2.5e-7])).unwrap();
+        sim.vars.set_scalar("timestep", 5.0);
+        sim.vars.set_scalar("time", 12.5);
+        let mesh = elmer_mesh_levels::Mesh { dim: 2, coords: vec![[0.0; 3]; 2], elements: Vec::new(), n_bulk: 0 };
+        let mut w = writer(&sim.model, &dir, 0, 1, &NullLogger).unwrap();
+        w.save(&sim, &mesh, &NullLogger).unwrap();
+        sim.vars.set_scalar("timestep", 6.0);
+        w.save(&sim, &mesh, &NullLogger).unwrap();
+
+        let got = std::fs::read_to_string(dir.join("case.dat")).unwrap();
+        let lines: Vec<&str> = got.lines().filter(|l| !l.starts_with("!File started at: ")).collect();
+        let step = |n: &'static str| {
+            [
+                n,
+                "species",
+                "Perm:            2            2",
+                "          1          2",
+                "          2          1",
+                "   1.0000000000000000     ",
+                "  0.10000000000000001     ",
+                "zeta",
+                "Perm: use previous",
+                "  -2.4999999999999999E-007",
+                "   0.0000000000000000     ",
+            ]
+        };
+        let mut want = vec![
+            " ASCII 3",
+            " Degrees of freedom: ",
+            "species                  :        2       2   1 : no equation",
+            "zeta                     :        2       2   1 : no equation",
+            " Total DOFs:            2",
+            " Number Of Nodes:            2",
+        ];
+        want.extend(step("Time:       1      5  1.25000000E+001"));
+        want.extend(step("Time:       2      6  1.25000000E+001"));
+        assert_eq!(lines, want);
+        assert!(!dir.join("case.dat.pos").exists());
+        let rf = elmer_solver::elmer_saveio::result::read_result(&dir.join("case.dat")).unwrap();
+        assert_eq!(rf.steps.len(), 2);
+        let f = rf.restart_field(1, "zeta").unwrap().unwrap();
+        assert_eq!((f.node, f.slot, f.values), (vec![0, 1], vec![1, 0], vec![-2.5e-7, 0.0]));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
