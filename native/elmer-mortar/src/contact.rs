@@ -13,11 +13,11 @@
 //! 3. `DefaultSolve`: `GenerateConstraintMatrix` from the projectors with
 //!    `MortarBC % Active`, `Rhs` and `Perm`.
 //!
-//! Ported: Cartesian slip and tie contact without residual mode on a flat
-//! projector of nodal dofs. Refused: normal-tangential contact, stick and
-//! friction, residual mode, velocities, the plane, rotational and normal
-//! projectors, p-elements, conservative and conditional active sets, linear
-//! gaps and loads, Lagrange-multiplier based contact, dual projectors.
+//! Ported: Cartesian and normal-tangential slip and tie contact, also in
+//! residual mode, on a flat or plane projector of nodal dofs. Refused: stick
+//! and friction, velocities, the rotational and normal projectors,
+//! p-elements, conservative and conditional active sets, linear gaps and
+//! loads, Lagrange-multiplier based contact, dual projectors.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -142,6 +142,8 @@ struct SolverContact {
     projectors: Vec<Option<Projector>>,
     /// `Flat Projector Coordinate` as `FlatInterfaceMeshes` stores it.
     flat_dim: Vec<usize>,
+    /// `Plane Projector Normal` as `PlaneInterfaceMeshes` stores it.
+    plane_normal: Vec<Option<[f64; 3]>>,
     bcs: HashMap<usize, MortarBc>,
     /// The mesh as `begin_initialize` moved it, with the move to undo.
     moved: Option<Moved>,
@@ -177,7 +179,6 @@ fn check_solver(p: &dyn Params, simulation: &dyn Params) -> Result<(), SolverErr
         "use nodal normal",
         "debug normals",
         "use lagrange multiplier for contact",
-        "linear system residual mode",
         "contact linear basis",
         "eliminate linear constraints",
     ] {
@@ -213,7 +214,6 @@ fn check_bc(bc: &dyn Params) -> Result<(), SolverError> {
         "rotational projector",
         "cylindrical projector",
         "normal projector",
-        "plane projector",
         "create dual projector",
         "stick contact global",
     ] {
@@ -367,9 +367,12 @@ impl elmer_solver::ContactBackend for MortarContact {
         };
         // FlatInterfaceMeshes re-detects the coordinate at each generation
         // and stores it in the boundary condition (CU:260 reads it back).
+        // PlaneInterfaceMeshes likewise the plane normal (CU:263).
         let mut flat_dim = vec![0usize; bcs.len()];
+        let mut plane_normal = vec![None; bcs.len()];
         for (i, p) in projectors.iter().enumerate() {
-            if p.is_none() || !flag(bcs[i], "flat projector") {
+            let (flat, plane) = (flag(bcs[i], "flat projector"), flag(bcs[i], "plane projector"));
+            if p.is_none() || !(flat || plane) {
                 continue;
             }
             let target = bcs[i].integer("mortar bc").unwrap_or(0).max(0) as usize;
@@ -382,7 +385,14 @@ impl elmer_solver::ContactBackend for MortarContact {
                     _ => None,
                 };
                 map_interface_coordinate(&mut b1, &mut b2, map.as_deref()).map_err(mortar_err)?;
-                flat_dim[i] = crate::level::flat_interface_meshes(&mut b1, &mut b2, bcs[i], self.coord_dim, &NullLogger);
+                if flat {
+                    flat_dim[i] = crate::level::flat_interface_meshes(&mut b1, &mut b2, bcs[i], self.coord_dim, &NullLogger);
+                } else {
+                    plane_normal[i] = Some(
+                        crate::level::plane_interface_meshes(&mut b1, &mut b2, bcs[i], self.coord_dim, self.coord_dim, &NullLogger)
+                            .map_err(mortar_err)?,
+                    );
+                }
             }
         }
         if let (Some(m), Some((x, u, p, d))) = (mover(), &moved) {
@@ -392,6 +402,7 @@ impl elmer_solver::ContactBackend for MortarContact {
         let s = state.entry(id).or_default();
         s.projectors = projectors;
         s.flat_dim = flat_dim;
+        s.plane_normal = plane_normal;
         Ok(())
     }
 
@@ -496,6 +507,7 @@ fn determine_contact(ctx: &mut SolverCtx<'_>, s: &mut SolverContact, first_time:
     } else {
         return Err(fatal(format!("Invalid number of dofs for contact problem: {dofs}")));
     };
+    let residual = ctx.params().logical("linear system residual mode") == Some(true);
     let load_eps = ctx.params().real("limiter load tolerance").unwrap_or(f64::EPSILON);
     let val_eps = ctx.params().real("limiter value tolerance").unwrap_or(f64::EPSILON);
     let n_nodes = ctx.mesh.n_nodes();
@@ -591,18 +603,42 @@ fn determine_contact(ctx: &mut SolverCtx<'_>, s: &mut SolverContact, first_time:
         let Some(projector) = s.projectors.get(bc_ind - 1).and_then(Option::as_ref) else { continue };
         ctx.info(CALLER, &format!("Set contact for boundary: {bc_ind}"), 8);
         let bc = &ctx.sim.model.boundary_conditions[bc_ind - 1];
-        if !flag(bc, "flat projector") {
+        let rotated = flag(bc, &format!("normal-tangential {name}"));
+        // CU:258-282: ActiveDirection from the stored flat coordinate, or the
+        // largest component of the plane normal.
+        let plane = if flag(bc, "flat projector") {
+            None
+        } else if flag(bc, "plane projector") {
+            Some(
+                s.plane_normal
+                    .get(bc_ind - 1)
+                    .copied()
+                    .flatten()
+                    .ok_or_else(|| fatal("Plane Projector Normal not set"))?,
+            )
+        } else {
             return Err(fatal("Projector must be current either flat, plane, cylindrical or rotational!"));
-        }
-        // CU:259-261: ActiveDirection from the stored flat coordinate.
-        let active_dir = match s.flat_dim.get(bc_ind - 1).copied().filter(|&d| d > 0) {
-            Some(d) => d,
-            None => bc.integer("flat projector coordinate").map_or(cdofs, |d| d as usize),
+        };
+        let active_dir = match plane {
+            None => match s.flat_dim.get(bc_ind - 1).copied().filter(|&d| d > 0) {
+                Some(d) => d,
+                None => bc.integer("flat projector coordinate").map_or(cdofs, |d| d as usize),
+            },
+            Some(_) if rotated => 1,
+            Some(pn) => {
+                let mut a = 1;
+                for i in 2..=3 {
+                    if pn[i - 1].abs() > pn[a - 1].abs() {
+                        a = i;
+                    }
+                }
+                ctx.info(CALLER, &format!("Active direction set to: {a}"), 6);
+                a
+            }
         };
         let ctype = contact_type(bc, ctx)?;
         // CU:299-310: an n-t contact boundary works in the n-t components,
         // the normal first, and its master side enters with -1.
-        let rotated = flag(bc, &format!("normal-tangential {name}"));
         if rotated {
             let master_ind = bc.integer("mortar bc").unwrap_or(0).max(0) as usize;
             let master_nt = master_ind > 0
@@ -614,8 +650,21 @@ fn determine_contact(ctx: &mut SolverCtx<'_>, s: &mut SolverContact, first_time:
         }
         let dof_n = if rotated { 1 } else { active_dir };
         let dof_t1 = (1..=cdofs).find(|&i| i != dof_n).unwrap_or(0);
-        let mut normal = [0.0; 3];
-        normal[active_dir - 1] = 1.0;
+        let dof_t2 = (1..=cdofs).find(|&i| i != dof_n && i != dof_t1).unwrap_or(0);
+        // ContactNormal: the plane normal, or the active direction.
+        let normal = plane.unwrap_or_else(|| {
+            let mut v = [0.0; 3];
+            v[active_dir - 1] = 1.0;
+            v
+        });
+        let unit = |d: usize| {
+            let mut v = [0.0; 3];
+            if d > 0 {
+                v[d - 1] = 1.0;
+            }
+            v
+        };
+        let (contact_t1, contact_t2) = (unit(dof_t1), unit(dof_t2));
 
         // InitializeMortarVectors.
         let rows = projector.n_rows();
@@ -753,17 +802,20 @@ fn determine_contact(ctx: &mut SolverCtx<'_>, s: &mut SolverContact, first_time:
             }
             // LocalNormal: the row node's n-t normal (GetSolutionRotation), the
             // contact normal on a Cartesian boundary.
-            let gap_normal = if rotated {
-                match ctx.nt_solution_rotation(j) {
-                    Some(a) => [a[0][0], a[1][0], a[2][0]],
-                    None => [1.0, 0.0, 0.0],
-                }
+            let (gap_normal, t1, t2) = if rotated {
+                // GetSolutionRotation: the identity off the n-t boundary.
+                let a = ctx.nt_solution_rotation(j).unwrap_or([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
+                ([a[0][0], a[1][0], a[2][0]], [a[0][1], a[1][1], a[2][1]], [a[0][2], a[1][2], a[2][2]])
             } else {
-                normal
+                (normal, contact_t1, contact_t2)
             };
+            let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
             let (mut wsum, mut wsum_m) = (0.0f64, 0.0f64);
-            let (mut dist, mut gap) = (0.0f64, 0.0f64);
-            if ctype == ContactType::Slip {
+            let mut dist = 0.0f64;
+            // ContactVec.
+            let mut cv = [0.0f64; 3];
+            // CU:1058: tie contact outside residual mode has nothing to measure.
+            if ctype == ContactType::Slip || residual {
                 for (k, coeff) in projector.row(i) {
                     if field_perm[k as usize] == NO_DOF {
                         continue;
@@ -789,20 +841,44 @@ fn determine_contact(ctx: &mut SolverCtx<'_>, s: &mut SolverContact, first_time:
                     let coeff = if slave[k as usize] { coeff } else { mult * coeff };
                     let l = l as usize;
                     let disp = [values[dofs * l], values[dofs * l + 1], if cdofs == 2 { 0.0 } else { values[dofs * l + 2] }];
-                    let mut c = ctx.mesh.coord(k);
-                    gap += coeff * (gap_normal[0] * c[0] + gap_normal[1] * c[1] + gap_normal[2] * c[2]);
-                    for d in 0..3 {
-                        c[d] += disp[d];
+                    // CU:1212-1223: in residual mode a tie cancels the gap the
+                    // displacements opened.
+                    if ctype == ContactType::Tie {
+                        cv[0] += coeff * dot(gap_normal, disp);
+                        cv[1] += coeff * dot(t1, disp);
+                        if cdofs == 3 {
+                            cv[2] += coeff * dot(t2, disp);
+                        }
+                        continue;
                     }
-                    dist += coeff * (normal[0] * c[0] + normal[1] * c[1] + normal[2] * c[2]);
+                    let mut c = ctx.mesh.coord(k);
+                    // CU:1242-1245: residual mode measures the current position.
+                    if residual {
+                        for d in 0..3 {
+                            c[d] += disp[d];
+                        }
+                    }
+                    cv[0] += coeff * dot(gap_normal, c);
+                    if !residual {
+                        for d in 0..3 {
+                            c[d] += disp[d];
+                        }
+                    }
+                    dist += coeff * dot(normal, c);
                 }
-                gap /= wsum;
+                for v in cv.iter_mut() {
+                    *v /= wsum;
+                }
                 dist = dist_sign as f64 * dist / wsum;
             }
+            let gap = cv[0];
             // Label 200.
-            m.rhs[cdofs * i + dof_n - 1] = -gap;
+            m.rhs[cdofs * i + dof_n - 1] = -cv[0];
             if ctype == ContactType::Tie {
-                m.rhs[cdofs * i + dof_t1 - 1] = -0.0;
+                m.rhs[cdofs * i + dof_t1 - 1] = -cv[1];
+                if cdofs == 3 {
+                    m.rhs[cdofs * i + dof_t2 - 1] = -cv[2];
+                }
             }
             let jj = bperm[j as usize] as usize;
             dist_v[jj] = dist;

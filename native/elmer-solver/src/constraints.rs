@@ -432,7 +432,6 @@ pub(crate) fn refuse_options(p: &ParamMap) -> Result<(), SolverError> {
         "use tree gauge",
         "restricted system norm",
         "restriction system residual mode",
-        "linear system residual mode",
         "linear system complex",
         "linear system block mode",
         "nonlinear system aitken relaxation",
