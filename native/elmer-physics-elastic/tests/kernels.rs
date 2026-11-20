@@ -104,6 +104,7 @@ fn bulk(m: &Mesh, e: usize, s: &Setup, o: &Opt<'_>) -> LocalSystem {
         np: None,
         ip: None,
         geometric: o.geometric,
+        incompressible: false,
     };
     let mut out = LocalSystem::zeros(0);
     stress_bulk_local(&P1Basis, &Gauss, &inp, &mut out).unwrap();
@@ -423,6 +424,7 @@ fn edge_bc(p: [[f64; 3]; 2], center: [f64; 3], o: EdgeOpt<'_>) -> LocalSystem {
         spring: o.spring.unwrap_or(Spring::None),
         parent_center: center,
         np: None,
+        stride: 0,
     };
     let mut out = LocalSystem::zeros(0);
     stress_boundary_local(&P1Basis, &Gauss, &inp, &mut out).unwrap();
@@ -513,6 +515,7 @@ fn unsupported_shapes_are_refused() {
         np: None,
         ip: None,
         geometric: None,
+        incompressible: false,
     };
     let mut out = LocalSystem::zeros(0);
     assert!(matches!(

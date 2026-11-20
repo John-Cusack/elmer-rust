@@ -131,6 +131,7 @@ fn run(c: &Case) {
             np: None,
             ip: None,
             geometric: None,
+            incompressible: false,
         };
         let mut out = LocalSystem::zeros(0);
         stress_bulk_local(&P1Basis, &Gauss, &inp, &mut out).unwrap();
@@ -173,6 +174,7 @@ fn run(c: &Case) {
             spring,
             parent_center: elem_center(&pxyz),
             np: None,
+            stride: 0,
         };
         let mut out = LocalSystem::zeros(0);
         stress_boundary_local(&P1Basis, &Gauss, &inp, &mut out).unwrap();

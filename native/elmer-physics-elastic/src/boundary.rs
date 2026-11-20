@@ -39,6 +39,9 @@ pub struct StressBoundaryInput<'a> {
     pub parent_center: [f64; 3],
     /// Gauss points per element; `None` is the Elmer default rule.
     pub np: Option<usize>,
+    /// Dofs per basis function in the local system (`cdim`, or `cdim + 1`
+    /// under `Incompressible`); 0 means `cdim`.
+    pub stride: usize,
 }
 
 /// Unit normal at a point from the tangential gradients the basis returns:
@@ -138,7 +141,9 @@ fn boundary_impl(
             inp.etype.0
         )));
     }
-    let ndof = nd * cdim;
+    // `ndim`: the pressure of `Incompressible` follows the displacement.
+    let st = inp.stride.max(cdim);
+    let ndof = nd * st;
     *out = LocalSystem::zeros(ndof);
 
     // Orientation is a property of the element: decided at its centre.
@@ -185,7 +190,7 @@ fn boundary_impl(
         }
         for q in 0..nd {
             for i in 0..cdim {
-                out.force[q * cdim + i] += s * bas[q] * force[i];
+                out.force[q * st + i] += s * bas[q] * force[i];
             }
         }
 
@@ -197,7 +202,7 @@ fn boundary_impl(
                     for i in 0..cdim {
                         for q in 0..nd {
                             for j in 0..cdim {
-                                out.stiff[(p * cdim + i) * ndof + q * cdim + j] +=
+                                out.stiff[(p * st + i) * ndof + q * st + j] +=
                                     kc * bas[q] * normal[j] * bas[p] * normal[i] * s;
                             }
                         }
@@ -215,7 +220,7 @@ fn boundary_impl(
                     for i in 0..cdim {
                         for q in 0..nd {
                             for j in 0..cdim {
-                                out.stiff[(p * cdim + i) * ndof + q * cdim + j] +=
+                                out.stiff[(p * st + i) * ndof + q * st + j] +=
                                     kc[i][j] * bas[q] * bas[p] * s;
                             }
                         }

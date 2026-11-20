@@ -114,7 +114,6 @@ fn reorder(values: Vec<f64>, mesh_nodes: &[u32], nodes: &[u32]) -> Vec<f64> {
 fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
     for (key, what) in [
         ("large deflection", "large deflection"),
-        ("incompressible", "incompressible formulation"),
         ("stability analysis", "stability analysis"),
         ("calculate pangle", "principal angle postprocessing"),
         ("update reference displacement", "staged construction"),
@@ -185,16 +184,6 @@ fn field_specs(cdim: usize, f: PostFlags) -> Vec<VarSpec> {
         }
     }
     out
-}
-
-/// The linear solver of a p-element stress projection.
-enum ProjectorSolve {
-    Direct(Box<dyn elmer_core::DirectSolver<f64> + Send>),
-    Iterative(
-        Box<dyn elmer_core::IterativeSolver<f64> + Send>,
-        Box<dyn elmer_core::Preconditioner<f64> + Send>,
-        elmer_core::CsrMatrix<f64>,
-    ),
 }
 
 struct ElementData {
@@ -537,7 +526,9 @@ impl StressSolver {
         let Some(perm) = f.perm else { return Ok(()) };
         let n = ctx.mesh.n_nodes().min(perm.len());
         let coords: Vec<[f64; 3]> = (0..ctx.mesh.n_nodes() as u32).map(|i| ctx.mesh.coord(i)).collect();
-        crate::motion::displace_mesh(&coords, f.values, sgn, &perm[..n], f.dofs);
+        // `UpdateDirs = STDOFs - 1` under `Incompressible`: not the pressure.
+        let dirs = if flag(Some(ctx.params()), "incompressible") { f.dofs - 1 } else { f.dofs };
+        crate::motion::displace_mesh(&coords, f.values, sgn, &perm[..n], f.dofs, dirs);
         Ok(())
     }
 
@@ -626,6 +617,7 @@ impl StressSolver {
                 np: None,
                 large_deflection: false,
                 neo_hookean: false,
+                pressure: None,
             };
             let loc = match &pe {
                 Some(p) => post::stress_strain_local_p(&*p.basis, &p.rule, p.nd, &inp),
@@ -646,28 +638,7 @@ impl StressSolver {
             }
         }
 
-        // On p elements the projection is solved as `NodalProjectorSolve`
-        // does, with the section's own linear system (its `StressTemp`
-        // solver); the nodal one keeps its conjugate gradients.
-        let mut linsys = None;
-        if ctx.solver_dofs().is_some() {
-            let a = mass.to_csr();
-            let params = ctx.params().clone();
-            let choice = ctx.sim.backends.linear.select_for(&params, &a, ctx.log)?;
-            linsys = Some(match choice {
-                elmer_solver::backend::LinearSolverChoice::Direct(mut d) => {
-                    d.factor(&a).map_err(|e| SolverError::fatal(CALLER, e.to_string()))?;
-                    ProjectorSolve::Direct(d)
-                }
-                elmer_solver::backend::LinearSolverChoice::Iterative { solver, precond } => {
-                    let m: Box<dyn elmer_core::Preconditioner<f64> + Send> = match precond {
-                        Some(f) => f(&params, &a)?,
-                        None => Box::new(elmer_core::IdentityPrecond),
-                    };
-                    ProjectorSolve::Iterative(solver, m, a)
-                }
-            });
-        }
+        let mut projector = post::Projector::new(ctx, &mass, ctx.solver_dofs().is_some())?;
         let comm = ctx.comm;
         let mut project = |f: &[f64]| -> Result<Vec<f64>, SolverError> {
             let mut out = vec![0.0; nslots * ncomp];
@@ -677,19 +648,7 @@ impl StressSolver {
                 for s in 0..nslots {
                     b[s] = f[ncomp * s + k];
                 }
-                match linsys.as_mut() {
-                    Some(ProjectorSolve::Direct(d)) => {
-                        x.copy_from_slice(&b);
-                        d.solve_in_place(&mut x).map_err(|e| SolverError::fatal(CALLER, e.to_string()))?;
-                    }
-                    Some(ProjectorSolve::Iterative(s, m, a)) => {
-                        x.iter_mut().for_each(|v| *v = 0.0);
-                        s.solve(&*a, &**m, &b, &mut x, comm).map_err(SolverError::from)?;
-                    }
-                    None => {
-                        mass.solve(&b, &mut x).map_err(|e| SolverError::fatal(CALLER, e.to_string()))?;
-                    }
-                }
+                projector.solve(comm, &b, &mut x)?;
                 for s in 0..nslots {
                     out[ncomp * s + k] = x[s];
                 }
@@ -753,7 +712,16 @@ impl Solver for StressSolver {
         check_solver_params(ctx.params())?;
         let dim = ctx.mesh.dim();
         let dofs = ctx.primary().map(|f| f.dofs);
-        if dofs != Some(dim) {
+        // StressSolve.F90:593: `Incompressible` carries the pressure as the
+        // last of `dim + 1` dofs.
+        let incompr = flag(Some(ctx.params()), "incompressible");
+        if incompr && dofs != Some(dim + 1) {
+            return Err(SolverError::fatal(CALLER, "Invalid size for incompressible displacement solution!"));
+        }
+        if incompr && post_flags(ctx).any() {
+            return Err(unsupported("stress postprocessing with \"Incompressible\""));
+        }
+        if !incompr && dofs != Some(dim) {
             return Err(SolverError::fatal(
                 CALLER,
                 format!("'Variable DOFs' must equal the coordinate dimension {dim}, got {dofs:?}"),
@@ -942,6 +910,7 @@ impl Solver for StressSolver {
                     np: None,
                     ip: d.ip.as_ref(),
                     geometric: nodal_u.as_deref().map(|u| crate::bulk::Geometric { displacement: u, stability: false }),
+                    incompressible: flag(Some(ctx.params()), "incompressible"),
                 };
                 let mut local = LocalSystem::zeros(0);
                 let fe = self.fe();
@@ -1112,6 +1081,7 @@ impl Solver for StressSolver {
                     spring,
                     parent_center: center,
                     np: None,
+                    stride: ctx.primary().map_or(0, |f| f.dofs),
                 };
                 let mut local = LocalSystem::zeros(0);
                 match ctx.solver_dofs() {

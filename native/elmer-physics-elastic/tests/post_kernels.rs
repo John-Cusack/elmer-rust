@@ -32,6 +32,7 @@ fn post<'a>(law: &'a ElasticLaw, disp: &'a [[f64; 3]]) -> StressPostInput<'a> {
         np: None,
         large_deflection: false,
         neo_hookean: false,
+        pressure: None,
     }
 }
 
@@ -141,6 +142,7 @@ fn integration_point_data_equal_to_nodal_data_changes_nothing() {
             np: None,
             ip,
             geometric: None,
+            incompressible: false,
         };
         let mut out = LocalSystem::zeros(0);
         stress_bulk_local(&P1Basis, &Gauss, &inp, &mut out).unwrap();
@@ -179,6 +181,7 @@ fn integration_point_data_equal_to_nodal_data_changes_nothing() {
         np: None,
         ip: Some(&bad),
         geometric: None,
+        incompressible: false,
     };
     assert!(stress_bulk_local(&P1Basis, &Gauss, &inp, &mut LocalSystem::zeros(0)).is_err());
 }

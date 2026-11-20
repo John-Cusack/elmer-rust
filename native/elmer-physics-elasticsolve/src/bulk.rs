@@ -62,6 +62,10 @@ pub struct BulkInput<'a> {
     /// `Some(true)` (stability analysis) subtracts it in the mass slot, where
     /// no density mass is then assembled.
     pub geometric: Option<bool>,
+    /// `Incompressible` (the linear mixed formulation): a pressure unknown
+    /// after the `cdim` displacement components of each dof, `Lame1 = 0`
+    /// and `Lame2 = E/3`.
+    pub incompressible: bool,
 }
 
 /// The displacement gradient `Grad(a,b) = d u_a / d x_b` (with the hoop term
@@ -120,6 +124,22 @@ pub fn elastic_bulk_local(
     inp: &BulkInput<'_>,
     out: &mut LocalSystem,
 ) -> Result<(), ElasticError> {
+    let points = quad.gauss_points(inp.etype, inp.np);
+    elastic_bulk_local_p(basis, &points, inp.etype.n_nodes(), inp, out)
+}
+
+/// [`elastic_bulk_local`] over `ntot >= n` basis functions (a p element, its
+/// bubbles in the global system) on the given rule: `inp.disp` has one entry
+/// per basis function, the material, loads and densities are interpolated
+/// with the nodal ones, and the rows run over `ntot` (`LocalMatrix` with
+/// `ntot = nd + nb`).
+pub fn elastic_bulk_local_p(
+    basis: &dyn ElementBasis,
+    points: &[elmer_core::QuadPoint],
+    ntot: usize,
+    inp: &BulkInput<'_>,
+    out: &mut LocalSystem,
+) -> Result<(), ElasticError> {
     let n = inp.etype.n_nodes();
     let cdim = inp.cdim;
     let axi = inp.coord == CoordSystem::AxiSymmetric;
@@ -129,13 +149,18 @@ pub fn elastic_bulk_local(
     if axi && cdim != 2 {
         return Err(ElasticError::Unsupported("axisymmetric elasticity needs a 2D mesh".into()));
     }
-    if inp.xyz.len() != n || inp.load.len() != n || inp.density.len() != n || inp.disp.len() != n {
-        return Err(ElasticError::Input(format!("element {} needs {n} nodal values", inp.etype.0)));
+    if inp.xyz.len() != n || inp.load.len() != n || inp.density.len() != n || inp.disp.len() != ntot || ntot < n {
+        return Err(ElasticError::Input(format!("element {} needs {n} nodal values and {ntot} displacements", inp.etype.0)));
+    }
+    if inp.incompressible && (axi || inp.large_deflection) {
+        return Err(ElasticError::Unsupported("\"Incompressible\" with axial symmetry or Large Deflection".into()));
     }
     // Dimension of the state of stress: three for axisymmetry (r, z, hoop).
     let dim = if axi { 3 } else { cdim };
     let plane_stress = inp.plane_stress && !axi && cdim == 2;
-    let ndof = n * cdim;
+    // `DOFs`: the pressure follows the displacement of each dof.
+    let dofs = cdim + usize::from(inp.incompressible);
+    let ndof = ntot * dofs;
     let large = inp.large_deflection;
 
     *out = LocalSystem::zeros(ndof);
@@ -167,7 +192,11 @@ pub fn elastic_bulk_local(
                     } else {
                         e * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
                     };
-                    (l1, e / (2.0 * (1.0 + nu)))
+                    if inp.incompressible {
+                        (0.0, e / 3.0)
+                    } else {
+                        (l1, e / (2.0 * (1.0 + nu)))
+                    }
                 })
                 .unzip()
         }
@@ -191,7 +220,6 @@ pub fn elastic_bulk_local(
         || inp.strain_load.is_some_and(|s| s.iter().any(|v| v.iter().any(|x| *x != 0.0)));
     let got_offset = has_voigt || has_heat;
 
-    let points = quad.gauss_points(inp.etype, inp.np);
     if let Some(p) = ip {
         let np = points.len();
         let lens = [
@@ -208,12 +236,12 @@ pub fn elastic_bulk_local(
 
     let eye = identity(dim);
     let mut be = BasisEval::default();
-    let mut ddefg: Vec<T3> = vec![ZERO; ndof];
-    let mut dstresses: Vec<T3> = vec![ZERO; ndof];
+    let mut ddefg: Vec<T3> = vec![ZERO; ntot * cdim];
+    let mut dstresses: Vec<T3> = vec![ZERO; ntot * cdim];
 
     for (ipt, qp) in points.iter().enumerate() {
         basis.eval(inp.etype, inp.xyz, qp.uvw, &mut be).map_err(ElasticError::Basis)?;
-        let bas = &be.basis;
+        let bas = &be.basis[..ntot.max(n)];
         let gpa_ip = inp.gpa.map(|g| {
             let mut acc = 0.0;
             for k in 0..n {
@@ -276,6 +304,10 @@ pub fn elastic_bulk_local(
                         e * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
                     };
                     lame2 = e / (2.0 * (1.0 + nu));
+                    if inp.incompressible {
+                        lame1 = 0.0;
+                        lame2 = e / 3.0;
+                    }
                 }
                 PointLaw::Iso { lame1, lame2 }
             }
@@ -356,7 +388,7 @@ pub fn elastic_bulk_local(
             dstress1_u = t3::add(&dstress1_u, &t3::mul(&grad, &stress2));
         }
 
-        for p in 0..n {
+        for p in 0..ntot {
             for i in 0..cdim {
                 let k = cdim * p + i;
                 ddefg[k] = trial_gradient(i, p, bas, db, axi, r);
@@ -364,23 +396,24 @@ pub fn elastic_bulk_local(
             }
         }
 
-        for p in 0..n {
+        for p in 0..ntot {
             for i in 0..cdim {
                 let k = cdim * p + i;
+                let row = dofs * p + i;
                 let d_defg = &ddefg[k];
                 let mut dstress1 = t3::mul(&defg, &dstresses[k]);
                 if large {
                     dstress1 = t3::add(&dstress1, &t3::mul(d_defg, &stress2));
                 }
 
-                out.force[k] += (bas[p] * force[i] * det_defg
+                out.force[row] += (bas[p] * force[i] * det_defg
                     + bas[p] * inertial[i] * density
                     + pressure * db[p][i]
                     - t3::ddot(d_defg, &stress1, 3)
                     + t3::ddot(d_defg, &dstress1_u, 3))
                     * s;
 
-                for q in 0..n {
+                for q in 0..ntot {
                     for j in 0..cdim {
                         let v = if axi {
                             match j {
@@ -390,24 +423,38 @@ pub fn elastic_bulk_local(
                         } else {
                             db[q][0] * dstress1[j][0] + db[q][1] * dstress1[j][1] + db[q][2] * dstress1[j][2]
                         };
-                        out.stiff[k * ndof + cdim * q + j] += v * s;
+                        out.stiff[row * ndof + dofs * q + j] += v * s;
+                    }
+                }
+                if inp.incompressible {
+                    for q in 0..ntot {
+                        out.stiff[row * ndof + dofs * q + cdim] -= bas[q] * db[p][i] * s;
                     }
                 }
                 // ElasticSolve.F90:4682: the momentum row coupled to the
                 // vertical displacement.
                 if let Some(g) = gpa_ip {
-                    for q in 0..n {
-                        out.stiff[k * ndof + cdim * q + cdim - 1] += g * db[q][i] * bas[p] * s;
+                    for q in 0..ntot {
+                        out.stiff[row * ndof + dofs * q + cdim - 1] += g * db[q][i] * bas[p] * s;
+                    }
+                }
+            }
+            // The pressure row: `-div(u) q`.
+            if inp.incompressible {
+                let row = dofs * p + cdim;
+                for q in 0..ntot {
+                    for j in 0..cdim {
+                        out.stiff[row * ndof + dofs * q + j] -= db[q][j] * bas[p] * s;
                     }
                 }
             }
         }
 
         if density_mass {
-            for p in 0..n {
-                for q in 0..n {
+            for p in 0..ntot {
+                for q in 0..ntot {
                     for i in 0..cdim {
-                        let idx = (cdim * p + i) * ndof + cdim * q + i;
+                        let idx = (dofs * p + i) * ndof + dofs * q + i;
                         let mm = out.mass.as_mut().unwrap();
                         mm[idx] += bas[p] * bas[q] * density * s;
                         if let Some(dm) = out.damp.as_mut() {
@@ -419,8 +466,8 @@ pub fn elastic_bulk_local(
         }
 
         if inp.geometric.is_some() {
-            for p in 0..n {
-                for q in 0..n {
+            for p in 0..ntot {
+                for q in 0..ntot {
                     let mut inner = 0.0;
                     for i in 0..dim {
                         for j in 0..dim {
@@ -428,7 +475,7 @@ pub fn elastic_bulk_local(
                         }
                     }
                     for k in 0..cdim {
-                        let idx = (cdim * p + k) * ndof + cdim * q + k;
+                        let idx = (dofs * p + k) * ndof + dofs * q + k;
                         if stability {
                             let mm = out.mass.as_mut().unwrap();
                             mm[idx] -= s * inner;
@@ -438,6 +485,20 @@ pub fn elastic_bulk_local(
                     }
                 }
             }
+        }
+    }
+    // ElasticSolve.F90:4848: the pressure lives on the nodal functions only
+    // (MINI for p:1 b:N, Taylor-Hood for p:2); every higher pressure dof is
+    // eliminated with a unit diagonal.
+    if inp.incompressible {
+        for p in n..ntot {
+            let i = dofs * p + cdim;
+            out.force[i] = 0.0;
+            for k in 0..ndof {
+                out.stiff[i * ndof + k] = 0.0;
+                out.stiff[k * ndof + i] = 0.0;
+            }
+            out.stiff[i * ndof + i] = 1.0;
         }
     }
     Ok(())

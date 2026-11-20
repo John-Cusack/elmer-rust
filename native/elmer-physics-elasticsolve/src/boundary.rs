@@ -46,6 +46,9 @@ pub struct BoundaryInput<'a> {
     pub parent: ParentInput<'a>,
     /// Gauss points per element; `None` is the Elmer default rule.
     pub np: Option<usize>,
+    /// `DOFs` per basis function in the local system: `cdim`, or `cdim + 1`
+    /// with the pressure of `Incompressible` (its rows get no load).
+    pub stride: usize,
 }
 
 /// Unit normal at a point from the tangential gradients the basis returns:
@@ -86,7 +89,26 @@ pub fn elastic_boundary_local(
     inp: &BoundaryInput<'_>,
     out: &mut LocalSystem,
 ) -> Result<(), ElasticError> {
+    let points = quad.gauss_points(inp.etype, inp.np);
+    elastic_boundary_local_p(basis, &points, inp.etype.n_nodes(), inp, out)
+}
+
+/// [`elastic_boundary_local`] over the `ntot >= n` basis functions of a p
+/// boundary element on the given rule (`LocalBoundaryMatrix` with `ntot`):
+/// the loads are interpolated with the nodal functions and act on every
+/// basis function. The parent's deformation (`Large Deflection`) is not
+/// available on p elements.
+pub fn elastic_boundary_local_p(
+    basis: &dyn ElementBasis,
+    points: &[elmer_core::QuadPoint],
+    ntot: usize,
+    inp: &BoundaryInput<'_>,
+    out: &mut LocalSystem,
+) -> Result<(), ElasticError> {
     let n = inp.etype.n_nodes();
+    if ntot > n && inp.large_deflection {
+        return Err(ElasticError::Unsupported("Large Deflection boundary loads on p elements".into()));
+    }
     let cdim = inp.cdim;
     let axi = inp.coord == CoordSystem::AxiSymmetric;
     let edim = match inp.etype.family() {
@@ -100,7 +122,8 @@ pub fn elastic_boundary_local(
     if inp.xyz.len() != n || inp.traction.len() != n || inp.normal_traction.len() != n || inp.parent.node_uvw.len() != n {
         return Err(ElasticError::Input(format!("element {} needs {n} nodal values", inp.etype.0)));
     }
-    let ndof = n * cdim;
+    let dofs = inp.stride.max(cdim);
+    let ndof = ntot * dofs;
     *out = LocalSystem::zeros(ndof);
     let eye = identity(cdim);
 
@@ -114,7 +137,7 @@ pub fn elastic_boundary_local(
     let sign = if flip { -1.0 } else { 1.0 };
 
     let mut pbe = BasisEval::default();
-    for qp in quad.gauss_points(inp.etype, inp.np) {
+    for qp in points {
         basis.eval(inp.etype, inp.xyz, qp.uvw, &mut be).map_err(ElasticError::Basis)?;
         let bas = &be.basis;
         let mut s = be.det_j * qp.weight;
@@ -161,9 +184,9 @@ pub fn elastic_boundary_local(
         let traction: [f64; 3] =
             std::array::from_fn(|a| if a < cdim { (0..n).map(|k| inp.traction[k][a] * bas[k]).sum() } else { 0.0 });
         let scale = if inp.pseudo_traction { 1.0 } else { metric };
-        for q in 0..n {
+        for q in 0..ntot {
             for i in 0..cdim {
-                out.force[q * cdim + i] += s * bas[q] * (pressure_force[i] + traction[i] * scale);
+                out.force[q * dofs + i] += s * bas[q] * (pressure_force[i] + traction[i] * scale);
             }
         }
 
@@ -171,11 +194,11 @@ pub fn elastic_boundary_local(
             Spring::None => {}
             Spring::Normal(k) => {
                 let kc: f64 = (0..n).map(|m| bas[m] * k[m]).sum();
-                for p in 0..n {
+                for p in 0..ntot {
                     for i in 0..cdim {
-                        for q in 0..n {
+                        for q in 0..ntot {
                             for j in 0..cdim {
-                                out.stiff[(p * cdim + i) * ndof + q * cdim + j] +=
+                                out.stiff[(p * dofs + i) * ndof + q * dofs + j] +=
                                     kc * bas[q] * ref_normal[j] * bas[p] * ref_normal[i] * s;
                             }
                         }
@@ -189,11 +212,11 @@ pub fn elastic_boundary_local(
                         *v = (0..n).map(|m| bas[m] * k[m][i][j]).sum();
                     }
                 }
-                for p in 0..n {
+                for p in 0..ntot {
                     for i in 0..cdim {
-                        for q in 0..n {
+                        for q in 0..ntot {
                             for j in 0..cdim {
-                                out.stiff[(p * cdim + i) * ndof + q * cdim + j] += kc[i][j] * bas[q] * bas[p] * s;
+                                out.stiff[(p * dofs + i) * ndof + q * dofs + j] += kc[i][j] * bas[q] * bas[p] * s;
                             }
                         }
                     }

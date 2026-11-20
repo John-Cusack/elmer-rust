@@ -80,6 +80,12 @@ impl AssemblyBackend for ElmerAssembly {
         Ok(to_perm(p))
     }
 
+    fn build_perm_ndeg(&self, mesh: &dyn MeshView, active: &[ElemId], params: &ParamMap, ndeg: usize) -> Result<Perm, SolverError> {
+        let m = active_mask(mesh, active);
+        let (p, _) = elmer_assembly::build_perm_with_ndeg(mesh, &|e: ElemId| m[e.0 as usize], perm_options(params), ndeg);
+        Ok(to_perm(p))
+    }
+
     fn build_perm_coupled(
         &self,
         mesh: &dyn MeshView,

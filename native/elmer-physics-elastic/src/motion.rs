@@ -27,7 +27,7 @@ pub(crate) fn mover() -> Option<NodeMover> {
 /// `x(i) += sgn * Update(DOFs*(Perm(i)-1)+1)` and so on for the first
 /// `DOFs` (at most three) coordinates of every node with a dof. `coords`
 /// are the current coordinates; `None` without an installed mover.
-pub(crate) fn displace_mesh(coords: &[[f64; 3]], update: &[f64], sgn: f64, perm: &[u32], dofs: usize) -> Option<()> {
+pub(crate) fn displace_mesh(coords: &[[f64; 3]], update: &[f64], sgn: f64, perm: &[u32], dofs: usize, dirs: usize) -> Option<()> {
     let mover = mover()?;
     let mut x = coords.to_vec();
     for (i, c) in x.iter_mut().enumerate().take(perm.len()) {
@@ -36,7 +36,7 @@ pub(crate) fn displace_mesh(coords: &[[f64; 3]], update: &[f64], sgn: f64, perm:
             continue;
         }
         let k = dofs * k as usize;
-        for (d, cd) in c.iter_mut().enumerate().take(dofs.min(3)) {
+        for (d, cd) in c.iter_mut().enumerate().take(dirs.min(3)) {
             *cd += sgn * update[k + d];
         }
     }
