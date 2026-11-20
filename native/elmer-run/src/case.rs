@@ -157,6 +157,9 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
     let materials = model.materials.clone();
     for params in &mut model.solvers {
         reynolds_init(params, cdim);
+        if crate::saveprojection::is_section(params) {
+            crate::saveprojection::init_section(params);
+        }
         // `ElasticSolver_Init` (StressSolve delegates to it): without a
         // `Variable`, the displacement of the coordinate dimension.
         let elastic = procedure_of(params).is_some_and(|(lib, entry)| {
@@ -1238,6 +1241,15 @@ fn run_case_meshes(
     let discont_perm = discont_perm.map(Arc::new);
     for slot in &mut sim.slots {
         let params = &sim.model.solvers[slot.id - 1];
+        // SaveProjection uses the projectors itself, without constraints.
+        if crate::saveprojection::is_section(params) {
+            slot.set_instance(Box::new(crate::saveprojection::SaveProjection {
+                coord_dim: coords.dim,
+                case_dir: case_dir.to_path_buf(),
+                discont_perm: discont_perm.clone(),
+            }));
+            continue;
+        }
         if !crate::mortar::applies(params) && !crate::mortar::lagrange_periodic(params, &sim.model.boundary_conditions) {
             continue;
         }
