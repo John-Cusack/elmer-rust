@@ -215,6 +215,9 @@ const HOOKS: &[(&str, &str, &str, Hook)] = &[
     ("SD_CurvedBndryPFEM", "./Poisson", "PoissonSolver", Hook::Solver(curved_bndry_pfem::factory)),
     // The same source up to blank lines.
     ("SD_PoissonPFEM", "Poisson", "PoissonSolver", Hook::Solver(elmer_pdofs::solver::poisson_pfem)),
+    // The same `Poisson.f90` as SD_PoissonPFEM's, on solver-specific meshes.
+    ("SolverSpecificMeshes", "Poisson", "PoissonSolver", Hook::Solver(elmer_pdofs::solver::poisson_pfem)),
+    ("SD_SolverSpecificMeshes", "Poisson", "PoissonSolver", Hook::Solver(elmer_pdofs::solver::poisson_pfem)),
 ];
 
 /// Edits a solver section.

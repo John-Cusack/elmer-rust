@@ -477,26 +477,37 @@ impl Solver for PoissonPfem {
         _transient: bool,
     ) -> Result<(), SolverError> {
         ctx.default_initialize()?;
-        if ctx.solver_dofs().is_none() {
-            return Err(SolverError::Unsupported(
-                "PoissonPFEM Poisson plugin without p elements (no DofsBackend)".into(),
-            ));
-        }
         let active: Vec<ElemId> = ctx.active_elements().collect();
         let mut slots = Vec::new();
         let mut ev = BasisEval::default();
         for e in active {
-            let d = ctx.solver_dofs().expect("checked above");
-            d.element_slots(e, &mut slots);
+            // The p elements' basis, rule and bubbles; on nodal elements
+            // (`GetElementNOFDOFs = n`, no bubbles) ElementInfo's Lagrange
+            // basis and the element's default rule.
+            let nodal_basis;
+            let p_basis;
+            let (basis, rule, nb, nodes): (&dyn elmer_core::ElementBasis, Vec<elmer_core::QuadPoint>, usize, Vec<u32>) =
+                match ctx.solver_dofs() {
+                    Some(d) => {
+                        d.element_slots(e, &mut slots);
+                        p_basis = d.element_basis_scalar(e).map_err(|m| SolverError::fatal("ElementInfo", m))?;
+                        let rule = d.element_rule(e).map_err(|m| SolverError::fatal("GaussPoints", m))?;
+                        (&*p_basis, rule, d.local_bubbles(e), d.element_nodes(e))
+                    }
+                    None => {
+                        ctx.element_slots(e, &mut slots);
+                        let fe = ctx
+                            .sim
+                            .backends
+                            .fe
+                            .as_ref()
+                            .ok_or_else(|| SolverError::NotWired("basis and quadrature (elmer-fe)".into()))?;
+                        nodal_basis = &*fe.basis;
+                        let etype = ctx.mesh.element(e).etype;
+                        (nodal_basis, fe.quadrature.gauss_points(etype, None), 0, ctx.mesh.element(e).nodes.to_vec())
+                    }
+                };
             let nd = slots.len();
-            let nb = d.local_bubbles(e);
-            let nodes = d.element_nodes(e);
-            let basis = d
-                .element_basis_scalar(e)
-                .map_err(|m| SolverError::fatal("ElementInfo", m))?;
-            let rule = d
-                .element_rule(e)
-                .map_err(|m| SolverError::fatal("GaussPoints", m))?;
             let n = nodes.len();
             let etype = ctx.mesh.element(e).etype;
             let xyz: Vec<[f64; 3]> = nodes.iter().map(|&k| ctx.mesh.coord(k)).collect();
