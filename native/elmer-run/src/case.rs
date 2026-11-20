@@ -250,28 +250,6 @@ fn check_calcfields_scalars(model: &Model) -> Result<(), SolverError> {
     Ok(())
 }
 
-/// HeatSolve convects relative to the mesh (`U - MU` with the `Mesh
-/// Velocity` variable, HeatSolve.F90); `elmer-physics-heat` uses the
-/// material velocity alone, so a convected heat equation on a moving mesh
-/// is refused once the variables exist.
-fn check_mesh_velocity(sim: &Simulation) -> Result<(), SolverError> {
-    if sim.vars.id("mesh velocity").is_none() {
-        return Ok(());
-    }
-    let heat = sim.model.solvers.iter().any(|p| {
-        procedure_of(p).is_some_and(|(lib, _)| lib.eq_ignore_ascii_case("heatsolve"))
-            && !p.string("exec solver").is_some_and(|s| s.eq_ignore_ascii_case("never"))
-    });
-    let convected =
-        sim.model.equations.iter().any(|p| p.string("convection").is_some_and(|c| !c.eq_ignore_ascii_case("none")));
-    if heat && convected {
-        return Err(SolverError::Unsupported(
-            "HeatSolve: convection relative to the Mesh Velocity (moving mesh) is not implemented".into(),
-        ));
-    }
-    Ok(())
-}
-
 /// Section-wise merge of `block` into `model`, as `Simulation::reload` does
 /// (`ReloadInputFile`): entries replace same-name ones, new sections append.
 fn merged_with(model: &Model, block: &Model) -> Model {
@@ -782,7 +760,6 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     if let Some((id, coarse)) = mg_coarse {
         sim.set_multigrid_meshes(id, coarse)?;
     }
-    check_mesh_velocity(&sim)?;
     // Field lists are fixed once every variable exists, before the run, so a
     // refusal still comes before any file.
     for out in &mut outputs {
