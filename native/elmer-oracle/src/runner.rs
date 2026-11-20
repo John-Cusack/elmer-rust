@@ -495,6 +495,17 @@ pub fn inject_sif(dir: &Path, inj: &SifInject) -> Result<Vec<String>> {
 /// §4.3 item 2): each named Solver section gains the value with 17
 /// significant digits and `Reference Norm Tolerance = 0`.
 pub fn inject_sif_with(dir: &Path, inj: &SifInject, refnorms: &[(u32, f64)]) -> Result<Vec<String>> {
+    inject_sif_runs(dir, inj, refnorms, &[])
+}
+
+/// [`inject_sif_with`], plus per-RUN overrides `(run, solver, value)` in
+/// the startinfo sif (see [`insert_run_refnorms`]).
+pub fn inject_sif_runs(
+    dir: &Path,
+    inj: &SifInject,
+    refnorms: &[(u32, f64)],
+    run_refnorms: &[(usize, u32, f64)],
+) -> Result<Vec<String>> {
     let mut modified = Vec::new();
     let startinfo = read_startinfo(dir)?;
     let entries = std::fs::read_dir(dir).map_err(|e| io_with(dir, e))?;
@@ -512,7 +523,10 @@ pub fn inject_sif_with(dir: &Path, inj: &SifInject, refnorms: &[(u32, f64)]) -> 
         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         let result_name = result_name_for(&name, startinfo.as_deref());
         let is_startinfo = startinfo.as_deref() == Some(name.as_str());
-        let out = inject_text_with(&text, inj, &result_name, if is_startinfo { refnorms } else { &[] });
+        let mut out = inject_text_with(&text, inj, &result_name, if is_startinfo { refnorms } else { &[] });
+        if is_startinfo && !run_refnorms.is_empty() {
+            out = insert_run_refnorms(&out, run_refnorms);
+        }
         if out != text {
             let out: Vec<u8> = out.chars().map(|c| c as u32 as u8).collect();
             std::fs::write(&path, &out).map_err(|e| io_with(&path, e))?;
@@ -574,7 +588,7 @@ pub(crate) fn opens_table(line: &str) -> bool {
 }
 
 /// A sif line with its `!`/`#` comment removed (quotes respected).
-pub(crate) fn strip_sif_comment(line: &str) -> &str {
+pub fn strip_sif_comment(line: &str) -> &str {
     let mut in_quote = false;
     for (i, c) in line.char_indices() {
         match c {
@@ -588,7 +602,7 @@ pub(crate) fn strip_sif_comment(line: &str) -> &str {
 
 /// Lowercased keyword of a `key = value` line, whitespace collapsed;
 /// `None` for comments, table rows and lines without `=`.
-pub(crate) fn keyword_of(line: &str) -> Option<String> {
+pub fn keyword_of(line: &str) -> Option<String> {
     let (key, _) = strip_sif_comment(line).split_once('=')?;
     let key = key.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
     (!key.is_empty()).then_some(key)
@@ -604,12 +618,18 @@ fn inject_text(text: &str, inj: &SifInject, result_name: &str) -> String {
     inject_text_with(text, inj, result_name, &[])
 }
 
-/// Top-level `RUN` lines of a sif (outside sections and comment blocks).
+/// Number of top-level `RUN` lines of a sif.
 pub fn run_count(text: &str) -> usize {
-    let mut n = 0;
+    run_lines(text).len()
+}
+
+/// Line indices of the top-level `RUN` lines of a sif (outside sections
+/// and comment blocks).
+pub fn run_lines(text: &str) -> Vec<usize> {
+    let mut at = Vec::new();
     let mut in_section = false;
     let mut in_comment = false;
-    for line in text.lines() {
+    for (i, line) in text.lines().enumerate() {
         let lower = strip_sif_comment(line).trim().to_lowercase();
         if in_comment {
             in_comment = lower != "*/";
@@ -618,7 +638,7 @@ pub fn run_count(text: &str) -> usize {
         } else if lower == "/*" {
             in_comment = true;
         } else if lower == "run" {
-            n += 1;
+            at.push(i);
         } else if !(lower.is_empty()
             || lower.starts_with('$')
             || lower.contains("::")
@@ -630,7 +650,28 @@ pub fn run_count(text: &str) -> usize {
             in_section = true;
         }
     }
-    n
+    at
+}
+
+/// Write `Solver n :: Reference Norm = v` and a zero tolerance just before
+/// RUN `j` for every `(j, n, v)`: Elmer compares after each RUN with the
+/// keywords read so far, and a later one-liner overrides an earlier one.
+pub fn insert_run_refnorms(text: &str, run_refnorms: &[(usize, u32, f64)]) -> String {
+    let runs = run_lines(text);
+    let mut out = String::with_capacity(text.len() + 96 * run_refnorms.len());
+    for (i, line) in text.lines().enumerate() {
+        if let Some(j) = runs.iter().position(|&r| r == i) {
+            for (_, n, v) in run_refnorms.iter().filter(|(r, _, _)| *r == j + 1) {
+                out.push_str(&format!(
+                    "Solver {n} :: Reference Norm = Real {}\nSolver {n} :: Reference Norm Tolerance = Real 0\n",
+                    crate::norm::format_grader_norm(*v)
+                ));
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 /// The O2 file of RUN `j` (1-based) of a `runs`-RUN sif: every RUN but the
@@ -928,6 +969,9 @@ pub struct Staging {
     /// `Reference Norm` overrides for the startinfo sif (bitwise grader
     /// validation).
     pub refnorms: Vec<(u32, f64)>,
+    /// Per-RUN `Reference Norm` overrides `(run, solver, value)` for a
+    /// multi-RUN startinfo sif: one-liners written just before that RUN.
+    pub run_refnorms: Vec<(usize, u32, f64)>,
     /// Pass on a zero exit when Elmer wrote no failing verdict: for cases
     /// without `Reference Norm` (the harvested campaign differentials),
     /// where ElmerSolver writes no `TEST.PASSED` at all. Off for every
@@ -961,8 +1005,8 @@ fn stage_test(arm: &Arm, source_dir: &Path, run_dir: &Path, staging: &Staging) -
         let path = run_dir.join(d);
         std::fs::create_dir_all(&path).map_err(|e| io_with(&path, e))?;
     }
-    if staging.inject.is_some() || !staging.refnorms.is_empty() {
-        inject_sif_with(run_dir, &staging.inject.unwrap_or_default(), &staging.refnorms)?;
+    if staging.inject.is_some() || !staging.refnorms.is_empty() || !staging.run_refnorms.is_empty() {
+        inject_sif_runs(run_dir, &staging.inject.unwrap_or_default(), &staging.refnorms, &staging.run_refnorms)?;
     }
     for d in &staging.mkdirs {
         let path = run_dir.join(d);
@@ -1355,6 +1399,14 @@ mod tests {
                 "RUN"
             ]
         );
+        let with = insert_run_refnorms(sif, &[(1, 1, 0.5), (3, 1, 0.25)]);
+        let lines: Vec<&str> = with.lines().collect();
+        let r = run_lines(&with);
+        assert_eq!(r.len(), 3);
+        assert!(lines[r[0] - 2].starts_with("Solver 1 :: Reference Norm = Real 5.0"));
+        assert!(lines[r[0] - 1].ends_with("Tolerance = Real 0"));
+        assert_eq!(lines[r[1] - 1], "Solver 1 :: Reference Norm = 2");
+        assert!(lines[r[2] - 2].starts_with("Solver 1 :: Reference Norm = Real 2.5"));
         // One RUN, or a sif with its own Output File: unchanged behaviour.
         let one = "Simulation\nEnd\nRUN\n";
         assert!(inject_text_with(one, &inj, "case.result", &[]).contains("Output File = \"case.result\""));

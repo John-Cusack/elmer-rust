@@ -1,7 +1,7 @@
 test	verdict	solvers	detail
 1dtests	bitwise	1	
 1dtests_MeshLevels	bitwise	1	
-AdvDiffFluxes	out-of-class	0	4 RUN blocks
+AdvDiffFluxes	bitwise	8	RUN 1: solver 1: flow solution (default); RUN 1: solver 3: norm option show norm index; RUN 2: solver 1: flow solution (default); RUN 2: solver 3: norm option show norm index; RUN 3: solver 1: flow solution (default); RUN 3: solver 3: norm option show norm index; RUN 4: solver 1: flow solution (default); RUN 4: solver 3: norm option show norm index
 AdvDiffMigration	bitwise	2	
 AdvDiffMigrationAbsMass	bitwise	2	
 AdvDiffSoret	bitwise	2	
@@ -101,7 +101,7 @@ ElastElstat1DBeam	bitwise	1
 ElastElstatBeam	bitwise	1	
 ElastPelem2dQuad	bitwise	1	solver 2: norm option show norm index
 ElastPelem2dTri	bitwise	1	solver 2: norm option show norm index
-ElasticAnisotropic2D	out-of-class	0	2 RUN blocks
+ElasticAnisotropic2D	out-of-class	0	2 RUN blocks with Output Intervals = 0 (no RUN's solution is saved)
 ElasticAnisotropic3D	out-of-class	0	solver 2: norm option show norm index
 ElasticAnisotropicAxi	out-of-class	0	solver 2: norm option show norm index
 ElasticBlockDamping	bitwise	2	
@@ -111,14 +111,14 @@ ElasticBlockInertia	bitwise	2
 ElasticBlockQuasiStationary	bitwise	2	
 ElasticBubbleBoundaryRule3D	bitwise	2	
 ElasticBuckling	out-of-class	0	solver 2: norm option show norm
-ElasticConstantSystem	out-of-class	0	3 RUN blocks
-ElasticConstantSystemFull	out-of-class	0	2 RUN blocks
+ElasticConstantSystem	bitwise	3	
+ElasticConstantSystemFull	bitwise	2	
 ElasticCylindric	bitwise	1	
 ElasticGeomStiff	out-of-class	0	solver 2: norm option show norm
 ElasticIncompressible	bitwise	2	solver 3: norm option show norm index
 ElasticIncompressible3D	bitwise	2	
 ElasticIncompressibleP2	bitwise	2	solver 3: norm option show norm index
-ElasticIntegrationOrder	out-of-class	0	3 RUN blocks
+ElasticIntegrationOrder	bitwise	3	
 ElasticMaxwellStressLoad	bitwise	1	solver 2: norm option show norm index
 ElasticModelLumping	bitwise	1	
 ElasticModelLumpingFixdisp	bitwise	1	solver 2: norm option show norm index
@@ -133,11 +133,11 @@ ElasticTwoInstances	bitwise	2	solver 3: norm option show norm index
 ElasticTwoInstancesP2	bitwise	2	solver 3: norm option show norm index
 ElemVariable	bitwise	1	solver 2: norm option show norm index
 ElemVariable2	bitwise	1	solver 2: norm option show norm index
-ElementUnitTest_edge	out-of-class	0	12 RUN blocks
-ElementUnitTest_edge_piola	out-of-class	0	12 RUN blocks
-ElementUnitTest_edge_quadratic	out-of-class	0	12 RUN blocks
-ElementUnitTest_h1	out-of-class	0	12 RUN blocks
-ElementUnitTest_p1	out-of-class	0	12 RUN blocks
+ElementUnitTest_edge	out-of-class	0	RUN 1: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 2: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 3: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 4: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 5: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 6: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 7: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 8: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 9: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 10: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 11: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 12: solver 1: no explicit Variable; no saved variable of equation "test"
+ElementUnitTest_edge_piola	out-of-class	0	RUN 1: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 2: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 3: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 4: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 5: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 6: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 7: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 8: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 9: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 10: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 11: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 12: solver 1: no explicit Variable; no saved variable of equation "test"
+ElementUnitTest_edge_quadratic	out-of-class	0	RUN 1: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 2: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 3: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 4: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 5: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 6: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 7: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 8: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 9: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 10: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 11: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 12: solver 1: no explicit Variable; no saved variable of equation "test"
+ElementUnitTest_h1	out-of-class	0	RUN 1: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 2: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 3: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 4: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 5: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 6: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 7: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 8: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 9: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 10: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 11: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 12: solver 1: no explicit Variable; no saved variable of equation "test"
+ElementUnitTest_p1	out-of-class	0	RUN 1: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 2: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 3: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 4: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 5: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 6: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 7: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 8: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 9: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 10: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 11: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 12: solver 1: no explicit Variable; no saved variable of equation "test"
 ElmerGridConvertComsol	bitwise	1	solver 1: no explicit Variable; no saved variable of equation "checkmesh"
 ElmerGridConvertFvcom	bitwise	1	solver 1: no explicit Variable; no saved variable of equation "checkmesh"
 ElmerGridConvertGmshBinary	bitwise	1	solver 1: no explicit Variable; no saved variable of equation "checkmesh"
@@ -180,7 +180,7 @@ HeatGap	bitwise	1
 HeatSolveVecCondMatrix	out-of-class	0	solver 1: temperature not in any result file; solver 2: no explicit Variable (legacy or default name)
 HelmholtzBEM	bitwise	1	
 HelmholtzEdge	bitwise	1	
-HelmholtzFEM	out-of-class	0	2 RUN blocks
+HelmholtzFEM	bitwise	2	
 HelmholtzFace	bitwise	1	
 HelmholtzPlaneWaves	out-of-class	0	solver 2: norm option show norm index
 HelmholtzPlaneWavesAxis	out-of-class	0	solver 2: norm option show norm index
@@ -276,15 +276,15 @@ PredictorCorrector	bitwise	1
 ProfileBCTemperature	bitwise	1	
 ProfileBCTemperatureRobin	bitwise	1	
 Q1Q0	bitwise	1	
-QuadraturesBrick	out-of-class	0	3 RUN blocks
-QuadraturesWedge	out-of-class	0	16 RUN blocks
+QuadraturesBrick	bitwise	3	
+QuadraturesWedge	bitwise	16	
 RaviartThomas2D	bitwise	1	
 RaviartThomas3D	bitwise	1	
 ResultOutputBCs	bitwise	1	solver 2: no explicit Variable; no saved variable of equation "resultoutput"
 RigidMeshMapper1	bitwise	1	
 RigidMeshMapper2	bitwise	1	
 RotatingBCPoisson3DGenericTets	bitwise	1	
-RotatingFlow	out-of-class	0	2 RUN blocks
+RotatingFlow	out-of-class	0	2 RUN blocks with Output Intervals = 0 (no RUN's solution is saved)
 SD_BlockLinElast1	out-of-class	0	solver 1: no explicit Variable; 2 variables of equation "lin.elast"
 SD_CapacitanceMatrix3	bitwise	1	solver 3: norm option show norm
 SD_CapacitanceMatrix3_np3	out-of-class	0	MPI
@@ -292,7 +292,7 @@ SD_Classical2DShell	bitwise	1
 SD_CurvedBndryPFEM	bitwise	1	
 SD_CurvedBndryPFEM2	bitwise	1	
 SD_ElastPelem2dQuad	bitwise	1	solver 2: norm option show norm index
-SD_ElementUnitTest_p1	out-of-class	0	10 RUN blocks
+SD_ElementUnitTest_p1	out-of-class	0	RUN 1: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 2: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 3: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 4: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 5: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 6: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 7: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 8: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 9: solver 1: no explicit Variable; no saved variable of equation "test"; RUN 10: solver 1: no explicit Variable; no saved variable of equation "test"
 SD_FilmFlowPlane	bitwise	1	solver 1: flow (default); solver 3: norm option show norm index
 SD_FilmFlowPlane2	bitwise	1	solver 1: flow (default); solver 3: norm option show norm index
 SD_FilmFlowPlane3	bitwise	1	solver 1: flow (default); solver 3: norm option show norm index
@@ -301,8 +301,8 @@ SD_ModelPDEsplitted	bitwise	1
 SD_NonnewtonianChannelFlow_vec	out-of-class	0	custom runtest (replay)
 SD_P2ndDerivatives	out-of-class	0	solver 1: no explicit Variable; no saved variable of equation "test p2nd derivaties p-1"
 SD_PoissonPFEM	bitwise	1	
-SD_QuadraturesBrick	out-of-class	0	4 RUN blocks
-SD_QuadraturesWedge	out-of-class	0	19 RUN blocks
+SD_QuadraturesBrick	bitwise	4	
+SD_QuadraturesWedge	bitwise	19	
 SD_SolverSpecificMeshes	bitwise	1	
 SD_Step_stokes_block	bitwise	1	
 SD_Step_stokes_vec_blockprec	out-of-class	0	custom runtest (replay)
@@ -311,7 +311,7 @@ SD_p-FEM_with_varying_p	bitwise	1
 SD_structmap_p2	bitwise	1	solver 3: norm option show norm index
 SaveDependence	bitwise	1	solver 2: norm option show norm index
 SaveDependenceSpline	out-of-class	0	3 RUN blocks
-SaveLine	out-of-class	0	3 RUN blocks
+SaveLine	out-of-class	0	RUN 1: solver 2: norm option show norm; RUN 2: solver 2: norm option show norm; RUN 3: solver 2: norm option show norm
 SecondOrderEdgeElement2D	bitwise	1	
 SecondOrderEdgeElement2D_BCs	bitwise	1	
 SecondOrderEdgeElement3D	bitwise	1	
@@ -344,7 +344,7 @@ StokesProj	bitwise	1
 StokesStabilized	out-of-class	0	custom runtest (replay)
 StokesUnitElements	out-of-class	0	custom runtest (replay)
 StrainCalculation01	bitwise	1	
-StressAnisotropic2D	out-of-class	0	2 RUN blocks
+StressAnisotropic2D	out-of-class	0	2 RUN blocks with Output Intervals = 0 (no RUN's solution is saved)
 StressConstraintModes	bitwise	1	
 StressConstraintModes2	bitwise	1	
 StressEigen	out-of-class	0	solver 3: norm option show norm index
@@ -412,8 +412,8 @@ heateq_newmark_global	bitwise	1
 heateq_resmode	bitwise	1	
 heateq_spline_table	bitwise	1	
 heateq_steady_start	bitwise	1	
-linearsolvers	out-of-class	0	14 RUN blocks
-linearsolvers_cmplx	out-of-class	0	11 RUN blocks
+linearsolvers	bitwise	14	RUN 1: solver 1: temperature (default); RUN 2: solver 1: temperature (default); RUN 3: solver 1: temperature (default); RUN 4: solver 1: temperature (default); RUN 5: solver 1: temperature (default); RUN 6: solver 1: temperature (default); RUN 7: solver 1: temperature (default); RUN 8: solver 1: temperature (default); RUN 9: solver 1: temperature (default); RUN 10: solver 1: temperature (default); RUN 11: solver 1: temperature (default); RUN 12: solver 1: temperature (default); RUN 13: solver 1: temperature (default); RUN 14: solver 1: temperature (default)
+linearsolvers_cmplx	bitwise	11	
 marangoni	bitwise	1	
 mgdyn2D_pm	out-of-class	0	solver 3: norm option show norm index
 mgdyn_airgap	grader-gap-solver-norm	1	solver 2: no explicit Variable; 4 variables of equation "mgdynamicscalc"; solver 3: norm option show norm index; WARNING:: CompareToReferenceSolution: Solver 1 FAILED:  Norm = 7.08538973E-05  RefNorm = 2.62001181E-04; WARNING:: CompareToReferenceSolution: FAILED 1 tests out of 3!; solver 1: sets its own norm, not validated
@@ -433,7 +433,7 @@ passive_np8	out-of-class	0	MPI
 periodic1	bitwise	1	
 periodic2	bitwise	1	
 periodic3	bitwise	1	
-periodic_homogenize	out-of-class	0	2 RUN blocks
+periodic_homogenize	bitwise	2	
 periodic_nonconforming	bitwise	1	
 periodic_offset	bitwise	1	
 periodic_offset2	bitwise	1	solver 1: flow solution (default)
@@ -464,8 +464,8 @@ reynolds2	bitwise	1
 reynolds_flux	bitwise	1	solver 2: no explicit Variable; 3 variables of equation "reynoldspost"
 reynolds_robin	bitwise	1	solver 2: no explicit Variable; 3 variables of equation "reynoldspost"
 rotflow	bitwise	1	solver 1: flow solution (default)
-savescalars	out-of-class	0	7 RUN blocks
-savescalars_boundary	out-of-class	0	4 RUN blocks
+savescalars	out-of-class	0	RUN 1: solver 2: norm option show norm; RUN 2: solver 2: norm option show norm; RUN 3: solver 2: norm option show norm; RUN 4: solver 2: norm option show norm; RUN 5: solver 2: norm option show norm; RUN 6: solver 2: norm option show norm; RUN 7: solver 2: norm option show norm
+savescalars_boundary	out-of-class	0	RUN 1: solver 2: norm option show norm; RUN 2: solver 2: norm option show norm; RUN 3: solver 2: norm option show norm; RUN 4: solver 2: norm option show norm
 savescalars_flux	out-of-class	0	solver 2: norm option show norm
 savescalars_many	bitwise	1	solver 2: norm option show norm; solver 3: norm option show norm
 savescalars_mask	bitwise	1	solver 2: norm option show norm
