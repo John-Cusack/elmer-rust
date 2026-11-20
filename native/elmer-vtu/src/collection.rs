@@ -103,7 +103,7 @@ pub fn render_pvtu(
         )));
     }
     let refs = fields.fields();
-    let plan = fields::plan(&refs, opts)?;
+    let plan = fields::plan(&refs, opts, fields::discontinuous(&refs, opts))?;
     let scalars = opts.scalar_fields.first();
     let vectors = opts.vector_fields.first();
 

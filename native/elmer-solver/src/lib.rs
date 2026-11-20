@@ -35,6 +35,7 @@ mod control;
 pub mod coupled;
 pub mod error;
 mod exported;
+pub use exported::DgIndexes;
 pub mod expr;
 pub mod fortran_fmt;
 pub mod linsys;

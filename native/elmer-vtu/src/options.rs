@@ -5,13 +5,11 @@
 use elmer_core::{Params, Value};
 
 /// Keywords `VtuOutputSolver` honours that this crate cannot yet act on,
-/// because the corresponding data (DG indexes, eigenvectors, masks, higher
-/// order Lagrange tables, partition halos) is not reachable through
-/// `elmer-core`. A section that sets any of them is refused at write time
-/// rather than written differently from Fortran.
+/// because the corresponding data (eigenvectors, masks, higher order
+/// Lagrange tables, partition halos) is not reachable through `elmer-core`.
+/// A section that sets any of them is refused at write time rather than
+/// written differently from Fortran.
 const UNSUPPORTED_TRUE: &[&str] = &[
-    "discontinuous galerkin",
-    "discontinuous bodies",
     "eigen analysis",
     "constraint modes analysis",
     "skip halo elements",
@@ -172,6 +170,25 @@ pub struct VtuOptions {
     pub scaling_revert: bool,
     /// Unsupported keywords found in the section; writers refuse these.
     pub unsupported: Vec<String>,
+    /// `Discontinuous Galerkin` / `Discontinuous Bodies`: points per element
+    /// or per body, with DG fields as point data (when a saved field is DG or
+    /// integration-point, `CheckAnyDGField`). Needs [`VtuOptions::dg_layout`].
+    pub discontinuous_galerkin: bool,
+    pub discontinuous_bodies: bool,
+    /// `Average Within Materials` (default true): the caller replaces DG
+    /// fields by their body-wise means before a discontinuous write
+    /// (`AverageBodyFields`).
+    pub average_within_materials: bool,
+    /// The mesh's `Element % DGIndexes`, supplied by the caller for a
+    /// discontinuous write.
+    pub dg_layout: Option<std::sync::Arc<DgLayout>>,
+}
+
+/// `Element % DGIndexes` of every bulk and boundary element (0-based,
+/// [`elmer_core::NO_DOF`] where a boundary element has none).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DgLayout {
+    pub index: Vec<Vec<u32>>,
 }
 
 impl Default for VtuOptions {
@@ -211,6 +228,10 @@ impl Default for VtuOptions {
             geometry: None,
             scaling_revert: false,
             unsupported: Vec::new(),
+            discontinuous_galerkin: false,
+            discontinuous_bodies: false,
+            average_within_materials: true,
+            dg_layout: None,
         }
     }
 }
@@ -269,6 +290,10 @@ impl VtuOptions {
         o.fixed_mesh = p.logical("fixed mesh").unwrap_or(false);
         o.skip_metainfo = p.logical("skip metainfo").unwrap_or(false)
             || p.get("reference values").is_some();
+
+        o.discontinuous_galerkin = p.logical("discontinuous galerkin").unwrap_or(false);
+        o.discontinuous_bodies = p.logical("discontinuous bodies").unwrap_or(false);
+        o.average_within_materials = p.logical("average within materials").unwrap_or(true);
 
         o.scaling_revert = p.logical("coordinate scaling revert").unwrap_or(false);
         if !o.scaling_revert {
@@ -389,7 +414,8 @@ mod tests {
         let o = VtuOptions::from_params(&p);
         assert_eq!(o.scalar_fields, ["temperature", "pressure"]);
         assert_eq!(o.vector_fields, ["displacement"]);
-        assert_eq!(o.unsupported, ["discontinuous galerkin", "mask name"]);
+        assert!(o.discontinuous_galerkin && !o.discontinuous_bodies && o.average_within_materials);
+        assert_eq!(o.unsupported, ["mask name"]);
     }
 
     #[test]

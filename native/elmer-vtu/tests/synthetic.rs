@@ -161,12 +161,13 @@ fn fixed_mesh_removes_displacement_then_scales() {
 fn unsupported_keywords_and_dg_fields_are_refused_not_approximated() {
     let f = TestFields::new(vec![]);
     let mut p = ParamMap::new();
-    p.insert("Discontinuous Bodies", Value::Logical(true));
+    p.insert("Mask Name", Value::Str("m".into()));
     let o = VtuOptions::from_params(&p);
     let e = render_vtu(&mesh(), &f, &o, None).unwrap_err();
     assert_eq!(e.kind(), ErrorKind::Unsupported);
     assert!(render_pvtu(&f, &o, &[]).is_err());
 
+    // A DG field outside discontinuous saving would be cell data.
     let mut dg = OwnedField::nodal("d", 1, vec![0.0; 6]);
     dg.kind = FieldKind::Dg;
     let o = ascii_opts(&["d"]);
@@ -188,4 +189,36 @@ fn missing_variable_is_skipped() {
     let a = parse_vtu(text(&ascii_opts(&["nope", "t"]), &mesh(), &f, None).as_bytes());
     let names: Vec<_> = a.arrays.iter().filter(|x| x.section == "PointData").collect();
     assert_eq!(names.len(), 1);
+}
+
+/// `Discontinuous Bodies` (GenerateSavePermutation with DN): the two bodies
+/// share nodes 0 and 2, which become a point per body. Points go body by
+/// body in element order; the DG field is read at the DG index each point
+/// took, the nodal one at its node; cells and the boundary line connect
+/// through `DgPerm` of their DG indexes.
+#[test]
+fn discontinuous_bodies_duplicate_shared_nodes_per_body() {
+    let mut dg = OwnedField::nodal("d", 1, vec![10., 11., 12., 20., 21., 22.]);
+    dg.kind = FieldKind::Dg;
+    dg.perm = Some((0..6).collect());
+    let t = OwnedField::nodal("t", 1, vec![1., 2., 3., 4., 5.]);
+    let f = TestFields::new(vec![t, dg]);
+    let mut o = ascii_opts(&["t", "d"]);
+    o.discontinuous_bodies = true;
+    // Without the DG indexes the writer refuses.
+    assert!(render_vtu(&mesh(), &f, &o, None).is_err());
+    o.dg_layout = Some(std::sync::Arc::new(elmer_vtu::DgLayout {
+        index: vec![vec![0, 1, 2], vec![3, 4, 5], vec![1, 2]],
+    }));
+    let a = parse_vtu(text(&o, &mesh(), &f, None).as_bytes());
+    assert_eq!(a.array("PointData", Some("t")).reals, vec![1., 2., 3., 1., 3., 4.]);
+    assert_eq!(a.array("PointData", Some("d")).reals, vec![10., 11., 12., 20., 21., 22.]);
+    assert_eq!(a.array("Cells", Some("connectivity")).ints, vec![0, 1, 2, 3, 4, 5, 1, 2]);
+    let pts = &a.array("Points", None).reals;
+    assert_eq!(&pts[9..12], &[0.0, 0.0, 0.0]);
+
+    // CheckAnyDGField: no DG field saved, no discontinuity.
+    let mut o2 = ascii_opts(&["t"]);
+    o2.discontinuous_bodies = true;
+    assert_eq!(text(&o2, &mesh(), &f, None), text(&ascii_opts(&["t"]), &mesh(), &f, None));
 }

@@ -616,3 +616,86 @@ impl Simulation {
         Ok(())
     }
 }
+
+impl Simulation {
+    /// `CheckAndCreateDGIndexes(Mesh)`: the mesh's DG indexes, created when
+    /// no DG variable has made them yet.
+    pub fn ensure_dg_indexes(&mut self, mesh: &dyn MeshView) -> &DgIndexes {
+        self.dg_indexes.get_or_insert_with(|| DgIndexes::create(mesh))
+    }
+
+    /// `AverageBodyFields(Mesh)` of VtuOutputSolver: every output DG field
+    /// with one dof and more than one value gets `CalculateBodyAverage(Mesh,
+    /// Var, .FALSE.)`. Returns the number of fields reduced.
+    pub fn average_body_fields(&mut self, mesh: &dyn MeshView) -> Result<usize, SolverError> {
+        let ids: Vec<crate::VarId> = self
+            .vars
+            .iter()
+            .filter(|(_, v)| v.output && v.values.len() != v.dofs && v.dofs == 1 && v.kind == FieldKind::Dg)
+            .map(|(id, _)| id)
+            .collect();
+        for &id in &ids {
+            self.calculate_body_average(mesh, id)?;
+        }
+        Ok(ids.len())
+    }
+
+    /// `CalculateBodyAverage(Mesh, Var, BodySum = .FALSE.)` (MeshBasics.F90):
+    /// per body and component, each node's mean over the DG values of the
+    /// body's elements at that node replaces those values. Once per variable
+    /// (`DgAveraged`).
+    pub fn calculate_body_average(&mut self, mesh: &dyn MeshView, id: crate::VarId) -> Result<(), SolverError> {
+        let n_bodies = self.model.bodies.len();
+        let nb = mesh.n_bulk();
+        let bodies: Vec<Option<usize>> =
+            (0..nb).map(|t| self.model.body_of_tag(mesh.element(ElemId(t as u32)).tag)).collect();
+        let dg = self
+            .dg_indexes
+            .as_ref()
+            .ok_or_else(|| SolverError::fatal("CalculateBodyAverage", "no DG indexes"))?;
+        let v = self.vars.by_id_mut(id);
+        let Some(perm) = v.perm.clone() else { return Ok(()) };
+        if perm.len() <= mesh.n_nodes() || v.dg_averaged {
+            return Ok(());
+        }
+        let dofs = v.dofs;
+        let n = mesh.n_nodes();
+        let mut sum = vec![0.0f64; n];
+        let mut count = vec![0u32; n];
+        let slot = |t: usize, l: usize| {
+            let d = dg.index[t][l];
+            (d != NO_DOF).then(|| perm[d as usize]).filter(|&s| s != NO_DOF).map(|s| s as usize)
+        };
+        for body in 1..=n_bodies {
+            for k in 0..dofs {
+                sum.iter_mut().for_each(|x| *x = 0.0);
+                count.iter_mut().for_each(|x| *x = 0);
+                for t in (0..nb).filter(|&t| bodies[t] == Some(body)) {
+                    for (l, &node) in mesh.element(ElemId(t as u32)).nodes.iter().enumerate() {
+                        if let Some(s) = slot(t, l) {
+                            sum[node as usize] += v.values[dofs * s + k];
+                            count[node as usize] += 1;
+                        }
+                    }
+                }
+                if count.iter().all(|&c| c == 0) {
+                    continue;
+                }
+                for (x, &c) in sum.iter_mut().zip(&count) {
+                    if c > 0 {
+                        *x /= f64::from(c);
+                    }
+                }
+                for t in (0..nb).filter(|&t| bodies[t] == Some(body)) {
+                    for (l, &node) in mesh.element(ElemId(t as u32)).nodes.iter().enumerate() {
+                        if let Some(s) = slot(t, l) {
+                            v.values[dofs * s + k] = sum[node as usize];
+                        }
+                    }
+                }
+            }
+        }
+        v.dg_averaged = true;
+        Ok(())
+    }
+}
