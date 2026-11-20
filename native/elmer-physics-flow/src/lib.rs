@@ -38,6 +38,7 @@ pub mod fs_solver;
 pub mod adv_react;
 pub mod parstokes;
 pub mod poisson_dg;
+pub mod reynolds;
 pub mod solver;
 pub mod stokes;
 pub mod stream;
