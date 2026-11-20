@@ -75,13 +75,13 @@ pub fn solver_defaults(p: &mut ParamMap, dim: usize) {
 pub struct CoilSolver;
 
 /// The element's basis and Gauss points, as `ElementInfo` gives them.
-struct Point {
-    weight: f64,
-    basis: Vec<f64>,
-    dbasis: Vec<[f64; 3]>,
+pub(crate) struct Point {
+    pub weight: f64,
+    pub basis: Vec<f64>,
+    pub dbasis: Vec<[f64; 3]>,
 }
 
-fn element_points(ctx: &SolverCtx<'_>, e: ElemId) -> Result<Vec<Point>, SolverError> {
+pub(crate) fn element_points(ctx: &SolverCtx<'_>, e: ElemId) -> Result<Vec<Point>, SolverError> {
     let fe = ctx
         .sim
         .backends
@@ -314,10 +314,9 @@ fn local_flux(
 impl Solver for CoilSolver {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         let p = ctx.params();
-        if coil_closed(p) {
-            return Err(unsupported("closed coils (Coil Closed)"));
-        }
         for k in [
+            "single coil cut",
+            "test coil cut",
             "calculate elemental fields",
             "fix input current density",
             "use wall distance",
@@ -377,15 +376,18 @@ impl Solver for CoilSolver {
             unity: flag(&p, "use unity conductivity"),
             dim,
         };
-        ctx.info(CALLER, "Assuming that all coils are open!", 5);
+        let closed = coil_closed(&p);
+        let parts = if closed { 2 } else { 1 };
         let bcs = &ctx.sim.model.boundary_conditions;
-        if !bcs.iter().any(|b| flag(b, "coil start")) {
+        if closed {
+            ctx.info(CALLER, "Assuming that all coils are closed!", 5);
+        } else if !bcs.iter().any(|b| flag(b, "coil start")) {
             return Err(SolverError::fatal(
                 CALLER,
                 "> Coil Start < must be defined on some BC",
             ));
         }
-        if !bcs.iter().any(|b| flag(b, "coil end")) {
+        if !closed && !bcs.iter().any(|b| flag(b, "coil end")) {
             return Err(SolverError::fatal(
                 CALLER,
                 "> Coil End < must be defined on some BC",
@@ -399,6 +401,13 @@ impl Solver for CoilSolver {
         };
         if ctx.variable("coilpot").is_none() {
             return Err(SolverError::fatal(CALLER, "CoilPot not associated!"));
+        }
+        if closed {
+            for v in ["CoilPotB", "PotSelect"] {
+                if ctx.variable(v).is_none() {
+                    return Err(SolverError::fatal(CALLER, format!("{v} not associated!")));
+                }
+            }
         }
         if o.fix_conductivity {
             let f = ctx
@@ -414,26 +423,16 @@ impl Solver for CoilSolver {
             ));
         }
 
-        // ChooseFixedEndNodes: +12 at the start, -12 at the end (ioffset =
-        // 10 * NoCoils).
-        let mut set = vec![0i32; nsize];
-        let bnd: Vec<ElemId> = ctx.boundary_elements().collect();
-        for &e in &bnd {
-            let nodes = ctx.mesh.element(e).nodes;
-            if nodes.iter().any(|&k| perm[k as usize] == NO_DOF) {
-                continue;
-            }
-            let Some(bc) = ctx.bc_params(e) else { continue };
-            let v = if flag(bc, "coil start") {
-                12
-            } else if flag(bc, "coil end") {
-                -12
-            } else {
-                continue;
-            };
-            for &k in nodes {
-                set[perm[k as usize] as usize] = v;
-            }
+        let elems: Vec<ElemId> = ctx.active_elements().collect();
+        let mut set_a = vec![0i32; nsize];
+        let mut set_b = vec![0i32; if closed { nsize } else { 0 }];
+        if closed {
+            let center = crate::fit::coil_center(ctx, &p, &elems)?;
+            let axes = crate::fit::coil_axes(ctx, &p, &elems, center)?;
+            choose_fixed_bulk_nodes(ctx, &perm, &mut set_a, 1, center, &axes)?;
+            choose_fixed_bulk_nodes(ctx, &perm, &mut set_b, 2, center, &axes)?;
+        } else {
+            choose_fixed_end_nodes(ctx, &perm, &mut set_a);
         }
         let desired_curr = ctx.creal(&p, "desired coil current")?;
         let got_curr = desired_curr.is_some();
@@ -453,34 +452,56 @@ impl Solver for CoilSolver {
             }
         }
         ctx.info(CALLER, "Coil system consists of 1 coils", 7);
-        let nplus = set.iter().filter(|&&s| s > 0).count();
-        let nminus = set.iter().filter(|&&s| s < 0).count();
-        ctx.info(
-            CALLER,
-            &format!("Set1 : {nplus} +nodes and {nminus} -nodes"),
-            4,
-        );
-        if nplus == 0 || nminus == 0 {
-            ctx.warn(CALLER, "Cannot set Dirichlet conditions with this set");
+        for (k, set) in [&set_a, &set_b].into_iter().take(parts).enumerate() {
+            let nplus = set.iter().filter(|&&s| s > 0).count();
+            let nminus = set.iter().filter(|&&s| s < 0).count();
+            ctx.info(
+                CALLER,
+                &format!("Set{} : {nplus} +nodes and {nminus} -nodes", k + 1),
+                4,
+            );
+            if nplus == 0 || nminus == 0 {
+                ctx.warn(CALLER, "Cannot set Dirichlet conditions with this set");
+            }
         }
 
-        let elems: Vec<ElemId> = ctx.active_elements().collect();
         let pot_of = |ctx: &SolverCtx<'_>, name: &str| -> Vec<f64> {
             ctx.variable(name)
                 .map(|v| v.values.to_vec())
                 .unwrap_or_default()
         };
+        // NodalPot: CoilPotB on the elements PotSelect puts wholly on the
+        // positive side of a closed coil, CoilPot elsewhere.
+        let element_pot = |ctx: &SolverCtx<'_>, e: ElemId| -> Vec<f64> {
+            let nodes = ctx.mesh.element(e).nodes;
+            let name = if closed {
+                let sel = ctx.variable("potselect").expect("checked");
+                let sp = sel.perm.expect("exported on the solver's Perm");
+                let min = nodes
+                    .iter()
+                    .map(|&k| sel.values[sp[k as usize] as usize])
+                    .fold(f64::INFINITY, f64::min);
+                if min > 0.0 {
+                    "coilpotb"
+                } else {
+                    "coilpot"
+                }
+            } else {
+                "coilpot"
+            };
+            let v = ctx.variable(name).expect("checked");
+            nodal(v.values, &perm, nodes)
+        };
         for iter in 1..=max_iter {
             if iter > 1 {
                 ctx.info(CALLER, "Fixing the conductivity field", 4);
                 ctx.default_initialize()?;
-                let pot = pot_of(ctx, "coilpot");
                 for &e in &elems {
-                    let nodes = ctx.mesh.element(e).nodes.to_vec();
+                    let n = ctx.mesh.element(e).nodes.len();
                     let diff = ctx
                         .real_at_nodes(&p, "cfix diffusion", e)?
-                        .unwrap_or_else(|| vec![0.0; nodes.len()]);
-                    let ls = local_fix(ctx, e, &nodal(&pot, &perm, &nodes), &diff)?;
+                        .unwrap_or_else(|| vec![0.0; n]);
+                    let ls = local_fix(ctx, e, &element_pot(ctx, e), &diff)?;
                     ctx.default_update(&ls, e)?;
                 }
                 ctx.set_param("Skip Compute Nonlinear Change", Value::Logical(true));
@@ -496,42 +517,47 @@ impl Solver for CoilSolver {
                     .copy_from_slice(&sol);
             }
             ctx.info(CALLER, "Computing the dummy potential field", 4);
-            ctx.default_initialize()?;
-            let pot = pot_of(ctx, "coilpot");
-            let fix = if iter > 1 {
-                Some(pot_of(ctx, "coilfix"))
-            } else {
-                None
-            };
-            for &e in &elems {
-                let nodes = ctx.mesh.element(e).nodes.to_vec();
-                let fx = fix.as_ref().map(|f| nodal(f, &perm, &nodes));
-                let ls = local_pot(ctx, &o, e, &nodal(&pot, &perm, &nodes), fx.as_deref())?;
-                ctx.default_update(&ls, e)?;
+            for part in 0..parts {
+                let (set, pot_name) = if part == 0 {
+                    (&set_a, "coilpot")
+                } else {
+                    (&set_b, "coilpotb")
+                };
+                ctx.default_initialize()?;
+                let fix = if iter > 1 {
+                    Some(pot_of(ctx, "coilfix"))
+                } else {
+                    None
+                };
+                for &e in &elems {
+                    let nodes = ctx.mesh.element(e).nodes.to_vec();
+                    let fx = fix.as_ref().map(|f| nodal(f, &perm, &nodes));
+                    let ls = local_pot(ctx, &o, e, &element_pot(ctx, e), fx.as_deref())?;
+                    ctx.default_update(&ls, e)?;
+                }
+                ctx.default_finish_bulk_assembly()?;
+                let fixed: Vec<(u32, f64)> = set
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, &s)| s != 0)
+                    .map(|(i, &s)| (i as u32, if s > 0 { 1.0 } else { 0.0 }))
+                    .collect();
+                cut_interface_connections(ctx, set)?;
+                ctx.default_dirichlet_after(&fixed)?;
+                ctx.set_param("Skip Compute Nonlinear Change", Value::Logical(false));
+                ctx.default_solve()?;
+                let sol = pot_of(ctx, &sol_name);
+                ctx.variable_mut(pot_name)
+                    .expect("checked")
+                    .values
+                    .copy_from_slice(&sol);
+                scale_potential(ctx, set, desired_curr, &loads_name, pot_name)?;
             }
-            ctx.default_finish_bulk_assembly()?;
-            let fixed: Vec<(u32, f64)> = set
-                .iter()
-                .enumerate()
-                .filter(|(_, &s)| s != 0)
-                .map(|(i, &s)| (i as u32, if s > 0 { 1.0 } else { 0.0 }))
-                .collect();
-            cut_interface_connections(ctx, &set)?;
-            ctx.default_dirichlet_after(&fixed)?;
-            ctx.set_param("Skip Compute Nonlinear Change", Value::Logical(false));
-            ctx.default_solve()?;
-            let sol = pot_of(ctx, &sol_name);
-            ctx.variable_mut("coilpot")
-                .expect("checked")
-                .values
-                .copy_from_slice(&sol);
-            scale_potential(ctx, &set, desired_curr, &loads_name)?;
         }
 
         if calc_curr {
             ctx.info(CALLER, "Computing current densities", 20);
             ctx.set_param("Calculate Loads", Value::Logical(false));
-            let pot = pot_of(ctx, "coilpot");
             let fix = if o.fix_conductivity {
                 Some(pot_of(ctx, "coilfix"))
             } else {
@@ -539,7 +565,10 @@ impl Solver for CoilSolver {
             };
             let mut min_curr = [0.0f64; 3];
             let mut max_curr = [0.0f64; 3];
-            for dimi in 0..dim {
+            // The Fortran repeats the components for each part; the
+            // repeat restarts the iterative solves from the last solution.
+            for (part, dimi) in (0..parts).flat_map(|p| (0..dim).map(move |d| (p, d))) {
+                let _ = part;
                 ctx.info(
                     CALLER,
                     &format!("Computing current component: {}", dimi + 1),
@@ -552,8 +581,7 @@ impl Solver for CoilSolver {
                 for &e in &elems {
                     let nodes = ctx.mesh.element(e).nodes.to_vec();
                     let fx = fix.as_ref().map(|f| nodal(f, &perm, &nodes));
-                    let ls =
-                        local_flux(ctx, &o, e, &nodal(&pot, &perm, &nodes), fx.as_deref(), dimi)?;
+                    let ls = local_flux(ctx, &o, e, &element_pot(ctx, e), fx.as_deref(), dimi)?;
                     ctx.default_update(&ls, e)?;
                 }
                 ctx.set_param("Skip Compute Nonlinear Change", Value::Logical(true));
@@ -584,13 +612,18 @@ impl Solver for CoilSolver {
             ctx.set_param("Calculate Loads", Value::Logical(true));
         }
 
-        // `CoilSet`: the fixing set by Perm entry.
-        if let Some(cs) = ctx.variable_mut("coilset") {
-            if let Some(cperm) = cs.perm {
-                let cperm = cperm.to_vec();
-                for &j in &cperm {
-                    if j != NO_DOF {
-                        cs.values[j as usize] = f64::from(set[j as usize]);
+        // `CoilSet` (and `CoilSetB`): the fixing sets by Perm entry.
+        for (name, set) in [("coilset", &set_a), ("coilsetb", &set_b)]
+            .into_iter()
+            .take(parts)
+        {
+            if let Some(cs) = ctx.variable_mut(name) {
+                if let Some(cperm) = cs.perm {
+                    let cperm = cperm.to_vec();
+                    for &j in &cperm {
+                        if j != NO_DOF {
+                            cs.values[j as usize] = f64::from(set[j as usize]);
+                        }
                     }
                 }
             }
@@ -603,6 +636,103 @@ impl Solver for CoilSolver {
         ctx.info(CALLER, "All done", 7);
         Ok(())
     }
+}
+
+/// `ChooseFixedEndNodes`: `+12` on `Coil Start`, `-12` on `Coil End`
+/// (`2 + ioffset`, `ioffset = 10 * NoCoils`).
+fn choose_fixed_end_nodes(ctx: &SolverCtx<'_>, perm: &[u32], set: &mut [i32]) {
+    let bnd: Vec<ElemId> = ctx.boundary_elements().collect();
+    for &e in &bnd {
+        let nodes = ctx.mesh.element(e).nodes;
+        if nodes.iter().any(|&k| perm[k as usize] == NO_DOF) {
+            continue;
+        }
+        let Some(bc) = ctx.bc_params(e) else { continue };
+        let v = if flag(bc, "coil start") {
+            12
+        } else if flag(bc, "coil end") {
+            -12
+        } else {
+            continue;
+        };
+        for &k in nodes {
+            set[perm[k as usize] as usize] = v;
+        }
+    }
+}
+
+/// `ChooseFixedBulkNodesNarrow( Set, SetNo, .FALSE. )` of a closed coil:
+/// the bulk elements on the `tangent1 >= 0` half (mirrored for set 2) that
+/// the plane `tangent2 = 0` cuts are fixed, `+12` on its positive side and
+/// `-12` on the other. Set 1 also stores `tangent1 . r` in `PotSelect`.
+fn choose_fixed_bulk_nodes(
+    ctx: &mut SolverCtx<'_>,
+    perm: &[u32],
+    set: &mut [i32],
+    set_no: usize,
+    center: [f64; 3],
+    axes: &crate::fit::Axes,
+) -> Result<(), SolverError> {
+    ctx.info(
+        CALLER,
+        &format!("Choosing fixing nodes for set: {set_no}"),
+        4,
+    );
+    let mirror = set_no == 2;
+    let sp: Vec<u32> = ctx
+        .variable("potselect")
+        .and_then(|v| v.perm.map(<[u32]>::to_vec))
+        .ok_or_else(|| SolverError::fatal(CALLER, "PotSelect not associated!"))?;
+    let dot3 = |a: &[f64; 3], b: &[f64; 3]| {
+        let mut s = 0.0;
+        for k in 0..3 {
+            s += a[k] * b[k];
+        }
+        s
+    };
+    for t in 0..ctx.mesh.n_bulk() {
+        let nodes = ctx.mesh.element(ElemId(t as u32)).nodes.to_vec();
+        let mut wrong_side = false;
+        let mut cut: Vec<f64> = Vec::with_capacity(nodes.len());
+        for &i in &nodes {
+            if perm[i as usize] == NO_DOF {
+                continue;
+            }
+            let x = ctx.mesh.coord(i);
+            let mut r = [x[0] - center[0], x[1] - center[1], x[2] - center[2]];
+            if mirror {
+                r = [-r[0], -r[1], -r[2]];
+            }
+            let rp1 = dot3(&axes.tangent1, &r);
+            let rp2 = dot3(&axes.tangent2, &r);
+            if set_no == 1 {
+                let sel = ctx.variable_mut("potselect").expect("checked");
+                sel.values[sp[i as usize] as usize] = rp1;
+            }
+            if rp1 < 0.0 {
+                wrong_side = true;
+                break;
+            }
+            cut.push(rp2);
+        }
+        if wrong_side || cut.len() < 2 {
+            continue;
+        }
+        let max = cut.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let min = cut.iter().copied().fold(f64::INFINITY, f64::min);
+        if max >= -f64::EPSILON && min <= f64::EPSILON {
+            let mut l = 0;
+            for &i in &nodes {
+                let j = perm[i as usize];
+                if j == NO_DOF {
+                    continue;
+                }
+                set[j as usize] = if cut[l] > 0.0 { 12 } else { -12 };
+                l += 1;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// `CutInterfaceConnections( A, Set )`: the bulk couplings between the two
@@ -652,6 +782,7 @@ fn scale_potential(
     set: &[i32],
     desired: f64,
     loads_name: &str,
+    pot_name: &str,
 ) -> Result<(), SolverError> {
     let (possum, negsum) = {
         let lv = ctx.variable(loads_name).expect("checked");
@@ -695,7 +826,7 @@ fn scale_potential(
     let initial = (possum - negsum) / 2.0;
     let coeff = desired / initial;
     ctx.info(CALLER, &format!("Coil potential multiplier: {coeff:e}"), 5);
-    let pv = ctx.variable_mut("coilpot").expect("checked");
+    let pv = ctx.variable_mut(pot_name).expect("checked");
     for v in pv.values.iter_mut() {
         *v *= coeff;
     }
@@ -792,8 +923,10 @@ mod tests {
         let exported: Vec<String> = (1..=4)
             .filter_map(|k| s(&p, &format!("exported variable {k}")))
             .collect();
-        assert_eq!(exported, ["CoilPot", "CoilFix", "CoilSet", "-dofs 3 CoilCurrent"]);
+        assert_eq!(
+            exported,
+            ["CoilPot", "CoilFix", "CoilSet", "-dofs 3 CoilCurrent"]
+        );
         assert_eq!(p.logical("calculate loads"), Some(true));
     }
-
 }

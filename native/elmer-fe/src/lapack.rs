@@ -146,12 +146,15 @@ fn dsyev_values(a: &mut [f64], n: usize) -> Option<Vec<f64>> {
     if (anrm > 0.0 && anrm < rmin) || anrm > rmax {
         return None;
     }
-    let (d, e) = dsytd2(a, n);
+    let (d, e, _) = dsytd2_upper(a, n);
     dsterf(d, e)
 }
 
-/// `DSYTD2( 'U', n, A, n, D, E, TAU )`: returns `(D, E)`.
-fn dsytd2(a: &mut [f64], n: usize) -> (Vec<f64>, Vec<f64>) {
+/// `DSYTD2( 'U', n, A, n, D, E, TAU )` (reference LAPACK 3.12.0, also the
+/// unblocked path of `DSYTRD` for `n < 32`): reduces the upper triangle of
+/// the column-major `a` to tridiagonal form and returns `(D, E, TAU)`; `a`
+/// keeps the Householder vectors for `DORGTR`.
+pub fn dsytd2_upper(a: &mut [f64], n: usize) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let ix = |i: usize, j: usize| i + j * n;
     let mut d = vec![0.0; n];
     let mut e = vec![0.0; n - 1];
@@ -207,7 +210,8 @@ fn dsytd2(a: &mut [f64], n: usize) -> (Vec<f64>, Vec<f64>) {
         tau[i] = taui;
     }
     d[0] = a[0];
-    (d, e)
+    tau.truncate(n - 1);
+    (d, e, tau)
 }
 
 /// `DLARFG( n, ALPHA = a[alpha], X = a[x..x+n-1], 1, TAU )`; returns `TAU`.
