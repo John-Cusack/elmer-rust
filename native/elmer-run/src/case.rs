@@ -171,6 +171,25 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
     }
 }
 
+/// The `_init` expansions of the lumped-matrix flags (`Calculate
+/// Conductance / Conductivity / Capacitance Matrix` of HeatSolve,
+/// StatCurrentSolve, StatElecSolve, and their Vec versions) into
+/// constraint-mode lumping, before the variables and permutations exist
+/// ([`elmer_solver::lumping_init`]).
+fn lumped_matrix_inits(model: &mut Model) {
+    for i in 0..model.solvers.len() {
+        let Some((lib, entry)) = procedure_of(&model.solvers[i]) else { continue };
+        let (lib, entry) = (lib.to_ascii_lowercase(), entry.to_ascii_lowercase());
+        let l = match (lib.trim_end_matches("vec"), entry.as_str()) {
+            ("heatsolve", "heatsolver") => &elmer_solver::CONDUCTANCE,
+            ("statcurrentsolve", "statcurrentsolver") => &elmer_solver::CONDUCTIVITY,
+            ("statelecsolve", "statelecsolver") => &elmer_solver::CAPACITANCE,
+            _ => continue,
+        };
+        elmer_solver::lumping_init(&mut model.solvers[i], &mut model.boundary_conditions, &mut model.body_forces, l);
+    }
+}
+
 /// Refuses solver sections this build cannot run: `Simulation` skips a
 /// procedure missing from the registry, which would drop a solver silently.
 /// `Exec Solver = Never` sections are exempt. Then refuses the model
@@ -747,6 +766,7 @@ pub fn run_case_with(case: Case<'_>, log: &dyn Logger, env: &RunEnv<'_>) -> Resu
     let mut outputs = prepare_vtu_output(&mut model, &case_dir, &mesh_dir, size > 1)?;
     let coords = coordinate_system(&model, mesh)?;
     legacy_solvers(&mut model, coords);
+    lumped_matrix_inits(&mut model);
     drop_never_savedata(&mut model);
     preflight(&model, &registry)?;
     check_mesh_and_elements(&model)?;

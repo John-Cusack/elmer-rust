@@ -25,7 +25,7 @@
 
 use std::collections::BTreeMap;
 
-use elmer_core::{Params, Value};
+use elmer_core::{ParamMap, Params, Value};
 
 use crate::error::SolverError;
 use crate::fortran_fmt::i2s;
@@ -41,18 +41,67 @@ pub(crate) struct Modes {
     pub count: usize,
 }
 
-/// The `_init` expansion of a solver's "compute a lumped matrix" flag
-/// (`Calculate Conductance Matrix` of HeatSolve, `Calculate Conductivity
-/// Matrix` of StatCurrentSolve, ...): when `flag` is on, `Constraint Modes
-/// Analysis`, `... Lumped`, `... Fluxes` and `... Matrix Symmetric` are
-/// added unless given (`ListAddNewLogical`), `Constraint Modes Matrix
-/// Filename` defaults to `filename`, and every BC's `Conductivity Body` is
-/// renamed `bc_key` (`ListRenameAllBC`).
-pub fn constraint_modes_lumping(ctx: &mut SolverCtx<'_>, flag: &str, filename: &str, bc_key: &str) {
-    if ctx.params().logical(flag) != Some(true) {
-        return;
+/// A solver's "compute a lumped matrix" flag, which its `_init` expands
+/// into the library's constraint-mode lumping ([`lumping_init`]).
+pub struct Lumping {
+    /// The solver flag, e.g. `Calculate Conductance Matrix`.
+    pub flag: &'static str,
+    /// The default `Constraint Modes Matrix Filename`.
+    pub filename: &'static str,
+    /// A solver keyword renamed `Constraint Modes Matrix Filename` when given.
+    pub filename_key: Option<&'static str>,
+    /// The BC (and, with `body_forces`, Body Force) keyword renamed
+    /// `Constraint Mode <var>`: (from, to).
+    pub rename: (&'static str, &'static str),
+    pub body_forces: bool,
+    /// `Optimize Bandwidth = False` is set (`ListAddLogical`, overriding).
+    pub no_bandwidth: bool,
+}
+
+/// `HeatSolver_init` (HeatSolve.F90:201).
+pub const CONDUCTANCE: Lumping = Lumping {
+    flag: "calculate conductance matrix",
+    filename: "ThermalConductanceMatrix.dat",
+    filename_key: None,
+    rename: ("conductivity body", "Constraint Mode Temperature"),
+    body_forces: false,
+    no_bandwidth: false,
+};
+
+/// `StatCurrentSolver_init` (StatCurrentSolve.F90:186).
+pub const CONDUCTIVITY: Lumping = Lumping {
+    flag: "calculate conductivity matrix",
+    filename: "ConductivityMatrix.dat",
+    filename_key: None,
+    rename: ("conductivity body", "Constraint Mode Potential"),
+    body_forces: false,
+    no_bandwidth: false,
+};
+
+/// `StatElecSolver_init` (StatElecSolve.F90:211).
+pub const CAPACITANCE: Lumping = Lumping {
+    flag: "calculate capacitance matrix",
+    filename: "CapacitanceMatrix.dat",
+    filename_key: Some("capacitance matrix filename"),
+    rename: ("capacitance body", "Constraint Mode Potential"),
+    body_forces: true,
+    no_bandwidth: true,
+};
+
+/// The `_init` expansion of `l.flag`, on the solver section `p` and the
+/// model's BCs and body forces; nothing when the flag is off. `Constraint
+/// Modes Analysis`, `... Lumped`, `... Fluxes` and `... Matrix Symmetric`
+/// are added unless given (`ListAddNewLogical`), the matrix filename is
+/// renamed from `l.filename_key` or defaults to `l.filename`, and the
+/// BC / body force keyword is renamed (`ListRenameAllBC`,
+/// `ListRenameAllBodyForce`). Elmer runs this before the solver's variable
+/// and permutation exist (`Optimize Bandwidth`), so a caller building the
+/// model calls it before [`Simulation::setup`](crate::Simulation::setup).
+/// Returns whether the flag is on; a second call changes nothing.
+pub fn lumping_init(p: &mut ParamMap, bcs: &mut [ParamMap], body_forces: &mut [ParamMap], l: &Lumping) -> bool {
+    if p.logical(l.flag) != Some(true) {
+        return false;
     }
-    let p = &mut ctx.sim.slots[ctx.slot].params;
     for k in [
         "Constraint Modes Analysis",
         "Constraint Modes Lumped",
@@ -63,14 +112,32 @@ pub fn constraint_modes_lumping(ctx: &mut SolverCtx<'_>, flag: &str, filename: &
             p.insert(k, Value::Logical(true));
         }
     }
-    if p.get("constraint modes matrix filename").is_none() {
-        p.insert("Constraint Modes Matrix Filename", Value::Str(filename.to_string()));
+    if let Some(v) = l.filename_key.and_then(|k| p.0.remove(k)) {
+        p.insert("Constraint Modes Matrix Filename", v);
+    } else if p.get("constraint modes matrix filename").is_none() {
+        p.insert("Constraint Modes Matrix Filename", Value::Str(l.filename.to_string()));
     }
-    for bc in &mut ctx.sim.model.boundary_conditions {
-        if let Some(v) = bc.0.remove("conductivity body") {
-            bc.insert(bc_key, v);
+    let (from, to) = l.rename;
+    let n = if l.body_forces { body_forces.len() } else { 0 };
+    for sec in bcs.iter_mut().chain(body_forces[..n].iter_mut()) {
+        if let Some(v) = sec.0.remove(from) {
+            sec.insert(to, v);
         }
     }
+    if l.no_bandwidth {
+        p.insert("Optimize Bandwidth", Value::Logical(false));
+    }
+    true
+}
+
+/// [`lumping_init`] on the running solver, for a model built without it.
+/// `Optimize Bandwidth` then comes too late for a variable created by
+/// setup: its dofs keep the optimized order (the same lumped matrix up to
+/// rounding).
+pub fn constraint_modes_lumping(ctx: &mut SolverCtx<'_>, l: &Lumping) {
+    let sim = &mut *ctx.sim;
+    let model = &mut sim.model;
+    lumping_init(&mut sim.slots[ctx.slot].params, &mut model.boundary_conditions, &mut model.body_forces, l);
 }
 
 fn refuse(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
@@ -125,6 +192,11 @@ pub(crate) fn set_boundaries(ctx: &mut SolverCtx<'_>, fixed: &mut BTreeMap<u32, 
         return Ok(());
     }
     let model = &ctx.sim.model;
+    // Modes set over bodies (a Body Force `Constraint Mode <var>`) are
+    // not ported; without this they would count as no modes at all.
+    if model.body_forces.iter().any(|b| b.0.keys().any(|k| k.starts_with("constraint mode"))) {
+        return Err(SolverError::Unsupported("constraint modes over body forces".into()));
+    }
     if !model.boundary_conditions.iter().any(|b| b.0.keys().any(|k| k.starts_with("constraint mode"))) {
         // NumberOfConstraintModes = 0: nothing to do.
         ctx.sim.slots[ctx.slot].cmodes = None;
@@ -392,5 +464,49 @@ fn finalize(ctx: &mut SolverCtx<'_>, mut c: Vec<Vec<f64>>) {
                 sim.insert(&format!("res: CMF {} {}", i + 1, j + 1), Value::real(*v));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Calculate Capacitance Matrix` (StatElecSolve.F90:211): the
+    /// constraint-mode keywords are added unless given, `Capacitance Matrix
+    /// Filename` becomes the matrix filename, `Capacitance Body` of BCs and
+    /// body forces becomes `Constraint Mode Potential`, bandwidth
+    /// optimization is off; a second call changes nothing.
+    #[test]
+    fn capacitance_flag_expands_to_constraint_mode_lumping() {
+        let mut p = ParamMap::new();
+        p.insert("Calculate Capacitance Matrix", Value::Logical(true));
+        p.insert("Constraint Modes Lumped", Value::Logical(false));
+        p.insert("Capacitance Matrix Filename", Value::Str("c.dat".into()));
+        let mut bc = ParamMap::new();
+        bc.insert("Capacitance Body", Value::Integer(vec![2]));
+        let mut bf = ParamMap::new();
+        bf.insert("Capacitance Body", Value::Integer(vec![1]));
+        let (mut bcs, mut bfs) = (vec![bc], vec![bf]);
+        for _ in 0..2 {
+            assert!(lumping_init(&mut p, &mut bcs, &mut bfs, &CAPACITANCE));
+            assert_eq!(p.logical("constraint modes analysis"), Some(true));
+            assert_eq!(p.logical("constraint modes lumped"), Some(false));
+            assert_eq!(p.string("constraint modes matrix filename"), Some("c.dat"));
+            assert!(p.get("capacitance matrix filename").is_none());
+            assert_eq!(p.logical("optimize bandwidth"), Some(false));
+            assert_eq!(bcs[0].integer("constraint mode potential"), Some(2));
+            assert_eq!(bfs[0].integer("constraint mode potential"), Some(1));
+            assert!(bcs[0].get("capacitance body").is_none());
+        }
+        // HeatSolve: BCs only, the default filename, bandwidth untouched.
+        let mut h = ParamMap::new();
+        h.insert("Calculate Conductance Matrix", Value::Logical(true));
+        let mut bfs = vec![ParamMap::new()];
+        bfs[0].insert("Conductivity Body", Value::Integer(vec![1]));
+        assert!(lumping_init(&mut h, &mut [], &mut bfs, &CONDUCTANCE));
+        assert_eq!(h.string("constraint modes matrix filename"), Some("ThermalConductanceMatrix.dat"));
+        assert!(h.get("optimize bandwidth").is_none());
+        assert_eq!(bfs[0].integer("conductivity body"), Some(1));
+        assert!(!lumping_init(&mut ParamMap::new(), &mut [], &mut [], &CONDUCTANCE));
     }
 }

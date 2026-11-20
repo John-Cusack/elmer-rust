@@ -124,14 +124,6 @@ fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
             "legacy assembly",
             "the legacy StatElecSolveLegacy assembly is not ported",
         ),
-        (
-            "calculate capacitance matrix",
-            "Constraint Modes analysis is not ported",
-        ),
-        (
-            "constraint modes analysis",
-            "Constraint Modes analysis is not ported",
-        ),
         ("adaptive mesh refinement", "mesh refinement is not ported"),
         (
             "calculate elemental fields",
@@ -184,14 +176,6 @@ fn check_supported(ctx: &SolverCtx<'_>) -> Result<(), SolverError> {
                 "needs NormalVector(Element, Nodes, u, v, check orientation), which the element basis lacks",
             ));
         }
-        for key in ["capacitance body", "constraint mode potential"] {
-            if bc.get(key).is_some() {
-                return Err(unsupported(
-                    format!("Boundary Condition keyword \"{key}\""),
-                    "Constraint Modes analysis is not ported",
-                ));
-            }
-        }
     }
     Ok(())
 }
@@ -208,6 +192,16 @@ impl Solver for StatElecSolver {
     /// `Time Derivative Order = 0`. The framework has no hook ahead of
     /// variable creation, so the variable and the time order are settled here.
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
+        // StatElecSolve.F90:211: `Calculate Capacitance Matrix` is the
+        // library's constraint-mode lumping (`Capacitance Body`).
+        if ctx.params().logical("calculate capacitance matrix") == Some(true) {
+            ctx.info(
+                "StatElecSolver_init",
+                "Using Constraint Modes functionality for Capacitance Matrix",
+                4,
+            );
+            elmer_solver::constraint_modes_lumping(ctx, &elmer_solver::CAPACITANCE);
+        }
         check_supported(ctx)?;
         axisymmetric(ctx)?;
         let dim = ctx.mesh.dim();

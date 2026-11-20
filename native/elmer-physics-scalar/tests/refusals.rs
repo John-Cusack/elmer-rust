@@ -83,26 +83,12 @@ fn statelec_refusals() {
     refused(
         model(
             ELSTAT,
-            &[("Calculate Capacitance Matrix", t.clone())],
-            &mat,
-            &[],
-            1,
-        ),
-        "capacitance",
-    );
-    refused(
-        model(
-            ELSTAT,
             &[("Calculate Elemental Fields", t.clone())],
             &mat,
             &[],
             1,
         ),
         "elemental",
-    );
-    refused(
-        model(ELSTAT, &[], &mat, &[("Capacitance Body", ints(&[1]))], 1),
-        "capacitance body",
     );
     refused(model(ELSTAT, &[], &mat, &[], 2), "Variable DOFs");
 }

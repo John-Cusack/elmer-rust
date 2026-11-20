@@ -656,12 +656,7 @@ impl Solver for HeatSolver {
         // HeatSolver_init (HeatSolve.F90:201): `Calculate Conductance
         // Matrix` is the library's constraint-mode lumping, with the
         // `Conductivity Body` of the BCs as the modes.
-        elmer_solver::constraint_modes_lumping(
-            ctx,
-            "calculate conductance matrix",
-            "ThermalConductanceMatrix.dat",
-            "Constraint Mode Temperature",
-        );
+        elmer_solver::constraint_modes_lumping(ctx, &elmer_solver::CONDUCTANCE);
         axisymmetric(ctx)?;
         let elems: Vec<ElemId> = ctx.active_elements().collect();
         let mut bodies: Vec<usize> = Vec::new();
