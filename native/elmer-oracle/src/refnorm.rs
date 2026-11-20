@@ -363,10 +363,12 @@ pub fn run_prefixes(text: &str) -> Vec<String> {
 pub fn primary_mesh(text: &str) -> Option<String> {
     text.lines().find_map(|l| {
         let c = strip_sif_comment(l);
-        let rest = c.split("::").last().unwrap_or("");
-        (keyword_of(rest).as_deref() == Some("mesh db"))
-            .then(|| rest.split('"').nth(3).map(|m| m.trim().to_lowercase()))
-            .flatten()
+        // `Mesh DB "dir" "name"` carries no `=`; the name is its second
+        // (quoted or bare) argument.
+        let tail = c.split("::").last()?.trim().to_lowercase().strip_prefix("mesh db")?.to_string();
+        let quoted: Vec<&str> = tail.split('"').skip(1).step_by(2).collect();
+        let name = if quoted.len() >= 2 { quoted[1].to_string() } else { tail.split_whitespace().nth(1)?.to_string() };
+        Some(name.trim().to_string())
     })
 }
 

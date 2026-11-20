@@ -593,12 +593,20 @@ fn refnorm_one(
             None => run_plan(arm, &spec, &plan, &src, run_dir, staging),
         };
         let mut result = go(&staging);
-        if result.as_ref().is_ok_and(|o| !o.passed) {
-            let missing = missing_output_dirs(run_dir);
-            if !missing.is_empty() && std::fs::remove_dir_all(run_dir).is_ok() {
-                staging.mkdirs = missing;
-                result = go(&staging);
+        // As `capture` does: each adaptive refinement needs its own
+        // `RefinedMesh<N>/` before Elmer can write into it, so rerun until no
+        // new output directory is missing.
+        for _ in 0..16 {
+            if !result.as_ref().is_ok_and(|o| !o.passed) {
+                break;
             }
+            let missing: Vec<String> =
+                missing_output_dirs(run_dir).into_iter().filter(|d| !staging.mkdirs.contains(d)).collect();
+            if missing.is_empty() || std::fs::remove_dir_all(run_dir).is_err() {
+                break;
+            }
+            staging.mkdirs.extend(missing);
+            result = go(&staging);
         }
         result
     };
