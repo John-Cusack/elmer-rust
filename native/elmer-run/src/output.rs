@@ -267,6 +267,18 @@ impl VtuSolver {
     }
 }
 
+/// The kind of the variable a saved field name stands for (`name` or
+/// `name 1`): the variable itself or, for a component name such as
+/// `magnetic flux density re e 1`, the variable it belongs to.
+fn saved_kind(store: &elmer_solver::VariableStore, name: &str) -> Option<FieldKind> {
+    let h = store.resolve(name).or_else(|| store.resolve(&format!("{name} 1")))?;
+    let id = match h {
+        elmer_solver::VarHandle::Primary(id) => id,
+        elmer_solver::VarHandle::Component { parent, .. } => parent,
+    };
+    Some(store.by_id(id).kind)
+}
+
 /// VtuOutputSolver.F90:312-330 for `Discontinuous Galerkin` / `Discontinuous
 /// Bodies`: without a DG or integration-point field among the saved names
 /// (`CheckAnyDGField`, exact names or `name 1`) nothing changes; otherwise
@@ -280,9 +292,11 @@ fn prepare_discontinuous(ctx: &mut SolverCtx<'_>, opts: &mut VtuOptions) -> Resu
         // (VtuOutputSolver.F90:1443-1447, 1629-1655): the writer needs the
         // mesh's DG indexes.
         let store = &ctx.sim.vars;
-        let dg_field = opts.scalar_fields.iter().chain(&opts.vector_fields).any(|name| {
-            store.get(name).or_else(|| store.get(&format!("{name} 1"))).is_some_and(|v| v.kind == FieldKind::Dg)
-        });
+        let dg_field = opts
+            .scalar_fields
+            .iter()
+            .chain(&opts.vector_fields)
+            .any(|name| saved_kind(store, name) == Some(FieldKind::Dg));
         if dg_field {
             let index = ctx.sim.ensure_dg_indexes(ctx.mesh).index.clone();
             opts.dg_layout = Some(Arc::new(elmer_vtu::DgLayout { index }));
@@ -290,12 +304,11 @@ fn prepare_discontinuous(ctx: &mut SolverCtx<'_>, opts: &mut VtuOptions) -> Resu
         return Ok(());
     }
     let store = &ctx.sim.vars;
-    let any = opts.scalar_fields.iter().chain(&opts.vector_fields).any(|name| {
-        store
-            .get(name)
-            .or_else(|| store.get(&format!("{name} 1")))
-            .is_some_and(|v| matches!(v.kind, FieldKind::Dg | FieldKind::Ip))
-    });
+    let any = opts
+        .scalar_fields
+        .iter()
+        .chain(&opts.vector_fields)
+        .any(|name| matches!(saved_kind(store, name), Some(FieldKind::Dg | FieldKind::Ip)));
     if !any {
         ctx.info("VtuOutputSolver", "No DG or IP fields, omitting discontinuity creation!", 6);
         opts.discontinuous_galerkin = false;

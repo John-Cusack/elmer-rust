@@ -108,7 +108,11 @@ fn harmonic_solver_through_the_simulation() {
 
 #[test]
 fn calc_fields_through_the_simulation() {
-    let (norm, n, passed) = run_n("mgdyn_airgap", "airgap.sif", 2, |_| {});
+    // The section edits of MagnetoDynamicsCalcFields_Init0/_Init, as
+    // elmer-run makes them.
+    let (norm, n, passed) = run_n("mgdyn_airgap", "airgap.sif", 2, |m| {
+        elmer_physics_magneto::calcfields2d::init_section(m, 1, 3);
+    });
     // hr_dummy over the 265 nodes holds Magnetic Field Strength 3.
     assert_eq!(n, 265);
     let reference = 3.06334400e3;
