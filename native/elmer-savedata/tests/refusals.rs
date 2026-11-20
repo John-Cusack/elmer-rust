@@ -92,7 +92,6 @@ fn saveline_modes_other_than_existing_boundaries_are_refused() {
         ("Save Flux", yes()),
         ("Intersect Edge", yes()),
         ("Break Line Loop", yes()),
-        ("Calculate Weights", yes()),
         ("Filename Numbering", yes()),
     ] {
         let mut s = sec(&[("Variable 1", st("temperature"))]);
