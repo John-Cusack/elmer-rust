@@ -6,8 +6,9 @@
 //! the sum of the six sizes Elmer reports (mesh nodes and elements, temporal
 //! elements and edges, isoline nodes and elements).
 //!
-//! What the isoline mesh is used for in Elmer is not produced here and is
-//! refused: `Save Gmsh Geo File`, `Save STL File`, `Isosurface Interpolant`
+//! `Save Gmsh Geo File` writes the isolines as Gmsh splines
+//! (`SaveGmshGeo2D`). The other uses of the isoline mesh are not produced
+//! here and are refused: `Save STL File`, `Isosurface Interpolant`
 //! fields on an isomesh that a `ResultOutputSolver` writes, 3D meshes
 //! (isosurfaces), `Create Isosurface` masks, `Moving Mesh`, parallel runs.
 
@@ -55,7 +56,7 @@ fn unsupported(what: &str) -> SolverError {
 impl Solver for Isosurface {
     fn init(&mut self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         let p = ctx.params();
-        for k in ["save gmsh geo file", "save stl file", "moving mesh"] {
+        for k in ["save stl file", "moving mesh"] {
             if p.logical(k) == Some(true) {
                 return Err(unsupported(&format!("'{k}'")));
             }
@@ -92,13 +93,16 @@ impl Solver for Isosurface {
                 ctx.info(CALLER, "Remapping the fields", 4);
                 Some(s)
             }
-            _ => {
-                let s = build(ctx, &p)?;
-                if s.is_some() {
-                    self.saved = s;
+            _ => match build(ctx, &p)? {
+                Some((s, iso)) => {
+                    self.saved = Some(s);
+                    if p.logical("save gmsh geo file") == Some(true) {
+                        save_gmsh_geo(ctx, &p, &iso)?;
+                    }
+                    Some(s)
                 }
-                s
-            }
+                None => None,
+            },
         };
         let sizes = sizes.unwrap_or([0; 6]);
         if self.saved.is_some() {
@@ -166,7 +170,7 @@ impl Level<'_> {
 
 /// The isoline construction; `None` where Elmer jumps to `100` before
 /// creating the mesh (missing variable or levels, no 2D elements).
-fn build(ctx: &mut SolverCtx<'_>, p: &ParamMap) -> Result<Option<[i64; 6]>, SolverError> {
+fn build(ctx: &mut SolverCtx<'_>, p: &ParamMap) -> Result<Option<([i64; 6], IsoLines)>, SolverError> {
     let mesh = ctx.mesh;
     let name = p.string("isosurface variable").unwrap_or("").to_string();
     let coords: Vec<f64>;
@@ -280,6 +284,7 @@ fn build(ctx: &mut SolverCtx<'_>, p: &ParamMap) -> Result<Option<[i64; 6]>, Solv
     // CreateNodes: a node on each edge a level crosses; `eperm` marks them.
     let mut eperm = vec![0usize; n_edges];
     let mut n_iso_nodes = 0usize;
+    let mut iso = IsoLines::default();
     for &lv in &levels {
         for (i, &(n1, n2)) in edges.iter().enumerate() {
             let (Some(m1), Some(m2)) = (level.slot(n1), level.slot(n2)) else { continue };
@@ -293,6 +298,10 @@ fn build(ctx: &mut SolverCtx<'_>, p: &ParamMap) -> Result<Option<[i64; 6]>, Solv
             }
             n_iso_nodes += 1;
             eperm[i] = n_iso_nodes;
+            // `t = ABS(t1/(t2-t1))`, the node at `(1-t) x1 + t x2`.
+            let t = (t1 / (t2 - t1)).abs();
+            let (x1, x2) = (mesh.coord(n1), mesh.coord(n2));
+            iso.nodes.push(std::array::from_fn(|a| (1.0 - t) * x1[a] + t * x2[a]));
         }
     }
 
@@ -328,16 +337,170 @@ fn build(ctx: &mut SolverCtx<'_>, p: &ParamMap) -> Result<Option<[i64; 6]>, Solv
                 };
                 if line.iter().all(|&j| j > 0) {
                     n_surf += 1;
+                    iso.lines.push(line);
                 }
             }
         }
     }
-    Ok(Some([
-        mesh.n_nodes() as i64,
-        n_bulk as i64,
-        n_new as i64,
-        n_edges as i64,
-        n_iso_nodes as i64,
-        n_surf as i64,
-    ]))
+    Ok(Some((
+        [
+            mesh.n_nodes() as i64,
+            n_bulk as i64,
+            n_new as i64,
+            n_edges as i64,
+            n_iso_nodes as i64,
+            n_surf as i64,
+        ],
+        iso,
+    )))
+}
+
+/// The isoline mesh: its nodes and its line elements (1-based nodes).
+#[derive(Default)]
+struct IsoLines {
+    nodes: Vec<[f64; 3]>,
+    lines: Vec<[usize; 2]>,
+}
+
+/// gfortran's `ESw.d`.
+fn es(x: f64, w: usize, d: usize) -> String {
+    elmer_solver::fortran_fmt::es(x, w, d)
+}
+
+/// `SaveGmshGeo2D` (Isosurface.F90:1853): the closed isoline loops as Gmsh
+/// splines, the longest loop first, each with its `Line Loop` and `Plane
+/// Surface`. Nothing is written for an open curve.
+fn save_gmsh_geo(ctx: &mut SolverCtx<'_>, p: &ParamMap, iso: &IsoLines) -> Result<(), SolverError> {
+    let n = iso.nodes.len();
+    if n == 0 {
+        return Ok(());
+    }
+    let filename = p.string("geo filename").unwrap_or("mesh.geo").to_string();
+    // Neighbours(:,1:2), 1-based, 0 for none.
+    let mut nb = vec![[0usize; 2]; n + 1];
+    for &[i1, i2] in &iso.lines {
+        if i1 == 0 || i2 == 0 {
+            ctx.log.warn("SaveGmshGeo2D", &format!("Invalid indexes: {i1} and {i2}"));
+        }
+        if nb[i1][0] == 0 { nb[i1][0] = i2 } else { nb[i1][1] = i2 }
+        if nb[i2][0] == 0 { nb[i2][0] = i1 } else { nb[i2][1] = i1 }
+    }
+    if nb[1..].iter().any(|b| b[1] == 0) {
+        ctx.log.warn("SaveGmshGeo2D", "This does not seem to be a closed loop!");
+        return Ok(());
+    }
+    let span = |a: usize| {
+        let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+        for c in &iso.nodes {
+            lo = lo.min(c[a]);
+            hi = hi.max(c[a]);
+        }
+        hi - lo
+    };
+    let (dx, dy, dz) = (span(0), span(1), span(2));
+    let diam = dx.max(dy.max(dz));
+    let mesh_param = ctx.creal(p, "mesh parameter")?.unwrap_or(diam / 50.0);
+    let node_eps = ctx.creal(p, "mesh node epsilon")?.unwrap_or(1.0e-3 * diam);
+    const MAX_LOOPS: usize = 20;
+    let mut used = vec![false; n + 1];
+    let mut order = vec![0usize; n + 1];
+    let (mut offset, mut size) = (vec![0i64; MAX_LOOPS + 1], vec![0i64; MAX_LOOPS + 1]);
+    let (mut j, mut used_nodes, mut no_loop, mut new_loop) = (1usize, 0usize, 1usize, true);
+    let mut prev = [0.0f64; 3];
+    for _ in 0..n {
+        used[j] = true;
+        let c = iso.nodes[j - 1];
+        let mut save = true;
+        if !new_loop {
+            let mut dist = 0.0;
+            for a in 0..3 {
+                dist += (c[a] - prev[a]) * (c[a] - prev[a]);
+            }
+            if dist < node_eps * node_eps {
+                save = false;
+            }
+        }
+        if save {
+            size[no_loop] += 1;
+            used_nodes += 1;
+            order[used_nodes] = j;
+            prev = c;
+        }
+        new_loop = false;
+        if !used[nb[j][0]] {
+            j = nb[j][0];
+        } else if !used[nb[j][1]] {
+            j = nb[j][1];
+        } else {
+            match (1..=n).find(|&k| !used[k]) {
+                Some(k) => {
+                    j = k;
+                    if no_loop == MAX_LOOPS {
+                        ctx.log.warn(CALLER, &format!("The static max number of loops ({MAX_LOOPS}) is too small, ignoring the rest!"));
+                        break;
+                    }
+                    no_loop += 1;
+                    new_loop = true;
+                    offset[no_loop] = used_nodes as i64;
+                }
+                None => break,
+            }
+        }
+    }
+    ctx.info(CALLER, if used_nodes == n { "All nodes used".to_string() } else { format!("{used_nodes} nodes used") }.as_str(), 4);
+    ctx.info("IsoSurfaceSolver", &format!("Number of loops found: {no_loop}"), 4);
+    let save_loops = p.integer("save number of loops").map_or(no_loop, |k| (k.max(0) as usize).min(no_loop));
+    let largest = |size: &[i64]| {
+        let (mut j, mut m) = (0usize, 0i64);
+        for (k, &s) in size.iter().enumerate().take(no_loop + 1).skip(1) {
+            if s > m {
+                j = k;
+                m = s;
+            }
+        }
+        j
+    };
+    let mut out = String::new();
+    let mut node_index = 0usize;
+    for _ in 0..save_loops {
+        let j = largest(&size);
+        for i in 1..=size[j] as usize {
+            node_index += 1;
+            let k = order[offset[j] as usize + i];
+            let c = iso.nodes[k - 1];
+            out.push_str(&format!(
+                "Point({node_index}) = {{{},{},{},{}}};\n",
+                es(c[0], 12, 4),
+                es(c[1], 12, 4),
+                es(c[2], 12, 4),
+                es(mesh_param, 12, 4)
+            ));
+        }
+        size[j] = -size[j];
+    }
+    for s in size.iter_mut() {
+        *s = s.abs();
+    }
+    node_index = 0;
+    for l in 1..=save_loops {
+        let j = largest(&size);
+        out.push_str(&format!("Spline({l}) = {{"));
+        for i in 1..=size[j] as usize {
+            out.push_str(&format!("{}, ", node_index + i));
+        }
+        out.push_str(&format!("{}}};\n", node_index + 1));
+        node_index += size[j] as usize;
+        size[j] = -size[j];
+    }
+    for j in 1..=save_loops {
+        let k = save_loops + 2 * (j - 1);
+        out.push_str(&format!("Line Loop({}) = {{{j}}};\n", k + 1));
+        out.push_str(&format!("Plane Surface({}) = {{{}}};\n", k + 2, k + 1));
+    }
+    if let Err(e) = std::fs::write(&filename, out) {
+        ctx.log.warn("SaveGmshGeo2D", &format!("Could not open file: {filename}: {e}"));
+        return Ok(());
+    }
+    ctx.info(CALLER, &format!("Wrote geo file: {filename}"), 6);
+    Ok(())
 }
