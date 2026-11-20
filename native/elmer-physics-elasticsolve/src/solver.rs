@@ -146,6 +146,9 @@ struct Model {
     linear_model: bool,
     /// `Incompressible`: the linear mixed formulation (`LinearIncompressible`).
     incompressible: bool,
+    /// `Mixed Formulation` of the neo-Hookean material (`:705`): the
+    /// pressure an unknown, last at each node.
+    mixed: bool,
 }
 
 fn model_of(p: &ParamMap) -> Model {
@@ -154,6 +157,7 @@ fn model_of(p: &ParamMap) -> Model {
         neo_hookean: flag(Some(p), "neo-hookean material"),
         linear_model: flag(Some(p), "elasticity solver linear"),
         incompressible: flag(Some(p), "incompressible"),
+        mixed: flag(Some(p), "neo-hookean material") && flag(Some(p), "mixed formulation"),
     }
 }
 
@@ -171,7 +175,6 @@ fn maxwell_here(ctx: &SolverCtx<'_>, mat: &ParamMap) -> bool {
 /// Model-wide refusals, from the solver section.
 fn check_solver_params(p: &ParamMap) -> Result<(), SolverError> {
     for (key, what) in [
-        ("mixed formulation", "mixed (pressure) formulation"),
         ("harmonic analysis", "harmonic analysis"),
         ("harmonic mode", "harmonic analysis"),
         ("local matrix storage", "local matrix storage"),
@@ -839,7 +842,7 @@ impl ElasticSolver {
                     .map(|&n| disp_perm.get(n as usize).copied().filter(|&s| s != elmer_core::NO_DOF).map(|s| s as usize))
                     .collect(),
             };
-            let cd = if model.incompressible { cdim } else { dofs.min(3) };
+            let cd = if model.incompressible || model.mixed { cdim } else { dofs.min(3) };
             let disp: Vec<[f64; 3]> = slots
                 .iter()
                 .map(|s| match s {
@@ -848,7 +851,7 @@ impl ElasticSolver {
                 })
                 .collect();
             // `Pressure = SUM(LocalDisplacement(DOFs,1:n) * Basis(1:n))`.
-            let pressure: Option<Vec<f64>> = model.incompressible.then(|| {
+            let pressure: Option<Vec<f64>> = (model.incompressible || model.mixed).then(|| {
                 slots[..el.nodes.len()].iter().map(|s| s.map_or(0.0, |s| disp_vals[s * dofs + cdim])).collect()
             });
             if pe.is_some() && d.ip.is_some() {
@@ -870,7 +873,8 @@ impl ElasticSolver {
                 np: rel_np(&*fe.quad, el.etype, RelOrders::of(ctx.params()).bulk)?,
                 large_deflection: model.large,
                 neo_hookean: model.neo_hookean,
-                pressure: pressure.as_deref(),
+                pressure: pressure.as_deref().filter(|_| model.incompressible),
+                mixed_pressure: pressure.as_deref().filter(|_| model.mixed),
             };
             let umat_here = ctx.body_params(e).and_then(|b| b.material).is_some_and(|m| m.get("umat subroutine").is_some());
             let loc = if umat_here {
@@ -1004,6 +1008,20 @@ impl ElasticSolver {
     }
 }
 
+/// The leading `m x m` block of a local system (`UpdateGlobalEquations`
+/// over the element's `nd` global dofs).
+fn leading_block(l: &LocalSystem, m: usize) -> LocalSystem {
+    let n = l.n;
+    let block = |a: &[f64]| -> Vec<f64> { (0..m).flat_map(|i| a[i * n..i * n + m].iter().copied()).collect() };
+    LocalSystem {
+        n: m,
+        stiff: block(&l.stiff),
+        mass: l.mass.as_deref().map(block),
+        damp: l.damp.as_deref().map(block),
+        force: l.force[..m].to_vec(),
+    }
+}
+
 /// The displacement at the nodes of an element, `cdim` components.
 fn local_displacement(f: &FieldRef<'_>, nodes: &[u32], cdim: usize) -> Vec<[f64; 3]> {
     nodes
@@ -1043,6 +1061,11 @@ impl Solver for ElasticSolver {
                 ctx.sim.slots[ix]
                     .params
                     .insert("Element Integration Points", Value::Str("-tri 7 -tetra 24 -prism 85".into()));
+            }
+        } else if model.mixed {
+            // ElasticSolve.F90:707.
+            if dofs != Some(dim + 1) {
+                return Err(fatal("Mixed formulation needs one more variable DOF than there are dimensions"));
             }
         } else if dofs != Some(dim) {
             return Err(fatal(format!("'Variable DOFs' must equal the coordinate dimension {dim}, got {dofs:?}")));
@@ -1346,8 +1369,8 @@ impl Solver for ElasticSolver {
                         .collect(),
                     None => local_displacement(&field, el.nodes, cdim),
                 };
-                if pe.is_some() && (model.neo_hookean || d.ip.is_some()) {
-                    return Err(unsupported("p elements with the neo-Hookean material or properties at integration points"));
+                if pe.is_some() && d.ip.is_some() {
+                    return Err(unsupported("p elements with properties at integration points"));
                 }
                 let fe = self.fe();
                 let mut local = LocalSystem::zeros(0);
@@ -1355,6 +1378,31 @@ impl Solver for ElasticSolver {
                     let ElasticLaw::Isotropic { young, poisson } = &d.law else {
                         return Err(fatal("the neo-Hookean material needs an isotropic law"));
                     };
+                    // ElasticSolve.F90:2020-2023: ntot = nd + nb, the bubbles a
+                    // p element keeps out of the global system; their
+                    // displacement is zero.
+                    let nd = disp.len();
+                    let nb = ctx.solver_dofs().map_or(0, |dd| dd.local_bubbles(e));
+                    let mut disp_tot = disp.clone();
+                    disp_tot.resize(nd + nb, [0.0; 3]);
+                    // `LocalDisplacement(DOFs, 1:n)`: the pressure unknown.
+                    let mixed_p: Option<Vec<f64>> = model.mixed.then(|| {
+                        let w = field.dofs;
+                        match &pe {
+                            Some((slots, _, _)) => slots[..el.nodes.len()]
+                                .iter()
+                                .map(|&s| if s == elmer_core::NO_DOF || model.linear_model { 0.0 } else { field.values[s as usize * w + cdim] })
+                                .collect(),
+                            None => el
+                                .nodes
+                                .iter()
+                                .map(|&nn| match field.perm.and_then(|p| p.get(nn as usize)) {
+                                    Some(&s) if s != elmer_core::NO_DOF && !model.linear_model => field.values[s as usize * w + cdim],
+                                    _ => 0.0,
+                                })
+                                .collect(),
+                        }
+                    });
                     let inp = NeoHookeInput {
                         etype: el.etype,
                         xyz: &xyz,
@@ -1363,15 +1411,31 @@ impl Solver for ElasticSolver {
                         plane_stress,
                         young,
                         poisson,
-                        disp: &disp,
+                        disp: &disp_tot,
                         density: &d.density,
                         damping: d.damping.as_deref(),
                         load: &d.load,
                         inertial: d.inertial.as_deref(),
                         want_mass: transient || eigen,
-                        np: rel_np(&*fe.quad, el.etype, RelOrders::of(ctx.params()).bulk)?,
+                        ntot: nd + nb,
+                        mixed: mixed_p.as_deref(),
                     };
-                    neo_hookean_local(&*fe.basis, &*fe.quad, &inp, &mut local).map_err(|x| fatal(x.to_string()))?;
+                    // `ElasticGaussPoints`.
+                    let np = rel_np(&*fe.quad, el.etype, RelOrders::of(ctx.params()).bulk)?;
+                    let points = match &pe {
+                        Some(_) if np.is_some() => return Err(unsupported("a relative integration order on p elements")),
+                        Some((_, _, rule)) => rule.clone(),
+                        None => fe.quad.gauss_points(el.etype, np),
+                    };
+                    let basis: &dyn elmer_core::ElementBasis = match &pe {
+                        Some((_, b, _)) => &**b,
+                        None => &*fe.basis,
+                    };
+                    neo_hookean_local(basis, &points, &inp, &mut local).map_err(|x| fatal(x.to_string()))?;
+                    // DefaultUpdateEquations assembles the leading nd dofs.
+                    if nb > 0 {
+                        local = leading_block(&local, nd * field.dofs);
+                    }
                 } else {
                     // `ElasticGaussPoints`: an `Element Integration Points` count
                     // for the family first, else the relative order.

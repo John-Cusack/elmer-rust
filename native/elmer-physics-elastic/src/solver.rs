@@ -657,6 +657,7 @@ impl StressSolver {
                 large_deflection: false,
                 neo_hookean: false,
                 pressure: None,
+                mixed_pressure: None,
             };
             let loc = match &pe {
                 Some(p) => post::stress_strain_local_p(&*p.basis, &p.rule, p.nd, &inp),

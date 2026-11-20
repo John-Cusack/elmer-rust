@@ -169,6 +169,21 @@ fn legacy_solvers(model: &mut Model, coords: CoordinateSystem) {
             params.insert("Variable", Value::Str("Displacement".into()));
             params.insert("Variable Dofs", Value::Integer(vec![cdim as i32]));
         }
+        // ElasticSolver_Init0 / ElasticSolver_Init (ElasticSolve.F90:56-60,
+        // 101-115): the neo-Hookean mixed formulation defaults to `p:2`
+        // elements and the variable `MixedSol[Disp:dim Pres:1]`.
+        let elastic_only = procedure_of(params).is_some_and(|(lib, entry)| {
+            lib.eq_ignore_ascii_case("elasticsolve") && entry.eq_ignore_ascii_case("elasticsolver")
+        });
+        if elastic_only && mixed {
+            if params.get("element").is_none() {
+                params.insert("Element", Value::Str("p:2".into()));
+            }
+            if params.get("variable").is_none() {
+                params.insert("Variable", Value::Str(format!("MixedSol[Disp:{cdim} Pres:1]")));
+                params.insert("Variable Dofs", Value::Integer(vec![cdim as i32 + 1]));
+            }
+        }
         // ElasticSolve.F90:180: `ListAddNewLogical('Bubbles in Global
         // System', .TRUE.)`, which also sizes a nodal instance's permutation
         // for the mesh's bubbles (AddEquationBasics).

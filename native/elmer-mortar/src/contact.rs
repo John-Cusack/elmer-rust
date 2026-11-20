@@ -16,7 +16,7 @@
 //! Ported: Cartesian and normal-tangential slip and tie contact, also in
 //! residual mode, on a flat or plane projector of nodal dofs. Refused: stick
 //! and friction, velocities, the rotational and normal projectors,
-//! p-elements, conservative and conditional active sets, linear gaps and
+//! p-elements with dofs beyond the nodes, conservative and conditional active sets, linear gaps and
 //! loads, Lagrange-multiplier based contact, dual projectors.
 
 use std::collections::HashMap;
@@ -312,8 +312,14 @@ impl elmer_solver::ContactBackend for MortarContact {
 
     fn initialize(&self, ctx: &mut SolverCtx<'_>) -> Result<(), SolverError> {
         check_solver(ctx.params(), ctx.simulation_params())?;
+        // The projectors act on the nodal dofs: a p element's global dofs
+        // must all be its nodes' (bubbles condensed or dropped, p = 1).
         if ctx.solver_dofs().is_some() {
-            return Err(unsupported("contact on p-elements"));
+            let nn = ctx.mesh.n_nodes();
+            let f = ctx.primary().ok_or_else(|| fatal("solver has no variable"))?;
+            if f.perm.is_some_and(|p| p.iter().skip(nn).any(|&s| s != NO_DOF)) {
+                return Err(unsupported("contact on p-elements with dofs beyond the nodes"));
+            }
         }
         let name = ctx.variable_name().ok_or_else(|| fatal("solver has no variable"))?.to_string();
         // `<var> Contact Load` (MainUtils.F90:2437-2466): the solver
