@@ -1,0 +1,6 @@
+case	mode	scale	workers	dofs	runs	median_wall_s	median_elmer_real_s	median_max_rss_kb
+eigen3d	omp	full	8	89373	5	168.560	168.530	299448
+elast3d	omp	full	8	680943	5	64.350	64.250	1320224
+heat3d	omp	full	8	1030301	5	14.600	14.540	1324816
+ns2d	omp	full	8	271803	5	53.110	53.080	342468
+poisson2d	omp	full	8	4004001	5	129.100	128.980	3201892

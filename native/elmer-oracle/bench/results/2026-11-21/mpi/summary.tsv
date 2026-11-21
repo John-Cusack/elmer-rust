@@ -1,0 +1,6 @@
+case	mode	scale	workers	dofs	runs	median_wall_s	median_elmer_real_s	median_max_rss_kb
+eigen3d	mpi	full	8	89373	5	1003.223	1003.080	799344
+elast3d	mpi	full	8	680943	5	99.038	98.810	2680056
+heat3d	mpi	full	8	1030301	5	30.276	30.080	2218868
+ns2d	mpi	full	8	271803	5	252.604	252.440	764208
+poisson2d	mpi	full	8	4004001	5	272.426	272.160	4824468

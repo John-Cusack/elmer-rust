@@ -1,0 +1,42 @@
+! S0 benchmark (report 4.5): steady 3-D heat on a unit box, one dof per node.
+Header
+  Mesh DB "." "mesh"
+End
+Simulation
+  Max Output Level = 4
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 0
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Heat Conductivity = 1.0
+  Density = 1.0
+End
+Body Force 1
+  Heat Source = 1.0
+End
+Solver 1
+  Equation = Heat Equation
+  Procedure = "HeatSolve" "HeatSolver"
+  Variable = Temperature
+  Linear System Solver = Iterative
+  Linear System Iterative Method = CG
+  Linear System Preconditioning = ILU0
+  Linear System Max Iterations = 10000
+  Linear System Convergence Tolerance = 1.0e-8
+  Nonlinear System Max Iterations = 1
+  Steady State Convergence Tolerance = 1.0e-6
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Temperature = 0.0
+End

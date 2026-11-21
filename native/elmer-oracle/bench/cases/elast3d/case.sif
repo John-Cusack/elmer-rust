@@ -1,0 +1,47 @@
+! S0 benchmark (report 4.5): linear 3-D elasticity of a unit box under its
+! own weight, clamped on one side; three dofs per node.
+Header
+  Mesh DB "." "mesh"
+End
+Simulation
+  Max Output Level = 4
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 0
+End
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Youngs Modulus = 1.0e3
+  Poisson Ratio = 0.3
+  Density = 1.0
+End
+Body Force 1
+  Stress Bodyforce 3 = -1.0
+End
+Solver 1
+  Equation = Linear Elasticity
+  Procedure = "StressSolve" "StressSolver"
+  Variable = -dofs 3 Displacement
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStabL
+  BiCGStabL Polynomial Degree = 4
+  Linear System Preconditioning = ILU0
+  Linear System Max Iterations = 20000
+  Linear System Convergence Tolerance = 1.0e-8
+  Nonlinear System Max Iterations = 1
+  Steady State Convergence Tolerance = 1.0e-6
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Displacement 1 = 0.0
+  Displacement 2 = 0.0
+  Displacement 3 = 0.0
+End
