@@ -1,0 +1,44 @@
+! S0 benchmark (report 4.5): the 10 lowest eigenmodes of a unit box clamped
+! on one side (StressSolve eigen analysis, ARPACK).
+Header
+  Mesh DB "." "mesh"
+End
+Simulation
+  Max Output Level = 4
+  Coordinate System = Cartesian
+  Simulation Type = Steady State
+  Steady State Max Iterations = 1
+  Output Intervals = 0
+End
+Body 1
+  Equation = 1
+  Material = 1
+End
+Equation 1
+  Active Solvers(1) = 1
+End
+Material 1
+  Youngs Modulus = 1.0e3
+  Poisson Ratio = 0.3
+  Density = 1.0
+End
+Solver 1
+  Equation = Linear Elasticity
+  Procedure = "StressSolve" "StressSolver"
+  Variable = -dofs 3 Displacement
+  Eigen Analysis = True
+  Eigen System Values = 10
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStabL
+  BiCGStabL Polynomial Degree = 4
+  Linear System Preconditioning = ILU0
+  Linear System Max Iterations = 20000
+  Linear System Convergence Tolerance = 1.0e-10
+  Nonlinear System Max Iterations = 1
+End
+Boundary Condition 1
+  Target Boundaries(1) = 1
+  Displacement 1 = 0.0
+  Displacement 2 = 0.0
+  Displacement 3 = 0.0
+End
